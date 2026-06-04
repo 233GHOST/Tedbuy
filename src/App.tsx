@@ -9,6 +9,8 @@ import { SellerProfilePage } from './components/SellerProfilePage';
 import { ListingModal } from './components/ListingModal';
 import { Category } from './types';
 import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin } from 'lucide-react';
+import { GhanaLocationFilter } from './components/GhanaLocationFilter';
+import { getRegionForLocation } from './regions';
 
 const CATEGORY_ICONS: { [key in Category]: string } = {
   Phones: '📱',
@@ -33,7 +35,11 @@ const MarketplaceContent: React.FC = () => {
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
 
-  // Filter listings based on category AND searched query
+  // Ghana Region & City filter states
+  const [selectedRegion, setSelectedRegion] = useState<string>('All');
+  const [selectedCity, setSelectedCity] = useState<string>('All');
+
+  // Filter listings based on category, search query, region, and city
   const filteredProducts = products.filter(product => {
     const matchesCategory = !selectedCategory || product.category === selectedCategory;
     const matchesSearch = !searchQuery.trim() ||
@@ -42,7 +48,20 @@ const MarketplaceContent: React.FC = () => {
       product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.location.toLowerCase().includes(searchQuery.toLowerCase());
 
-    return matchesCategory && matchesSearch;
+    // Region verification
+    let matchesRegion = true;
+    if (selectedRegion !== 'All') {
+      const prodRegion = getRegionForLocation(product.location);
+      matchesRegion = (prodRegion === selectedRegion);
+    }
+
+    // City verification
+    let matchesCity = true;
+    if (selectedCity !== 'All') {
+      matchesCity = product.location.toLowerCase().includes(selectedCity.toLowerCase());
+    }
+
+    return matchesCategory && matchesSearch && matchesRegion && matchesCity;
   });
 
   const handlePostAdBtn = () => {
@@ -139,51 +158,69 @@ const MarketplaceContent: React.FC = () => {
                   );
                 })}
               </div>
-            </section>
-
-            {/* Product listings layout */}
-            <section className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-4 text-left">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900 font-sans tracking-tight">
-                    {searchQuery.trim()
-                      ? `Search Results for &ldquo;${searchQuery}&rdquo;`
-                      : selectedCategory
-                      ? `${selectedCategory} listings`
-                      : 'Latest Classified Deals'}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Found {filteredProducts.length} listings in the platform database.</p>
-                </div>
-
-                {/* Filters details */}
-                <span className="text-xs text-slate-400 font-mono">GHANA NATIONAL BARGAINS</span>
+               {/* Dual columns grid for classified location Navigator sidebar + products */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+              {/* Left sidebar Location Navigator - span 1 */}
+              <div className="lg:col-span-1 space-y-4">
+                <GhanaLocationFilter
+                  selectedRegion={selectedRegion}
+                  setSelectedRegion={setSelectedRegion}
+                  selectedCity={selectedCity}
+                  setSelectedCity={setSelectedCity}
+                  products={products}
+                />
               </div>
 
-              {filteredProducts.length === 0 ? (
-                <div id="no-products-found" className="bg-white border border-slate-200 rounded-3xl p-16 text-center max-w-lg mx-auto shadow-sm">
-                  <Package className="w-14 h-14 mx-auto stroke-[1.2] text-slate-300 mb-2" />
-                  <h4 className="text-sm font-bold text-slate-800">No postings matching your parameters</h4>
-                  <p className="text-xs text-slate-450 mt-1 mb-5">
-                    No publications were loaded for &ldquo;{searchQuery || selectedCategory}&rdquo;. Try broadening your keywords to location filters or categories.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setSearchQuery('');
-                      setSelectedCategory(null);
-                    }}
-                    className="px-4.5 py-2 bg-slate-900 hover:bg-emerald-600 hover:text-white font-bold text-xs text-white rounded-xl transition shadow-3xs"
-                  >
-                    Reset Marketplace Filter
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-                  {filteredProducts.map(product => (
-                    <ProductCard key={product.id} product={product} />
-                  ))}
-                </div>
-              )}
-            </section>
+              {/* Right main items layout - span 3 */}
+              <div className="lg:col-span-3 space-y-6">
+                <section className="space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-4 text-left">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900 font-sans tracking-tight">
+                        {searchQuery.trim()
+                          ? `Search Results for &ldquo;${searchQuery}&rdquo;`
+                          : selectedCategory
+                          ? `${selectedCategory} listings`
+                          : (selectedRegion !== 'All' || selectedCity !== 'All')
+                          ? `${selectedRegion} Region ${selectedCity !== 'All' ? '- ' + selectedCity : ''} Deals`
+                          : 'Latest Classified Deals'}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">Found {filteredProducts.length} listings in the platform database.</p>
+                    </div>
+
+                    {/* Filters details */}
+                    <span className="text-xs text-slate-400 font-mono">GHANA NATIONAL BARGAINS</span>
+                  </div>
+
+                  {filteredProducts.length === 0 ? (
+                    <div id="no-products-found" className="bg-white border border-slate-200 rounded-3xl p-16 text-center max-w-lg mx-auto shadow-sm">
+                      <Package className="w-14 h-14 mx-auto stroke-[1.2] text-slate-300 mb-2" />
+                      <h4 className="text-sm font-bold text-slate-800">No postings matching your parameters</h4>
+                      <p className="text-xs text-slate-450 mt-1 mb-5">
+                        No publications were loaded for your search, category, or selected Ghana location filter.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSelectedCategory(null);
+                          setSelectedRegion('All');
+                          setSelectedCity('All');
+                        }}
+                        className="px-4.5 py-2 bg-slate-900 hover:bg-emerald-600 hover:text-white font-bold text-xs text-white rounded-xl transition shadow-3xs"
+                      >
+                        Reset All Filters
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6">
+                      {filteredProducts.map(product => (
+                        <ProductCard key={product.id} product={product} />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>           </section>
           </div>
         )}
 

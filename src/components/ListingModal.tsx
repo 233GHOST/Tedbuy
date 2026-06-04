@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Category, Product } from '../types';
 import { X, Image, Upload, AlertCircle, Plus } from 'lucide-react';
+import { GHANA_REGIONS } from '../regions';
 
 interface ListingModalProps {
   isOpen: boolean;
@@ -25,6 +26,19 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Regional state helpers
+  const [adRegion, setAdRegion] = useState('Greater Accra');
+  const [adCity, setAdCity] = useState('Accra');
+  const [adNeighborhood, setAdNeighborhood] = useState('');
+
+  // Synchronize adCity when adRegion changes
+  const activeRegionObj = GHANA_REGIONS.find(r => r.name === adRegion);
+  useEffect(() => {
+    if (activeRegionObj && !activeRegionObj.cities.includes(adCity)) {
+      setAdCity(activeRegionObj.cities[0] || '');
+    }
+  }, [adRegion]);
+
   // Initialize form if editing
   useEffect(() => {
     if (productToEdit) {
@@ -36,6 +50,40 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setImages(productToEdit.images);
       setBrand(productToEdit.brand || '');
       setCondition(productToEdit.condition || 'Used (Good)');
+
+      // Try to back-parse the product's location (e.g. "East Legon, Accra")
+      const locVal = productToEdit.location;
+      let foundRegion = 'Greater Accra';
+      let foundCity = 'Accra';
+      let foundNeighborhood = '';
+
+      // Check which region/city matches
+      for (const reg of GHANA_REGIONS) {
+        let matchedReg = false;
+        if (locVal.toLowerCase().includes(reg.name.toLowerCase())) {
+          foundRegion = reg.name;
+          matchedReg = true;
+        }
+        for (const city of reg.cities) {
+          if (locVal.toLowerCase().includes(city.toLowerCase())) {
+            foundCity = city;
+            foundRegion = reg.name;
+            matchedReg = true;
+            break;
+          }
+        }
+        if (matchedReg) break;
+      }
+
+      // If location is "East Legon, Accra", extract "East Legon" as neighborhood
+      const parts = locVal.split(',');
+      if (parts.length > 1) {
+        foundNeighborhood = parts[0].trim();
+      }
+
+      setAdRegion(foundRegion);
+      setAdCity(foundCity);
+      setAdNeighborhood(foundNeighborhood);
     } else {
       // Clear fields
       setTitle('');
@@ -46,6 +94,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setBrand('');
       setCondition('Used (Good)');
       setImages([]);
+      setAdRegion('Greater Accra');
+      setAdCity('Accra');
+      setAdNeighborhood('');
     }
     setErrorMsg('');
   }, [productToEdit, isOpen]);
@@ -98,7 +149,15 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     if (!price.trim() || isNaN(Number(price)) || Number(price) <= 0) {
       return setErrorMsg('Please enter a valid price greater than 0.');
     }
-    if (!location.trim()) return setErrorMsg('Item location is required (e.g. Accra, West Legon).');
+    
+    // Compile clean location address
+    const compiledLocation = adNeighborhood.trim()
+      ? `${adNeighborhood.trim()}, ${adCity}`
+      : `${adCity}`;
+
+    if (!adCity) {
+      return setErrorMsg('Please select a City/Town in Ghana.');
+    }
     if (!description.trim()) return setErrorMsg('Please write a detailed description of the item.');
     if (images.length === 0) {
       return setErrorMsg('Please upload at least 1 image to describe your product (Max: 5).');
@@ -114,7 +173,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           description,
           price: Number(price),
           category,
-          location,
+          location: compiledLocation,
           brand,
           condition,
           images
@@ -126,7 +185,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           description,
           price: Number(price),
           category,
-          location,
+          location: compiledLocation,
           brand,
           condition,
           images
@@ -231,7 +290,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
               </div>
             </div>
 
-            {/* Price & Location */}
+            {/* Price & Location Selectors */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price (GHS)</label>
@@ -248,14 +307,43 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Location</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Ghana Region</label>
+                <select
+                  id="listing-region"
+                  value={adRegion}
+                  onChange={(e) => setAdRegion(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                >
+                  {GHANA_REGIONS.map(reg => (
+                    <option key={reg.name} value={reg.name}>{reg.name} Region</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">City / Town</label>
+                <select
+                  id="listing-city"
+                  value={adCity}
+                  onChange={(e) => setAdCity(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                >
+                  {activeRegionObj?.cities.map(ct => (
+                    <option key={ct} value={ct}>{ct}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Specific Neighborhood (Optional)</label>
                 <input
                   type="text"
-                  required
-                  id="listing-location"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="e.g. Accra, West Legon"
+                  id="listing-neighborhood"
+                  value={adNeighborhood}
+                  onChange={(e) => setAdNeighborhood(e.target.value)}
+                  placeholder="e.g. Asokwa, North Legon, West Legon"
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>
