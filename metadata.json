@@ -1,0 +1,6 @@
+{
+  "name": "Tedbuy",
+  "description": "A clean, modern peer-to-peer classifieds marketplace like Jiji where buyers can browse listings and chat with sellers, and sellers can manage profiles and list items.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

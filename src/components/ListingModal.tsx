@@ -1,0 +1,347 @@
+import React, { useState, useEffect } from 'react';
+import { useApp } from '../context/AppContext';
+import { Category, Product } from '../types';
+import { X, Image, Upload, AlertCircle, Plus } from 'lucide-react';
+
+interface ListingModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  productToEdit?: Product | null;
+}
+
+const CATEGORIES: Category[] = ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Other'];
+
+export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, productToEdit }) => {
+  const { createProduct, updateProduct, currentUser, setCurrentView } = useApp();
+
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [price, setPrice] = useState('');
+  const [category, setCategory] = useState<Category>('Phones');
+  const [location, setLocation] = useState('');
+  const [brand, setBrand] = useState('');
+  const [condition, setCondition] = useState('Used (Good)');
+  const [images, setImages] = useState<string[]>([]);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Initialize form if editing
+  useEffect(() => {
+    if (productToEdit) {
+      setTitle(productToEdit.title);
+      setDescription(productToEdit.description);
+      setPrice(productToEdit.price.toString());
+      setCategory(productToEdit.category);
+      setLocation(productToEdit.location);
+      setImages(productToEdit.images);
+      setBrand(productToEdit.brand || '');
+      setCondition(productToEdit.condition || 'Used (Good)');
+    } else {
+      // Clear fields
+      setTitle('');
+      setDescription('');
+      setPrice('');
+      setCategory('Phones');
+      setLocation('');
+      setBrand('');
+      setCondition('Used (Good)');
+      setImages([]);
+    }
+    setErrorMsg('');
+  }, [productToEdit, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMsg('');
+    const files = e.target.files;
+    if (!files) return;
+
+    const remainingSpots = 5 - images.length;
+    if (files.length > remainingSpots) {
+      setErrorMsg(`You can only upload up to 5 images. You have ${images.length} uploaded, meaning you can add ${remainingSpots} more.`);
+      return;
+    }
+
+    (Array.from(files) as File[]).forEach(file => {
+      // Basic type validation
+      if (!file.type.startsWith('image/')) {
+        setErrorMsg('Only image files (JPEG, PNG, WEBP) are supported.');
+        return;
+      }
+      
+      // Limit file sizes to around 2MB for storage limits in demo
+      if (file.size > 2 * 1024 * 1024) {
+        setErrorMsg('Some images were skipped because they exceed 2MB in size.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setImages(prev => [...prev, reader.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeImage = (indexToRemove: number) => {
+    setImages(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+
+    if (!title.trim()) return setErrorMsg('Product title is required.');
+    if (!price.trim() || isNaN(Number(price)) || Number(price) <= 0) {
+      return setErrorMsg('Please enter a valid price greater than 0.');
+    }
+    if (!location.trim()) return setErrorMsg('Item location is required (e.g. Accra, West Legon).');
+    if (!description.trim()) return setErrorMsg('Please write a detailed description of the item.');
+    if (images.length === 0) {
+      return setErrorMsg('Please upload at least 1 image to describe your product (Max: 5).');
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      if (productToEdit) {
+        // Edit flow
+        updateProduct(productToEdit.id, {
+          title,
+          description,
+          price: Number(price),
+          category,
+          location,
+          brand,
+          condition,
+          images
+        });
+      } else {
+        // Create flow
+        createProduct({
+          title,
+          description,
+          price: Number(price),
+          category,
+          location,
+          brand,
+          condition,
+          images
+        });
+      }
+
+      onClose();
+      // Redirect to listing dashboard
+      setCurrentView('my-dashboard');
+    } catch (e: any) {
+      setErrorMsg('Something went wrong. High-resolution photos might be hitting storage limits. Try a smaller size.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-white rounded-3xl border border-slate-100 max-w-2xl w-full shadow-2xl relative flex flex-col max-h-[92vh] text-left">
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-3xl">
+          <h2 className="text-lg font-bold text-slate-950 font-sans tracking-tight">
+            {productToEdit ? 'Edit Live Advertisement' : 'Post Free Ad on Tedbuy'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-slate-200 rounded-xl transition text-slate-500 hover:text-slate-900"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content body */}
+        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {errorMsg && (
+            <div className="bg-red-50 text-red-700 p-4 rounded-xl text-xs flex items-start gap-2 border border-red-100">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <form id="listing-creation-form" onSubmit={handleSubmit} className="space-y-4">
+            {/* Title & Category */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Product Title</label>
+                <input
+                  type="text"
+                  required
+                  id="listing-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. iPhone 14 Pro 128GB"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Category</label>
+                <select
+                  id="listing-category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as Category)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                >
+                  {CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Brand & Condition */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Brand / Manufacturer</label>
+                <input
+                  type="text"
+                  id="listing-brand"
+                  value={brand}
+                  onChange={(e) => setBrand(e.target.value)}
+                  placeholder="e.g. Apple, Nike, Samsung, Toyota (optional)"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Item Condition</label>
+                <select
+                  id="listing-condition"
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="Brand New">Brand New (Unopened box)</option>
+                  <option value="Refurbished">Refurbished (Certified / Renewed)</option>
+                  <option value="Used (Like New)">Used (Like New - Pristine)</option>
+                  <option value="Used (Good)">Used (Good - Light wear but perfect)</option>
+                  <option value="Used (Fair)">Used (Fair - Visible wear / scratches)</option>
+                  <option value="For Parts">For Parts / Not working</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Price & Location */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price (GHS)</label>
+                <input
+                  type="number"
+                  required
+                  id="listing-price"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="GHS 7,500"
+                  min="1"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Location</label>
+                <input
+                  type="text"
+                  required
+                  id="listing-location"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="e.g. Accra, West Legon"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Detailed Description</label>
+              <textarea
+                required
+                id="listing-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Write item status, usage duration, and notes for buyers..."
+                rows={4}
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Product Images */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-slate-700">Product Images (1 to 5 images)</label>
+                <span className="text-[11px] text-slate-400 font-mono">{images.length}/5 files uploaded</span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {/* Thumbnail Previews */}
+                {images.map((imgStr, idx) => (
+                  <div key={idx} className="relative aspect-square rounded-xl bg-slate-50 border border-slate-200 group overflow-hidden">
+                    <img src={imgStr} alt="Preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      className="absolute top-1 right-1 p-1 bg-red-650 hover:bg-red-700 text-white rounded-full transition-all opacity-90 hover:scale-105"
+                      title="Delete Image"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-sm">
+                      {idx === 0 ? 'Primary' : `Ad #${idx + 1}`}
+                    </span>
+                  </div>
+                ))}
+
+                {/* Upload Trigger Square */}
+                {images.length < 5 && (
+                  <label className="aspect-square border-2 border-dashed border-slate-250 hover:border-emerald-500 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 hover:bg-emerald-50/10 transition-all group">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                    <Upload className="w-5 h-5 text-slate-400 group-hover:text-emerald-500 group-hover:-translate-y-0.5 transition" />
+                    <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-emerald-600">Add Photos</span>
+                  </label>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2">
+                📌 **Tip**: Click &ldquo;Add Photos&rdquo; to browse file directory. High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
+              </p>
+            </div>
+
+            {/* Form actions */}
+            <div className="border-t border-slate-100 pt-5 flex items-center justify-end gap-3 bg-slate-50 p-4 -mx-6 -mb-6 rounded-b-3xl">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                id="listing-submit-btn"
+                disabled={isSubmitting}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isSubmitting ? 'Processing...' : productToEdit ? 'Save Changes' : 'Post Ad Now'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
