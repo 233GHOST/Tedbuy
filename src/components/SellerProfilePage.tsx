@@ -23,7 +23,7 @@ export const SellerProfilePage: React.FC = () => {
         <p>Seller profile not found.</p>
         <button
           onClick={() => setCurrentView('browse')}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl mt-4"
+          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl mt-4"
         >
           Back to Marketplace
         </button>
@@ -57,7 +57,7 @@ export const SellerProfilePage: React.FC = () => {
       {/* Return link */}
       <button
         onClick={() => setCurrentView('browse')}
-        className="flex items-center gap-2 text-sm text-slate-600 hover:text-emerald-600 font-semibold mb-6 transition text-left"
+        className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-950 font-semibold mb-6 transition text-left"
       >
         <ArrowLeft className="w-4.5 h-4.5" />
         <span>Return to Marketplace</span>
@@ -69,7 +69,7 @@ export const SellerProfilePage: React.FC = () => {
           <img
             src={seller.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=160&q=80"}
             alt={seller.username}
-            className="w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-emerald-500/80 object-cover shrink-0"
+            className="w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 object-cover shrink-0"
           />
           <div className="space-y-1.5">
             <h1 id="seller-profile-title" className="text-xl sm:text-2xl font-bold font-sans tracking-tight text-white leading-none">
@@ -91,7 +91,7 @@ export const SellerProfilePage: React.FC = () => {
             </div>
             
             {seller.id === 'user_john' && (
-              <span className="inline-block bg-green-500/10 text-green-400 text-[9px] font-bold px-2 py-0.5 rounded-md border border-green-500/20 uppercase tracking-widest">
+              <span className="inline-block bg-slate-800 text-slate-200 text-[9px] font-bold px-2 py-0.5 rounded-md border border-slate-700 uppercase tracking-widest">
                 VERIFIED DEALER
               </span>
             )}
@@ -106,7 +106,7 @@ export const SellerProfilePage: React.FC = () => {
             className={`w-full md:w-auto px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 shrink-0 ${
               isFollowing
                 ? 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-750'
-                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/10'
+                : 'bg-white hover:bg-slate-100 text-slate-900 shadow-xs'
             }`}
           >
             {isFollowing ? (

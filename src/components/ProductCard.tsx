@@ -1,19 +1,30 @@
 import React from 'react';
 import { Product } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Eye, Calendar, Tag } from 'lucide-react';
+import { MapPin, Eye, Calendar, Tag, Bookmark } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const { setSelectedProductId, setCurrentView, incrementProductViews } = useApp();
+  const { currentUser, toggleSaveProduct, setSelectedProductId, setCurrentView, incrementProductViews } = useApp();
+
+  const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
 
   const handleDetailsClick = () => {
     incrementProductViews(product.id);
     setSelectedProductId(product.id);
     setCurrentView('product-detail');
+  };
+
+  const handleSaveClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      alert('Please select or log in to a profile first using the simulation bar at the top!');
+      return;
+    }
+    toggleSaveProduct(product.id);
   };
 
   const formattedPrice = new Intl.NumberFormat('en-GH', {
@@ -50,20 +61,34 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         </div>
 
         {product.condition && (
-          <div id={`product-card-condition-${product.id}`} className="absolute top-2.5 right-2.5">
-            <span className="px-2 py-0.5 bg-emerald-650 text-white text-[9px] font-extrabold rounded-md uppercase tracking-wider shadow-xs">
+          <div id={`product-card-condition-${product.id}`} className="absolute top-2.5 right-11">
+            <span className="px-2 py-0.5 bg-slate-900/90 text-white border border-slate-700 text-[9px] font-extrabold rounded-md uppercase tracking-wider shadow-xs">
               {product.condition}
             </span>
           </div>
         )}
+
+        {/* Bookmark/Watchlist floating button */}
+        <button
+          id={`btn-save-product-${product.id}`}
+          onClick={handleSaveClick}
+          className={`absolute top-2.5 right-2.5 z-25 p-1.5 rounded-full border shadow-3xs flex items-center justify-center transition-all duration-200 outline-none ${
+            isSaved
+              ? 'bg-rose-500 border-rose-500 text-white hover:bg-rose-600 scale-105'
+              : 'bg-white/90 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-white'
+          }`}
+          title={isSaved ? "Remove from watchlist" : "Save to watchlist"}
+        >
+          <Bookmark className="w-3.5 h-3.5" fill={isSaved ? "currentColor" : "none"} />
+        </button>
         
         {/* Dynamic bottom status bar on image hover */}
         <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
           <span className="text-[10px] flex items-center gap-1 font-sans">
-            <Eye className="w-3 h-3 text-emerald-400" />
+            <Eye className="w-3 h-3 text-slate-100" />
             {product.viewsCount} views
           </span>
-          <span className="text-[10px] text-slate-300 flex items-center gap-1 font-mono">
+          <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium">
             <Calendar className="w-3 h-3" />
             {dateFormatted}
           </span>
@@ -81,7 +106,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
               💼 {product.brand}
             </span>
           )}
-          <h3 className="text-sm font-semibold text-slate-800 line-clamp-2 leading-snug group-hover:text-emerald-600 transition truncate-hover">
+          <h3 className="text-sm font-semibold text-slate-800 line-clamp-2 leading-snug group-hover:text-slate-950 transition truncate-hover">
             {product.title}
           </h3>
         </div>

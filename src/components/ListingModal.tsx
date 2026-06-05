@@ -302,7 +302,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="GHS 7,500"
                   min="1"
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
                 />
               </div>
 
@@ -312,7 +312,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   id="listing-region"
                   value={adRegion}
                   onChange={(e) => setAdRegion(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer"
                 >
                   {GHANA_REGIONS.map(reg => (
                     <option key={reg.name} value={reg.name}>{reg.name} Region</option>
@@ -328,7 +328,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   id="listing-city"
                   value={adCity}
                   onChange={(e) => setAdCity(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer"
                 >
                   {activeRegionObj?.cities.map(ct => (
                     <option key={ct} value={ct}>{ct}</option>
@@ -344,7 +344,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   value={adNeighborhood}
                   onChange={(e) => setAdNeighborhood(e.target.value)}
                   placeholder="e.g. Asokwa, North Legon, West Legon"
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
                 />
               </div>
             </div>
@@ -359,7 +359,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Write item status, usage duration, and notes for buyers..."
                 rows={4}
-                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
               />
             </div>
 
@@ -391,7 +391,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
                 {/* Upload Trigger Square */}
                 {images.length < 5 && (
-                  <label className="aspect-square border-2 border-dashed border-slate-250 hover:border-emerald-500 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 hover:bg-emerald-50/10 transition-all group">
+                  <label className="aspect-square border-2 border-dashed border-slate-250 hover:border-slate-400 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 hover:bg-slate-100 transition-all group">
                     <input
                       type="file"
                       multiple
@@ -399,8 +399,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                       onChange={handleImageUpload}
                       className="hidden"
                     />
-                    <Upload className="w-5 h-5 text-slate-400 group-hover:text-emerald-500 group-hover:-translate-y-0.5 transition" />
-                    <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-emerald-600">Add Photos</span>
+                    <Upload className="w-5 h-5 text-slate-400 group-hover:text-slate-800 group-hover:-translate-y-0.5 transition" />
+                    <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-slate-900">Add Photos</span>
                   </label>
                 )}
               </div>
@@ -422,7 +422,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 type="submit"
                 id="listing-submit-btn"
                 disabled={isSubmitting}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-1.5 disabled:opacity-50"
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-1.5 disabled:opacity-50"
               >
                 {isSubmitting ? 'Processing...' : productToEdit ? 'Save Changes' : 'Post Ad Now'}
               </button>

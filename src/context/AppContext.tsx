@@ -28,6 +28,7 @@ interface AppContextType {
   sendMessage: (chatId: string, text: string, optionalSenderId?: string) => void;
   followSeller: (sellerId: string) => void;
   unfollowSeller: (sellerId: string) => void;
+  toggleSaveProduct: (productId: string) => void;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   selectedCategory: Category | null;
@@ -319,6 +320,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
   };
 
+  const toggleSaveProduct = (productId: string) => {
+    if (!currentUser) return;
+    const saved = currentUser.savedProductIds || [];
+    let updatedSaved: string[];
+    if (saved.includes(productId)) {
+      updatedSaved = saved.filter(id => id !== productId);
+    } else {
+      updatedSaved = [...saved, productId];
+    }
+    const updatedUser = { ...currentUser, savedProductIds: updatedSaved };
+    setCurrentUserState(updatedUser);
+    setUsers(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+  };
+
   return (
     <AppContext.Provider value={{
       currentUser,
@@ -337,6 +352,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sendMessage,
       followSeller,
       unfollowSeller,
+      toggleSaveProduct,
       searchQuery,
       setSearchQuery,
       selectedCategory,

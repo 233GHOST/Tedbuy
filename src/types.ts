@@ -7,6 +7,7 @@ export interface User {
   joinDate: string;
   role: 'buyer' | 'seller' | 'both';
   followingSellers?: string[]; // IDs of sellers this user follows
+  savedProductIds?: string[]; // Bookmarked product IDs
 }
 
 export type Category = 'Phones' | 'Laptops' | 'Fashion' | 'Home Appliances' | 'Vehicles' | 'Other';

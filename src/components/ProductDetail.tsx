@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark } from 'lucide-react';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -11,7 +11,8 @@ export const ProductDetail: React.FC = () => {
     followSeller,
     unfollowSeller,
     startChat,
-    setSelectedSellerId
+    setSelectedSellerId,
+    toggleSaveProduct
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
@@ -23,7 +24,7 @@ export const ProductDetail: React.FC = () => {
         <p className="mb-4">No product selected or item does not exist anymore.</p>
         <button
           onClick={() => setCurrentView('browse')}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl"
+          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl"
         >
           Return to Marketplace
         </button>
@@ -33,6 +34,15 @@ export const ProductDetail: React.FC = () => {
 
   const isOwner = currentUser?.id === product.sellerId;
   const isFollowing = currentUser?.followingSellers?.includes(product.sellerId) || false;
+  const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
+
+  const handleToggleSave = () => {
+    if (!currentUser) {
+      alert("Please Log In or switch to an active Dev Profile to save this item to your watchlist.");
+      return;
+    }
+    toggleSaveProduct(product.id);
+  };
 
   const handleSellerClick = () => {
     setSelectedSellerId(product.sellerId);
@@ -80,7 +90,7 @@ export const ProductDetail: React.FC = () => {
       <button
         id="btn-back-to-browse"
         onClick={() => setCurrentView('browse')}
-        className="flex items-center gap-2 text-sm text-slate-600 hover:text-emerald-600 font-semibold mb-6 transition"
+        className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 font-semibold mb-6 transition"
       >
         <ArrowLeft className="w-4.5 h-4.5" />
         <span>Back to Classifieds</span>
@@ -113,12 +123,12 @@ export const ProductDetail: React.FC = () => {
                 <button
                   key={i}
                   id={`image-thumb-${i}`}
-                  onClick={() => setActiveImageIdx(i)}
-                  className={`aspect-square rounded-xl overflow-hidden bg-slate-100 border-2 transition-all ${
-                    i === activeImageIdx
-                      ? 'border-emerald-500 scale-95 shadow-sm'
-                      : 'border-transparent hover:border-slate-350 hover:scale-98'
-                  }`}
+                   onClick={() => setActiveImageIdx(i)}
+                   className={`aspect-square rounded-xl overflow-hidden bg-slate-100 border-2 transition-all ${
+                     i === activeImageIdx
+                       ? 'border-slate-800 scale-95 shadow-sm'
+                       : 'border-transparent hover:border-slate-350 hover:scale-98'
+                   }`}
                 >
                   <img src={imgUrl} alt="Thumbnail preview" className="w-full h-full object-cover" />
                 </button>
@@ -164,7 +174,7 @@ export const ProductDetail: React.FC = () => {
               </div>
               <div className="border-l border-slate-200 pl-3">
                 <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Condition</span>
-                <span id="detail-condition-badge" className="text-sm font-extrabold text-emerald-600 block mt-0.5">
+                <span id="detail-condition-badge" className="text-sm font-extrabold text-slate-905 block mt-0.5">
                   {product.condition || 'Used (Good)'}
                 </span>
               </div>
@@ -173,20 +183,33 @@ export const ProductDetail: React.FC = () => {
             {/* Messaging / Call buttons */}
             <div className="space-y-3">
               {isOwner ? (
-                <div className="bg-emerald-50 text-emerald-800 p-3.5 rounded-2xl border border-emerald-100 text-xs">
+                <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs">
                   👋 **You posted this product listing!** You can manage, edit details, or remove it from your personal store dashboard dashboard.
                 </div>
               ) : (
-                <>
+                <div className="flex gap-3">
                   <button
                     id="btn-message-seller"
                     onClick={handleMessageSeller}
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 text-sm shadow-md shadow-emerald-600/10 hover:shadow-lg transition duration-200"
+                    className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl flex items-center justify-center gap-2 text-sm shadow-xs hover:shadow-md transition duration-200"
                   >
                     <MessageSquare className="w-5 h-5 fill-white/20 stroke-[2.2]" />
                     <span>Message Seller</span>
                   </button>
-                </>
+                  
+                  <button
+                    id="btn-save-detail"
+                    onClick={handleToggleSave}
+                    className={`px-4 py-3.5 rounded-2xl border transition duration-200 text-sm flex items-center justify-center gap-2 shrink-0 ${
+                      isSaved
+                        ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                    }`}
+                    title={isSaved ? "Remove from Watchlist" : "Save to Watchlist"}
+                  >
+                    <Bookmark className="w-5 h-5" fill={isSaved ? "currentColor" : "none"} />
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -198,7 +221,7 @@ export const ProductDetail: React.FC = () => {
               <button
                 id="btn-view-profile"
                 onClick={handleSellerClick}
-                className="text-xs text-emerald-600 hover:text-emerald-700 font-bold hover:underline flex items-center"
+                className="text-xs text-slate-900 hover:text-slate-750 font-bold hover:underline flex items-center"
               >
                 <span>Visit Store</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -227,7 +250,7 @@ export const ProductDetail: React.FC = () => {
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 ${
                     isFollowing
                       ? 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-red-50 hover:text-red-600 hover:border-red-100'
-                      : 'bg-slate-900 text-white hover:bg-emerald-600'
+                      : 'bg-slate-900 text-white hover:bg-slate-800'
                   }`}
                 >
                   {isFollowing ? (
