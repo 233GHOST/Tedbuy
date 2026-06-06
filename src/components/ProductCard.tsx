@@ -8,7 +8,15 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const { currentUser, toggleSaveProduct, setSelectedProductId, setCurrentView, incrementProductViews } = useApp();
+  const {
+    currentUser,
+    toggleSaveProduct,
+    setSelectedProductId,
+    setCurrentView,
+    incrementProductViews,
+    setShowAuthModal,
+    setAuthMode
+  } = useApp();
 
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
 
@@ -21,7 +29,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const handleSaveClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentUser) {
-      alert('Please select or log in to a profile first using the simulation bar at the top!');
+      setAuthMode('login');
+      setShowAuthModal(true);
       return;
     }
     toggleSaveProduct(product.id);

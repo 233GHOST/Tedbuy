@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark } from 'lucide-react';
+import { ProductCard } from './ProductCard';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -12,11 +13,18 @@ export const ProductDetail: React.FC = () => {
     unfollowSeller,
     startChat,
     setSelectedSellerId,
-    toggleSaveProduct
+    toggleSaveProduct,
+    setShowAuthModal,
+    setAuthMode
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    setActiveImageIdx(0);
+  }, [selectedProductId]);
 
   if (!product) {
     return (
@@ -38,7 +46,8 @@ export const ProductDetail: React.FC = () => {
 
   const handleToggleSave = () => {
     if (!currentUser) {
-      alert("Please Log In or switch to an active Dev Profile to save this item to your watchlist.");
+      setAuthMode('login');
+      setShowAuthModal(true);
       return;
     }
     toggleSaveProduct(product.id);
@@ -83,6 +92,10 @@ export const ProductDetail: React.FC = () => {
     month: 'long',
     day: 'numeric'
   });
+
+  const similarProducts = products
+    .filter(p => p.category === product.category && p.id !== product.id)
+    .slice(0, 4);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -288,6 +301,24 @@ export const ProductDetail: React.FC = () => {
         <div className="prose prose-slate max-w-none text-sm text-slate-750 font-sans leading-relaxed whitespace-pre-line">
           {product.description}
         </div>
+      </div>
+
+      {/* Similar Listings Section */}
+      <div className="mt-12 text-left">
+        <h2 className="text-lg font-bold text-slate-900 font-sans tracking-tight mb-5">
+          Similar Listings
+        </h2>
+        {similarProducts.length === 0 ? (
+          <div className="bg-slate-50 border border-slate-200 p-8 rounded-3xl text-center text-slate-500 text-sm">
+            No similar items found in <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-lg text-xs uppercase tracking-wider">{product.category}</span> yet.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+            {similarProducts.map(p => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

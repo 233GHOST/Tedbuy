@@ -5,10 +5,19 @@ import { Product, Category } from '../types';
 import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark } from 'lucide-react';
 
 export const SellerDashboard: React.FC = () => {
-  const { currentUser, products, deleteProduct, setCurrentView, setSelectedProductId, toggleSaveProduct, setSelectedSellerId } = useApp();
+  const {
+    currentUser,
+    products,
+    deleteProduct,
+    setCurrentView,
+    setSelectedProductId,
+    toggleSaveProduct,
+    setSelectedSellerId,
+    dashboardTab: activeTab,
+    setDashboardTab: setActiveTab
+  } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
-  const [activeTab, setActiveTab] = useState<'listings' | 'saved'>('listings');
 
   if (!currentUser) {
     return (

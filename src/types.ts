@@ -42,6 +42,9 @@ export interface Chat {
   sellerName: string;
   lastMessageText: string;
   lastMessageTime: string;
+  deliveredBySeller?: boolean;
+  pickedUpByBuyer?: boolean;
+  tradeStatus?: 'pending' | 'delivered' | 'completed';
 }
 
 export interface Message {
@@ -53,3 +56,16 @@ export interface Message {
   createdAt: string;
   read: boolean;
 }
+
+export interface Review {
+  id: string;
+  sellerId: string;
+  buyerId: string;
+  buyerName: string;
+  buyerPhoto?: string;
+  rating: number; // 1 to 5
+  comment: string;
+  createdAt: string;
+  productTitle?: string;
+}
+

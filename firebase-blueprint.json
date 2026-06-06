@@ -1,0 +1,120 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user profile in the classifieds marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique user identifier matching their firebase auth UID" },
+        "username": { "type": "string", "description": "Display name of the user" },
+        "email": { "type": "string", "description": "Optional email address" },
+        "phoneNumber": { "type": "string", "description": "Optional phone number" },
+        "photoUrl": { "type": "string", "description": "Profile picture URL" },
+        "joinDate": { "type": "string", "description": "Month and year when user signed up" },
+        "role": { "type": "string", "enum": ["buyer", "seller", "both"], "description": "User persona role" },
+        "followingSellers": { "type": "array", "description": "List of seller IDs followed by this user" },
+        "savedProductIds": { "type": "array", "description": "List of bookmarked product IDs" }
+      },
+      "required": ["id", "username", "role", "joinDate"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "An item listing posted in the marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique product listing ID" },
+        "sellerId": { "type": "string", "description": "ID of user who created the product listing" },
+        "sellerName": { "type": "string", "description": "Display name of the seller" },
+        "sellerPhoto": { "type": "string", "description": "Profile image of the seller" },
+        "sellerJoinDate": { "type": "string", "description": "Join date of the seller" },
+        "title": { "type": "string", "description": "Listing title" },
+        "description": { "type": "string", "description": "Item description details" },
+        "price": { "type": "number", "description": "Item price in GHS" },
+        "category": { "type": "string", "enum": ["Phones", "Laptops", "Fashion", "Home Appliances", "Vehicles", "Other"], "description": "Listing category" },
+        "location": { "type": "string", "description": "City/Region location in Ghana" },
+        "brand": { "type": "string", "description": "Item brand" },
+        "condition": { "type": "string", "description": "New or Used condition" },
+        "images": { "type": "array", "description": "Array of item image URLs" },
+        "createdAt": { "type": "string", "description": "Timestamp when listing was posted" },
+        "viewsCount": { "type": "number", "description": "Number of views" }
+      },
+      "required": ["id", "sellerId", "sellerName", "title", "description", "price", "category", "location", "images", "createdAt", "viewsCount"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A negotiation thread between buyer and seller",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique chat thread ID" },
+        "productId": { "type": "string", "description": "ID of listing tied to chat" },
+        "productTitle": { "type": "string", "description": "Title of listing" },
+        "productPrice": { "type": "number", "description": "Listing price" },
+        "productImage": { "type": "string", "description": "Primary product image URL" },
+        "buyerId": { "type": "string", "description": "ID of buying user" },
+        "sellerId": { "type": "string", "description": "ID of selling user" },
+        "buyerName": { "type": "string", "description": "Display name of buyer" },
+        "sellerName": { "type": "string", "description": "Display name of seller" },
+        "lastMessageText": { "type": "string", "description": "Last message snippet text" },
+        "lastMessageTime": { "type": "string", "description": "Timestamp of last action/message in thread" },
+        "deliveredBySeller": { "type": "boolean", "description": "If seller confirmed delivery" },
+        "pickedUpByBuyer": { "type": "boolean", "description": "If buyer confirmed collection" },
+        "tradeStatus": { "type": "string", "enum": ["pending", "delivered", "completed"], "description": "Current state of local trade" }
+      },
+      "required": ["id", "productId", "productTitle", "productPrice", "productImage", "buyerId", "sellerId", "buyerName", "sellerName", "lastMessageText", "lastMessageTime", "tradeStatus"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "An individual chat text or status message inside a chat thread",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Message ID" },
+        "chatId": { "type": "string", "description": "Parent Chat thread ID" },
+        "senderId": { "type": "string", "description": "User ID of text sender" },
+        "recipientId": { "type": "string", "description": "User ID of text recipient" },
+        "text": { "type": "string", "description": "Message text contents" },
+        "createdAt": { "type": "string", "description": "Timestamp of message" },
+        "read": { "type": "boolean", "description": "Whether recipient has viewed message" }
+      },
+      "required": ["id", "chatId", "senderId", "recipientId", "text", "createdAt", "read"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A trusted rating given to a seller by a buyer after a completed trade",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Review ID" },
+        "sellerId": { "type": "string", "description": "Sellers unique ID being reviewed" },
+        "buyerId": { "type": "string", "description": "Buyers unique ID leaving review" },
+        "buyerName": { "type": "string", "description": "DisplayName of buyer" },
+        "buyerPhoto": { "type": "string", "description": "Avatar of buyer" },
+        "rating": { "type": "number", "description": "Review rating (1-5)" },
+        "comment": { "type": "string", "description": "Written review feedback text" },
+        "createdAt": { "type": "string", "description": "Review posting date" },
+        "productTitle": { "type": "string", "description": "Optional title of product traded" }
+      },
+      "required": ["id", "sellerId", "buyerId", "buyerName", "rating", "comment", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile records indexed by auth UID"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Marketplace listings indexed by product listing item ID"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Marketplace negotiation chat threads"
+    },
+    "/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Message items indexed under parent chatId"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Marketplace transaction feedback ratings"
+    }
+  }
+}

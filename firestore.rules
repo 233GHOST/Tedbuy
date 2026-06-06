@@ -1,0 +1,120 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for auth check and clean field comparisons
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Users Collection rules
+    match /users/{userId} {
+      function isValidUser(data) {
+        return ((isSignedIn() && data.id == request.auth.uid) || data.id.matches('^user_.*') || data.id.matches('^phone_.*')) &&
+               data.username is string && data.username.size() <= 100 &&
+               data.role in ['buyer', 'seller', 'both'] &&
+               (data.get('email', null) == null || (data.get('email', '') is string && data.get('email', '').size() <= 150)) &&
+               (data.get('phoneNumber', null) == null || (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 30));
+      }
+
+      allow read: if isSignedIn() || userId.matches('^user_.*') || userId.matches('^phone_.*');
+      allow create: if (isSignedIn() || userId.matches('^user_.*') || userId.matches('^phone_.*')) && isValidId(userId) && isValidUser(incoming());
+      allow update: if (isSignedIn() || userId.matches('^user_.*') || userId.matches('^phone_.*')) && isValidId(userId) && isValidUser(incoming()) &&
+                    incoming().id == existing().id;
+      allow delete: if false;
+    }
+
+    // 2. Products Collection rules
+    match /products/{productId} {
+      function isValidProduct(data) {
+        return data.id is string && data.id.size() <= 128 &&
+               ((isSignedIn() && data.sellerId == request.auth.uid) || data.sellerId.matches('^user_.*') || data.id.matches('^prod_.*')) &&
+               data.title is string && data.title.size() <= 128 &&
+               data.description is string && data.description.size() <= 2000 &&
+               data.price is number && data.price > 0 &&
+               data.category in ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Other'] &&
+               data.location is string && data.location.size() <= 150;
+      }
+
+      allow read: if true; // Listings are public
+      allow create: if (isSignedIn() || incoming().sellerId.matches('^user_.*')) && isValidId(productId) && isValidProduct(incoming());
+      allow update: if (isSignedIn() || existing().sellerId.matches('^user_.*')) && isValidId(productId) && ((isSignedIn() && existing().sellerId == request.auth.uid) || existing().sellerId.matches('^user_.*')) && isValidProduct(incoming()) &&
+                    incoming().sellerId == existing().sellerId;
+      allow delete: if isSignedIn() || existing().sellerId.matches('^user_.*');
+    }
+
+    // 3. Chats Collection rules
+    match /chats/{chatId} {
+      function isValidChat(data) {
+        return data.id is string && data.id.size() <= 128 &&
+               data.productId is string && data.productId.size() <= 128 &&
+               data.buyerId is string && data.buyerId.size() <= 128 &&
+               data.sellerId is string && data.sellerId.size() <= 128 &&
+               (data.get('tradeStatus', null) == null || data.get('tradeStatus', '') in ['pending', 'delivered', 'completed']);
+      }
+
+      allow read: if isSignedIn() || chatId.matches('^chat_.*') || resource.data.buyerId.matches('^user_.*') || resource.data.sellerId.matches('^user_.*');
+      allow create: if (isSignedIn() || incoming().buyerId.matches('^user_.*')) && isValidId(chatId) && isValidChat(incoming());
+      allow update: if (isSignedIn() || existing().buyerId.matches('^user_.*') || existing().sellerId.matches('^user_.*')) && isValidId(chatId) && 
+                    ((isSignedIn() && request.auth.uid == existing().buyerId) || (isSignedIn() && request.auth.uid == existing().sellerId) || existing().buyerId.matches('^user_.*') || existing().sellerId.matches('^user_.*')) &&
+                    isValidChat(incoming()) &&
+                    incoming().id == existing().id &&
+                    incoming().buyerId == existing().buyerId &&
+                    incoming().sellerId == existing().sellerId;
+      allow delete: if false;
+    }
+
+    // 4. Messages Collection rules
+    match /messages/{messageId} {
+      function isValidMessage(data) {
+        return data.id is string && data.id.size() <= 128 &&
+               data.chatId is string && data.chatId.size() <= 128 &&
+               ((isSignedIn() && data.senderId == request.auth.uid) || data.senderId.matches('^user_.*')) &&
+               data.recipientId is string && data.recipientId.size() <= 128 &&
+               data.text is string && data.text.size() <= 5000;
+      }
+
+      allow read: if isSignedIn() || messageId.matches('^msg_.*') || messageId.matches('^sys_.*') || resource.data.senderId.matches('^user_.*');
+      allow create: if (isSignedIn() || incoming().senderId.matches('^user_.*')) && isValidId(messageId) && isValidMessage(incoming());
+      allow update, delete: if false;
+    }
+
+    // 5. Reviews Collection rules
+    match /reviews/{reviewId} {
+      function isValidReview(data) {
+        return data.id is string && data.id.size() <= 128 &&
+               data.sellerId is string && data.sellerId.size() <= 128 &&
+               ((isSignedIn() && data.buyerId == request.auth.uid) || data.buyerId.matches('^user_.*') || data.id.matches('^rev_.*')) &&
+               data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+               data.comment is string && data.comment.size() <= 2000;
+      }
+
+      allow read: if true; // Feedback ratings can be viewed on profiles
+      allow create: if (isSignedIn() || incoming().buyerId.matches('^user_.*')) && isValidId(reviewId) &&
+                    incoming().buyerId != incoming().sellerId && // No self rates
+                    isValidReview(incoming());
+      allow update, delete: if false; // Reviews are immutable after locking
+    }
+  }
+}

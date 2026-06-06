@@ -38,6 +38,7 @@ const MarketplaceContent: React.FC = () => {
   // Ghana Region & City filter states
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [selectedCity, setSelectedCity] = useState<string>('All');
+  const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc'>('default');
 
   // Filter listings based on category, search query, region, and city
   const filteredProducts = products.filter(product => {
@@ -64,6 +65,16 @@ const MarketplaceContent: React.FC = () => {
     return matchesCategory && matchesSearch && matchesRegion && matchesCity;
   });
 
+  const sortedProducts = [...filteredProducts].sort((a, b) => {
+    if (sortBy === 'price-asc') {
+      return a.price - b.price;
+    }
+    if (sortBy === 'price-desc') {
+      return b.price - a.price;
+    }
+    return 0; // default (chrono/initial order)
+  });
+
   const handlePostAdBtn = () => {
     if (!currentUser) {
       alert("Please Log In or select a pre-loaded account at the top to list your products!");
@@ -83,10 +94,6 @@ const MarketplaceContent: React.FC = () => {
             {/* Promotional Marketplace Hero Badge */}
             <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
               <div className="relative z-10 max-w-xl text-left space-y-3">
-
-                <h1 className="text-2xl sm:text-3xl font-black font-sans tracking-tight text-slate-900 leading-tight">
-                  Find Verified Tech, Wearables, and Appliances on Tedbuy
-                </h1>
                 <p className="text-slate-650 text-xs sm:text-sm font-sans leading-relaxed font-medium">
                   Post active classified advertisements free, search specific local categories, and bargain prices securely using our real-time inbox chats!
                 </p>
@@ -174,7 +181,7 @@ const MarketplaceContent: React.FC = () => {
               {/* Right main items layout - span 3 */}
               <div className="lg:col-span-3 space-y-6">
                 <section className="space-y-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-4 text-left">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4 text-left">
                     <div>
                       <h3 className="text-lg font-bold text-slate-900 font-sans tracking-tight">
                         {searchQuery.trim()
@@ -188,8 +195,20 @@ const MarketplaceContent: React.FC = () => {
                       <p className="text-xs text-slate-500 mt-0.5">{filteredProducts.length} active listings found</p>
                     </div>
 
-                    {/* Filters details */}
-                    <span className="text-xs text-slate-400 font-sans font-medium">Ghana's verified listings</span>
+                    {/* Price Sort Dropdown replacing Ghana's verified listings */}
+                    <div className="flex items-center gap-2 self-start sm:self-center">
+                      <label htmlFor="sort-dropdown" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort by:</label>
+                      <select
+                        id="sort-dropdown"
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as 'default' | 'price-asc' | 'price-desc')}
+                        className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300"
+                      >
+                        <option value="default">Latest Ads</option>
+                        <option value="price-asc">Price: Low to High</option>
+                        <option value="price-desc">Price: High to Low</option>
+                      </select>
+                    </div>
                   </div>
 
                   {filteredProducts.length === 0 ? (
@@ -213,7 +232,7 @@ const MarketplaceContent: React.FC = () => {
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6">
-                      {filteredProducts.map(product => (
+                      {sortedProducts.map(product => (
                         <ProductCard key={product.id} product={product} />
                       ))}
                     </div>

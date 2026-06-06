@@ -1,4 +1,4 @@
-import { User, Product, Chat, Message } from './types';
+import { User, Product, Chat, Message, Review } from './types';
 
 export const SEED_USERS: User[] = [
   {
@@ -209,3 +209,29 @@ export const SEED_MESSAGES: Message[] = [
     read: false
   }
 ];
+
+export const SEED_REVIEWS: Review[] = [
+  {
+    id: 'rev_1',
+    sellerId: 'user_john',
+    buyerId: 'user_jane',
+    buyerName: 'Jane Smith',
+    buyerPhoto: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80',
+    rating: 5,
+    comment: 'Purchased a pair of Jordans. Super clean, authentic, and John was incredibly friendly during pickup!',
+    createdAt: '2026-06-03T18:00:00Z',
+    productTitle: 'Retro Nike Air Jordan 1 High OG'
+  },
+  {
+    id: 'rev_2',
+    sellerId: 'user_kelvin',
+    buyerId: 'user_salim',
+    buyerName: 'Salim Osei',
+    buyerPhoto: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80',
+    rating: 4,
+    comment: 'Great tech shop. Screen on the MacBook was pristine. Response time on chat was slightly delayed, but delivery was safe.',
+    createdAt: '2026-06-02T16:45:00Z',
+    productTitle: 'MacBook Pro 14" M2 Pro (16GB/512GB)'
+  }
+];
+
