@@ -14,7 +14,9 @@ export const SellerProfilePage: React.FC = () => {
     currentUser,
     followSeller,
     unfollowSeller,
-    reviews
+    reviews,
+    setShowAuthModal,
+    setAuthMode
   } = useApp();
 
   const seller = users.find(u => u.id === selectedSellerId);
@@ -42,7 +44,8 @@ export const SellerProfilePage: React.FC = () => {
 
   const handleToggleFollow = () => {
     if (!currentUser) {
-      alert("Please Log In or switch to an active Dev Profile to follow this seller.");
+      setAuthMode('login');
+      setShowAuthModal(true);
       return;
     }
     if (isFollowing) {

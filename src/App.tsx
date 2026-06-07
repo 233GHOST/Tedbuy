@@ -6,6 +6,7 @@ import { ProductDetail } from './components/ProductDetail';
 import { ChatInterface } from './components/ChatInterface';
 import { SellerDashboard } from './components/SellerDashboard';
 import { SellerProfilePage } from './components/SellerProfilePage';
+import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
 import { Category } from './types';
 import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin } from 'lucide-react';
@@ -30,7 +31,8 @@ const MarketplaceContent: React.FC = () => {
     selectedCategory,
     setSelectedCategory,
     currentUser,
-    setCurrentView
+    setCurrentView,
+    setShowAuthModal
   } = useApp();
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
@@ -77,7 +79,7 @@ const MarketplaceContent: React.FC = () => {
 
   const handlePostAdBtn = () => {
     if (!currentUser) {
-      alert("Please Log In or select a pre-loaded account at the top to list your products!");
+      setShowAuthModal(true);
       return;
     }
     setIsPostAdOpen(true);
@@ -248,6 +250,7 @@ const MarketplaceContent: React.FC = () => {
         {currentView === 'chats' && <ChatInterface />}
         {currentView === 'my-dashboard' && <SellerDashboard />}
         {currentView === 'seller-profile' && <SellerProfilePage />}
+        {currentView === 'profile-settings' && <ProfileSettings />}
       </main>
 
       {/* Persistent platform footer */}

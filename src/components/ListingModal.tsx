@@ -121,7 +121,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         return;
       }
       
-      // Limit file sizes to around 2MB for storage limits in demo
+      // Limit file sizes to around 2MB for performance and storage optimization
       if (file.size > 2 * 1024 * 1024) {
         setErrorMsg('Some images were skipped because they exceed 2MB in size.');
         return;

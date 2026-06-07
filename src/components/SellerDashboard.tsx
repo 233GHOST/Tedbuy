@@ -64,14 +64,24 @@ export const SellerDashboard: React.FC = () => {
           <h1 id="dashboard-title" className="text-2xl font-bold text-slate-900 font-sans tracking-tight">My Vendor Hub</h1>
           <p className="text-sm text-slate-500">Manage your online ads, adjust pricing details, check view stats, or open your watchlist.</p>
         </div>
-        <button
-          id="btn-post-ad-dashboard"
-          onClick={handleCreateNew}
-          className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4.5 py-3 rounded-2xl text-sm flex items-center gap-1.5 shadow-xs hover:shadow-md transition duration-200 cursor-pointer"
-        >
-          <PlusCircle className="w-5 h-5 stroke-[2.2]" />
-          <span>Post New Ad</span>
-        </button>
+        <div className="flex flex-wrap gap-2.5">
+          <button
+            id="btn-profile-settings-dashboard"
+            onClick={() => setCurrentView('profile-settings')}
+            className="bg-white border border-slate-350 hover:bg-slate-50 text-slate-800 font-bold px-4 py-3 rounded-2xl text-sm flex items-center gap-1.5 shadow-3xs hover:shadow-2xs transition duration-200 cursor-pointer"
+          >
+            <span>Manage Store Profile</span>
+          </button>
+          
+          <button
+            id="btn-post-ad-dashboard"
+            onClick={handleCreateNew}
+            className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-5 py-3 rounded-2xl text-sm flex items-center gap-1.5 shadow-xs hover:shadow-md transition duration-200 cursor-pointer"
+          >
+            <PlusCircle className="w-5 h-5 stroke-[2.2]" />
+            <span>Post New Ad</span>
+          </button>
+        </div>
       </div>
 
       {/* Metrics Panel */}

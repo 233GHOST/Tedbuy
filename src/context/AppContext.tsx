@@ -47,7 +47,7 @@ interface AppContextType {
   currentUser: User | null;
   setCurrentUser: (user: User | null) => void;
   users: User[];
-  registerUser: (username: string, email?: string, phoneNumber?: string, password?: string) => Promise<User>;
+  registerUser: (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => Promise<User>;
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   loginWithGoogle: () => Promise<void>;
   logoutUser: () => Promise<void>;
@@ -78,8 +78,15 @@ interface AppContextType {
   setSearchQuery: (q: string) => void;
   selectedCategory: Category | null;
   setSelectedCategory: (cat: Category | null) => void;
-  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile';
-  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile') => void;
+  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings';
+  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings') => void;
+  updateUserProfile: (profileData: {
+    username: string;
+    phoneNumber?: string;
+    photoUrl?: string;
+    role: 'buyer' | 'seller' | 'both';
+  }) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
   selectedSellerId: string | null;
@@ -114,7 +121,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile'>('browse');
+  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings'>('browse');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -131,48 +138,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem('tedbuy_recent_searches', JSON.stringify(recentSearches));
   }, [recentSearches]);
-
-  // Seeding initial catalog data into Firestore if Firestore is empty
-  const seedDatabaseIfEmpty = async () => {
-    try {
-      const prodSnap = await getDocs(collection(db, 'products'));
-      if (prodSnap.empty) {
-        console.log('Seeding initial products/reviews/users into Firestore catalog...');
-        // Seed users
-        for (const u of SEED_USERS) {
-          try {
-            await setDoc(doc(db, 'users', u.id), cleanObject(u));
-            console.log(`Successfully seeded user: ${u.id}`);
-          } catch (userErr: any) {
-            console.error(`Failed to seed user ${u.id}:`, userErr.message || userErr);
-            throw userErr;
-          }
-        }
-        // Seed products
-        for (const p of SEED_PRODUCTS) {
-          try {
-            await setDoc(doc(db, 'products', p.id), cleanObject(p));
-            console.log(`Successfully seeded product: ${p.id}`);
-          } catch (prodErr: any) {
-            console.error(`Failed to seed product ${p.id}:`, prodErr.message || prodErr);
-            throw prodErr;
-          }
-        }
-        // Seed reviews
-        for (const r of SEED_REVIEWS) {
-          try {
-            await setDoc(doc(db, 'reviews', r.id), cleanObject(r));
-            console.log(`Successfully seeded review: ${r.id}`);
-          } catch (revErr: any) {
-            console.error(`Failed to seed review ${r.id}:`, revErr.message || revErr);
-            throw revErr;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Seeding Firestore empty collections failed:', err);
-    }
-  };
 
   // Firebase Auth state listener
   useEffect(() => {
@@ -201,8 +166,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await setDoc(userRef, cleanObject(newUser));
           setCurrentUserState(newUser);
         }
-        // Seed catalog as soon as any active transaction is authenticated
-        seedDatabaseIfEmpty();
       } else {
         // Check if there is a simulated user in localStorage
         const storedSim = localStorage.getItem('tedbuy_simulated_user');
@@ -219,18 +182,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    // Seed on initial load if needed as fallback helper
-    seedDatabaseIfEmpty();
-
     return unsub;
   }, []);
 
   // 1. Real-time Users Synchronization
   useEffect(() => {
-    if (!currentUser) {
-      setUsers(SEED_USERS);
-      return;
-    }
     const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
       const uList: User[] = [];
       snapshot.forEach(docSnap => {
@@ -238,10 +194,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       setUsers(uList);
     }, (error) => {
-      console.error("Users list sync error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
     return unsub;
-  }, [currentUser]);
+  }, []);
 
   // 2. Real-time Products Synchronization
   useEffect(() => {
@@ -252,7 +208,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       setProducts(pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     }, (error) => {
-      console.error("Products list sync error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'products');
     });
     return unsub;
   }, []);
@@ -266,7 +222,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       setReviews(rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     }, (error) => {
-      console.error("Reviews list sync error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'reviews');
     });
     return unsub;
   }, []);
@@ -293,7 +249,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       updateCombined();
     }, (error) => {
-      console.error("Chats (buyer) sync error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'chats');
     });
 
     const unsub2 = onSnapshot(qSeller, (snap) => {
@@ -302,7 +258,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       updateCombined();
     }, (error) => {
-      console.error("Chats (seller) sync error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'chats');
     });
 
     return () => {
@@ -333,7 +289,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       updateCombined();
     }, (error) => {
-      console.error("Messages (sender) sync error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'messages');
     });
 
     const unsub2 = onSnapshot(qRecipient, (snap) => {
@@ -342,7 +298,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       updateCombined();
     }, (error) => {
-      console.error("Messages (recipient) sync error:", error);
+      handleFirestoreError(error, OperationType.LIST, 'messages');
     });
 
     return () => {
@@ -352,7 +308,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   // User Authentication Action APIs
-  const registerUser = async (username: string, email?: string, phoneNumber?: string, password?: string) => {
+  const registerUser = async (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => {
     const actualPassword = password || 'password123';
     const actualEmail = email || `phone_${phoneNumber?.replace(/[^0-9]/g, '')}@phone.tedbuy.com`;
 
@@ -370,7 +326,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           phoneNumber: phoneNumber || undefined,
           role: 'both',
           joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          photoUrl: `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 999999)}?auto=format&fit=crop&w=120&q=80`,
+          photoUrl: photoUrl || `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 999999)}?auto=format&fit=crop&w=120&q=80`,
           followingSellers: [],
           savedProductIds: []
         };
@@ -387,7 +343,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           phoneNumber: phoneNumber || undefined,
           role: 'both',
           joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          photoUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80`,
+          photoUrl: photoUrl || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80`,
           followingSellers: [],
           savedProductIds: []
         };
@@ -800,6 +756,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateUserProfile = async (profileData: {
+    username: string;
+    phoneNumber?: string;
+    photoUrl?: string;
+    role: 'buyer' | 'seller' | 'both';
+  }) => {
+    if (!currentUser) return;
+    const { username, phoneNumber, photoUrl, role } = profileData;
+    const updatedUser: User = {
+      ...currentUser,
+      username,
+      phoneNumber: phoneNumber || undefined,
+      photoUrl: photoUrl || undefined,
+      role
+    };
+
+    try {
+      await updateDoc(doc(db, 'users', currentUser.id), cleanObject({
+        username,
+        phoneNumber: phoneNumber || null,
+        photoUrl: photoUrl || null,
+        role
+      }));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
+    }
+
+    // Always update local status & localStorage
+    setCurrentUserState(updatedUser);
+    localStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
+  };
+
+  const deleteAccount = async () => {
+    if (!currentUser) return;
+    const uid = currentUser.id;
+    try {
+      await deleteDoc(doc(db, 'users', uid));
+    } catch (err) {
+      console.warn('Could not delete user document from firestore:', err);
+    }
+
+    try {
+      const authUser = auth.currentUser;
+      if (authUser && authUser.uid === uid) {
+        await authUser.delete();
+      }
+    } catch (err) {
+      console.warn('Could not delete auth user:', err);
+    }
+
+    localStorage.removeItem('tedbuy_simulated_user');
+    await signOut(auth);
+    setCurrentUserState(null);
+    setCurrentView('browse');
+  };
+
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
     if (!currentUser) return;
     const revId = `rev_${Date.now()}`;
@@ -857,6 +869,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       followSeller,
       unfollowSeller,
       toggleSaveProduct,
+      updateUserProfile,
+      deleteAccount,
       reviews,
       addReview,
       searchQuery,

@@ -34,6 +34,7 @@ export const Navbar: React.FC = () => {
   const [registerPhoneInput, setRegisterPhoneInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
+  const [registerPhotoUrlInput, setRegisterPhotoUrlInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isDesktopFocused, setIsDesktopFocused] = useState(false);
@@ -66,13 +67,15 @@ export const Navbar: React.FC = () => {
           usernameInput.trim(),
           registerEmailInput.trim() || undefined,
           registerPhoneInput.trim() || undefined,
-          passwordInput
+          passwordInput,
+          registerPhotoUrlInput || undefined
         );
         setShowAuthModal(false);
         setUsernameInput('');
         setRegisterEmailInput('');
         setRegisterPhoneInput('');
         setPasswordInput('');
+        setRegisterPhotoUrlInput('');
       } else {
         if (!loginIdentifierInput.trim()) {
           setAuthError('Please enter your Registered email address or phone number.');
@@ -95,11 +98,11 @@ export const Navbar: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       if (err?.code === 'auth/operation-not-allowed' || err?.message?.includes('operation-not-allowed')) {
-        setAuthError('⚠️ Firebase Email/Password Auth is not yet enabled for your database project! To enable: (1) Go to your Firebase Console; (2) Open Authentication > Sign-in method; (3) Click "Add new provider" > choose "Email/Password" and Save! Alternatively, use the Google Sign-In button below or select a Simulator Preset.');
+        setAuthError('Authentication via Email/Password is currently not enabled or supported on the server. Please sign in using Google or contact support.');
       } else if (err?.code === 'auth/email-already-in-use') {
         setAuthError('This email or phone number is already registered.');
       } else if (err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential' || err?.message?.includes('invalid-credential') || err?.message?.includes('wrong-password')) {
-        setAuthError('Invalid credentials. Check your details or use password123 for simulator presets.');
+        setAuthError('Invalid credentials. Please verify your details and try again.');
       } else {
         setAuthError(err?.message || 'An authentication error occurred. Please try again.');
       }
@@ -325,25 +328,32 @@ export const Navbar: React.FC = () => {
 
             {/* Account Info Or Auth Trigger */}
             {currentUser ? (
-              <div className="flex items-center gap-2 pl-2 border-l border-slate-300">
-                <img
-                  src={currentUser.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&q=80"}
-                  alt={currentUser.username}
-                  className="w-8 h-8 rounded-full border border-slate-300 object-cover hidden sm:block"
-                />
-                <div className="flex flex-col text-left hidden lg:block leading-none">
-                  <span className="text-xs font-semibold text-slate-800 block truncate max-w-[90px]">
-                    {currentUser.username}
-                  </span>
-                  <span className="text-[9px] text-slate-500 font-mono font-medium">
-                    Member: {currentUser.joinDate}
-                  </span>
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-300 font-sans">
+                <div 
+                  onClick={() => setCurrentView('profile-settings')}
+                  className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
+                  title="Manage Profile Settings"
+                >
+                  <img
+                    src={currentUser.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&q=80"}
+                    alt={currentUser.username}
+                    className="w-8 h-8 rounded-full border border-slate-300 object-cover hidden sm:block"
+                  />
+                  <div className="flex flex-col text-left hidden lg:block leading-none">
+                    <span className="text-xs font-semibold text-slate-800 block truncate max-w-[90px]">
+                      {currentUser.username}
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-mono font-medium">
+                      Member: {currentUser.joinDate}
+                    </span>
+                  </div>
                 </div>
+
                 <button
                   id="nav-logout-btn"
                   onClick={logoutUser}
                   title="Sign Out"
-                  className="p-2 text-slate-500 hover:text-red-650 rounded-xl hover:bg-slate-200/50 transition"
+                  className="p-2 text-slate-500 hover:text-red-650 rounded-xl hover:bg-slate-200/50 transition cursor-pointer"
                 >
                   <LogOut className="w-4.5 h-4.5" />
                 </button>
@@ -542,8 +552,60 @@ export const Navbar: React.FC = () => {
                       value={passwordInput}
                       onChange={(e) => setPasswordInput(e.target.value)}
                       placeholder="Minimum 6 characters"
-                      className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
+                      className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 mb-3"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5 flex justify-between items-center">
+                      <span>Profile Picture (Optional)</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Click to select photo</span>
+                    </label>
+                    <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                      <div className="relative shrink-0">
+                        <img
+                          src={registerPhotoUrlInput || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&q=80'}
+                          className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs"
+                          alt="Registration avatar"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const el = document.getElementById('register-avatar-file');
+                            el?.click();
+                          }}
+                          className="absolute -bottom-1 -right-1 w-5 h-5 bg-slate-900 border border-white rounded-full text-white flex items-center justify-center shadow-xs hover:bg-slate-805 cursor-pointer"
+                          title="Click to select file"
+                        >
+                          <span className="text-xs font-bold leading-none">+</span>
+                        </button>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="file"
+                          id="register-avatar-file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              if (file.size > 1024 * 1024 * 3) {
+                                setAuthError('Selected photo is too large. Image size must be under 3MB.');
+                                return;
+                              }
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                if (typeof reader.result === 'string') {
+                                  setRegisterPhotoUrlInput(reader.result);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                        <p className="text-[11px] font-bold text-slate-800 leading-none mb-1">Upload custom photo</p>
+                        <p className="text-[10px] text-slate-500 leading-tight">Select any PNG, JPG, or WEBP picture from your computer or phone.</p>
+                      </div>
+                    </div>
                   </div>
                 </>
               )}
@@ -643,61 +705,6 @@ export const Navbar: React.FC = () => {
                   ? "Don't have an account yet? Create one now"
                   : 'Already have an account? Sign in here'}
               </button>
-            </div>
-            
-            {/* Quick pre-sets for testing */}
-            <div className="mt-4 bg-slate-100 p-3 rounded-xl border border-slate-200 text-[10px] text-slate-600 font-sans">
-              <span className="font-bold block text-slate-800 mb-1">💡 Quick Simulator Presets (Click to Auto-Fill):</span>
-              <div className="grid grid-cols-2 gap-1.5 mt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode('login');
-                    setLoginIdentifierInput('jane@tedbuy.com');
-                    setPasswordInput('password123');
-                  }}
-                  className="bg-white hover:bg-slate-50 p-1.5 rounded text-slate-700 border border-slate-300 text-left font-mono truncate cursor-pointer"
-                  title="Jane Smith Email"
-                >
-                  jane@tedbuy.com
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode('login');
-                    setLoginIdentifierInput('+233271122334');
-                    setPasswordInput('password123');
-                  }}
-                  className="bg-white hover:bg-slate-50 p-1.5 rounded text-slate-700 border border-slate-300 text-left font-mono truncate cursor-pointer"
-                  title="Jane Smith Phone"
-                >
-                  +233271122334
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode('login');
-                    setLoginIdentifierInput('john@tedbuy.com');
-                    setPasswordInput('password123');
-                  }}
-                  className="bg-white hover:bg-slate-50 p-1.5 rounded text-slate-700 border border-slate-300 text-left font-mono truncate cursor-pointer"
-                  title="John Store Email"
-                >
-                  john@tedbuy.com
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode('login');
-                    setLoginIdentifierInput('+233241234567');
-                    setPasswordInput('password123');
-                  }}
-                  className="bg-white hover:bg-slate-50 p-1.5 rounded text-slate-700 border border-slate-300 text-left font-mono truncate cursor-pointer"
-                  title="John Store Phone"
-                >
-                  +233241234567
-                </button>
-              </div>
             </div>
           </div>
         </div>

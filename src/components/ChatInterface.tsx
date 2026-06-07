@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Chat, Message, User } from '../types';
-import { ArrowLeft, Send, ShoppingBag, Eye, HelpCircle, SwitchCamera, MessageSquare, ShieldAlert, Star, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Send, ShoppingBag, Eye, MessageSquare, ShieldAlert, Star, CheckCircle } from 'lucide-react';
 import { ReviewModal } from './ReviewModal';
 
 export const ChatInterface: React.FC = () => {
@@ -11,7 +11,6 @@ export const ChatInterface: React.FC = () => {
     chats,
     messages,
     sendMessage,
-    switchUserSimulated,
     setCurrentView,
     setSelectedProductId,
     reviews,
@@ -386,26 +385,6 @@ export const ChatInterface: React.FC = () => {
                   </div>
                 );
               })()}
-
-              {/* Chat Simulator Helper bar */}
-              {otherUserId && (
-                <div className="bg-slate-200/50 text-slate-800 text-[11px] font-semibold px-4 py-2 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
-                  <span className="flex items-center gap-1">
-                    <HelpCircle className="w-4 h-4 text-slate-700" />
-                    <span>Logged in as <b>{currentUser.username}</b>. Want to answer this negotiation?</span>
-                  </span>
-                  <button
-                    id="simulate-reply-btn"
-                    onClick={() => {
-                      switchUserSimulated(otherUserId);
-                    }}
-                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg text-[10px] shadow-xs flex items-center gap-1 transition"
-                  >
-                    <SwitchCamera className="w-3.5 h-3.5" />
-                    <span>Reply as {otherUserName.split(' ')[0]}</span>
-                  </button>
-                </div>
-              )}
 
               {/* Chat messages viewport */}
               <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3.5 flex flex-col bg-slate-50/50 [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]">
