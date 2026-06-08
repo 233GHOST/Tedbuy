@@ -26,6 +26,7 @@ export const Navbar: React.FC = () => {
     setAuthMode,
     registerUser,
     loginUser,
+    resetPasswordEmail,
     loginWithGoogle
   } = useApp();
 
@@ -35,6 +36,8 @@ export const Navbar: React.FC = () => {
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [registerPhotoUrlInput, setRegisterPhotoUrlInput] = useState('');
+  const [resetEmailInput, setResetEmailInput] = useState('');
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isDesktopFocused, setIsDesktopFocused] = useState(false);
@@ -46,7 +49,15 @@ export const Navbar: React.FC = () => {
     setIsAuthSubmitting(true);
 
     try {
-      if (authMode === 'register') {
+      if (authMode === 'forgot-password') {
+        if (!resetEmailInput.trim()) {
+          setAuthError('Please enter your email address.');
+          setIsAuthSubmitting(false);
+          return;
+        }
+        await resetPasswordEmail(resetEmailInput.trim());
+        setPasswordResetSuccess(true);
+      } else if (authMode === 'register') {
         if (!usernameInput.trim()) {
           setAuthError('Please enter a username.');
           setIsAuthSubmitting(false);
@@ -482,13 +493,15 @@ export const Navbar: React.FC = () => {
                 <ShoppingBag className="w-4.5 h-4.5 text-slate-900" />
               </div>
               <h2 className="text-xl font-bold font-sans text-slate-950">
-                {authMode === 'login' ? 'Welcome to Tedbuy' : 'Join Tedbuy Today'}
+                {authMode === 'login' ? 'Welcome to Tedbuy' : authMode === 'register' ? 'Join Tedbuy Today' : 'Recover Account'}
               </h2>
             </div>
             <p className="text-slate-600 text-xs mb-5">
               {authMode === 'login'
                 ? 'Sign in using your registered email address or phone number. (e.g. Ama, John, or Jane)'
-                : 'Become part of our leading classifieds marketplace to sell or locate deals.'}
+                : authMode === 'register'
+                  ? 'Become part of our leading classifieds marketplace to sell or locate deals.'
+                  : 'Receive a secure password reset link to regain access to your registered account.'}
             </p>
 
             {authError && (
@@ -617,7 +630,21 @@ export const Navbar: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Password</label>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="block text-xs font-bold text-slate-700 font-sans">Password</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('forgot-password');
+                          setAuthError('');
+                          setPasswordResetSuccess(false);
+                          setResetEmailInput('');
+                        }}
+                        className="text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:underline cursor-pointer bg-transparent border-0 p-0"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
                     <input
                       type="password"
                       id="auth-login-password-input"
@@ -631,21 +658,70 @@ export const Navbar: React.FC = () => {
                 </div>
               )}
 
-              <button
-                type="submit"
-                id="auth-submit-btn"
-                disabled={isAuthSubmitting}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-500 text-white font-bold rounded-xl transition duration-200 text-sm shadow-xs flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {isAuthSubmitting ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                    <span>Authenticating...</span>
-                  </>
-                ) : (
-                  <span>{authMode === 'login' ? 'Sign In' : 'Create Account'}</span>
-                )}
-              </button>
+              {authMode === 'forgot-password' && (
+                <div className="space-y-3">
+                  {passwordResetSuccess ? (
+                    <div className="bg-emerald-50 border border-emerald-150 text-emerald-800 p-4 rounded-xl text-xs space-y-2">
+                      <p className="font-extrabold flex items-center gap-1.5 text-[12.5px]">
+                        ✉️ Reset Link Sent!
+                      </p>
+                      <p className="leading-relaxed text-slate-650">
+                        We dispatched a secure password recovery instruction email. Please review your inbox folder to reset your credentials.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('login');
+                          setPasswordResetSuccess(false);
+                          setResetEmailInput('');
+                        }}
+                        className="mt-2 w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition duration-155 cursor-pointer"
+                      >
+                        Return to Sign In
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Registered Email Address</label>
+                      <input
+                        type="email"
+                        id="auth-reset-email-input"
+                        required
+                        value={resetEmailInput}
+                        onChange={(e) => setResetEmailInput(e.target.value)}
+                        placeholder="e.g. jane@tedbuy.com"
+                        className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!passwordResetSuccess && (
+                <button
+                  type="submit"
+                  id="auth-submit-btn"
+                  disabled={isAuthSubmitting}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-500 text-white font-bold rounded-xl transition duration-200 text-sm shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isAuthSubmitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      <span>
+                        {authMode === 'login' && 'Signing in...'}
+                        {authMode === 'register' && 'Creating Account...'}
+                        {authMode === 'forgot-password' && 'Sending Reset Link...'}
+                      </span>
+                    </>
+                  ) : (
+                    <span>
+                      {authMode === 'login' && 'Sign In'}
+                      {authMode === 'register' && 'Create Account'}
+                      {authMode === 'forgot-password' && 'Send Password Reset Link'}
+                    </span>
+                  )}
+                </button>
+              )}
             </form>
 
             <div className="relative my-4.5 flex items-center justify-center">
@@ -687,15 +763,22 @@ export const Navbar: React.FC = () => {
             <div className="border-t border-slate-200 mt-5 pt-4 text-center">
               <button
                 onClick={() => {
-                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  if (authMode === 'forgot-password') {
+                    setAuthMode('login');
+                  } else {
+                    setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  }
                   setAuthError('');
                   setPasswordInput('');
+                  setPasswordResetSuccess(false);
                 }}
                 className="text-xs text-slate-600 hover:underline hover:text-slate-900 font-semibold"
               >
-                {authMode === 'login'
-                  ? "Don't have an account yet? Create one now"
-                  : 'Already have an account? Sign in here'}
+                {authMode === 'forgot-password'
+                  ? 'Cancel and return to sign in'
+                  : authMode === 'login'
+                    ? "Don't have an account yet? Create one now"
+                    : 'Already have an account? Sign in here'}
               </button>
             </div>
           </div>
