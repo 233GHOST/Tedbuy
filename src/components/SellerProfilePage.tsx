@@ -1,7 +1,8 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
-import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp } from 'lucide-react';
+import { isUserVerified, calculateTrustScore } from '../types';
 
 export const SellerProfilePage: React.FC = () => {
   const {
@@ -20,6 +21,7 @@ export const SellerProfilePage: React.FC = () => {
   } = useApp();
 
   const seller = users.find(u => u.id === selectedSellerId);
+  const isSellerVerified = isUserVerified(seller);
 
   // If no seller ID or seller not found, render fallback
   if (!seller) {
@@ -104,6 +106,8 @@ export const SellerProfilePage: React.FC = () => {
     ? (sellerReviews.reduce((sum, r) => sum + r.rating, 0) / sellerReviews.length).toFixed(1)
     : null;
 
+  const trustResult = calculateTrustScore(seller, sellerReviews);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       {/* Return link */}
@@ -119,13 +123,18 @@ export const SellerProfilePage: React.FC = () => {
       <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 sm:p-8 shadow-md text-left mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex items-center gap-5">
           <img
-            src={seller.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=160&q=80"}
+            src={seller.photoUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
             alt={seller.username}
             className="w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 object-cover shrink-0"
           />
           <div className="space-y-1.5">
-            <h1 id="seller-profile-title" className="text-xl sm:text-2xl font-bold font-sans tracking-tight text-white leading-none">
-              {seller.username}
+            <h1 id="seller-profile-title" className="text-xl sm:text-2xl font-bold font-sans tracking-tight text-white flex items-center gap-2 flex-wrap">
+              <span>{seller.username}</span>
+              {isSellerVerified && (
+                <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs bg-emerald-500/20 text-emerald-400 font-extrabold border border-emerald-500/25 px-2.5 py-0.5 rounded-full" title="Verified Seller">
+                  🛡️ Verified Seller
+                </span>
+              )}
             </h1>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-350 font-sans">
               <span className="flex items-center gap-1">
@@ -152,12 +161,15 @@ export const SellerProfilePage: React.FC = () => {
                   )}
                 </span>
               </span>
+              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-bold ${trustResult.color.includes('emerald') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-550/20' : trustResult.color.includes('indigo') ? 'bg-indigo-500/15 text-indigo-350 border-indigo-500/20' : trustResult.color.includes('amber') ? 'bg-amber-500/15 text-amber-400 border-amber-500/20' : 'bg-slate-700/30 text-slate-300 border-slate-600/30'}`} title={trustResult.feedback}>
+                🛡️ Trust Score: <b>{trustResult.score}%</b> ({trustResult.level})
+              </span>
             </div>
             
             <div className="flex flex-wrap gap-2 pt-1.5 items-center">
-              {seller.id === 'user_john' && (
-                <span className="inline-block bg-slate-800 text-slate-200 text-[9px] font-bold px-2.5 py-0.5 rounded-md border border-slate-700 uppercase tracking-widest">
-                  VERIFIED DEALER
+              {isSellerVerified && (
+                <span className="inline-block bg-slate-800 text-slate-200 text-[9px] font-bold px-2.5 py-0.5 rounded-md border border-slate-700 uppercase tracking-widest" title="This seller has completed phone and profile trust verification.">
+                  ✓ VERIFIED SELLER
                 </span>
               )}
               <span className="inline-flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2.5 py-0.5 rounded-md border border-emerald-500/15 uppercase tracking-wide">
@@ -231,6 +243,85 @@ export const SellerProfilePage: React.FC = () => {
             <p className="text-xs text-slate-500">Customer feedback on completed marketplace transactions.</p>
           </div>
 
+          {/* Dynamic Trust Card Block */}
+          <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 space-y-4 shadow-3xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                🛡️ Marketplace Trust Score
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider ${trustResult.labelClass}`}>
+                {trustResult.level}
+              </span>
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-slate-900 tracking-tight">{trustResult.score}%</span>
+              <span className="text-xs text-slate-500 font-medium">Confidence Level</span>
+            </div>
+
+            {/* Micro progress bar */}
+            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden shadow-inner">
+              <div 
+                className={`h-2 rounded-full transition-all duration-600 ${
+                  trustResult.score >= 90 ? 'bg-emerald-500' : trustResult.score >= 75 ? 'bg-indigo-600' : trustResult.score >= 50 ? 'bg-amber-505 bg-amber-500' : 'bg-rose-500'
+                }`}
+                style={{ width: `${trustResult.score}%` }}
+              />
+            </div>
+
+            <p className="text-[11px] text-slate-650 leading-relaxed">
+              {trustResult.feedback}
+            </p>
+
+            {/* Score Breakdowns */}
+            <div className="pt-3 border-t border-slate-200/60 space-y-2.5 text-xs">
+              <span className="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Trust Factors Breakdown</span>
+
+              {/* Profile setup status */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-550 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-slate-400" />
+                  Profile Identity Verification
+                </span>
+                {isSellerVerified ? (
+                  <span className="text-emerald-700 font-extrabold text-[10px] bg-emerald-50 border border-emerald-150 px-2 py-0.5 rounded-md">
+                    +80 pts (Verified)
+                  </span>
+                ) : (
+                  <span className="text-amber-700 font-bold text-[10px] bg-amber-50 border border-amber-150 px-1.5 py-0.5 rounded-md">
+                    +55 pts (Basic Setup)
+                  </span>
+                )}
+              </div>
+
+              {/* Positive Reviews Check */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-550 flex items-center gap-1.5">
+                  <ThumbsUp className="w-3.5 h-3.5 text-slate-400" />
+                  Positive Reviews (★4+)
+                </span>
+                <span className="font-mono text-slate-800 font-bold">
+                  {sellerReviews.filter(r => r.rating >= 4).length} matches
+                </span>
+              </div>
+
+              {/* Negative Reviews Counter */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-550 flex items-center gap-1.5">
+                  <Star className="w-3.5 h-3.5 text-slate-400" />
+                  Critical Reviews (★1-2)
+                </span>
+                <span className={`font-mono font-bold ${sellerReviews.filter(r => r.rating <= 2).length > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                  {sellerReviews.filter(r => r.rating <= 2).length} reviews
+                </span>
+              </div>
+            </div>
+
+            <p className="text-[9px] text-slate-400 leading-snug pt-1">
+              * Note: The rating matches are aggregated from all completed and reviews-certified sales recorded in our real-time Firestore database.
+            </p>
+          </div>
+
           <div className="space-y-4">
             {sellerReviews.length === 0 ? (
               <div className="bg-slate-50 border border-slate-200 rounded-3xl p-8 text-center text-slate-400 text-xs">
@@ -246,7 +337,7 @@ export const SellerProfilePage: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <img 
                           referrerPolicy="no-referrer"
-                          src={rev.buyerPhoto || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&q=80"} 
+                          src={rev.buyerPhoto || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"} 
                           alt={rev.buyerName} 
                           className="w-7 h-7 rounded-full object-cover border border-slate-200"
                         />

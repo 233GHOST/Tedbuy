@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark, TrendingUp, TrendingDown } from 'lucide-react';
 import { ProductCard } from './ProductCard';
+import { isUserVerified, calculateTrustScore } from '../types';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -88,6 +89,8 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label })
 export const ProductDetail: React.FC = () => {
   const {
     products,
+    users,
+    reviews,
     selectedProductId,
     setCurrentView,
     currentUser,
@@ -101,6 +104,10 @@ export const ProductDetail: React.FC = () => {
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
+  const sellerUser = users?.find(u => u.id === product?.sellerId);
+  const isSellerVerified = isUserVerified(sellerUser);
+  const sellerReviews = reviews.filter(r => r.sellerId === product?.sellerId);
+  const trustResult = calculateTrustScore(sellerUser, sellerReviews);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
 
   useEffect(() => {
@@ -416,17 +423,27 @@ export const ProductDetail: React.FC = () => {
 
             <div className="flex items-center gap-3">
               <img
-                src={product.sellerPhoto || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80"}
+                src={product.sellerPhoto || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
                 alt={product.sellerName}
                 className="w-12 h-12 rounded-full border border-slate-100 object-cover"
               />
               <div className="flex-1 text-left min-w-0">
-                <h4 id="detail-seller-name" className="text-sm font-bold text-slate-900 truncate">
-                  {product.sellerName}
+                <h4 id="detail-seller-name" className="text-sm font-bold text-slate-900 flex items-center gap-1.5 min-w-0 flex-wrap">
+                  <span className="truncate">{product.sellerName}</span>
+                  {isSellerVerified && (
+                    <span className="inline-flex items-center gap-0.5 text-[9px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-150/40 px-1.5 py-0.5 rounded-md shrink-0" title="Verified Tedbuy Seller">
+                      🛡️ Verified Seller
+                    </span>
+                  )}
                 </h4>
                 <p className="text-[11px] text-slate-450">
                   Joined Tedbuy: {product.sellerJoinDate}
                 </p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${trustResult.color.includes('emerald') ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : trustResult.color.includes('indigo') ? 'bg-indigo-50/80 text-indigo-750 border-indigo-200/50' : trustResult.color.includes('amber') ? 'bg-amber-50 text-amber-700 border-amber-200/30' : 'bg-slate-100 text-slate-600 border-slate-200'}`} title={trustResult.feedback}>
+                    🛡️ Trust Score: <b>{trustResult.score}%</b>
+                  </span>
+                </div>
               </div>
               
               {!isOwner && (

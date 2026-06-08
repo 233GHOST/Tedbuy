@@ -1,5 +1,5 @@
 import React from 'react';
-import { Product } from '../types';
+import { Product, isUserVerified } from '../types';
 import { useApp } from '../context/AppContext';
 import { MapPin, Eye, Calendar, Tag, Bookmark } from 'lucide-react';
 
@@ -10,6 +10,7 @@ interface ProductCardProps {
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const {
     currentUser,
+    users,
     toggleSaveProduct,
     setSelectedProductId,
     setCurrentView,
@@ -19,6 +20,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   } = useApp();
 
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
+  const seller = users?.find(u => u.id === product.sellerId);
+  const isSellerVerified = isUserVerified(seller);
 
   const handleDetailsClick = () => {
     incrementProductViews(product.id);
@@ -126,7 +129,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             <span className="truncate">{product.location}</span>
           </div>
           <div className="flex items-center justify-between mt-0.5 text-[10px]">
-            <span className="text-slate-400">Seller: <b className="text-slate-600 font-medium">{product.sellerName}</b></span>
+            <span className="text-slate-400 flex items-center gap-1 flex-wrap">
+              Seller: <b className="text-slate-700 font-semibold">{product.sellerName}</b>
+              {isSellerVerified && (
+                <span className="inline-flex items-center gap-0.5 text-[9px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-150/40 px-1 py-0.2 rounded-md" title="Verified Tedbuy Seller">
+                  🛡️ Verified
+                </span>
+              )}
+            </span>
             {!product.images[0] && <span className="bg-slate-200 text-slate-600 px-1 py-0.5 rounded text-[8px]">No Image</span>}
           </div>
         </div>

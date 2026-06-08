@@ -52,8 +52,8 @@ export const Navbar: React.FC = () => {
           setIsAuthSubmitting(false);
           return;
         }
-        if (!registerEmailInput.trim() && !registerPhoneInput.trim()) {
-          setAuthError('Please provide at least an Email address or a Phone number to sign up.');
+        if (!registerEmailInput.trim()) {
+          setAuthError('Email address is required to register an account.');
           setIsAuthSubmitting(false);
           return;
         }
@@ -98,7 +98,7 @@ export const Navbar: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       if (err?.code === 'auth/operation-not-allowed' || err?.message?.includes('operation-not-allowed')) {
-        setAuthError('Authentication via Email/Password is currently not enabled or supported on the server. Please sign in using Google or contact support.');
+        setAuthError('Authentication via Email/Password is not enabled in Firebase Console for your project. Please go to Authentication -> Sign-in method and enable "Email/Password".');
       } else if (err?.code === 'auth/email-already-in-use') {
         setAuthError('This email or phone number is already registered.');
       } else if (err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential' || err?.message?.includes('invalid-credential') || err?.message?.includes('wrong-password')) {
@@ -335,9 +335,9 @@ export const Navbar: React.FC = () => {
                   title="Manage Profile Settings"
                 >
                   <img
-                    src={currentUser.photoUrl || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&q=80"}
+                    src={currentUser.photoUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
                     alt={currentUser.username}
-                    className="w-8 h-8 rounded-full border border-slate-300 object-cover hidden sm:block"
+                    className="w-8 h-8 rounded-full border border-slate-300 object-cover"
                   />
                   <div className="flex flex-col text-left hidden lg:block leading-none">
                     <span className="text-xs font-semibold text-slate-800 block truncate max-w-[90px]">
@@ -348,15 +348,6 @@ export const Navbar: React.FC = () => {
                     </span>
                   </div>
                 </div>
-
-                <button
-                  id="nav-logout-btn"
-                  onClick={logoutUser}
-                  title="Sign Out"
-                  className="p-2 text-slate-500 hover:text-red-650 rounded-xl hover:bg-slate-200/50 transition cursor-pointer"
-                >
-                  <LogOut className="w-4.5 h-4.5" />
-                </button>
               </div>
             ) : (
               <button
@@ -522,10 +513,11 @@ export const Navbar: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Email Address <span className="text-slate-500 text-[10px] font-normal">(Optional if phone is provided)</span></label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Email Address *</label>
                     <input
                       type="email"
                       id="auth-email-input"
+                      required
                       value={registerEmailInput}
                       onChange={(e) => setRegisterEmailInput(e.target.value)}
                       placeholder="name@example.com"
@@ -533,7 +525,7 @@ export const Navbar: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number <span className="text-slate-500 text-[10px] font-normal">(Optional if email is provided)</span></label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number <span className="text-slate-500 text-[10px] font-normal">(Optional)</span></label>
                     <input
                       type="text"
                       id="auth-phone-input"
@@ -563,7 +555,7 @@ export const Navbar: React.FC = () => {
                     <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
                       <div className="relative shrink-0">
                         <img
-                          src={registerPhotoUrlInput || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&q=80'}
+                          src={registerPhotoUrlInput || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
                           className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs"
                           alt="Registration avatar"
                         />
@@ -613,14 +605,14 @@ export const Navbar: React.FC = () => {
               {authMode === 'login' && (
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Email Address or Phone Number</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Email Address</label>
                     <input
-                      type="text"
+                      type="email"
                       id="auth-login-identifier-input"
                       required
                       value={loginIdentifierInput}
                       onChange={(e) => setLoginIdentifierInput(e.target.value)}
-                      placeholder="e.g. jane@tedbuy.com or +233271122334"
+                      placeholder="e.g. jane@tedbuy.com"
                       className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
                     />
                   </div>

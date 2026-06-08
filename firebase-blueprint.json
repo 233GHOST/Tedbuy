@@ -13,7 +13,8 @@
         "joinDate": { "type": "string", "description": "Month and year when user signed up" },
         "role": { "type": "string", "enum": ["buyer", "seller", "both"], "description": "User persona role" },
         "followingSellers": { "type": "array", "description": "List of seller IDs followed by this user" },
-        "savedProductIds": { "type": "array", "description": "List of bookmarked product IDs" }
+        "savedProductIds": { "type": "array", "description": "List of bookmarked product IDs" },
+        "isVerified": { "type": "boolean", "description": "Completed profile setup or phone/email verification" }
       },
       "required": ["id", "username", "role", "joinDate"]
     },

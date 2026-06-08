@@ -10,6 +10,71 @@ export interface User {
   savedProductIds?: string[]; // Bookmarked product IDs
 }
 
+export const isUserVerified = (user?: User | null): boolean => {
+  if (!user) return false;
+  
+  // Completed Profile Setup check
+  const hasUsername = !!(user.username && user.username.trim().length >= 3);
+  const hasPhone = !!(user.phoneNumber && user.phoneNumber.trim().length >= 7);
+
+  return hasUsername && hasPhone;
+};
+
+export const calculateTrustScore = (
+  seller?: User | null,
+  sellerReviews: Review[] = []
+): { score: number; level: string; color: string; feedback: string; labelClass: string } => {
+  if (!seller) return { score: 0, level: 'Unrated', color: 'text-slate-400 bg-slate-150', labelClass: 'text-slate-600 bg-slate-100', feedback: 'No seller record.' };
+
+  const isVerified = isUserVerified(seller);
+  let score = isVerified ? 80 : 55; // verified profile boosts confidence instantly
+
+  // Factor in reviews
+  const totalReviews = sellerReviews.length;
+  if (totalReviews > 0) {
+    const positiveReviews = sellerReviews.filter(r => r.rating >= 4);
+    const negativeReviews = sellerReviews.filter(r => r.rating <= 2);
+    
+    // Each positive review adds to trust
+    score += positiveReviews.length * 5;
+    
+    // Each negative review heavily penalizes trust
+    score -= negativeReviews.length * 15;
+  }
+
+  // Constrain between 30 and 100
+  score = Math.max(30, Math.min(100, score));
+
+  let level = 'Standard';
+  let color = 'bg-blue-50 border-blue-200/60 text-blue-850';
+  let labelClass = 'bg-blue-600 text-white';
+  let feedback = 'Profile details are registered. Trade safely with community agreements.';
+
+  if (score >= 90) {
+    level = 'Excellent Quality';
+    color = 'bg-emerald-50 border-emerald-250/50 text-emerald-900';
+    labelClass = 'bg-emerald-600 text-white';
+    feedback = 'Immaculate feedback & completed marketplace standards.';
+  } else if (score >= 75) {
+    level = 'High Confidence';
+    color = 'bg-indigo-50 border-indigo-250/30 text-indigo-900';
+    labelClass = 'bg-indigo-600 text-white';
+    feedback = 'Verified profile, solid ratings & active service.';
+  } else if (score >= 50) {
+    level = 'Fair Rank';
+    color = 'bg-amber-50 border-amber-250/40 text-amber-900';
+    labelClass = 'bg-amber-500 text-white';
+    feedback = 'Ready for transactions. Complete profiles or obtain positive feedback.';
+  } else {
+    level = 'Caution';
+    color = 'bg-rose-50 border-rose-250/40 text-rose-900';
+    labelClass = 'bg-rose-650 text-white';
+    feedback = 'Minimal profile data or unsatisfactory ratings. Use caution.';
+  }
+
+  return { score, level, color, feedback, labelClass };
+};
+
 export type Category = 'Phones' | 'Laptops' | 'Fashion' | 'Home Appliances' | 'Vehicles' | 'Other';
 
 export interface Product {

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut } from 'lucide-react';
+import { isUserVerified } from '../types';
 
 export const ProfileSettings: React.FC = () => {
-  const { currentUser, updateUserProfile, deleteAccount, setCurrentView } = useApp();
+  const { currentUser, updateUserProfile, deleteAccount, logoutUser, setCurrentView } = useApp();
 
   if (!currentUser) {
     return (
@@ -26,7 +27,6 @@ export const ProfileSettings: React.FC = () => {
 
   const [username, setUsername] = useState(currentUser.username || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser.phoneNumber || '');
-  const [photoUrl, setPhotoUrl] = useState(currentUser.photoUrl || '');
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser.role || 'both');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -34,29 +34,6 @@ export const ProfileSettings: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 1024 * 1024 * 3) {
-      setErrorMsg('Selected image is too large. Image size must be under 3MB.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setPhotoUrl(reader.result);
-      }
-    };
-    reader.onerror = () => {
-      setErrorMsg('Failed to process image file.');
-    };
-    reader.readAsDataURL(file);
-  };
 
   const handleValidationAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,7 +58,6 @@ export const ProfileSettings: React.FC = () => {
       await updateUserProfile({
         username: username.trim(),
         phoneNumber: phoneNumber.trim() || undefined,
-        photoUrl: photoUrl.trim() || undefined,
         role
       });
       setSaveSuccess(true);
@@ -143,34 +119,8 @@ export const ProfileSettings: React.FC = () => {
         {/* Left Side: Avatar Panel & Info summary */}
         <div className="space-y-6">
           <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-3xs flex flex-col items-center text-center">
-            {/* Hidden file selector input */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept="image/*"
-              className="hidden"
-            />
-
-            <div 
-              onClick={() => {
-                fileInputRef.current?.click();
-              }}
-              className="relative group mb-4 cursor-pointer hover:scale-103 transition duration-200"
-              title="Click to select photo block from device"
-            >
-              <img
-                src={photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf3775de?auto=format&fit=crop&w=150&q=80'}
-                alt={username || 'Profile avatar'}
-                className="w-28 h-28 rounded-full object-cover border-4 border-slate-100 shadow-sm"
-              />
-              <div className="absolute inset-0 bg-slate-950/40 rounded-full opacity-0 group-hover:opacity-100 transition duration-200 flex flex-col items-center justify-center text-white text-[10px] font-bold p-1">
-                <Camera className="w-4 h-4 mb-0.5" />
-                <span>Change Photo</span>
-              </div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center border-2 border-white shadow-md">
-                <Camera className="w-4 h-4" />
-              </div>
+            <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 border border-slate-200 mb-4 shadow-3xs">
+              <User className="w-10 h-10 stroke-[1.5]" />
             </div>
 
             <h3 className="text-sm font-black text-slate-900">{username || 'Anonymous User'}</h3>
@@ -194,18 +144,80 @@ export const ProfileSettings: React.FC = () => {
                 </span>
               </div>
             </div>
+
+            {/* Sign Out Action Button */}
+            <button
+              type="button"
+              onClick={async () => {
+                await logoutUser();
+                setCurrentView('browse');
+              }}
+              className="w-full mt-5 px-4.5 py-3 bg-slate-50 hover:bg-rose-50 hover:text-rose-700 text-slate-700 font-bold rounded-2xl text-xs transition duration-150 border border-slate-200 hover:border-rose-150 flex items-center justify-center gap-2 cursor-pointer shadow-3xs"
+            >
+              <LogOut className="w-4 h-4 text-slate-500 hover:text-rose-600" />
+              <span>Sign Out of Account</span>
+            </button>
           </div>
 
-          {/* Verification Shield notice */}
-          <div className="bg-emerald-50 border border-emerald-150 rounded-2xl p-5 shadow-3xs">
+          {/* Verification Status Card */}
+          <div className="bg-slate-50 border border-slate-200/95 rounded-3xl p-5 space-y-4 shadow-3xs text-left">
             <div className="flex gap-3">
-              <ShieldCheck className="w-5.5 h-5.5 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <h4 className="text-xs font-bold text-emerald-950">Ghana trust verification</h4>
-                <p className="text-[11px] text-emerald-700 leading-relaxed">
-                  Your profile handles local trades smoothly when buyers verification is backed by absolute data transparency. Always specify a valid contact channel!
+              <ShieldCheck className="w-6 h-6 text-indigo-650 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-black text-slate-950 uppercase tracking-wide">Market Trust Verification</h4>
+                <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
+                  Verified sellers receive a prominent trust badge across all their listings and store profiles, increasing their views and buyer interest up to 80%.
                 </p>
               </div>
+            </div>
+
+            {/* Checklist of verification criteria */}
+            <div className="pt-3 border-t border-slate-200/60 space-y-2.5 text-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block">Verification Checklist</span>
+              
+              {/* Display Name Requirement */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Display Name Set (Length ≥ 3)</span>
+                {username.trim().length >= 3 ? (
+                  <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-md flex items-center gap-1">✓ Complete</span>
+                ) : (
+                  <span className="text-slate-400 bg-slate-200/60 px-2 py-0.5 rounded-md">Missing</span>
+                )}
+              </div>
+
+              {/* Phone set */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Ghana Mobile Setup</span>
+                {phoneNumber.trim().length >= 7 ? (
+                  <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-md flex items-center gap-1">✓ Complete</span>
+                ) : (
+                  <span className="text-slate-400 bg-slate-200/60 px-2 py-0.5 rounded-md">Missing</span>
+                )}
+              </div>
+
+            </div>
+
+            {/* Overall status and triggers */}
+            <div className="pt-3 border-t border-slate-200/60 flex flex-col items-center text-center gap-2">
+              {isUserVerified({ ...currentUser, username, phoneNumber }) ? (
+                <div className="w-full bg-emerald-50 border border-emerald-150 rounded-2xl p-3 flex flex-col items-center">
+                  <span className="text-xs font-black text-emerald-800 flex items-center gap-1 justify-center">
+                    🛡️ Verified Seller Status Active
+                  </span>
+                  <p className="text-[10px] text-emerald-600 mt-1 leading-snug">
+                    Amazing! Your account meets all verified guidelines. The trust badge resides on your ads!
+                  </p>
+                </div>
+              ) : (
+                <div className="w-full bg-amber-50 border border-amber-150 rounded-2xl p-3 flex flex-col items-center">
+                  <span className="text-xs font-black text-amber-800">
+                    ⚠️ Verification Pending
+                  </span>
+                  <p className="text-[10px] text-amber-600 mt-1 leading-snug">
+                    Complete your profile above to obtain automatic verification.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -353,67 +365,7 @@ export const ProfileSettings: React.FC = () => {
               </div>
             </div>
 
-            {/* Profile Avatar Selection Section */}
-            <div>
-              <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-2.5">
-                Profile Photo / Avatar
-              </label>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Upload Section */}
-                <div className="text-center border-2 border-dashed border-slate-250 rounded-2xl p-6 bg-slate-50 relative hover:border-slate-350 transition duration-150 flex flex-col justify-center min-h-[140px]">
-                  <div className="space-y-2">
-                    <div className="w-10 h-10 bg-white rounded-lg shadow-3xs border border-slate-100 flex items-center justify-center mx-auto text-slate-550">
-                      <Camera className="w-5 h-5 stroke-[1.5]" />
-                    </div>
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="text-xs font-extrabold text-slate-900 hover:text-slate-800 underline cursor-pointer"
-                      >
-                        Browse files
-                      </button>
-                      <span className="text-xs text-slate-500"> to upload from device</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 font-medium">
-                      PNG, JPG, JPEG, WEBP files supported. Max size 3MB.
-                    </p>
-                  </div>
-                  {photoUrl && photoUrl.startsWith('data:image') && (
-                    <div className="mt-4 flex items-center justify-center gap-2.5 bg-white p-2 rounded-xl border border-slate-150 inline-flex mx-auto scale-95 shadow-3xs">
-                      <img src={photoUrl} className="w-7 h-7 rounded-full object-cover" alt="Uploaded preview" />
-                      <span className="text-[10px] text-emerald-700 font-bold">Successfully selected!</span>
-                      <div className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center">
-                        <Check className="w-2.5 h-2.5 stroke-[3]" />
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                {/* Custom URL Section */}
-                <div className="border border-slate-205 rounded-2xl p-5 bg-white flex flex-col justify-center space-y-3 min-h-[140px]">
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-800">Or use a custom web image URL</h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Paste a direct hotlink to your hosted profile image.
-                    </p>
-                  </div>
-                  <input
-                    type="url"
-                    value={photoUrl && !photoUrl.startsWith('data:image') ? photoUrl : ''}
-                    onChange={(e) => setPhotoUrl(e.target.value)}
-                    placeholder="Enter image URL starting with https://..."
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-450 focus:outline-none focus:ring-2 focus:ring-slate-450 text-xs transition"
-                  />
-                  {photoUrl && !photoUrl.startsWith('data:image') && (
-                    <p className="text-[10px] text-slate-500 truncate text-left">
-                      Current: <span className="font-mono text-[9px] text-slate-600 bg-slate-50 px-1 py-0.5 rounded">{photoUrl}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
 
             {/* Note about real database persistence */}
             <div className="flex items-start gap-2 bg-slate-50 p-4 rounded-xl text-[11px] text-slate-600 border border-slate-200/50">
