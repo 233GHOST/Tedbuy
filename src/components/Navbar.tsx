@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw } from 'lucide-react';
+import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const {
@@ -34,7 +34,10 @@ export const Navbar: React.FC = () => {
   const [registerEmailInput, setRegisterEmailInput] = useState('');
   const [registerPhoneInput, setRegisterPhoneInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
+  const [registerPasswordInput, setRegisterPasswordInput] = useState('');
+  const [loginPasswordInput, setLoginPasswordInput] = useState('');
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [registerPhotoUrlInput, setRegisterPhotoUrlInput] = useState('');
   const [resetEmailInput, setResetEmailInput] = useState('');
   const [passwordResetSuccess, setPasswordResetSuccess] = useState(false);
@@ -43,6 +46,15 @@ export const Navbar: React.FC = () => {
   const [isDesktopFocused, setIsDesktopFocused] = useState(false);
   const [isMobileFocused, setIsMobileFocused] = useState(false);
 
+  // Robust cleaning function for emails/usernames that strips hidden spaces, smart quotes, etc.
+  const cleanEmailString = (val: string): string => {
+    if (!val) return '';
+    return val
+      .trim()
+      .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036"']/g, '') // strip curly and smart quotes
+      .replace(/\s+/g, ''); // strip any spaces inside the email/identifier
+  };
+
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
@@ -50,12 +62,13 @@ export const Navbar: React.FC = () => {
 
     try {
       if (authMode === 'forgot-password') {
-        if (!resetEmailInput.trim()) {
+        const cleanResetEmail = cleanEmailString(resetEmailInput);
+        if (!cleanResetEmail) {
           setAuthError('Please enter your email address.');
           setIsAuthSubmitting(false);
           return;
         }
-        await resetPasswordEmail(resetEmailInput.trim());
+        await resetPasswordEmail(cleanResetEmail);
         setPasswordResetSuccess(true);
       } else if (authMode === 'register') {
         if (!usernameInput.trim()) {
@@ -63,12 +76,13 @@ export const Navbar: React.FC = () => {
           setIsAuthSubmitting(false);
           return;
         }
-        if (!registerEmailInput.trim()) {
+        const cleanRegEmail = cleanEmailString(registerEmailInput);
+        if (!cleanRegEmail) {
           setAuthError('Email address is required to register an account.');
           setIsAuthSubmitting(false);
           return;
         }
-        if (!passwordInput || passwordInput.length < 6) {
+        if (!registerPasswordInput || registerPasswordInput.length < 6) {
           setAuthError('Password must be at least 6 characters long.');
           setIsAuthSubmitting(false);
           return;
@@ -76,34 +90,35 @@ export const Navbar: React.FC = () => {
         
         await registerUser(
           usernameInput.trim(),
-          registerEmailInput.trim() || undefined,
+          cleanRegEmail,
           registerPhoneInput.trim() || undefined,
-          passwordInput,
+          registerPasswordInput,
           registerPhotoUrlInput || undefined
         );
         setShowAuthModal(false);
         setUsernameInput('');
         setRegisterEmailInput('');
         setRegisterPhoneInput('');
-        setPasswordInput('');
+        setRegisterPasswordInput('');
         setRegisterPhotoUrlInput('');
       } else {
-        if (!loginIdentifierInput.trim()) {
+        const cleanLoginId = cleanEmailString(loginIdentifierInput);
+        if (!cleanLoginId) {
           setAuthError('Please enter your Registered email address or phone number.');
           setIsAuthSubmitting(false);
           return;
         }
-        if (!passwordInput) {
+        if (!loginPasswordInput) {
           setAuthError('Please enter your password.');
           setIsAuthSubmitting(false);
           return;
         }
         
-        const success = await loginUser(loginIdentifierInput.trim(), passwordInput);
+        const success = await loginUser(cleanLoginId, loginPasswordInput);
         if (success) {
           setShowAuthModal(false);
           setLoginIdentifierInput('');
-          setPasswordInput('');
+          setLoginPasswordInput('');
         }
       }
     } catch (err: any) {
@@ -550,15 +565,25 @@ export const Navbar: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.2">Account Password *</label>
-                    <input
-                      type="password"
-                      id="auth-password-input"
-                      required
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder="Minimum 6 characters"
-                      className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 mb-3"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showRegisterPassword ? 'text' : 'password'}
+                        id="auth-password-input"
+                        required
+                        value={registerPasswordInput}
+                        onChange={(e) => setRegisterPasswordInput(e.target.value)}
+                        placeholder="Minimum 6 characters"
+                        className="w-full pl-3.5 pr-10 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 mb-3"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRegisterPassword(!showRegisterPassword)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 cursor-pointer bg-transparent border-0 p-0"
+                        title={showRegisterPassword ? 'Hide Password' : 'Show Password'}
+                      >
+                        {showRegisterPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 flex justify-between items-center">
@@ -645,15 +670,25 @@ export const Navbar: React.FC = () => {
                         Forgot Password?
                       </button>
                     </div>
-                    <input
-                      type="password"
-                      id="auth-login-password-input"
-                      required
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder="Enter account password"
-                      className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showLoginPassword ? 'text' : 'password'}
+                        id="auth-login-password-input"
+                        required
+                        value={loginPasswordInput}
+                        onChange={(e) => setLoginPasswordInput(e.target.value)}
+                        placeholder="Enter account password"
+                        className="w-full pl-3.5 pr-10 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(!showLoginPassword)}
+                        className="absolute right-3 top-2 text-slate-400 hover:text-slate-650 cursor-pointer bg-transparent border-0 p-0"
+                        title={showLoginPassword ? 'Hide Password' : 'Show Password'}
+                      >
+                        {showLoginPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -769,7 +804,8 @@ export const Navbar: React.FC = () => {
                     setAuthMode(authMode === 'login' ? 'register' : 'login');
                   }
                   setAuthError('');
-                  setPasswordInput('');
+                  setRegisterPasswordInput('');
+                  setLoginPasswordInput('');
                   setPasswordResetSuccess(false);
                 }}
                 className="text-xs text-slate-600 hover:underline hover:text-slate-900 font-semibold"
