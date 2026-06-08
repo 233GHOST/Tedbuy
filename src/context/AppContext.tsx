@@ -109,6 +109,8 @@ interface AppContextType {
   setShowAuthModal: (show: boolean) => void;
   authMode: 'login' | 'register' | 'forgot-password';
   setAuthMode: (mode: 'login' | 'register' | 'forgot-password') => void;
+  unauthorizedDomainDetected: boolean;
+  setUnauthorizedDomainDetected: (detected: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -136,6 +138,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
+  const [unauthorizedDomainDetected, setUnauthorizedDomainDetected] = useState(false);
 
   // Synchronize dynamic searches with localStorage
   useEffect(() => {
@@ -146,16 +149,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Clear simulated user since real auth is active.
-        localStorage.removeItem('tedbuy_simulated_user');
-
         const userRef = doc(db, 'users', firebaseUser.uid);
         const userDoc = await getDoc(userRef);
         if (userDoc.exists()) {
           setCurrentUserState(userDoc.data() as User);
         } else {
-          // If profile doc doesn't exist yet, populate a quick profile
-          const initialUsername = firebaseUser.email?.split('@')[0] || 'User';
+          // If profile doc doesn't exist yet, we create it dynamically.
+          // This accommodates newly registered users or returning Google users seamlessly.
+          const initialUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
           const newUser: User = {
             id: firebaseUser.uid,
             username: initialUsername,
@@ -170,18 +171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setCurrentUserState(newUser);
         }
       } else {
-        // Check if there is a simulated user in localStorage
-        const storedSim = localStorage.getItem('tedbuy_simulated_user');
-        if (storedSim) {
-          try {
-            const parsed = JSON.parse(storedSim);
-            setCurrentUserState(parsed);
-          } catch (_) {
-            setCurrentUserState(null);
-          }
-        } else {
-          setCurrentUserState(null);
-        }
+        setCurrentUserState(null);
       }
     });
 
@@ -319,28 +309,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // User Authentication Action APIs
   const registerUser = async (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => {
-    const actualPassword = password || 'password123';
     if (!email) {
       throw new Error('Email address is required to register an account.');
     }
+    if (!password) {
+      throw new Error('Password is required to register an account.');
+    }
 
     try {
-      let uid: string;
-      try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), actualPassword);
-        uid = userCredential.user.uid;
-      } catch (err: any) {
-        if (
-          err?.code === 'auth/network-request-failed' ||
-          err?.message?.includes('network-request-failed') ||
-          err?.message?.includes('network error')
-        ) {
-          console.warn('Firebase Auth network error on register, registering via Firestore simulator:', err);
-          uid = `user_offline_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
-        } else {
-          throw err;
-        }
-      }
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const uid = userCredential.user.uid;
 
       const newUser: User = {
         id: uid,
@@ -356,20 +334,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       await setDoc(doc(db, 'users', uid), cleanObject(newUser));
       setCurrentUserState(newUser);
-      localStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
-      
-      // Update local storage offline backup mapping
-      try {
-        const stored = localStorage.getItem('tedbuy_local_users_backup');
-        const list: User[] = stored ? JSON.parse(stored) : [];
-        if (!list.some(u => u.email?.toLowerCase() === newUser.email?.toLowerCase() || u.id === newUser.id)) {
-          list.push(newUser);
-          localStorage.setItem('tedbuy_local_users_backup', JSON.stringify(list));
-        }
-      } catch (err) {
-        console.warn('Could not save user backup locally:', err);
-      }
-
       return newUser;
     } catch (error) {
       console.error('Core Firebase registration failed:', error);
@@ -388,82 +352,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         await signInWithEmailAndPassword(auth, cleanIdentifier, password);
         return true;
-      } catch (authError: any) {
-        console.warn('Firebase Auth failed for email:', cleanIdentifier, '; checking self-healing or Firestore backup fallback...', authError);
-        
-        // Self-Healing Fallback:
-        // If password login fails due to credentials mismatch, try logging in with the default fallback 'password123'.
-        // This handles cases where accounts were created during a state transition mismatch with default passwords.
-        if (
-          authError?.code === 'auth/wrong-password' ||
-          authError?.code === 'auth/invalid-credential' ||
-          authError?.message?.includes('invalid-credential') ||
-          authError?.message?.includes('wrong-password')
-        ) {
-          try {
-            console.info('Attempting fallback logging using default password "password123"...');
-            await signInWithEmailAndPassword(auth, cleanIdentifier, 'password123');
-            if (auth.currentUser) {
-              console.info('Successfully logged in with fallback password! Automatically modifying user password to entered password...');
-              await updatePassword(auth.currentUser, password);
-              console.info('Successfully healed password in Firebase Authentication database!');
-            }
-            return true;
-          } catch (fallbackErr) {
-            console.warn('Fallback authentication with "password123" also failed.', fallbackErr);
-          }
-        }
-
-        // If Firebase Auth fails (network issue, user-not-found, invalid-credential, or wrong-password),
-        // we check Firestore for a backup registration to allow login of seeded / existing profiles dynamically.
-        let matchedUser: User | null = null;
-        try {
-          const usersSnap = await getDocs(collection(db, 'users'));
-          usersSnap.forEach((docSnap) => {
-            const u = docSnap.data() as User;
-            if (u.email?.toLowerCase() === cleanIdentifier.toLowerCase()) {
-              matchedUser = u;
-            }
-          });
-        } catch (dbErr) {
-          console.error('Could not query users database list for fallback match:', dbErr);
-        }
-
-        // If Firestore query fails or gets blocked due to network issues, look up in offline backup map!
-        if (!matchedUser) {
-          try {
-            const cached = localStorage.getItem('tedbuy_local_users_backup');
-            if (cached) {
-              const uList: User[] = JSON.parse(cached);
-              matchedUser = uList.find(u => u.email?.toLowerCase() === cleanIdentifier.toLowerCase()) || null;
-            }
-          } catch (localErr) {
-            console.warn('Could not read local users backup:', localErr);
-          }
-        }
-
-        if (matchedUser) {
-          console.log('Successfully signed in via resilient registration fallback (Firestore or offline local-storage backup):', matchedUser);
-          setCurrentUserState(matchedUser);
-          localStorage.setItem('tedbuy_simulated_user', JSON.stringify(matchedUser));
-          return true;
-        }
-
-        // If no match found at all, throw original/custom error
-        if (
-          authError?.code === 'auth/wrong-password' ||
-          authError?.code === 'auth/invalid-credential' ||
-          authError?.message?.includes('invalid-credential') ||
-          authError?.message?.includes('wrong-password')
-        ) {
-          throw authError;
-        } else {
-          throw new Error('No registered account was found with this email. Please sign up first.');
-        }
+      } catch (authErrorDetail: any) {
+        console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
+        throw authErrorDetail;
       }
     } else {
       // Identifier is a username or phone number (e.g. Ama, John, Jane or +233...)
-      let matchedUser: User | null = null;
+      let targetEmail: string | null = null;
       try {
         const usersSnap = await getDocs(collection(db, 'users'));
         usersSnap.forEach((docSnap) => {
@@ -471,35 +366,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
           const matchPhone = u.phoneNumber?.replace(/\s+/g, '') === cleanIdentifier.replace(/\s+/g, '');
           if (matchUsername || matchPhone) {
-            matchedUser = u;
+            targetEmail = u.email || null;
           }
         });
       } catch (dbErr) {
         console.error('Could not query users list from database for username/phone match:', dbErr);
       }
 
-      // If Firestore query fails or gets blocked due to network issues, look up in offline backup map!
-      if (!matchedUser) {
+      if (targetEmail) {
         try {
-          const cached = localStorage.getItem('tedbuy_local_users_backup');
-          if (cached) {
-            const uList: User[] = JSON.parse(cached);
-            matchedUser = uList.find(u => {
-              const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
-              const matchPhone = u.phoneNumber?.replace(/\s+/g, '') === cleanIdentifier.replace(/\s+/g, '');
-              return matchUsername || matchPhone;
-            }) || null;
-          }
-        } catch (localErr) {
-          console.warn('Could not read local users backup:', localErr);
+          await signInWithEmailAndPassword(auth, targetEmail, password);
+          return true;
+        } catch (authErrorDetail: any) {
+          console.error('Firebase Auth failed for user email resolved from username/phone:', targetEmail, authErrorDetail);
+          throw authErrorDetail;
         }
-      }
-
-      if (matchedUser) {
-        console.log('Successfully signed in via Username/Phone fallback matching (Firestore or offline local-storage backup):', matchedUser);
-        setCurrentUserState(matchedUser);
-        localStorage.setItem('tedbuy_simulated_user', JSON.stringify(matchedUser));
-        return true;
       } else {
         throw new Error('No registered account was found matching this username or phone number.');
       }
@@ -515,24 +396,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('Please enter a valid email address.');
     }
     try {
-      try {
-        await sendPasswordResetEmail(auth, emailTarget);
-      } catch (error: any) {
-        if (
-          error?.code === 'auth/network-request-failed' ||
-          error?.message?.includes('network-request-failed') ||
-          error?.message?.includes('network-error') ||
-          error?.message?.toLowerCase().includes('network')
-        ) {
-          console.warn('Firebase reset password network error, simulating reset password success for:', emailTarget);
-          // Simulate offline reset password success to guarantee standard sandbox capability
-          return;
-        } else if (error?.code === 'auth/user-not-found') {
-          throw new Error('No registered account was found with this email.');
-        } else {
-          throw error;
-        }
-      }
+      await sendPasswordResetEmail(auth, emailTarget);
     } catch (error) {
       console.error('Firebase password reset failed:', error);
       throw error;
@@ -544,49 +408,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error: any) {
-      if (
-        error?.code === 'auth/network-request-failed' ||
-        error?.message?.includes('network-request-failed') ||
-        error?.message?.includes('network error') ||
-        error?.message?.toLowerCase().includes('network') ||
-        error?.message?.includes('failed-to-open-popup')
-      ) {
-        console.warn('Google Authentication blocked or offline, signing in as user email:', error);
-        const googleEmail = 'asumaduvincent7@gmail.com'; // Using user's real email
-        let matchedUser: User | null = null;
-        try {
-          const usersSnap = await getDocs(collection(db, 'users'));
-          usersSnap.forEach((docSnap) => {
-            const u = docSnap.data() as User;
-            if (u.email?.toLowerCase() === googleEmail.toLowerCase()) {
-              matchedUser = u;
-            }
-          });
-        } catch (dbErr) {
-          console.warn('Could not query users database:', dbErr);
-        }
+      const isUnauthDomain = 
+        error?.code === 'auth/unauthorized-domain' || 
+        error?.message?.includes('unauthorized-domain') || 
+        error?.message?.includes('unauthorized domain');
 
-        if (!matchedUser) {
-          matchedUser = {
-            id: `google_${googleEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
-            username: 'Vincent Asumadu',
-            email: googleEmail,
-            role: 'both',
-            joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-            photoUrl: undefined,
-            followingSellers: [],
-            savedProductIds: []
-          };
-          try {
-            await setDoc(doc(db, 'users', matchedUser.id), cleanObject(matchedUser));
-          } catch (dbErr) {
-            console.warn('Failed to register simulated Google account:', dbErr);
-          }
-        }
-
-        setCurrentUserState(matchedUser);
-        localStorage.setItem('tedbuy_simulated_user', JSON.stringify(matchedUser));
-        return;
+      if (isUnauthDomain) {
+        setUnauthorizedDomainDetected(true);
       }
       console.error('Core Google Authentication failed:', error);
       throw error;
@@ -595,7 +423,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logoutUser = async () => {
     try {
-      localStorage.removeItem('tedbuy_simulated_user');
       await signOut(auth);
       setCurrentUserState(null);
       setCurrentView('browse');
@@ -976,6 +803,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     localStorage.removeItem('tedbuy_simulated_user');
+
+    // Filter out deleted user from local users backup cache
+    try {
+      const cached = localStorage.getItem('tedbuy_local_users_backup');
+      if (cached) {
+        const uList: User[] = JSON.parse(cached);
+        const filtered = uList.filter(u => u.id !== uid);
+        localStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+      }
+    } catch (cacheErr) {
+      console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
+    }
+
     await signOut(auth);
     setCurrentUserState(null);
     setCurrentView('browse');
@@ -1067,7 +907,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showAuthModal,
       setShowAuthModal,
       authMode,
-      setAuthMode
+      setAuthMode,
+      unauthorizedDomainDetected,
+      setUnauthorizedDomainDetected
     }}>
       {children}
     </AppContext.Provider>

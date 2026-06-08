@@ -32,7 +32,9 @@ const MarketplaceContent: React.FC = () => {
     setSelectedCategory,
     currentUser,
     setCurrentView,
-    setShowAuthModal
+    setShowAuthModal,
+    unauthorizedDomainDetected,
+    setUnauthorizedDomainDetected
   } = useApp();
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
@@ -88,6 +90,62 @@ const MarketplaceContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       <Navbar />
+
+      {unauthorizedDomainDetected && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 py-3.5 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-left">
+            <div className="flex gap-2.5 items-start">
+              <span className="text-lg mt-0.5" role="img" aria-label="warning">⚠️</span>
+              <div>
+                <p className="font-bold text-sm text-amber-950">Firebase Unauthorized Domain Notice</p>
+                <p className="text-xs text-amber-800 mt-1 max-w-4xl leading-relaxed">
+                  Google Sign-In was automatically completed via a <strong>resilient sandbox fallback profile</strong> because the current domain is not yet added to your Firebase authorized domains list. To enable real Google authentication, visit your <strong>Firebase Console &rarr; Authentication &rarr; Settings &rarr; Authorized domains</strong>, click <strong>Add domain</strong>, and add:
+                </p>
+                <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-[11px] bg-amber-100 border border-amber-200/65 px-2 py-1 rounded text-amber-950 font-medium select-all">
+                    {typeof window !== 'undefined' ? window.location.hostname : 'development-domain'}
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        navigator.clipboard.writeText(window.location.hostname);
+                      }
+                    }}
+                    className="text-[11px] font-bold bg-amber-600/10 hover:bg-amber-600/15 border border-amber-300 text-amber-950 px-2 py-1 rounded transition cursor-pointer active:scale-95"
+                  >
+                    Copy
+                  </button>
+                  
+                  {typeof window !== 'undefined' && window.location.hostname.includes('-dev-') && (
+                    <>
+                      <span className="font-mono text-[11px] bg-amber-100 border border-amber-200/65 px-2 py-1 rounded text-amber-950 font-medium select-all">
+                        {window.location.hostname.replace('-dev-', '-pre-')}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            navigator.clipboard.writeText(window.location.hostname.replace('-dev-', '-pre-'));
+                          }
+                        }}
+                        className="text-[11px] font-bold bg-amber-600/10 hover:bg-amber-600/15 border border-amber-300 text-amber-950 px-2 py-1 rounded transition cursor-pointer active:scale-95"
+                      >
+                        Copy
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => setUnauthorizedDomainDetected(false)}
+              className="p-1 px-2.5 text-xs font-bold hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-lg hover:text-amber-950 transition shrink-0 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1">
         {currentView === 'browse' && (
