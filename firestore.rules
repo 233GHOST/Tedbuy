@@ -54,8 +54,7 @@ service cloud.firestore {
                data.description is string && data.description.size() <= 2000 &&
                (data.price is int || data.price is float) && data.price > 0 &&
                data.category in ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Other'] &&
-               data.location is string && data.location.size() <= 150 &&
-               (data.get('negotiable', null) == null || data.negotiable is bool);
+               data.location is string && data.location.size() <= 150;
       }
 
       allow read: if true; // Listings are public

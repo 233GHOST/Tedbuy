@@ -114,7 +114,6 @@ export interface Product {
   brand?: string;
   condition?: string;
   images: string[]; // 1 to 5 images (urls or base64)
-  negotiable?: boolean;
   createdAt: string;
   viewsCount: number;
 }
