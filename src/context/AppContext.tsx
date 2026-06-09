@@ -58,10 +58,11 @@ interface AppContextType {
   createProduct: (productData: {
     title: string;
     description: string;
-    price: number;
+    price: string | number;
     category: Category;
     location: string;
     images: string[];
+    videos?: string[];
     brand?: string;
     condition?: string;
     negotiable?: boolean;
@@ -529,10 +530,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const createProduct = async (productData: {
     title: string;
     description: string;
-    price: number;
+    price: string | number;
     category: Category;
     location: string;
     images: string[];
+    videos?: string[];
     brand?: string;
     condition?: string;
     negotiable?: boolean;

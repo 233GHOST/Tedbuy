@@ -52,10 +52,11 @@ service cloud.firestore {
                (isOwner(data.sellerId) || data.sellerId.matches('^user_.*') || data.id.matches('^prod_.*')) &&
                data.title is string && data.title.size() <= 128 &&
                data.description is string && data.description.size() <= 2000 &&
-               (data.price is int || data.price is float) && data.price > 0 &&
+               ((data.price is string && data.price.size() <= 80) || ((data.price is int || data.price is float) && data.price > 0)) &&
                data.category in ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Other'] &&
                data.location is string && data.location.size() <= 150 &&
-               (data.get('negotiable', null) == null || data.negotiable is bool);
+               (data.get('negotiable', null) == null || data.negotiable is bool) &&
+               (data.get('videos', null) == null || (data.videos is list && data.videos.size() <= 2));
       }
 
       allow read: if true; // Listings are public

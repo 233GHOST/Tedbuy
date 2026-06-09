@@ -1,7 +1,7 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
-import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera } from 'lucide-react';
 import { isUserVerified, calculateTrustScore } from '../types';
 
 export const SellerProfilePage: React.FC = () => {
@@ -17,7 +17,8 @@ export const SellerProfilePage: React.FC = () => {
     unfollowSeller,
     reviews,
     setShowAuthModal,
-    setAuthMode
+    setAuthMode,
+    updateUserProfile
   } = useApp();
 
   const seller = users.find(u => u.id === selectedSellerId);
@@ -122,11 +123,69 @@ export const SellerProfilePage: React.FC = () => {
       {/* Profile Bio Showcase Header (Bento layout) */}
       <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 sm:p-8 shadow-md text-left mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex items-center gap-5">
-          <img
-            src={seller.photoUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
-            alt={seller.username}
-            className="w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 object-cover shrink-0"
-          />
+          {isOwner ? (
+            <div 
+              onClick={() => document.getElementById('seller-avatar-upload')?.click()}
+              className="group relative w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 bg-slate-800 cursor-pointer overflow-hidden transition-all hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 shrink-0 select-none flex items-center justify-center"
+              title="Click to update your store logo/profile picture"
+            >
+              {seller.photoUrl ? (
+                <img
+                  src={seller.photoUrl}
+                  alt={seller.username}
+                  className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                />
+              ) : null}
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center text-white">
+                <Camera className="w-5 h-5 text-white/95 animate-pulse" />
+                <span className="text-[9px] font-bold mt-1 text-white/90">Add Photo</span>
+              </div>
+              <input
+                type="file"
+                id="seller-avatar-upload"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (!file.type.startsWith('image/')) {
+                    alert('Please select a valid image file.');
+                    return;
+                  }
+                  if (file.size > 4 * 1024 * 1024) {
+                    alert('Please upload an image smaller than 4MB.');
+                    return;
+                  }
+                  const reader = new FileReader();
+                  reader.onloadend = async () => {
+                    if (typeof reader.result === 'string') {
+                      try {
+                        await updateUserProfile({
+                          username: currentUser.username,
+                          phoneNumber: currentUser.phoneNumber,
+                          photoUrl: reader.result,
+                          role: currentUser.role || 'both'
+                        });
+                      } catch (err) {
+                        console.error('Error updating seller avatar: ', err);
+                      }
+                    }
+                  };
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 bg-slate-800 shrink-0 overflow-hidden flex items-center justify-center">
+              {seller.photoUrl ? (
+                <img
+                  src={seller.photoUrl}
+                  alt={seller.username}
+                  className="w-full h-full object-cover"
+                />
+              ) : null}
+            </div>
+          )}
           <div className="space-y-1.5">
             <h1 id="seller-profile-title" className="text-xl sm:text-2xl font-bold font-sans tracking-tight text-white flex items-center gap-2 flex-wrap">
               <span>{seller.username}</span>
@@ -335,12 +394,16 @@ export const SellerProfilePage: React.FC = () => {
                   <div key={rev.id} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-3xs space-y-2 text-left border-b-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <img 
-                          referrerPolicy="no-referrer"
-                          src={rev.buyerPhoto || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"} 
-                          alt={rev.buyerName} 
-                          className="w-7 h-7 rounded-full object-cover border border-slate-200"
-                        />
+                        {rev.buyerPhoto ? (
+                          <img 
+                            referrerPolicy="no-referrer"
+                            src={rev.buyerPhoto}
+                            alt={rev.buyerName} 
+                            className="w-7 h-7 rounded-full object-cover border border-slate-200"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                        )}
                         <div>
                           <p className="text-xs font-bold text-slate-900 leading-none">{rev.buyerName}</p>
                           <p className="text-[9px] text-slate-450 font-mono mt-0.5">
