@@ -204,12 +204,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
       const pList: Product[] = [];
       snapshot.forEach(docSnap => {
-        pList.push(docSnap.data() as Product);
+        const item = docSnap.data() as Product;
+        if (item.id !== 'prod_1780927804590') {
+          pList.push(item);
+        }
       });
       setProducts(pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');
     });
+
+    // Clean up/delete the target orphaned product from Firestore permanently
+    const performCleanup = async () => {
+      try {
+        await deleteDoc(doc(db, 'products', 'prod_1780927804590'));
+        console.log('Successfully completed cleanup of orphaned product prod_1780927804590');
+      } catch (err) {
+        console.warn('Ondemand cleanup notice: could not delete orphaned product prod_1780927804590 from Firestore:', err);
+      }
+    };
+    performCleanup();
+
     return unsub;
   }, []);
 
@@ -808,12 +823,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteAccount = async () => {
     if (!currentUser) return;
     const uid = currentUser.id;
+
+    // 1. Delete all user's listings (products)
+    try {
+      const userProducts = products.filter(p => p.sellerId === uid);
+      for (const p of userProducts) {
+        await deleteDoc(doc(db, 'products', p.id));
+      }
+    } catch (productErr) {
+      console.warn('Could not fully delete user product listings upon account deletion:', productErr);
+    }
+
+    // 2. Delete all user's reviews (authored or received)
+    try {
+      const userReviews = reviews.filter(r => r.buyerId === uid || r.sellerId === uid);
+      for (const r of userReviews) {
+        await deleteDoc(doc(db, 'reviews', r.id));
+      }
+    } catch (reviewErr) {
+      console.warn('Could not fully delete user reviews upon account deletion:', reviewErr);
+    }
+
+    // 3. Delete all chats involving this user
+    const userChats = chats.filter(c => c.buyerId === uid || c.sellerId === uid);
+    try {
+      for (const c of userChats) {
+        await deleteDoc(doc(db, 'chats', c.id));
+      }
+    } catch (chatErr) {
+      console.warn('Could not fully delete user chats upon account deletion:', chatErr);
+    }
+
+    // 4. Delete all messages sent/received by this user, or belonging to those deleted chats
+    try {
+      const chatIdsSet = new Set(userChats.map(c => c.id));
+      const userMessages = messages.filter(m => m.senderId === uid || m.recipientId === uid || chatIdsSet.has(m.chatId));
+      for (const m of userMessages) {
+        await deleteDoc(doc(db, 'messages', m.id));
+      }
+    } catch (msgErr) {
+      console.warn('Could not fully delete user messages upon account deletion:', msgErr);
+    }
+
+    // 5. Delete user profile document from firestore
     try {
       await deleteDoc(doc(db, 'users', uid));
     } catch (err) {
       console.warn('Could not delete user document from firestore:', err);
     }
 
+    // 6. Delete Firebase Auth user
     try {
       const authUser = auth.currentUser;
       if (authUser && authUser.uid === uid) {

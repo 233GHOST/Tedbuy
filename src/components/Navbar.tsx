@@ -814,7 +814,7 @@ export const Navbar: React.FC = () => {
                   <span>Cancel and return to sign in</span>
                 ) : authMode === 'login' ? (
                   <span className="text-slate-600 font-medium">
-                    Don't have an account yet? <strong className="font-extrabold text-slate-950 underline hover:text-slate-950 transition-all text-xs tracking-tight">Create one now</strong>
+                    Don't have an account yet? <strong className="font-black text-slate-950 underline hover:text-slate-850 transition-all text-[13px] tracking-tight ml-1">Create account now</strong>
                   </span>
                 ) : (
                   <span>Already have an account? Sign in here</span>
