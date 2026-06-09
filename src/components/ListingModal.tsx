@@ -303,19 +303,15 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">Item Condition</label>
-                <select
+                <input
+                  type="text"
+                  required
                   id="listing-condition"
                   value={condition}
                   onChange={(e) => setCondition(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
-                >
-                  <option value="Brand New">Brand New (Unopened box)</option>
-                  <option value="Refurbished">Refurbished (Certified / Renewed)</option>
-                  <option value="Used (Like New)">Used (Like New - Pristine)</option>
-                  <option value="Used (Good)">Used (Good - Light wear but perfect)</option>
-                  <option value="Used (Fair)">Used (Fair - Visible wear / scratches)</option>
-                  <option value="For Parts">For Parts / Not working</option>
-                </select>
+                  placeholder="e.g. Brand New, Used (Like New), Good Condition"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
               </div>
             </div>
 
