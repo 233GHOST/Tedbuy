@@ -45,7 +45,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [category, setCategory] = useState<Category>('Phones');
   const [location, setLocation] = useState('');
   const [brand, setBrand] = useState('');
-  const [condition, setCondition] = useState('Used (Good)');
+  const [condition, setCondition] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [negotiable, setNegotiable] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -74,7 +74,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setLocation(productToEdit.location);
       setImages(productToEdit.images);
       setBrand(productToEdit.brand || '');
-      setCondition(productToEdit.condition || 'Used (Good)');
+      setCondition(productToEdit.condition || '');
       setNegotiable(productToEdit.negotiable !== false); // Default to true if undefined or true
 
       // Try to back-parse the product's location (e.g. "East Legon, Accra")
@@ -118,7 +118,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setCategory('Phones');
       setLocation('');
       setBrand('');
-      setCondition('Used (Good)');
+      setCondition('');
       setImages([]);
       setAdRegion('Greater Accra');
       setAdCity('Accra');
@@ -305,11 +305,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">Item Condition</label>
                 <input
                   type="text"
-                  required
                   id="listing-condition"
                   value={condition}
                   onChange={(e) => setCondition(e.target.value)}
-                  placeholder="e.g. Brand New, Used (Like New), Good Condition"
+                  placeholder="e.g. Brand New, Good Condition (optional)"
                   className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>

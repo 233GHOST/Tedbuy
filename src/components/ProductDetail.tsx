@@ -336,7 +336,7 @@ export const ProductDetail: React.FC = () => {
               <div className="border-l border-slate-200 pl-2.5">
                 <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Condition</span>
                 <span id="detail-condition-badge" className="text-xs font-extrabold text-slate-905 block mt-0.5">
-                  {product.condition || 'Used (Good)'}
+                  {product.condition || 'Not Specified'}
                 </span>
               </div>
               <div className="border-l border-slate-200 pl-2.5">
