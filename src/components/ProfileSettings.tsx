@@ -27,6 +27,7 @@ export const ProfileSettings: React.FC = () => {
 
   const [username, setUsername] = useState(currentUser.username || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser.phoneNumber || '');
+  const [photoUrl, setPhotoUrl] = useState<string | undefined>(currentUser.photoUrl);
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser.role || 'both');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -34,6 +35,34 @@ export const ProfileSettings: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
+  const handleAvatarClick = () => {
+    document.getElementById('profile-avatar-upload')?.click();
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMsg('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrorMsg('Please select a valid image file (JPEG, PNG, WEBP).');
+      return;
+    }
+
+    if (file.size > 4 * 1024 * 1024) {
+      setErrorMsg('Please upload an image smaller than 4MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        setPhotoUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleValidationAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +87,7 @@ export const ProfileSettings: React.FC = () => {
       await updateUserProfile({
         username: username.trim(),
         phoneNumber: phoneNumber.trim() || undefined,
+        photoUrl,
         role
       });
       setSaveSuccess(true);
@@ -94,6 +124,15 @@ export const ProfileSettings: React.FC = () => {
       transition={{ duration: 0.35, ease: 'easeOut' }}
       className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left font-sans"
     >
+      {/* Hidden file input for avatar */}
+      <input
+        type="file"
+        id="profile-avatar-upload"
+        accept="image/*"
+        className="hidden"
+        onChange={handleAvatarChange}
+      />
+
       {/* Upper header action area */}
       <div className="flex items-center justify-between mb-8 border-b border-slate-250/75 pb-4">
         <div className="flex items-center gap-3">
@@ -118,9 +157,27 @@ export const ProfileSettings: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Side: Avatar Panel & Info summary */}
         <div className="space-y-6">
-          <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-3xs flex flex-col items-center text-center">
-            <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 border border-slate-200 mb-4 shadow-3xs">
-              <User className="w-10 h-10 stroke-[1.5]" />
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-3xs flex flex-col items-center text-center animate-fade-in">
+            {/* Clickable Profile Avatar to upload */}
+            <div 
+              onClick={handleAvatarClick}
+              className="group relative w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200/60 mb-4 shadow-3xs cursor-pointer overflow-hidden transition-all hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 select-none"
+              title="Click to change profile picture"
+            >
+              {photoUrl ? (
+                <img src={photoUrl} alt="Profile Avatar" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" />
+              ) : (
+                <img
+                  src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                  alt="Default Profile Avatar"
+                  className="w-full h-full object-cover transition duration-300"
+                />
+              )}
+              {/* Overlay on hover */}
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center text-white">
+                <Camera className="w-5 h-5 text-white/95" />
+                <span className="text-[10px] font-bold mt-1 text-white/95">Add Photo</span>
+              </div>
             </div>
 
             <h3 className="text-sm font-black text-slate-900">{username || 'Anonymous User'}</h3>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark, TrendingUp, TrendingDown, Copy, Check } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark, TrendingUp, TrendingDown, Copy, Check, X, Camera } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { isUserVerified, calculateTrustScore } from '../types';
 import {
@@ -108,7 +108,12 @@ export const ProductDetail: React.FC = () => {
   const isSellerVerified = isUserVerified(sellerUser);
   const sellerReviews = reviews.filter(r => r.sellerId === product?.sellerId);
   const trustResult = calculateTrustScore(sellerUser, sellerReviews);
-  const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string } | null>(null);
+  const [activeMediaIdx, setActiveMediaIdx] = useState(0);
+  const mediaGallery = product ? [
+    ...product.images.map(url => ({ type: 'image' as const, url })),
+    ...(product.videos || []).map(url => ({ type: 'video' as const, url }))
+  ] : [];
   const [isCopied, setIsCopied] = useState(false);
   const [showTikTokToast, setShowTikTokToast] = useState(false);
 
@@ -150,7 +155,7 @@ export const ProductDetail: React.FC = () => {
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
-    setActiveImageIdx(0);
+    setActiveMediaIdx(0);
   }, [selectedProductId]);
 
   if (!product) {
@@ -208,11 +213,39 @@ export const ProductDetail: React.FC = () => {
     }
   };
 
-  const formattedPrice = new Intl.NumberFormat('en-GH', {
-    style: 'currency',
-    currency: 'GHS',
-    maximumFractionDigits: 0
-  }).format(product.price);
+  const extractNumericPrice = (priceVal: string | number): number | null => {
+    if (typeof priceVal === 'number') return priceVal;
+    const cleanStr = priceVal.replace(/GHS/gi, '').replace(/,/g, '').trim();
+    const num = Number(cleanStr);
+    if (!isNaN(num) && cleanStr !== '') return num;
+    const matches = priceVal.replace(/,/g, '').match(/\d+(\.\d+)?/);
+    if (matches) {
+      return Number(matches[0]);
+    }
+    return null;
+  };
+
+  const formatProductPrice = (priceVal: string | number) => {
+    if (typeof priceVal === 'number') {
+      return new Intl.NumberFormat('en-GH', {
+        style: 'currency',
+        currency: 'GHS',
+        maximumFractionDigits: 0
+      }).format(priceVal);
+    }
+    const cleanStr = priceVal.replace(/GHS/gi, '').replace(/,/g, '').trim();
+    const num = Number(cleanStr);
+    if (!isNaN(num) && cleanStr !== '') {
+      return new Intl.NumberFormat('en-GH', {
+        style: 'currency',
+        currency: 'GHS',
+        maximumFractionDigits: 0
+      }).format(num);
+    }
+    return priceVal;
+  };
+
+  const formattedPrice = formatProductPrice(product.price);
 
   const rawDate = new Date(product.createdAt);
   const dateFormatted = rawDate.toLocaleDateString('en-US', {
@@ -226,9 +259,11 @@ export const ProductDetail: React.FC = () => {
     .filter(p => p.category === product.category && p.id !== product.id)
     .slice(0, 4);
 
-  const priceHistory = generatePriceHistory(product.id, product.price);
+  const numericPrice = extractNumericPrice(product.price);
+  const hasPriceTrend = numericPrice !== null;
+  const priceHistory = generatePriceHistory(product.id, numericPrice || 1000);
   const startPrice = priceHistory[0].price;
-  const currentPrice = product.price;
+  const currentPrice = numericPrice || 1000;
   const lowestPrice = Math.min(...priceHistory.map(h => h.price));
   const highestPrice = Math.max(...priceHistory.map(h => h.price));
 
@@ -250,39 +285,63 @@ export const ProductDetail: React.FC = () => {
 
       {/* Main product view grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left">
-        {/* Left column: Visual display images (7 cols) */}
+        {/* Left column: Visual display images & videos (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
           <div className="relative aspect-4/3 w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md">
-            <img
-              src={product.images[activeImageIdx] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80'}
-              alt={product.title}
-              className="max-w-full max-h-full object-contain"
-            />
+            {mediaGallery[activeMediaIdx]?.type === 'video' ? (
+              <video
+                src={mediaGallery[activeMediaIdx].url}
+                className="max-w-full max-h-full object-contain w-full h-full"
+                controls
+                autoPlay
+                muted
+              />
+            ) : (
+              <img
+                src={mediaGallery[activeMediaIdx]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80'}
+                alt={product.title}
+                referrerPolicy="no-referrer"
+                className="max-w-full max-h-full object-contain"
+              />
+            )}
             
             {/* Overlay indicators */}
-            <span className="absolute top-4 left-4 bg-slate-900/80 backdrop-blur-xs text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+            <span className="absolute top-4 left-4 bg-slate-900/80 backdrop-blur-xs text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider z-10">
               {product.category}
             </span>
-            <span className="absolute bottom-4 right-4 bg-slate-900/80 backdrop-blur-xs text-slate-100 text-xs px-3 py-1 rounded-full font-mono">
-              Image {activeImageIdx + 1} of {product.images.length}
+            <span className="absolute bottom-4 right-4 bg-slate-900/80 backdrop-blur-xs text-slate-100 text-xs px-3 py-1 rounded-full font-mono z-10">
+              {mediaGallery[activeMediaIdx]?.type === 'video' ? 'Video' : 'Image'} {activeMediaIdx + 1} of {mediaGallery.length}
             </span>
           </div>
 
           {/* Thumbnails list */}
-          {product.images.length > 1 && (
+          {mediaGallery.length > 1 && (
             <div className="grid grid-cols-5 gap-3">
-              {product.images.map((imgUrl, i) => (
+              {mediaGallery.map((med, i) => (
                 <button
                   key={i}
-                  id={`image-thumb-${i}`}
-                   onClick={() => setActiveImageIdx(i)}
-                   className={`aspect-square rounded-xl overflow-hidden bg-slate-100 border-2 transition-all ${
-                     i === activeImageIdx
-                       ? 'border-slate-800 scale-95 shadow-sm'
-                       : 'border-transparent hover:border-slate-350 hover:scale-98'
-                   }`}
+                  id={`media-thumb-${i}`}
+                  onClick={() => setActiveMediaIdx(i)}
+                  className={`aspect-square rounded-xl overflow-hidden bg-slate-100 border-2 transition-all relative ${
+                    i === activeMediaIdx
+                      ? 'border-slate-800 scale-95 shadow-sm'
+                      : 'border-transparent hover:border-slate-350 hover:scale-98'
+                  }`}
                 >
-                  <img src={imgUrl} alt="Thumbnail preview" className="w-full h-full object-cover" />
+                  {med.type === 'video' ? (
+                    <>
+                      <video src={med.url} className="w-full h-full object-cover pointer-events-none" />
+                      <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center">
+                        <div className="w-6 h-6 rounded-full bg-white/80 flex items-center justify-center text-slate-900 shadow-xs">
+                          <svg className="w-3.5 h-3.5 fill-current ml-0.5" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                          </svg>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <img src={med.url} alt="Thumbnail preview" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                  )}
                 </button>
               ))}
             </div>
@@ -293,9 +352,18 @@ export const ProductDetail: React.FC = () => {
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-xs space-y-5">
             <div className="space-y-2">
-              <span className="text-3xl font-black text-slate-950 font-sans tracking-tight">
-                {formattedPrice}
-              </span>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="text-3xl font-black text-slate-950 font-sans tracking-tight">
+                  {formattedPrice}
+                </span>
+                <span id="detail-price-negotiable-label" className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                  product.negotiable !== false
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-250/50'
+                    : 'bg-slate-100 text-slate-650 border border-slate-200'
+                }`}>
+                  {product.negotiable !== false ? 'Negotiable' : 'Fixed Price'}
+                </span>
+              </div>
               <h1 id="detail-product-title" className="text-xl font-bold font-sans text-slate-900 leading-snug">
                 {product.title}
               </h1>
@@ -316,18 +384,26 @@ export const ProductDetail: React.FC = () => {
               </span>
             </div>
 
-            {/* Brand and Condition specifications module */}
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 border border-slate-150 rounded-2xl p-3.5 font-sans">
+            {/* Brand, Condition, and Negotiability specifications module */}
+            <div className="grid grid-cols-3 gap-2 bg-slate-50 border border-slate-150 rounded-2xl p-3 font-sans">
               <div>
                 <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Brand / Make</span>
-                <span id="detail-brand-badge" className="text-sm font-extrabold text-slate-800 truncate block mt-0.5">
+                <span id="detail-brand-badge" className="text-xs font-extrabold text-slate-800 truncate block mt-0.5">
                   {product.brand || 'Generic / Other'}
                 </span>
               </div>
-              <div className="border-l border-slate-200 pl-3">
+              <div className="border-l border-slate-200 pl-2.5">
                 <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Condition</span>
-                <span id="detail-condition-badge" className="text-sm font-extrabold text-slate-905 block mt-0.5">
-                  {product.condition || 'Used (Good)'}
+                <span id="detail-condition-badge" className="text-xs font-extrabold text-slate-905 block mt-0.5">
+                  {product.condition || 'Not Specified'}
+                </span>
+              </div>
+              <div className="border-l border-slate-200 pl-2.5">
+                <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Negotiable</span>
+                <span id="detail-negotiable-badge" className={`text-xs font-extrabold block mt-0.5 ${
+                  product.negotiable !== false ? 'text-emerald-600' : 'text-slate-600'
+                }`}>
+                  {product.negotiable !== false ? 'Yes' : 'No'}
                 </span>
               </div>
             </div>
@@ -472,83 +548,85 @@ export const ProductDetail: React.FC = () => {
           </div>
 
           {/* 30-Day Price Trend Analysis */}
-          <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-xs space-y-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 font-sans tracking-tight">30-Day Price Trend</h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">Price fluctuation trajectory over the past 30 days</p>
+          {hasPriceTrend && (
+            <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-xs space-y-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-sans tracking-tight">30-Day Price Trend</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Price fluctuation trajectory over the past 30 days</p>
+                </div>
+                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 font-mono border ${
+                  pctDiff >= 0 
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-150' 
+                    : 'bg-rose-50 text-rose-750 border-rose-150'
+                }`}>
+                  {pctDiff >= 0 ? <TrendingUp className="w-3.5 h-3.5 text-emerald-600" /> : <TrendingDown className="w-3.5 h-3.5 text-rose-600" />}
+                  <span>{formattedPct}</span>
+                </span>
               </div>
-              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 font-mono border ${
-                pctDiff >= 0 
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-150' 
-                  : 'bg-rose-50 text-rose-750 border-rose-150'
-              }`}>
-                {pctDiff >= 0 ? <TrendingUp className="w-3.5 h-3.5 text-emerald-600" /> : <TrendingDown className="w-3.5 h-3.5 text-rose-600" />}
-                <span>{formattedPct}</span>
-              </span>
-            </div>
 
-            <div className="h-36 w-full font-sans">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={priceHistory}
-                  margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
-                >
-                  <defs>
-                    <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={pctDiff >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0.15}/>
-                      <stop offset="95%" stopColor={pctDiff >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis 
-                    dataKey="date" 
-                    tickLine={false} 
-                    axisLine={false} 
-                    tick={{ fill: '#94a3b8', fontSize: 9 }}
-                    ticks={[priceHistory[0].date, priceHistory[14].date, priceHistory[29].date]}
-                  />
-                  <YAxis 
-                    tickLine={false} 
-                    axisLine={false} 
-                    tick={{ fill: '#94a3b8', fontSize: 9 }}
-                    domain={['auto', 'auto']}
-                    tickFormatter={(v) => `GH₵${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area 
-                    type="monotone" 
-                    dataKey="price" 
-                    stroke={pctDiff >= 0 ? "#10b981" : "#f43f5e"} 
-                    strokeWidth={2}
-                    fillOpacity={1} 
-                    fill="url(#colorPrice)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+              <div className="h-36 w-full font-sans">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={priceHistory}
+                    margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={pctDiff >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0.15}/>
+                        <stop offset="95%" stopColor={pctDiff >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickLine={false} 
+                      axisLine={false} 
+                      tick={{ fill: '#94a3b8', fontSize: 9 }}
+                      ticks={[priceHistory[0].date, priceHistory[14].date, priceHistory[29].date]}
+                    />
+                    <YAxis 
+                      tickLine={false} 
+                      axisLine={false} 
+                      tick={{ fill: '#94a3b8', fontSize: 9 }}
+                      domain={['auto', 'auto']}
+                      tickFormatter={(v) => `GH₵${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`}
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="price" 
+                      stroke={pctDiff >= 0 ? "#10b981" : "#f43f5e"} 
+                      strokeWidth={2}
+                      fillOpacity={1} 
+                      fill="url(#colorPrice)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
 
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center font-sans">
-              <div>
-                <span className="block text-[10px] text-slate-400 font-medium">30d Ago</span>
-                <span className="text-xs font-bold text-slate-700 font-mono mt-0.5 select-none block">
-                  {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(startPrice)}
-                </span>
-              </div>
-              <div className="border-x border-slate-100 font-sans">
-                <span className="block text-[10px] text-slate-400 font-medium">30d Lowest</span>
-                <span className="text-xs font-bold text-slate-750 font-mono mt-0.5 select-none block">
-                  {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(lowestPrice)}
-                </span>
-              </div>
-              <div>
-                <span className="block text-[10px] text-slate-400 font-medium font-sans">30d Highest</span>
-                <span className="text-xs font-bold text-slate-750 font-mono mt-0.5 select-none block">
-                  {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(highestPrice)}
-                </span>
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center font-sans">
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-medium">30d Ago</span>
+                  <span className="text-xs font-bold text-slate-700 font-mono mt-0.5 select-none block">
+                    {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(startPrice)}
+                  </span>
+                </div>
+                <div className="border-x border-slate-100 font-sans">
+                  <span className="block text-[10px] text-slate-400 font-medium">30d Lowest</span>
+                  <span className="text-xs font-bold text-slate-750 font-mono mt-0.5 select-none block">
+                    {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(lowestPrice)}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 font-medium font-sans">30d Highest</span>
+                  <span className="text-xs font-bold text-slate-750 font-mono mt-0.5 select-none block">
+                    {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(highestPrice)}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Seller Bio Module */}
           <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-xs space-y-4">
@@ -565,11 +643,21 @@ export const ProductDetail: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              <img
-                src={product.sellerPhoto || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
-                alt={product.sellerName}
-                className="w-12 h-12 rounded-full border border-slate-100 object-cover"
-              />
+              {product.sellerPhoto ? (
+                <img
+                  src={product.sellerPhoto}
+                  alt={product.sellerName}
+                  className="w-12 h-12 rounded-full border border-slate-100 object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-slate-350 transition-all"
+                  title="Click to view profile picture"
+                  onClick={() => setViewedPhoto({ url: product.sellerPhoto!, name: `${product.sellerName}'s Profile Picture` })}
+                />
+              ) : (
+                <img
+                  src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                  alt={product.sellerName}
+                  className="w-12 h-12 rounded-full border border-slate-200/80 object-cover shrink-0"
+                />
+              )}
               <div className="flex-1 text-left min-w-0">
                 <h4 id="detail-seller-name" className="text-sm font-bold text-slate-900 flex items-center gap-1.5 min-w-0 flex-wrap">
                   <span className="truncate">{product.sellerName}</span>
@@ -653,6 +741,50 @@ export const ProductDetail: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Profile Picture Full-screen Lightbox Modal */}
+      {viewedPhoto && (
+        <div 
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setViewedPhoto(null)}
+        >
+          <div 
+            className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden p-6 shadow-2xl flex flex-col items-center gap-4 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header info */}
+            <div className="flex items-center justify-between w-full border-b border-slate-800 pb-3">
+              <span className="text-sm font-bold text-slate-200 tracking-tight">{viewedPhoto.name}</span>
+              <button 
+                onClick={() => setViewedPhoto(null)}
+                className="p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Photo frame */}
+            <div className="w-64 h-64 sm:w-80 sm:h-80 rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center justify-center shadow-inner">
+              <img 
+                src={viewedPhoto.url} 
+                alt={viewedPhoto.name} 
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+            </div>
+
+            {/* Footer action buttons */}
+            <div className="flex gap-3 w-full mt-2">
+              <button
+                onClick={() => setViewedPhoto(null)}
+                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition border border-slate-750"
+              >
+                Close View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

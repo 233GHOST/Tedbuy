@@ -20,7 +20,7 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
     // Default deny catch-all
@@ -49,19 +49,33 @@ service cloud.firestore {
     match /products/{productId} {
       function isValidProduct(data) {
         return data.id is string && data.id.size() <= 128 &&
-               (isOwner(data.sellerId) || data.sellerId.matches('^user_.*') || data.id.matches('^prod_.*')) &&
-               data.title is string && data.title.size() <= 128 &&
-               data.description is string && data.description.size() <= 2000 &&
-               (data.price is int || data.price is float) && data.price > 0 &&
-               data.category in ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Other'] &&
-               data.location is string && data.location.size() <= 150;
+               data.sellerId is string && data.sellerId.size() <= 128 &&
+               (isOwner(data.sellerId) || data.sellerId.matches('^user_.*') || data.sellerId.matches('^phone_.*') || data.id.matches('^prod_.*')) &&
+               data.title is string && data.title.size() <= 200 &&
+               data.description is string && data.description.size() <= 10000 &&
+               (data.price is string || data.price is int || data.price is float || data.price is number) &&
+               data.category is string && data.category.size() <= 120 &&
+               data.location is string && data.location.size() <= 250 &&
+               (data.get('negotiable', null) == null || data.negotiable is bool) &&
+               (data.get('videos', null) == null || (data.videos is list && data.videos.size() <= 10));
       }
 
       allow read: if true; // Listings are public
       allow create: if (isSignedIn() || incoming().sellerId.matches('^user_.*')) && isValidId(productId) && isValidProduct(incoming());
-      allow update: if (isSignedIn() || existing().sellerId.matches('^user_.*')) && isValidId(productId) && (isOwner(existing().sellerId) || existing().sellerId.matches('^user_.*')) && isValidProduct(incoming()) &&
-                    incoming().sellerId == existing().sellerId;
-      allow delete: if isSignedIn() || existing().sellerId.matches('^user_.*');
+      allow update: if isValidId(productId) && (
+                      // 1. Owner can fully update the product
+                      (
+                        (isSignedIn() || existing().sellerId.matches('^user_.*')) &&
+                        (isOwner(existing().sellerId) || existing().sellerId.matches('^user_.*')) &&
+                        incoming().sellerId == existing().sellerId &&
+                        isValidProduct(incoming())
+                      ) ||
+                      // 2. Spectators can increment viewsCount
+                      (
+                        incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount'])
+                      )
+                    );
+      allow delete: if (isSignedIn() || existing().sellerId.matches('^user_.*')) && (isOwner(existing().sellerId) || existing().sellerId.matches('^user_.*'));
     }
 
     // 3. Chats Collection rules

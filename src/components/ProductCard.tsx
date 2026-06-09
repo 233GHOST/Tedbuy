@@ -39,11 +39,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     toggleSaveProduct(product.id);
   };
 
-  const formattedPrice = new Intl.NumberFormat('en-GH', {
-    style: 'currency',
-    currency: 'GHS',
-    maximumFractionDigits: 0
-  }).format(product.price);
+  const formatProductPrice = (priceVal: string | number) => {
+    if (typeof priceVal === 'number') {
+      return new Intl.NumberFormat('en-GH', {
+        style: 'currency',
+        currency: 'GHS',
+        maximumFractionDigits: 0
+      }).format(priceVal);
+    }
+    const cleanStr = priceVal.replace(/GHS/gi, '').replace(/,/g, '').trim();
+    const num = Number(cleanStr);
+    if (!isNaN(num) && cleanStr !== '') {
+      return new Intl.NumberFormat('en-GH', {
+        style: 'currency',
+        currency: 'GHS',
+        maximumFractionDigits: 0
+      }).format(num);
+    }
+    return priceVal;
+  };
+
+  const formattedPrice = formatProductPrice(product.price);
 
   // Format the relative/absolute date
   const dateFormatted = new Date(product.createdAt).toLocaleDateString('en-US', {
@@ -110,9 +126,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       {/* Detail info section */}
       <div className="p-4 flex flex-col flex-1 justify-between gap-2.5 text-left bg-linear-to-b from-white to-slate-50">
         <div className="space-y-1">
-          <span className="text-xl font-bold text-slate-900 block leading-tight font-sans tracking-tight">
-            {formattedPrice}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xl font-bold text-slate-900 block leading-tight font-sans tracking-tight">
+              {formattedPrice}
+            </span>
+            {product.negotiable !== false && (
+              <span id={`product-card-negotiable-${product.id}`} className="inline-flex items-center text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider font-sans shrink-0">
+                Neg.
+              </span>
+            )}
+          </div>
           {product.brand && (
             <span id={`product-card-brand-${product.id}`} className="inline-block text-[9px] bg-slate-100 text-slate-600 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider font-sans mb-1">
               💼 {product.brand}
