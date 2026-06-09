@@ -49,15 +49,13 @@ service cloud.firestore {
     match /products/{productId} {
       function isValidProduct(data) {
         return data.id is string && data.id.size() <= 128 &&
-               data.sellerId is string && data.sellerId.size() <= 128 &&
-               (isOwner(data.sellerId) || data.sellerId.matches('^user_.*') || data.sellerId.matches('^phone_.*') || data.id.matches('^prod_.*')) &&
-               data.title is string && data.title.size() <= 200 &&
-               data.description is string && data.description.size() <= 10000 &&
-               (data.price is string || data.price is int || data.price is float) &&
-               data.category is string && data.category.size() <= 120 &&
-               data.location is string && data.location.size() <= 250 &&
-               (data.get('negotiable', null) == null || data.negotiable is bool) &&
-               (data.get('videos', null) == null || (data.videos is list && data.videos.size() <= 10));
+               (isOwner(data.sellerId) || data.sellerId.matches('^user_.*') || data.id.matches('^prod_.*')) &&
+               data.title is string && data.title.size() <= 128 &&
+               data.description is string && data.description.size() <= 2000 &&
+               (data.price is int || data.price is float) && data.price > 0 &&
+               data.category in ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Other'] &&
+               data.location is string && data.location.size() <= 150 &&
+               (data.get('negotiable', null) == null || data.negotiable is bool);
       }
 
       allow read: if true; // Listings are public

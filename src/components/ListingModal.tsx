@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Category, Product } from '../types';
-import { X, Image, Upload, AlertCircle, Plus, Video } from 'lucide-react';
+import { X, Image, Upload, AlertCircle, Plus } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 
 interface ListingModalProps {
@@ -47,7 +47,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [brand, setBrand] = useState('');
   const [condition, setCondition] = useState('');
   const [images, setImages] = useState<string[]>([]);
-  const [videos, setVideos] = useState<string[]>([]);
   const [negotiable, setNegotiable] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,7 +73,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setCategory(productToEdit.category);
       setLocation(productToEdit.location);
       setImages(productToEdit.images);
-      setVideos(productToEdit.videos || []);
       setBrand(productToEdit.brand || '');
       setCondition(productToEdit.condition || '');
       setNegotiable(productToEdit.negotiable !== false); // Default to true if undefined or true
@@ -122,7 +120,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setBrand('');
       setCondition('');
       setImages([]);
-      setVideos([]);
       setAdRegion('Greater Accra');
       setAdCity('Accra');
       setAdNeighborhood('');
@@ -138,9 +135,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     const files = e.target.files;
     if (!files) return;
 
-    const remainingSpots = 10 - images.length;
+    const remainingSpots = 5 - images.length;
     if (files.length > remainingSpots) {
-      setErrorMsg(`You can only upload up to 10 images. You have ${images.length} uploaded, meaning you can add ${remainingSpots} more.`);
+      setErrorMsg(`You can only upload up to 5 images. You have ${images.length} uploaded, meaning you can add ${remainingSpots} more.`);
       return;
     }
 
@@ -171,60 +168,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     setImages(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
-  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setErrorMsg('');
-    const files = e.target.files;
-    if (!files) return;
-
-    const remainingSpots = 2 - videos.length;
-    if (files.length > remainingSpots) {
-      setErrorMsg(`You can only upload up to 2 videos. You have ${videos.length} uploaded, meaning you can add ${remainingSpots} more.`);
-      return;
-    }
-
-    (Array.from(files) as File[]).forEach(file => {
-      // Basic type validation
-      if (!file.type.startsWith('video/')) {
-        setErrorMsg('Only video files (MP4, WEBM, MOV) are supported.');
-        return;
-      }
-      
-      // Limit video file sizes to 10MB
-      if (file.size > 10 * 1024 * 1024) {
-        setErrorMsg('Some videos were skipped because they exceed 10MB in size.');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setVideos(prev => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const removeVideo = (indexToRemove: number) => {
-    setVideos(prev => prev.filter((_, idx) => idx !== indexToRemove));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
     if (!title.trim()) return setErrorMsg('Product title is required.');
-    
-    const rawPrice = price.trim();
-    if (!rawPrice) {
-      return setErrorMsg('Please enter a price or price details (e.g., Contact for price).');
-    }
-
-    // Try parsing input to clean number if it is numeric (even with commas)
-    let parsedPrice: string | number = rawPrice;
-    const stripCommas = rawPrice.replace(/,/g, '');
-    if (!isNaN(Number(stripCommas)) && stripCommas !== '') {
-      parsedPrice = Number(stripCommas);
+    if (!price.trim() || isNaN(Number(price)) || Number(price) <= 0) {
+      return setErrorMsg('Please enter a valid price greater than 0.');
     }
     
     // Compile clean location address
@@ -237,7 +187,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     }
     if (!description.trim()) return setErrorMsg('Please write a detailed description of the item.');
     if (images.length === 0) {
-      return setErrorMsg('Please upload at least 1 image to describe your product (Max: 10).');
+      return setErrorMsg('Please upload at least 1 image to describe your product (Max: 5).');
     }
 
     setIsSubmitting(true);
@@ -245,30 +195,28 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     try {
       if (productToEdit) {
         // Edit flow
-        await updateProduct(productToEdit.id, {
+        updateProduct(productToEdit.id, {
           title,
           description,
-          price: parsedPrice,
+          price: Number(price),
           category,
           location: compiledLocation,
           brand,
           condition,
           images,
-          videos,
           negotiable
         });
       } else {
         // Create flow
-        await createProduct({
+        createProduct({
           title,
           description,
-          price: parsedPrice,
+          price: Number(price),
           category,
           location: compiledLocation,
           brand,
           condition,
           images,
-          videos,
           negotiable
         });
       }
@@ -277,18 +225,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       // Redirect to listing dashboard
       setCurrentView('my-dashboard');
     } catch (e: any) {
-      let errStr = e?.message || String(e);
-      if (errStr.trim().startsWith('{') && errStr.trim().endsWith('}')) {
-        try {
-          const parsed = JSON.parse(errStr);
-          if (parsed.error) {
-            errStr = parsed.error;
-          }
-        } catch {
-          // ignore
-        }
-      }
-      setErrorMsg(`Submission failed: ${errStr}. (Hint: High-resolution photos/videos might exceed standard firestore sizes; try smaller images/compressing).`);
+      setErrorMsg('Something went wrong. High-resolution photos might be hitting storage limits. Try a smaller size.');
     } finally {
       setIsSubmitting(false);
     }
@@ -380,15 +317,16 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             {/* Price & Location Selectors */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price (GHS or Description)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price (GHS)</label>
                 <div className="flex gap-2">
                   <input
-                    type="text"
+                    type="number"
                     required
                     id="listing-price"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    placeholder="e.g. GHS 1,500, Negotiable, or Free"
+                    placeholder="GHS 7,500"
+                    min="1"
                     className="flex-1 px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
                   />
                   <label className="flex items-center gap-2 px-3 border border-slate-200 rounded-xl bg-slate-50/50 cursor-pointer hover:bg-slate-50 transition shrink-0 select-none">
@@ -467,8 +405,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             {/* Product Images */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-semibold text-slate-700">Product Images (1 to 10 images)</label>
-                <span className="text-[11px] text-slate-400 font-mono">{images.length}/10 files uploaded</span>
+                <label className="block text-xs font-semibold text-slate-700">Product Images (1 to 5 images)</label>
+                <span className="text-[11px] text-slate-400 font-mono">{images.length}/5 files uploaded</span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -491,7 +429,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 ))}
 
                 {/* Upload Trigger Square */}
-                {images.length < 10 && (
+                {images.length < 5 && (
                   <label className="aspect-square border-2 border-dashed border-slate-250 hover:border-slate-400 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 hover:bg-slate-100 transition-all group">
                     <input
                       type="file"
@@ -506,53 +444,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 )}
               </div>
               <p className="text-[10px] text-slate-400 mt-2">
-                📌 **Tip**: Click &ldquo;Add Photos&rdquo; to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
-              </p>
-            </div>
-
-            {/* Product Videos */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-semibold text-slate-700">Product Videos (Optional, Max 2 videos)</label>
-                <span className="text-[11px] text-slate-400 font-mono">{videos.length}/2 files uploaded</span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                {/* Video Previews */}
-                {videos.map((vidStr, idx) => (
-                  <div key={idx} className="relative aspect-square rounded-xl bg-slate-50 border border-slate-200 group overflow-hidden">
-                    <video src={vidStr} className="w-full h-full object-cover" controls />
-                    <button
-                      type="button"
-                      onClick={() => removeVideo(idx)}
-                      className="absolute top-1 right-1 p-1 bg-red-650 hover:bg-red-700 text-white rounded-full transition-all opacity-90 hover:scale-105 z-10"
-                      title="Delete Video"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-sm z-10">
-                      Video #{idx + 1}
-                    </span>
-                  </div>
-                ))}
-
-                {/* Video Trigger Square */}
-                {videos.length < 2 && (
-                  <label className="aspect-square border-2 border-dashed border-slate-250 hover:border-slate-400 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 hover:bg-slate-100 transition-all group">
-                    <input
-                      type="file"
-                      multiple
-                      accept="video/*"
-                      onChange={handleVideoUpload}
-                      className="hidden"
-                    />
-                    <Video className="w-5 h-5 text-slate-400 group-hover:text-slate-800 group-hover:-translate-y-0.5 transition" />
-                    <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-slate-900">Add Videos</span>
-                  </label>
-                )}
-              </div>
-              <p className="text-[10px] text-slate-400 mt-2">
-                📌 **Tip**: Click &ldquo;Add Videos&rdquo; to upload video guides (up to 2 videos, Max 10MB each) showing proof of functionality or live product demo.
+                📌 **Tip**: Click &ldquo;Add Photos&rdquo; to browse file directory. High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
               </p>
             </div>
 

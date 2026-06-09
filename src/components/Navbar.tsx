@@ -360,19 +360,11 @@ export const Navbar: React.FC = () => {
                   className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
                   title="Manage Profile Settings"
                 >
-                  {currentUser.photoUrl ? (
-                    <img
-                      src={currentUser.photoUrl}
-                      alt={currentUser.username}
-                      className="w-8 h-8 rounded-full border border-slate-700 object-cover"
-                    />
-                  ) : (
-                    <img
-                      src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
-                      alt={currentUser.username}
-                      className="w-8 h-8 rounded-full border border-slate-700 object-cover shrink-0"
-                    />
-                  )}
+                  <img
+                    src={currentUser.photoUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
+                    alt={currentUser.username}
+                    className="w-8 h-8 rounded-full border border-slate-700 object-cover"
+                  />
                   <div className="flex flex-col text-left hidden lg:block leading-none">
                     <span className="text-xs font-semibold text-white block truncate max-w-[90px]">
                       {currentUser.username}
@@ -600,19 +592,11 @@ export const Navbar: React.FC = () => {
                     </label>
                     <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
                       <div className="relative shrink-0">
-                        {registerPhotoUrlInput ? (
-                          <img
-                            src={registerPhotoUrlInput}
-                            className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs"
-                            alt="Registration avatar"
-                          />
-                        ) : (
-                          <img
-                            src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
-                            className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs shrink-0"
-                            alt="Default Registration Avatar"
-                          />
-                        )}
+                        <img
+                          src={registerPhotoUrlInput || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
+                          className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs"
+                          alt="Registration avatar"
+                        />
                         <button
                           type="button"
                           onClick={() => {

@@ -39,27 +39,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     toggleSaveProduct(product.id);
   };
 
-  const formatProductPrice = (priceVal: string | number) => {
-    if (typeof priceVal === 'number') {
-      return new Intl.NumberFormat('en-GH', {
-        style: 'currency',
-        currency: 'GHS',
-        maximumFractionDigits: 0
-      }).format(priceVal);
-    }
-    const cleanStr = priceVal.replace(/GHS/gi, '').replace(/,/g, '').trim();
-    const num = Number(cleanStr);
-    if (!isNaN(num) && cleanStr !== '') {
-      return new Intl.NumberFormat('en-GH', {
-        style: 'currency',
-        currency: 'GHS',
-        maximumFractionDigits: 0
-      }).format(num);
-    }
-    return priceVal;
-  };
-
-  const formattedPrice = formatProductPrice(product.price);
+  const formattedPrice = new Intl.NumberFormat('en-GH', {
+    style: 'currency',
+    currency: 'GHS',
+    maximumFractionDigits: 0
+  }).format(product.price);
 
   // Format the relative/absolute date
   const dateFormatted = new Date(product.createdAt).toLocaleDateString('en-US', {

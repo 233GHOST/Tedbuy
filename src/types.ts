@@ -108,13 +108,12 @@ export interface Product {
   sellerJoinDate: string;
   title: string;
   description: string;
-  price: string | number;
+  price: number;
   category: Category;
   location: string;
   brand?: string;
   condition?: string;
-  images: string[]; // 1 to 10 images (urls or base64)
-  videos?: string[]; // Optional: 1 to 2 videos (urls or base64)
+  images: string[]; // 1 to 5 images (urls or base64)
   negotiable?: boolean;
   createdAt: string;
   viewsCount: number;
@@ -124,7 +123,7 @@ export interface Chat {
   id: string;
   productId: string;
   productTitle: string;
-  productPrice: string | number;
+  productPrice: number;
   productImage: string;
   buyerId: string;
   sellerId: string;
