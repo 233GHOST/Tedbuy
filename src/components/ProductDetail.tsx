@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark, TrendingUp, TrendingDown, Copy, Check } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { isUserVerified, calculateTrustScore } from '../types';
 import {
@@ -109,6 +109,44 @@ export const ProductDetail: React.FC = () => {
   const sellerReviews = reviews.filter(r => r.sellerId === product?.sellerId);
   const trustResult = calculateTrustScore(sellerUser, sellerReviews);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [isCopied, setIsCopied] = useState(false);
+  const [showTikTokToast, setShowTikTokToast] = useState(false);
+
+  const shareUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}${window.location.pathname}?productId=${product?.id || ''}`
+    : `https://ghanamarketplace.com/?productId=${product?.id || ''}`;
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+    }
+  };
+
+  const handleNativeShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: product?.title || 'Check out this product',
+          text: product?.description || 'Found this interesting listing!',
+          url: shareUrl,
+        });
+      } catch (err) {
+        console.warn('Native share failed or cancelled:', err);
+      }
+    } else {
+      handleCopyLink();
+    }
+  };
+
+  const handleTikTokShareAlert = async () => {
+    await handleCopyLink();
+    setShowTikTokToast(true);
+    setTimeout(() => setShowTikTokToast(false), 5000);
+  };
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
@@ -323,6 +361,111 @@ export const ProductDetail: React.FC = () => {
                   >
                     <Bookmark className="w-5 h-5" fill={isSaved ? "currentColor" : "none"} />
                   </button>
+                </div>
+              )}
+            </div>
+
+            {/* Share listing section */}
+            <div className="border-t border-slate-100 pt-5 mt-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 font-sans tracking-tight uppercase flex items-center gap-1.5">
+                  <Share2 className="w-4 h-4 text-indigo-500 stroke-[2.2]" />
+                  <span>Share Listing</span>
+                </span>
+                {typeof navigator !== 'undefined' && navigator.share && (
+                  <button
+                    onClick={handleNativeShare}
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition flex items-center gap-1"
+                  >
+                    🚀 Native Share
+                  </button>
+                )}
+              </div>
+
+              {/* Direct share URL visual widget */}
+              <div className="flex gap-2">
+                <div className="flex-1 bg-slate-50 border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-mono select-all truncate flex items-center justify-between">
+                  <span className="truncate mr-2">{shareUrl}</span>
+                </div>
+                <button
+                  onClick={handleCopyLink}
+                  className={`px-3 py-2 rounded-xl border text-xs font-semibold transition duration-200 flex items-center gap-1.5 shrink-0 ${
+                    isCopied
+                      ? 'bg-emerald-50 border-emerald-250 text-emerald-600 border-emerald-300'
+                      : 'bg-slate-900 border-slate-900 text-white hover:bg-slate-800'
+                  }`}
+                  title="Copy Listing Link"
+                >
+                  {isCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                  <span>{isCopied ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+
+              {/* Social platform share badges */}
+              <div className="flex flex-wrap gap-2 pt-1">
+                {/* WhatsApp */}
+                <a
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Check out this ${product.title} on Ghana Marketplace! Price: GHS ${product.price}. Link: ` + shareUrl)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 px-3 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
+                >
+                  <span className="text-emerald-600 font-black">WA</span>
+                  <span>WhatsApp</span>
+                </a>
+
+                {/* Facebook */}
+                <a
+                  href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 px-3 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
+                >
+                  <span className="text-blue-600 font-black">FB</span>
+                  <span>Facebook</span>
+                </a>
+
+                {/* Telegram */}
+                <a
+                  href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this ${product.title} on Ghana Marketplace!`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 px-3 rounded-xl bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
+                >
+                  <span className="text-sky-500 font-black">TG</span>
+                  <span>Telegram</span>
+                </a>
+
+                {/* Twitter / X */}
+                <a
+                  href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this ${product.title} on Ghana Marketplace!`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 px-3 rounded-xl bg-slate-50 text-slate-800 hover:bg-slate-100 border border-slate-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
+                >
+                  <span className="font-black">X</span>
+                  <span>Twitter / X</span>
+                </a>
+
+                {/* TikTok info button */}
+                <button
+                  onClick={handleTikTokShareAlert}
+                  className="p-2 px-3 rounded-xl bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
+                >
+                  <span className="text-pink-600 font-black">TT</span>
+                  <span>TikTok</span>
+                </button>
+              </div>
+
+              {/* TikTok informative tooltip/toast if triggered */}
+              {showTikTokToast && (
+                <div className="bg-slate-900 text-white p-3 rounded-xl text-xs flex flex-col gap-1">
+                  <div className="font-semibold flex items-center gap-1 text-[11px] text-pink-400">
+                    <span>🎵 TikTok Bio & Caption Link</span>
+                  </div>
+                  <p className="text-slate-300 leading-relaxed text-[11px]">
+                    Listing URL copied successfully! Paste this link into your TikTok profile bio or video captions to capture buyer interest instantly!
+                  </p>
                 </div>
               )}
             </div>

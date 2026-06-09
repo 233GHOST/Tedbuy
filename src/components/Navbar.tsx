@@ -810,11 +810,15 @@ export const Navbar: React.FC = () => {
                 }}
                 className="text-xs text-slate-600 hover:underline hover:text-slate-900 font-semibold"
               >
-                {authMode === 'forgot-password'
-                  ? 'Cancel and return to sign in'
-                  : authMode === 'login'
-                    ? "Don't have an account yet? Create one now"
-                    : 'Already have an account? Sign in here'}
+                {authMode === 'forgot-password' ? (
+                  <span>Cancel and return to sign in</span>
+                ) : authMode === 'login' ? (
+                  <span className="text-slate-600 font-medium">
+                    Don't have an account yet? <strong className="font-extrabold text-slate-950 underline hover:text-slate-950 transition-all text-xs tracking-tight">Create one now</strong>
+                  </span>
+                ) : (
+                  <span>Already have an account? Sign in here</span>
+                )}
               </button>
             </div>
           </div>

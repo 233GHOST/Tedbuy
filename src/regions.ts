@@ -6,67 +6,119 @@ export interface RegionOption {
 export const GHANA_REGIONS: RegionOption[] = [
   {
     name: 'Greater Accra',
-    cities: ['Accra', 'Tema', 'Legon', 'Madina', 'Spintex', 'East Legon', 'West Legon', 'Dansoman']
+    cities: [
+      'Accra', 'Tema', 'Legon', 'Madina', 'Spintex',
+      'East Legon', 'West Legon', 'Dansoman', 'Osu',
+      'Cantonments', 'Labadi', 'Nungua', 'Lashibi',
+      'Teshie', 'Ashaiman', 'Gbawe', 'Weija', 'Pokuase',
+      'Kwabenya', 'Dome', 'Achimota', 'Adenta', 'Abokobi',
+      'Chorkor', 'Jamestown', 'Kokomlemle', 'Airport Residential Area',
+      'Dzorwulu', 'Kanda', 'Nima', 'Tesano', 'Lapaz', 'Sowutuom'
+    ]
   },
   {
     name: 'Ashanti',
-    cities: ['Kumasi', 'Obuasi', 'Ejisu', 'Konongo', 'Mampong', 'Tafo']
+    cities: [
+      'Kumasi', 'Obuasi', 'Ejisu', 'Konongo', 'Mampong',
+      'Tafo', 'Offinso', 'Bekwai', 'Agogo', 'Nkauanza',
+      'Juaben', 'Kwame Danso', 'Tepa', 'Amakom', 'Bantama',
+      'Asokwa', 'Suhame', 'Santasi', 'Abuakwa', 'Adum', 'Adugyama'
+    ]
   },
   {
     name: 'Western',
-    cities: ['Sekondi-Takoradi', 'Tarkwa', 'Axim', 'Elubo', 'Prestea']
+    cities: [
+      'Sekondi-Takoradi', 'Tarkwa', 'Axim', 'Elubo', 'Prestea',
+      'Bibiani', 'Nzema', 'Busua', 'Shama', 'Dixcove', 'Kwesimintsim',
+      'Effiakuma', 'Anaji', 'Kojokrom'
+    ]
   },
   {
     name: 'Eastern',
-    cities: ['Koforidua', 'Nkawkaw', 'Akosombo', 'Aburi', 'Oda']
+    cities: [
+      'Koforidua', 'Nkawkaw', 'Akosombo', 'Aburi', 'Oda',
+      'Somanya', 'Suhum', 'Kyebi', 'Asamankese', 'Mpraeso',
+      'Begoro', 'Kpong', 'Nsawam', 'Larteh', 'Krobo Odumase'
+    ]
   },
   {
     name: 'Central',
-    cities: ['Cape Coast', 'Winneba', 'Elmina', 'Kasoa_Central', 'Swedru']
+    cities: [
+      'Cape Coast', 'Winneba', 'Elmina', 'Kasoa', 'Swedru',
+      'Saltpond', 'Mankessim', 'Komenda', 'Apam', 'Buduburam',
+      'Senya Beraku', 'Kasoa Central'
+    ]
   },
   {
     name: 'Northern',
-    cities: ['Tamale', 'Yendi', 'Savelugu']
+    cities: [
+      'Tamale', 'Yendi', 'Savelugu', 'Bimbilla', 'Gushiegu',
+      'Nanton', 'Saboba'
+    ]
   },
   {
     name: 'Volta',
-    cities: ['Ho', 'Keta', 'Aflao', 'Hohoe']
+    cities: [
+      'Ho', 'Keta', 'Aflao', 'Hohoe', 'Sogakope', 'Tsito',
+      'Kpando', 'Peki', 'Anloga', 'Dzodze', 'Adidome', 'Akatsi'
+    ]
   },
   {
     name: 'Bono',
-    cities: ['Sunyani', 'Berekum']
+    cities: [
+      'Sunyani', 'Berekum', 'Dormaa Ahenkro', 'Japekrom',
+      'Sampa', 'Nsuatre'
+    ]
   },
   {
     name: 'Bono East',
-    cities: ['Techiman', 'Kintampo']
+    cities: [
+      'Techiman', 'Kintampo', 'Atebubu', 'Nkoranza', 'Yeji',
+      'Prang', 'Kajaji'
+    ]
   },
   {
     name: 'Upper East',
-    cities: ['Bolgatanga', 'Navrongo']
+    cities: [
+      'Bolgatanga', 'Navrongo', 'Bawku', 'Paga', 'Sandema',
+      'Garusal', 'Zuarungu'
+    ]
   },
   {
     name: 'Upper West',
-    cities: ['Wa']
+    cities: [
+      'Wa', 'Lawra', 'Jirapa', 'Tumu', 'Nandom'
+    ]
   },
   {
     name: 'Western North',
-    cities: ['Wiawso']
+    cities: [
+      'Wiawso', 'Enchi', 'Bia', 'Sefwi Bekwai', 'Sefwi Akontombra'
+    ]
   },
   {
     name: 'Oti',
-    cities: ['Dambai']
+    cities: [
+      'Dambai', 'Nkwanta', 'Jasikan', 'Kadjebi', 'Chinderi'
+    ]
   },
   {
     name: 'Savannah',
-    cities: ['Damongo']
+    cities: [
+      'Damongo', 'Salaga', 'Bole', 'Buipe', 'Daboya'
+    ]
   },
   {
     name: 'Ahafo',
-    cities: ['Goaso']
+    cities: [
+      'Goaso', 'Bechem', 'Duayaw Nkwanta', 'Mim', 'Hwidiem'
+    ]
   },
   {
     name: 'North East',
-    cities: ['Nalerigu']
+    cities: [
+      'Nalerigu', 'Walewale', 'Gambaga', 'Bunkpurugu', 'Chereponi'
+    ]
   }
 ];
 
@@ -77,26 +129,26 @@ export const GHANA_REGIONS: RegionOption[] = [
 export function getRegionForLocation(location: string): string {
   const norm = location.toLowerCase();
   
-  // Quick checks first
-  if (norm.includes('accra') || norm.includes('tema') || norm.includes('legon') || norm.includes('madina') || norm.includes('spintex') || norm.includes('dansoman')) {
+  // Quick checks first for dominant cities
+  if (norm.includes('accra') || norm.includes('tema') || norm.includes('legon') || norm.includes('madina') || norm.includes('spintex') || norm.includes('dansoman') || norm.includes('adenta') || norm.includes('osu') || norm.includes('airport') || norm.includes('dzorwulu') || norm.includes('teshie') || norm.includes('nungua') || norm.includes('ashaiman')) {
     return 'Greater Accra';
   }
-  if (norm.includes('kumasi') || norm.includes('obuasi') || norm.includes('ejisu') || norm.includes('konongo') || norm.includes('tafo')) {
+  if (norm.includes('kumasi') || norm.includes('obuasi') || norm.includes('ejisu') || norm.includes('konongo') || norm.includes('tafo') || norm.includes('asokwa') || norm.includes('mampong') || norm.includes('bekwai')) {
     return 'Ashanti';
   }
-  if (norm.includes('takoradi') || norm.includes('tarkwa')) {
+  if (norm.includes('takoradi') || norm.includes('tarkwa') || norm.includes('axim') || norm.includes('sekondi')) {
     return 'Western';
   }
-  if (norm.includes('cape coast') || norm.includes('winneba') || norm.includes('elmina') || norm.includes('kasoa')) {
+  if (norm.includes('cape coast') || norm.includes('winneba') || norm.includes('elmina') || norm.includes('kasoa') || norm.includes('swedru') || norm.includes('mankessim')) {
     return 'Central';
   }
-  if (norm.includes('koforidua') || norm.includes('nkawkaw') || norm.includes('akosombo') || norm.includes('aburi')) {
+  if (norm.includes('koforidua') || norm.includes('nkawkaw') || norm.includes('akosombo') || norm.includes('aburi') || norm.includes('nsawam') || norm.includes('somanya') || norm.includes('suhum')) {
     return 'Eastern';
   }
-  if (norm.includes('tamale')) {
+  if (norm.includes('tamale') || norm.includes('yendi') || norm.includes('savelugu')) {
     return 'Northern';
   }
-  if (norm.includes('ho ') || norm.includes('ho,') || norm === 'ho' || norm.includes('keta') || norm.includes('aflao')) {
+  if (norm.includes('ho ') || norm.includes('ho,') || norm === 'ho' || norm.includes('keta') || norm.includes('aflao') || norm.includes('hohoe')) {
     return 'Volta';
   }
 

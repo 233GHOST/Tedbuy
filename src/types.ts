@@ -75,7 +75,30 @@ export const calculateTrustScore = (
   return { score, level, color, feedback, labelClass };
 };
 
-export type Category = 'Phones' | 'Laptops' | 'Fashion' | 'Home Appliances' | 'Vehicles' | 'Other';
+export type Category =
+  | 'Phones'
+  | 'Laptops'
+  | 'Fashion'
+  | 'Home Appliances'
+  | 'Vehicles'
+  | 'Trending'
+  | 'Property'
+  | 'Food'
+  | 'Home'
+  | 'Furniture'
+  | 'Repair and Construction'
+  | 'Beauty and Care'
+  | 'Electronics'
+  | 'Jobs & Services'
+  | 'Animals & Pets'
+  | 'Books & Education'
+  | 'Sports & Outdoors'
+  | 'Toys & Games'
+  | 'Agriculture & Foodstuff'
+  | 'Health & Fitness'
+  | 'Commercial Equipment'
+  | 'Art & Crafts'
+  | 'Other';
 
 export interface Product {
   id: string;

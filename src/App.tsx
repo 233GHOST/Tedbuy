@@ -19,6 +19,23 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
   Fashion: '👟',
   'Home Appliances': '🔌',
   Vehicles: '🚗',
+  Trending: '🔥',
+  Property: '🏢',
+  Food: '🍲',
+  Home: '🏠',
+  Furniture: '🪑',
+  'Repair and Construction': '🛠️',
+  'Beauty and Care': '💄',
+  Electronics: '⚡',
+  'Jobs & Services': '💼',
+  'Animals & Pets': '🐕',
+  'Books & Education': '📚',
+  'Sports & Outdoors': '⚽',
+  'Toys & Games': '🧸',
+  'Agriculture & Foodstuff': '🌾',
+  'Health & Fitness': '💪',
+  'Commercial Equipment': '⚙️',
+  'Art & Crafts': '🎨',
   Other: '📦'
 };
 
@@ -152,25 +169,58 @@ const MarketplaceContent: React.FC = () => {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             
             {/* Promotional Marketplace Hero Badge */}
-            <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-              <div className="relative z-10 max-w-xl text-left space-y-3">
-                <p className="text-slate-650 text-xs sm:text-sm font-sans leading-relaxed font-medium">
-                  Post active classified advertisements free, search specific local categories, and bargain prices securely using our real-time inbox chats!
-                </p>
+            <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10 w-full">
+                <div className="text-left">
+                  <span className="text-slate-400 font-extrabold text-[10px] tracking-wider uppercase block mb-1">Tedbuy Ghana</span>
+                  <h1 className="text-2xl sm:text-3xl font-black text-slate-950 font-sans tracking-tight">Direct Local Market</h1>
+                </div>
+
+                {/* Action trigger */}
+                <button
+                  id="hero-post-ad-btn"
+                  onClick={handlePostAdBtn}
+                  className="w-full md:w-auto px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm rounded-xl shadow-xs hover:shadow-md transition duration-200 shrink-0 cursor-pointer text-center"
+                >
+                  Post an Ad Free
+                </button>
               </div>
 
-              {/* Action trigger */}
-              <button
-                id="hero-post-ad-btn"
-                onClick={handlePostAdBtn}
-                className="relative z-10 w-full md:w-auto px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm rounded-xl shadow-xs hover:shadow-md transition duration-200 shrink-0 cursor-pointer"
-              >
-                Post an Ad Free
-              </button>
+              {/* Prominent Search bar integrated under the Title as requested */}
+              <div className="relative z-10 max-w-xl text-left w-full">
+                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wider uppercase">
+                  looking for something?
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Search className="h-5 w-5 text-slate-400 stroke-[2.2]" />
+                  </div>
+                  <input
+                    type="text"
+                    id="hero-search-input"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      if (currentView !== 'browse') setCurrentView('browse');
+                    }}
+                    placeholder="Search phones, laptops, sneakers, furniture, beauty care..."
+                    className="block w-full pl-11 pr-10 py-3.5 border-2 border-slate-250 focus:border-slate-800 rounded-2xl bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-slate-100 text-sm font-semibold transition"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition"
+                      title="Clear Search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
 
               {/* Decorative radial glows */}
-              <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-48 h-48 bg-slate-400/10 rounded-full blur-3xl pointer-events-none"></div>
-              <div className="absolute -right-24 -top-24 w-60 h-60 bg-slate-400/5 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-48 h-48 bg-slate-400/15 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="absolute -right-24 -top-24 w-60 h-60 bg-slate-400/10 rounded-full blur-3xl pointer-events-none"></div>
             </div>
 
             {/* Category selection ribbon */}
@@ -245,7 +295,7 @@ const MarketplaceContent: React.FC = () => {
                     <div>
                       <h3 className="text-lg font-bold text-slate-900 font-sans tracking-tight">
                         {searchQuery.trim()
-                          ? `Search Results for &ldquo;${searchQuery}&rdquo;`
+                          ? `Results for ${searchQuery}`
                           : selectedCategory
                           ? `${selectedCategory} listings`
                           : (selectedRegion !== 'All' || selectedCity !== 'All')

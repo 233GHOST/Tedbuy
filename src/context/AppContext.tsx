@@ -213,6 +213,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return unsub;
   }, []);
 
+  // 2.5. Deep Linking Handler for product sharing (?productId=...)
+  useEffect(() => {
+    if (products.length > 0 && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlProductId = params.get('productId');
+      if (urlProductId) {
+        const found = products.find(p => p.id === urlProductId);
+        if (found) {
+          setSelectedProductId(found.id);
+          setCurrentView('product-detail');
+          try {
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+          } catch (historyErr) {
+            console.warn('Could not replace history state:', historyErr);
+          }
+        }
+      }
+    }
+  }, [products]);
+
   // 3. Real-time Reviews Synchronization
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'reviews'), (snapshot) => {

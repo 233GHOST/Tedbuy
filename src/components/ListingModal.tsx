@@ -10,7 +10,31 @@ interface ListingModalProps {
   productToEdit?: Product | null;
 }
 
-const CATEGORIES: Category[] = ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Other'];
+const CATEGORIES: Category[] = [
+  'Phones',
+  'Laptops',
+  'Fashion',
+  'Home Appliances',
+  'Vehicles',
+  'Trending',
+  'Property',
+  'Food',
+  'Home',
+  'Furniture',
+  'Repair and Construction',
+  'Beauty and Care',
+  'Electronics',
+  'Jobs & Services',
+  'Animals & Pets',
+  'Books & Education',
+  'Sports & Outdoors',
+  'Toys & Games',
+  'Agriculture & Foodstuff',
+  'Health & Fitness',
+  'Commercial Equipment',
+  'Art & Crafts',
+  'Other'
+];
 
 export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, productToEdit }) => {
   const { createProduct, updateProduct, currentUser, setCurrentView } = useApp();
