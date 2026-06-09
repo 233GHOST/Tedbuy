@@ -209,7 +209,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     setVideos(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -245,7 +245,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     try {
       if (productToEdit) {
         // Edit flow
-        updateProduct(productToEdit.id, {
+        await updateProduct(productToEdit.id, {
           title,
           description,
           price: parsedPrice,
@@ -259,7 +259,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         });
       } else {
         // Create flow
-        createProduct({
+        await createProduct({
           title,
           description,
           price: parsedPrice,
@@ -277,7 +277,18 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       // Redirect to listing dashboard
       setCurrentView('my-dashboard');
     } catch (e: any) {
-      setErrorMsg('Something went wrong. High-resolution photos/videos might be hitting storage limits. Try smaller sizes.');
+      let errStr = e?.message || String(e);
+      if (errStr.trim().startsWith('{') && errStr.trim().endsWith('}')) {
+        try {
+          const parsed = JSON.parse(errStr);
+          if (parsed.error) {
+            errStr = parsed.error;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setErrorMsg(`Submission failed: ${errStr}. (Hint: High-resolution photos/videos might exceed standard firestore sizes; try smaller images/compressing).`);
     } finally {
       setIsSubmitting(false);
     }
