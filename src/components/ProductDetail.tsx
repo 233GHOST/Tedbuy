@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark, TrendingUp, TrendingDown, Copy, Check } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, Share2, ShieldAlert, Bookmark, TrendingUp, TrendingDown, Copy, Check, X, Camera } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { isUserVerified, calculateTrustScore } from '../types';
 import {
@@ -108,6 +108,7 @@ export const ProductDetail: React.FC = () => {
   const isSellerVerified = isUserVerified(sellerUser);
   const sellerReviews = reviews.filter(r => r.sellerId === product?.sellerId);
   const trustResult = calculateTrustScore(sellerUser, sellerReviews);
+  const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string } | null>(null);
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
@@ -646,10 +647,16 @@ export const ProductDetail: React.FC = () => {
                 <img
                   src={product.sellerPhoto}
                   alt={product.sellerName}
-                  className="w-12 h-12 rounded-full border border-slate-100 object-cover shrink-0"
+                  className="w-12 h-12 rounded-full border border-slate-100 object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-slate-350 transition-all"
+                  title="Click to view profile picture"
+                  onClick={() => setViewedPhoto({ url: product.sellerPhoto!, name: `${product.sellerName}'s Profile Picture` })}
                 />
               ) : (
-                <div className="w-12 h-12 rounded-full border border-slate-200 bg-slate-50 shrink-0" />
+                <img
+                  src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                  alt={product.sellerName}
+                  className="w-12 h-12 rounded-full border border-slate-200/80 object-cover shrink-0"
+                />
               )}
               <div className="flex-1 text-left min-w-0">
                 <h4 id="detail-seller-name" className="text-sm font-bold text-slate-900 flex items-center gap-1.5 min-w-0 flex-wrap">
@@ -734,6 +741,50 @@ export const ProductDetail: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Profile Picture Full-screen Lightbox Modal */}
+      {viewedPhoto && (
+        <div 
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setViewedPhoto(null)}
+        >
+          <div 
+            className="relative max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden p-6 shadow-2xl flex flex-col items-center gap-4 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header info */}
+            <div className="flex items-center justify-between w-full border-b border-slate-800 pb-3">
+              <span className="text-sm font-bold text-slate-200 tracking-tight">{viewedPhoto.name}</span>
+              <button 
+                onClick={() => setViewedPhoto(null)}
+                className="p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Photo frame */}
+            <div className="w-64 h-64 sm:w-80 sm:h-80 rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden flex items-center justify-center shadow-inner">
+              <img 
+                src={viewedPhoto.url} 
+                alt={viewedPhoto.name} 
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+            </div>
+
+            {/* Footer action buttons */}
+            <div className="flex gap-3 w-full mt-2">
+              <button
+                onClick={() => setViewedPhoto(null)}
+                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition border border-slate-750"
+              >
+                Close View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

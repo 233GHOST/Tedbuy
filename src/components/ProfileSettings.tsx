@@ -166,7 +166,13 @@ export const ProfileSettings: React.FC = () => {
             >
               {photoUrl ? (
                 <img src={photoUrl} alt="Profile Avatar" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" />
-              ) : null}
+              ) : (
+                <img
+                  src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                  alt="Default Profile Avatar"
+                  className="w-full h-full object-cover transition duration-300"
+                />
+              )}
               {/* Overlay on hover */}
               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center text-white">
                 <Camera className="w-5 h-5 text-white/95" />
