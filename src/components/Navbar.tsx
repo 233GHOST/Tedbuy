@@ -146,7 +146,7 @@ export const Navbar: React.FC = () => {
   }, 0);
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-100 border-b border-slate-200 text-slate-900 shadow-xs">
+    <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-950 text-white shadow-md">
 
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -160,21 +160,21 @@ export const Navbar: React.FC = () => {
             }}
             className="flex items-center gap-2 cursor-pointer group shrink-0"
           >
-            <div className="w-10 h-10 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center shadow-3xs group-hover:scale-105 transition-transform duration-200">
-              <ShoppingBag className="w-5.5 h-5.5 text-slate-900 stroke-[2.5]" />
+            <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center shadow-3xs group-hover:scale-105 transition-transform duration-200">
+              <ShoppingBag className="w-5.5 h-5.5 text-white stroke-[2.5]" />
             </div>
             <div className="flex flex-col">
-              <span className="text-xl font-sans font-black tracking-tight leading-none text-slate-900">
+              <span className="text-xl font-sans font-black tracking-tight leading-none text-white">
                 tedbuy
               </span>
-              <span className="text-[9px] text-slate-550 font-sans font-bold tracking-widest uppercase">Classifieds</span>
+              <span className="text-[9px] text-slate-400 font-sans font-bold tracking-widest uppercase">Classifieds</span>
             </div>
           </div>
 
           {/* Search bar inside header */}
           <div className="flex-1 max-w-lg relative hidden md:block">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-slate-500" />
+              <Search className="h-5 w-5 text-slate-400" />
             </div>
             <input
               type="text"
@@ -193,13 +193,13 @@ export const Navbar: React.FC = () => {
                 }
               }}
               placeholder="Search phones, laptops, sneakers, fridges..."
-              className="block w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400 text-sm transition"
+              className="block w-full pl-10 pr-4 py-2 border border-slate-750 rounded-xl bg-slate-800 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 text-sm transition"
             />
 
             {isDesktopFocused && (
               <div
                 onMouseDown={(e) => e.preventDefault()}
-                className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 text-left font-sans"
+                className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 text-left font-sans text-slate-900"
               >
                 {/* Watchlist shortcut in target area */}
                 <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
@@ -279,8 +279,8 @@ export const Navbar: React.FC = () => {
               }}
               className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
                 currentView === 'browse'
-                  ? 'bg-white border border-slate-300 text-slate-900 font-extrabold shadow-3xs'
-                  : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+                  ? 'bg-slate-800 border border-slate-700 text-white font-extrabold shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
               }`}
             >
               <ShoppingBag className="w-4 h-4" />
@@ -301,14 +301,14 @@ export const Navbar: React.FC = () => {
               }}
               className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all relative ${
                 currentUser && currentView === 'my-dashboard' && dashboardTab === 'saved'
-                  ? 'bg-rose-50 border border-rose-200 text-rose-600 font-extrabold shadow-3xs'
-                  : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+                  ? 'bg-rose-950/40 border border-rose-800/85 text-rose-300 font-extrabold shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
               }`}
             >
-              <Bookmark className={`w-4 h-4 ${currentUser?.savedProductIds?.length ? 'text-rose-500 fill-rose-100' : ''}`} />
+              <Bookmark className={`w-4 h-4 ${currentUser?.savedProductIds?.length ? 'text-rose-400 fill-rose-900/30' : ''}`} />
               <span className="hidden sm:inline">Watchlist</span>
               {currentUser?.savedProductIds && currentUser.savedProductIds.length > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-slate-100">
+                <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-slate-900">
                   {currentUser.savedProductIds.length}
                 </span>
               )}
@@ -321,14 +321,14 @@ export const Navbar: React.FC = () => {
                   onClick={() => setCurrentView('chats')}
                   className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all relative ${
                     currentView === 'chats'
-                      ? 'bg-white border border-slate-300 text-slate-900 font-extrabold shadow-3xs'
-                      : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+                      ? 'bg-slate-800 border border-slate-700 text-white font-extrabold shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
                   }`}
                 >
                   <MessageSquare className="w-4 h-4" />
                   <span className="hidden sm:inline">Inbox</span>
                   {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-slate-100 animate-pulse">
+                     <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-slate-900 animate-pulse">
                       {unreadCount}
                     </span>
                   )}
@@ -342,8 +342,8 @@ export const Navbar: React.FC = () => {
                   }}
                   className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
                     currentView === 'my-dashboard' && dashboardTab === 'listings'
-                      ? 'bg-white border border-slate-300 text-slate-900 font-extrabold shadow-3xs'
-                      : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+                      ? 'bg-slate-800 border border-slate-700 text-white font-extrabold shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
                   }`}
                 >
                   <LayoutDashboard className="w-4 h-4" />
@@ -354,7 +354,7 @@ export const Navbar: React.FC = () => {
 
             {/* Account Info Or Auth Trigger */}
             {currentUser ? (
-              <div className="flex items-center gap-2 pl-2 border-l border-slate-300 font-sans">
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
                 <div 
                   onClick={() => setCurrentView('profile-settings')}
                   className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
@@ -363,14 +363,14 @@ export const Navbar: React.FC = () => {
                   <img
                     src={currentUser.photoUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"}
                     alt={currentUser.username}
-                    className="w-8 h-8 rounded-full border border-slate-300 object-cover"
+                    className="w-8 h-8 rounded-full border border-slate-700 object-cover"
                   />
                   <div className="flex flex-col text-left hidden lg:block leading-none">
-                    <span className="text-xs font-semibold text-slate-800 block truncate max-w-[90px]">
+                    <span className="text-xs font-semibold text-white block truncate max-w-[90px]">
                       {currentUser.username}
                     </span>
-                    <span className="text-[9px] text-slate-500 font-mono font-medium">
-                      Member: {currentUser.joinDate}
+                    <span className="text-[9px] text-slate-400 font-mono font-medium mt-0.5">
+                      Since {currentUser.joinDate}
                     </span>
                   </div>
                 </div>
@@ -383,7 +383,7 @@ export const Navbar: React.FC = () => {
                   setShowAuthModal(true);
                   setAuthError('');
                 }}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl transition duration-200 flex items-center gap-1.5 shadow-xs border border-slate-850"
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm rounded-xl transition duration-200 flex items-center gap-1.5 shadow-xs border border-white"
               >
                 <LogIn className="w-4 h-4" />
                 <span>Log In</span>
@@ -393,10 +393,10 @@ export const Navbar: React.FC = () => {
         </div>
 
         {/* Small screen mobile search bar */}
-        <div className="pb-3 md:hidden relative">
+        <div className="pb-3 md:hidden relative pt-1.5 border-t border-slate-850">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-4 w-4 text-slate-500" />
+              <Search className="h-4 w-4 text-slate-400" />
             </div>
             <input
               type="text"
@@ -415,7 +415,7 @@ export const Navbar: React.FC = () => {
                 }
               }}
               placeholder="Search products, brands or locations..."
-              className="block w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-450 focus:outline-none focus:ring-1 focus:ring-slate-450 text-xs transition"
+              className="block w-full pl-9 pr-3 py-1.5 border border-slate-700 rounded-xl bg-slate-800 text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-500 text-xs transition"
             />
           </div>
 
