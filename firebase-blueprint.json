@@ -36,6 +36,7 @@
         "brand": { "type": "string", "description": "Item brand" },
         "condition": { "type": "string", "description": "New or Used condition" },
         "images": { "type": "array", "description": "Array of item image URLs" },
+        "negotiable": { "type": "boolean", "description": "Toggle if the price is negotiable" },
         "createdAt": { "type": "string", "description": "Timestamp when listing was posted" },
         "viewsCount": { "type": "number", "description": "Number of views" }
       },

@@ -293,9 +293,18 @@ export const ProductDetail: React.FC = () => {
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-xs space-y-5">
             <div className="space-y-2">
-              <span className="text-3xl font-black text-slate-950 font-sans tracking-tight">
-                {formattedPrice}
-              </span>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="text-3xl font-black text-slate-950 font-sans tracking-tight">
+                  {formattedPrice}
+                </span>
+                <span id="detail-price-negotiable-label" className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                  product.negotiable !== false
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-250/50'
+                    : 'bg-slate-100 text-slate-650 border border-slate-200'
+                }`}>
+                  {product.negotiable !== false ? 'Negotiable' : 'Fixed Price'}
+                </span>
+              </div>
               <h1 id="detail-product-title" className="text-xl font-bold font-sans text-slate-900 leading-snug">
                 {product.title}
               </h1>
@@ -316,18 +325,26 @@ export const ProductDetail: React.FC = () => {
               </span>
             </div>
 
-            {/* Brand and Condition specifications module */}
-            <div className="grid grid-cols-2 gap-3 bg-slate-50 border border-slate-150 rounded-2xl p-3.5 font-sans">
+            {/* Brand, Condition, and Negotiability specifications module */}
+            <div className="grid grid-cols-3 gap-2 bg-slate-50 border border-slate-150 rounded-2xl p-3 font-sans">
               <div>
                 <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Brand / Make</span>
-                <span id="detail-brand-badge" className="text-sm font-extrabold text-slate-800 truncate block mt-0.5">
+                <span id="detail-brand-badge" className="text-xs font-extrabold text-slate-800 truncate block mt-0.5">
                   {product.brand || 'Generic / Other'}
                 </span>
               </div>
-              <div className="border-l border-slate-200 pl-3">
+              <div className="border-l border-slate-200 pl-2.5">
                 <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Condition</span>
-                <span id="detail-condition-badge" className="text-sm font-extrabold text-slate-905 block mt-0.5">
+                <span id="detail-condition-badge" className="text-xs font-extrabold text-slate-905 block mt-0.5">
                   {product.condition || 'Used (Good)'}
+                </span>
+              </div>
+              <div className="border-l border-slate-200 pl-2.5">
+                <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider">Negotiable</span>
+                <span id="detail-negotiable-badge" className={`text-xs font-extrabold block mt-0.5 ${
+                  product.negotiable !== false ? 'text-emerald-600' : 'text-slate-600'
+                }`}>
+                  {product.negotiable !== false ? 'Yes' : 'No'}
                 </span>
               </div>
             </div>

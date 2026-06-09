@@ -47,6 +47,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [brand, setBrand] = useState('');
   const [condition, setCondition] = useState('Used (Good)');
   const [images, setImages] = useState<string[]>([]);
+  const [negotiable, setNegotiable] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -74,6 +75,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setImages(productToEdit.images);
       setBrand(productToEdit.brand || '');
       setCondition(productToEdit.condition || 'Used (Good)');
+      setNegotiable(productToEdit.negotiable !== false); // Default to true if undefined or true
 
       // Try to back-parse the product's location (e.g. "East Legon, Accra")
       const locVal = productToEdit.location;
@@ -121,6 +123,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setAdRegion('Greater Accra');
       setAdCity('Accra');
       setAdNeighborhood('');
+      setNegotiable(true);
     }
     setErrorMsg('');
   }, [productToEdit, isOpen]);
@@ -200,7 +203,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           location: compiledLocation,
           brand,
           condition,
-          images
+          images,
+          negotiable
         });
       } else {
         // Create flow
@@ -212,7 +216,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           location: compiledLocation,
           brand,
           condition,
-          images
+          images,
+          negotiable
         });
       }
 
@@ -318,16 +323,31 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price (GHS)</label>
-                <input
-                  type="number"
-                  required
-                  id="listing-price"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder="GHS 7,500"
-                  min="1"
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    required
+                    id="listing-price"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    placeholder="GHS 7,500"
+                    min="1"
+                    className="flex-1 px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
+                  />
+                  <label className="flex items-center gap-2 px-3 border border-slate-200 rounded-xl bg-slate-50/50 cursor-pointer hover:bg-slate-50 transition shrink-0 select-none">
+                    <input
+                      type="checkbox"
+                      id="listing-negotiable"
+                      checked={negotiable}
+                      onChange={(e) => setNegotiable(e.target.checked)}
+                      className="w-4 h-4 text-emerald-650 focus:ring-emerald-500 border-slate-300 rounded cursor-pointer"
+                    />
+                    <div className="flex flex-col text-left">
+                      <span className="text-[11px] font-bold text-slate-705 leading-none">Negotiable</span>
+                      <span className="text-[8px] text-slate-400">Discuss price</span>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <div>

@@ -64,6 +64,7 @@ interface AppContextType {
     images: string[];
     brand?: string;
     condition?: string;
+    negotiable?: boolean;
   }) => Promise<void>;
   updateProduct: (id: string, productData: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -534,6 +535,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     images: string[];
     brand?: string;
     condition?: string;
+    negotiable?: boolean;
   }) => {
     if (!currentUser) return;
     const prodId = `prod_${Date.now()}`;
