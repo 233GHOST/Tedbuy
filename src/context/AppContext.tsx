@@ -333,9 +333,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setProducts(sorted);
       setIsProductsLoading(false);
       try {
-        localStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+        // Proactively generate a lightweight backup schema to avoid QuotaExceeded errors in localStorage
+        const safeBackup = sorted.map(p => ({
+          ...p,
+          // Retain ordinary image URLs but truncate base64 strings to tiny placeholder segments
+          images: p.images ? p.images.map(img => img.startsWith('data:') ? (img.length > 300 ? img.substring(0, 100) + '...[truncated base64]' : img) : img) : [],
+          // Truncate descriptions to save space
+          description: p.description ? (p.description.length > 800 ? p.description.substring(0, 800) + '...' : p.description) : ''
+        }));
+        localStorage.setItem('tedbuy_local_products_backup', JSON.stringify(safeBackup));
       } catch (err) {
-        console.warn('Could not save products backup:', err);
+        console.warn('Could not save offline products backup:', err);
       }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');

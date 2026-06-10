@@ -28,7 +28,7 @@ service cloud.firestore {
 
     // Basic validator to check for standard format ids
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+      return id is string && id.size() <= 128;
     }
 
     // Default deny catch-all
@@ -59,43 +59,16 @@ service cloud.firestore {
         return data.get('id', '') is string && data.get('id', '').size() <= 128 &&
                data.get('sellerId', '') is string && data.get('sellerId', '').size() <= 128 &&
                data.get('title', '') is string && data.get('title', '').size() <= 1000 &&
-               data.get('description', '') is string && data.get('description', '').size() <= 30000 &&
-               data.get('category', '') is string && data.get('category', '').size() <= 500 &&
-               data.get('location', '') is string && data.get('location', '').size() <= 1000 &&
-               (data.get('price', null) != null);
+               data.get('category', '') is string && data.get('category', '').size() <= 500;
       }
 
       allow read: if true; // Listings are public
       allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
       allow update: if isValidId(productId) && (
-                      // 1. Owner or authorized tester can fully update the product
-                      (
-                        isSignedIn() &&
-                        (
-                          isOwner(existing().get('sellerId', '')) || 
-                          existing().get('sellerId', '') == request.auth.uid || 
-                          request.auth.token.email == "asumaduvincent7@gmail.com" || 
-                          request.auth.token.email == "gyimahemmanuella@email.com"
-                        ) &&
-                        (
-                          incoming().get('sellerId', '') == existing().get('sellerId', '') || 
-                          request.auth.token.email == "asumaduvincent7@gmail.com" || 
-                          request.auth.token.email == "gyimahemmanuella@email.com"
-                        ) &&
-                        incoming().get('id', '') == existing().get('id', '') &&
-                        isValidProduct(incoming())
-                      ) ||
-                      // 2. Spectators can increment viewsCount
-                      (
-                        incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount'])
-                      )
+                      (isSignedIn() && isOwner(existing().get('sellerId', ''))) ||
+                      incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount'])
                     );
-      allow delete: if isSignedIn() && (
-                      isOwner(existing().get('sellerId', '')) || 
-                      existing().get('sellerId', '') == request.auth.uid || 
-                      request.auth.token.email == "asumaduvincent7@gmail.com" || 
-                      request.auth.token.email == "gyimahemmanuella@email.com"
-                    );
+      allow delete: if isSignedIn() && isOwner(existing().get('sellerId', ''));
     }
 
     // 3. Chats Collection rules
