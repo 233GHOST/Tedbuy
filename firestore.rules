@@ -68,11 +68,20 @@ service cloud.firestore {
       allow read: if true; // Listings are public
       allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
       allow update: if isValidId(productId) && (
-                      // 1. Owner can fully update the product
+                      // 1. Owner or authorized tester can fully update the product
                       (
                         isSignedIn() &&
-                        (isOwner(existing().get('sellerId', '')) || existing().get('sellerId', '') == request.auth.uid) &&
-                        incoming().get('sellerId', '') == existing().get('sellerId', '') &&
+                        (
+                          isOwner(existing().get('sellerId', '')) || 
+                          existing().get('sellerId', '') == request.auth.uid || 
+                          request.auth.token.email == "asumaduvincent7@gmail.com" || 
+                          request.auth.token.email == "gyimahemmanuella@email.com"
+                        ) &&
+                        (
+                          incoming().get('sellerId', '') == existing().get('sellerId', '') || 
+                          request.auth.token.email == "asumaduvincent7@gmail.com" || 
+                          request.auth.token.email == "gyimahemmanuella@email.com"
+                        ) &&
                         incoming().get('id', '') == existing().get('id', '') &&
                         isValidProduct(incoming())
                       ) ||
@@ -81,7 +90,12 @@ service cloud.firestore {
                         incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount'])
                       )
                     );
-      allow delete: if isSignedIn() && (isOwner(existing().get('sellerId', '')) || existing().get('sellerId', '') == request.auth.uid);
+      allow delete: if isSignedIn() && (
+                      isOwner(existing().get('sellerId', '')) || 
+                      existing().get('sellerId', '') == request.auth.uid || 
+                      request.auth.token.email == "asumaduvincent7@gmail.com" || 
+                      request.auth.token.email == "gyimahemmanuella@email.com"
+                    );
     }
 
     // 3. Chats Collection rules
