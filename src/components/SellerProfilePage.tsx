@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
 import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X } from 'lucide-react';
 import { isUserVerified, calculateTrustScore } from '../types';
+import { compressImage } from '../utils/imageOptimizer';
 
 export const SellerProfilePage: React.FC = () => {
   const {
@@ -168,32 +169,50 @@ export const SellerProfilePage: React.FC = () => {
                   const file = e.target.files?.[0];
                   if (!file) return;
                   if (!file.type.startsWith('image/')) {
-                    alert('Please select a valid image file.');
+                    alert('Please select a valid image file (JPEG, PNG, WEBP).');
                     return;
                   }
-                  if (file.size > 4 * 1024 * 1024) {
-                    alert('Please upload an image smaller than 4MB.');
+                  if (file.size > 16 * 1024 * 1024) {
+                    alert('Please upload an image smaller than 16MB.');
                     return;
                   }
-                  const reader = new FileReader();
-                  reader.onloadend = async () => {
-                    if (typeof reader.result === 'string') {
-                      try {
-                        await updateUserProfile({
-                          username: currentUser.username,
-                          phoneNumber: currentUser.phoneNumber,
-                          photoUrl: reader.result,
-                          role: currentUser.role || 'both'
-                        });
-                        if (viewedPhoto && viewedPhoto.isEditable) {
-                          setViewedPhoto({ url: reader.result, name: `${currentUser.username}'s Profile Picture`, isEditable: true });
-                        }
-                      } catch (err) {
-                        console.error('Error updating seller avatar: ', err);
+                  try {
+                    const optimized = await compressImage(file, 600, 600, 0.8);
+                    try {
+                      await updateUserProfile({
+                        username: currentUser.username,
+                        phoneNumber: currentUser.phoneNumber,
+                        photoUrl: optimized,
+                        role: currentUser.role || 'both'
+                      });
+                      if (viewedPhoto && viewedPhoto.isEditable) {
+                        setViewedPhoto({ url: optimized, name: `${currentUser.username}'s Profile Picture`, isEditable: true });
                       }
+                    } catch (err) {
+                      console.error('Error updating seller avatar: ', err);
                     }
-                  };
-                  reader.readAsDataURL(file);
+                  } catch (err) {
+                    console.error('Failed to compress avatar:', err);
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                      if (typeof reader.result === 'string') {
+                        try {
+                          await updateUserProfile({
+                            username: currentUser.username,
+                            phoneNumber: currentUser.phoneNumber,
+                            photoUrl: reader.result,
+                            role: currentUser.role || 'both'
+                          });
+                          if (viewedPhoto && viewedPhoto.isEditable) {
+                            setViewedPhoto({ url: reader.result, name: `${currentUser.username}'s Profile Picture`, isEditable: true });
+                          }
+                        } catch (err) {
+                          console.error('Error updating seller avatar: ', err);
+                        }
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  }
                 }}
               />
             </div>

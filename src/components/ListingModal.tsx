@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Category, Product } from '../types';
 import { X, Image, Upload, AlertCircle, Plus, Video } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
+import { compressImage } from '../utils/imageOptimizer';
 
 interface ListingModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ const CATEGORIES: Category[] = [
   'Beauty and Care',
   'Electronics',
   'Jobs & Services',
+  'Services',
   'Animals & Pets',
   'Books & Education',
   'Sports & Outdoors',
@@ -144,26 +146,33 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return;
     }
 
-    (Array.from(files) as File[]).forEach(file => {
+    (Array.from(files) as File[]).forEach(async file => {
       // Basic type validation
       if (!file.type.startsWith('image/')) {
         setErrorMsg('Only image files (JPEG, PNG, WEBP) are supported.');
         return;
       }
       
-      // Limit file sizes to around 2MB for performance and storage optimization
-      if (file.size > 2 * 1024 * 1024) {
-        setErrorMsg('Some images were skipped because they exceed 2MB in size.');
+      // Allow up to 16MB image uploads (since we compress them client-side)
+      if (file.size > 16 * 1024 * 1024) {
+        setErrorMsg('Some images were skipped because they exceed 16MB in size.');
         return;
       }
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setImages(prev => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file);
+        setImages(prev => [...prev, compressed]);
+      } catch (err) {
+        console.error('Failed to compress image:', err);
+        // Fallback to standard reader
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setImages(prev => [...prev, reader.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     });
   };
 
@@ -388,7 +397,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                     id="listing-price"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    placeholder="e.g. GHS 1,500, Negotiable, or Free"
+                    placeholder=""
                     className="flex-1 px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
                   />
                   <label className="flex items-center gap-2 px-3 border border-slate-200 rounded-xl bg-slate-50/50 cursor-pointer hover:bg-slate-50 transition shrink-0 select-none">

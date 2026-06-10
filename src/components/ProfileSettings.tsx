@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
 import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut } from 'lucide-react';
 import { isUserVerified } from '../types';
+import { compressImage } from '../utils/imageOptimizer';
 
 export const ProfileSettings: React.FC = () => {
   const { currentUser, updateUserProfile, deleteAccount, logoutUser, setCurrentView } = useApp();
@@ -40,7 +41,7 @@ export const ProfileSettings: React.FC = () => {
     document.getElementById('profile-avatar-upload')?.click();
   };
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMsg('');
     const file = e.target.files?.[0];
     if (!file) return;
@@ -50,18 +51,24 @@ export const ProfileSettings: React.FC = () => {
       return;
     }
 
-    if (file.size > 4 * 1024 * 1024) {
-      setErrorMsg('Please upload an image smaller than 4MB.');
+    if (file.size > 16 * 1024 * 1024) {
+      setErrorMsg('Please upload an image smaller than 16MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        setPhotoUrl(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const optimized = await compressImage(file, 600, 600, 0.8);
+      setPhotoUrl(optimized);
+    } catch (err) {
+      console.error('Failed to compress avatar:', err);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setPhotoUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleValidationAndSave = async (e: React.FormEvent) => {

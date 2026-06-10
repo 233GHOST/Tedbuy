@@ -9,7 +9,7 @@ import { SellerProfilePage } from './components/SellerProfilePage';
 import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
 import { Category } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 
@@ -28,6 +28,7 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
   'Beauty and Care': '💄',
   Electronics: '⚡',
   'Jobs & Services': '💼',
+  Services: '🤝',
   'Animals & Pets': '🐕',
   'Books & Education': '📚',
   'Sports & Outdoors': '⚽',
@@ -51,15 +52,54 @@ const MarketplaceContent: React.FC = () => {
     setCurrentView,
     setShowAuthModal,
     unauthorizedDomainDetected,
-    setUnauthorizedDomainDetected
+    setUnauthorizedDomainDetected,
+    isAuthLoading,
+    isProductsLoading
   } = useApp();
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
+
+  // Categories rendering layout toggle & scroll ref
+  const [showAllCategories, setShowAllCategories] = useState(false);
+  const categoriesScrollRef = React.useRef<HTMLDivElement>(null);
+
+  const handleScrollCategories = (direction: 'left' | 'right') => {
+    if (categoriesScrollRef.current) {
+      const { scrollLeft } = categoriesScrollRef.current;
+      const scrollAmount = 240;
+      categoriesScrollRef.current.scrollTo({
+        left: direction === 'left' ? scrollLeft - scrollAmount : scrollLeft + scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
 
   // Ghana Region & City filter states
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [selectedCity, setSelectedCity] = useState<string>('All');
   const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc'>('default');
+
+  if (isAuthLoading) {
+    return (
+      <div id="app-session-splash" className="min-h-screen bg-slate-900 flex flex-col items-center justify-center font-sans text-white p-6">
+        <div className="flex flex-col items-center max-w-sm text-center space-y-4">
+          {/* Logo Badge Accent */}
+          <div className="w-16 h-16 rounded-2xl bg-white text-slate-950 flex items-center justify-center text-3xl font-black shadow-lg animate-bounce duration-1000">
+            🛍️
+          </div>
+          <div className="space-y-1">
+            <h1 className="text-lg font-black tracking-tight text-white leading-none">Tedbuy Ghana</h1>
+            <p className="text-xs text-slate-400 font-medium">Direct Classifieds Marketplace</p>
+          </div>
+          {/* Premium micro status spinner */}
+          <div className="pt-2 flex items-center gap-1.5 text-[11px] text-slate-400 font-semibold font-mono">
+            <span className="w-4 h-4 border-2 border-slate-700 border-t-white rounded-full animate-spin"></span>
+            <span>Connecting securely...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Filter listings based on category, search query, region, and city
   const filteredProducts = products.filter(product => {
@@ -86,12 +126,21 @@ const MarketplaceContent: React.FC = () => {
     return matchesCategory && matchesSearch && matchesRegion && matchesCity;
   });
 
+  const parseNumericPrice = (p: string | number): number => {
+    if (typeof p === 'number') return p;
+    if (!p) return 0;
+    // Extract numbers and dot, get rid of commas, spaces, letters
+    const cleaned = p.replace(/[^0-9.]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
   const sortedProducts = [...filteredProducts].sort((a, b) => {
     if (sortBy === 'price-asc') {
-      return a.price - b.price;
+      return parseNumericPrice(a.price) - parseNumericPrice(b.price);
     }
     if (sortBy === 'price-desc') {
-      return b.price - a.price;
+      return parseNumericPrice(b.price) - parseNumericPrice(a.price);
     }
     return 0; // default (chrono/initial order)
   });
@@ -224,57 +273,132 @@ const MarketplaceContent: React.FC = () => {
             </div>
 
             {/* Category selection ribbon */}
-            <section className="space-y-4 mb-8">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-extrabold text-slate-900 font-sans tracking-tight flex items-center gap-1.5">
-                  <TrendingUp className="w-4.5 h-4.5 text-slate-900" />
-                  <span>Explore Classified Categories</span>
-                </h2>
+            <section className="space-y-4 mb-8 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="text-base font-extrabold text-slate-900 font-sans tracking-tight flex items-center gap-1.5">
+                    <TrendingUp className="w-4.5 h-4.5 text-slate-900" />
+                    <span>Explore Classified Categories</span>
+                  </h2>
+                  <button
+                    onClick={() => setShowAllCategories(!showAllCategories)}
+                    className="text-[11px] bg-slate-100 font-black px-2.5 py-1 text-slate-700 hover:bg-slate-200 hover:text-slate-950 rounded-lg flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <LayoutGrid className="w-3 h-3" />
+                    <span>{showAllCategories ? 'Show Scroll' : 'View All Grid'}</span>
+                  </button>
+                </div>
                 {selectedCategory && (
                   <button
                     id="clear-category-filter"
                     onClick={() => setSelectedCategory(null)}
-                    className="text-xs text-slate-550 hover:text-slate-950 font-semibold"
+                    className="text-xs text-slate-550 hover:text-slate-950 font-semibold cursor-pointer"
                   >
                     Clear Filter
                   </button>
                 )}
               </div>
 
-              {/* Dynamic scroll categories */}
-              <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-none">
-                <button
-                  id="category-tag-all"
-                  onClick={() => setSelectedCategory(null)}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border ${
-                    selectedCategory === null
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
-                  }`}
-                >
-                  <span>🌐</span>
-                  <span>All Categories</span>
-                </button>
+              {showAllCategories ? (
+                /* All categories presented cleanly in an elegant wrapping grid */
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 shadow-xs">
+                  <button
+                    id="category-tag-all-grid"
+                    onClick={() => {
+                      setSelectedCategory(null);
+                    }}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border text-left truncate cursor-pointer ${
+                      selectedCategory === null
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-350 hover:bg-slate-100/50'
+                    }`}
+                  >
+                    <span>🌐</span>
+                    <span className="truncate">All Categories</span>
+                  </button>
 
-                {(Object.keys(CATEGORY_ICONS) as Category[]).map(cat => {
-                  const active = selectedCategory === cat;
-                  return (
+                  {(Object.keys(CATEGORY_ICONS) as Category[]).map(cat => {
+                    const active = selectedCategory === cat;
+                    return (
+                      <button
+                        key={cat}
+                        id={`category-tag-grid-${cat.toLowerCase().replace(/\s+/g, '-')}`}
+                        onClick={() => {
+                          setSelectedCategory(cat);
+                        }}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border text-left truncate cursor-pointer ${
+                          active
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-350 hover:bg-slate-100/50'
+                        }`}
+                      >
+                        <span className="text-sm leading-none flex-shrink-0">{CATEGORY_ICONS[cat]}</span>
+                        <span className="truncate">{cat}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Beautiful smooth sliding custom horizontal list with navigation helpers */
+                <div className="relative group/scroll flex items-center">
+                  {/* Left Scroll Trigger */}
+                  <button
+                    onClick={() => handleScrollCategories('left')}
+                    className="absolute -left-2 z-10 w-8 h-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-md text-slate-700 hover:bg-slate-50 hover:text-slate-950 active:scale-95 transition-all flex cursor-pointer"
+                    aria-label="Scroll left"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div 
+                    ref={categoriesScrollRef}
+                    className="flex gap-2 pb-2 overflow-x-auto w-full px-7 scroll-smooth scrollbar-none"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                  >
                     <button
-                      key={cat}
-                      id={`category-tag-${cat.toLowerCase().replace(' ', '-')}`}
-                      onClick={() => setSelectedCategory(cat)}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border ${
-                        active
+                      id="category-tag-all"
+                      onClick={() => setSelectedCategory(null)}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border cursor-pointer ${
+                        selectedCategory === null
                           ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
                           : 'bg-white text-slate-700 border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
                       }`}
                     >
-                      <span className="text-sm leading-none">{CATEGORY_ICONS[cat]}</span>
-                      <span>{cat}</span>
+                      <span>🌐</span>
+                      <span>All Categories</span>
                     </button>
-                  );
-                })}
-              </div>
+
+                    {(Object.keys(CATEGORY_ICONS) as Category[]).map(cat => {
+                      const active = selectedCategory === cat;
+                      return (
+                        <button
+                          key={cat}
+                          id={`category-tag-${cat.toLowerCase().replace(/\s+/g, '-')}`}
+                          onClick={() => setSelectedCategory(cat)}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border cursor-pointer ${
+                            active
+                              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-200 hover:border-slate-350 hover:bg-slate-50/50'
+                          }`}
+                        >
+                          <span className="text-sm leading-none">{CATEGORY_ICONS[cat]}</span>
+                          <span>{cat}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right Scroll Trigger */}
+                  <button
+                    onClick={() => handleScrollCategories('right')}
+                    className="absolute -right-2 z-10 w-8 h-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-md text-slate-700 hover:bg-slate-50 hover:text-slate-950 active:scale-95 transition-all flex cursor-pointer"
+                    aria-label="Scroll right"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </section>
                {/* Dual columns grid for classified location Navigator sidebar + products */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
               {/* Left sidebar Location Navigator - span 1 */}
@@ -321,7 +445,20 @@ const MarketplaceContent: React.FC = () => {
                     </div>
                   </div>
 
-                  {filteredProducts.length === 0 ? (
+                  {isProductsLoading ? (
+                    <div id="listings-shimmer-grid" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6">
+                      {[1, 2, 3, 4, 5, 6].map((i) => (
+                        <div key={i} className="bg-white border border-slate-100 rounded-3xl p-3 space-y-4 animate-pulse shadow-sm min-h-[300px] flex flex-col justify-between">
+                          <div className="bg-slate-100 rounded-2xl w-full h-40"></div>
+                          <div className="space-y-2 flex-1 pt-1">
+                            <div className="bg-slate-100 h-4 rounded-md w-3/4"></div>
+                            <div className="bg-slate-100 h-3 rounded-md w-1/2"></div>
+                          </div>
+                          <div className="bg-slate-100 h-5 rounded-md w-1/3 mt-2"></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : filteredProducts.length === 0 ? (
                     <div id="no-products-found" className="bg-white border border-slate-200 rounded-3xl p-16 text-center max-w-lg mx-auto shadow-sm">
                       <Package className="w-14 h-14 mx-auto stroke-[1.2] text-slate-300 mb-2" />
                       <h4 className="text-sm font-bold text-slate-800">No postings matching your parameters</h4>
@@ -349,7 +486,7 @@ const MarketplaceContent: React.FC = () => {
                   )}
                 </section>
               </div>
-            </div>           </section>
+            </div>
           </div>
         )}
 

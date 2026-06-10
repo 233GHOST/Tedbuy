@@ -113,6 +113,8 @@ interface AppContextType {
   setAuthMode: (mode: 'login' | 'register' | 'forgot-password') => void;
   unauthorizedDomainDetected: boolean;
   setUnauthorizedDomainDetected: (detected: boolean) => void;
+  isAuthLoading: boolean;
+  isProductsLoading: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -124,14 +126,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [messages, setMessages] = useState<Message[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [currentUser, setCurrentUserState] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings'>('browse');
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlProductId = params.get('productId');
+      if (urlProductId) return 'product-detail';
+      const saved = sessionStorage.getItem('tedbuy_current_view');
+      return (saved as any) || 'browse';
+    }
+    return 'browse';
+  });
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlProductId = params.get('productId');
+      if (urlProductId) return urlProductId;
+      return sessionStorage.getItem('tedbuy_selected_product_id');
+    }
+    return null;
+  });
+  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tedbuy_selected_seller_id');
+    }
+    return null;
+  });
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tedbuy_active_chat_id');
+    }
+    return null;
+  });
   const [viewingChatOnMobile, setViewingChatOnMobile] = useState<boolean>(false);
   const [dashboardTab, setDashboardTab] = useState<'listings' | 'saved'>('listings');
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
@@ -147,33 +178,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('tedbuy_recent_searches', JSON.stringify(recentSearches));
   }, [recentSearches]);
 
+  // Synchronize navigation view context to sessionStorage for reload persistence
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('tedbuy_current_view', currentView);
+      if (selectedProductId) {
+        sessionStorage.setItem('tedbuy_selected_product_id', selectedProductId);
+      } else {
+        sessionStorage.removeItem('tedbuy_selected_product_id');
+      }
+      if (selectedSellerId) {
+        sessionStorage.setItem('tedbuy_selected_seller_id', selectedSellerId);
+      } else {
+        sessionStorage.removeItem('tedbuy_selected_seller_id');
+      }
+      if (activeChatId) {
+        sessionStorage.setItem('tedbuy_active_chat_id', activeChatId);
+      } else {
+        sessionStorage.removeItem('tedbuy_active_chat_id');
+      }
+    }
+  }, [currentView, selectedProductId, selectedSellerId, activeChatId]);
+
   // Firebase Auth state listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        const userDoc = await getDoc(userRef);
-        if (userDoc.exists()) {
-          setCurrentUserState(userDoc.data() as User);
+      try {
+        if (firebaseUser) {
+          const userRef = doc(db, 'users', firebaseUser.uid);
+          const userDoc = await getDoc(userRef);
+          if (userDoc.exists()) {
+            setCurrentUserState(userDoc.data() as User);
+          } else {
+            // If profile doc doesn't exist yet, we create it dynamically.
+            // This accommodates newly registered users or returning Google users seamlessly.
+            const initialUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
+            const newUser: User = {
+              id: firebaseUser.uid,
+              username: initialUsername,
+              email: firebaseUser.email || undefined,
+              role: 'both',
+              joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+              photoUrl: firebaseUser.photoURL || undefined,
+              followingSellers: [],
+              savedProductIds: []
+            };
+            await setDoc(userRef, cleanObject(newUser));
+            setCurrentUserState(newUser);
+          }
         } else {
-          // If profile doc doesn't exist yet, we create it dynamically.
-          // This accommodates newly registered users or returning Google users seamlessly.
-          const initialUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
-          const newUser: User = {
-            id: firebaseUser.uid,
-            username: initialUsername,
-            email: firebaseUser.email || undefined,
-            role: 'both',
-            joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-            photoUrl: firebaseUser.photoURL || undefined,
-            followingSellers: [],
-            savedProductIds: []
-          };
-          await setDoc(userRef, cleanObject(newUser));
-          setCurrentUserState(newUser);
+          setCurrentUserState(null);
         }
-      } else {
-        setCurrentUserState(null);
+      } catch (err) {
+        console.error('Error fetching/setting auth user details:', err);
+      } finally {
+        setIsAuthLoading(false);
       }
     });
 
@@ -212,8 +271,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
       setProducts(pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setIsProductsLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');
+      setIsProductsLoading(false);
     });
 
     // Clean up/delete the target orphaned product from Firestore permanently
@@ -1015,7 +1076,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       authMode,
       setAuthMode,
       unauthorizedDomainDetected,
-      setUnauthorizedDomainDetected
+      setUnauthorizedDomainDetected,
+      isAuthLoading,
+      isProductsLoading
     }}>
       {children}
     </AppContext.Provider>

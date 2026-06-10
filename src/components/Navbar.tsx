@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { compressImage } from '../utils/imageOptimizer';
 
 export const Navbar: React.FC = () => {
   const {
@@ -631,20 +632,26 @@ export const Navbar: React.FC = () => {
                           id="register-avatar-file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              if (file.size > 1024 * 1024 * 3) {
-                                setAuthError('Selected photo is too large. Image size must be under 3MB.');
+                              if (file.size > 16 * 1024 * 1024) {
+                                setAuthError('Selected photo resides over our 16MB threshold.');
                                 return;
                               }
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                if (typeof reader.result === 'string') {
-                                  setRegisterPhotoUrlInput(reader.result);
-                                }
-                              };
-                              reader.readAsDataURL(file);
+                              try {
+                                const optimized = await compressImage(file, 600, 600, 0.82);
+                                setRegisterPhotoUrlInput(optimized);
+                              } catch (err) {
+                                console.error('Failed to compress registration avatar:', err);
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  if (typeof reader.result === 'string') {
+                                    setRegisterPhotoUrlInput(reader.result);
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              }
                             }
                           }}
                         />

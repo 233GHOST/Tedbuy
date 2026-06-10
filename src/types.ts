@@ -90,6 +90,7 @@ export type Category =
   | 'Beauty and Care'
   | 'Electronics'
   | 'Jobs & Services'
+  | 'Services'
   | 'Animals & Pets'
   | 'Books & Education'
   | 'Sports & Outdoors'

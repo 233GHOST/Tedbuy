@@ -136,7 +136,7 @@ export const ProductDetail: React.FC = () => {
       try {
         await navigator.share({
           title: product?.title || 'Check out this product',
-          text: product?.description || 'Found this interesting listing!',
+          text: `${product?.title || 'Check out this item'} - Price: ${product?.price ? 'GHS ' + product?.price : 'Negotiable'}. Inspect product image: ${product?.images?.[0] || ''}`,
           url: shareUrl,
         });
       } catch (err) {
@@ -157,6 +157,46 @@ export const ProductDetail: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'instant' });
     setActiveMediaIdx(0);
   }, [selectedProductId]);
+
+  // Dynamic OpenGraph, Google and Twitter Metadata inject/update (Requirement 3)
+  useEffect(() => {
+    if (!product) return;
+
+    const updateMetaTag = (selector: string, attrName: string, attrVal: string, contentStr: string) => {
+      let el = document.querySelector(selector);
+      if (!el) {
+        el = document.createElement('meta');
+        el.setAttribute(attrName, attrVal);
+        document.head.appendChild(el);
+      }
+      el.setAttribute('content', contentStr);
+    };
+
+    try {
+      const parentTitle = `${product.title} - GHS ${product.price} | Tedbuy Ghana`;
+      document.title = parentTitle;
+
+      updateMetaTag('meta[property="og:title"]', 'property', 'og:title', parentTitle);
+      updateMetaTag('meta[property="og:description"]', 'property', 'og:description', product.description || `Check out this classified deal under ${product.category}.`);
+      updateMetaTag('meta[property="og:url"]', 'property', 'og:url', window.location.href);
+
+      const mainImg = product.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+      updateMetaTag('meta[property="og:image"]', 'property', 'og:image', mainImg);
+      updateMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', mainImg);
+      updateMetaTag('meta[property="og:type"]', 'property', 'og:type', 'product');
+
+      updateMetaTag('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
+      updateMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', parentTitle);
+      updateMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', product.description || `Check out this classified deal.`);
+      updateMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', mainImg);
+    } catch (err) {
+      console.warn('Meta updater warning', err);
+    }
+
+    return () => {
+      document.title = 'Tedbuy Classifieds Marketplace';
+    };
+  }, [product]);
 
   if (!product) {
     return (
@@ -481,7 +521,7 @@ export const ProductDetail: React.FC = () => {
               <div className="flex flex-wrap gap-2 pt-1">
                 {/* WhatsApp */}
                 <a
-                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Check out this ${product.title} on Ghana Marketplace! Price: GHS ${product.price}. Link: ` + shareUrl)}`}
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Check out "${product.title}" on Tedbuy Ghana classifieds! Price: ${product.price ? 'GHS ' + product.price : 'Negotiable'}. Deal picture: ${product.images?.[0] || ''} - View full details directly inside the app: ` + shareUrl)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-2 px-3 rounded-xl bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
@@ -503,7 +543,7 @@ export const ProductDetail: React.FC = () => {
 
                 {/* Telegram */}
                 <a
-                  href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this ${product.title} on Ghana Marketplace!`)}`}
+                  href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out "${product.title}" on Tedbuy Ghana! Price: ${product.price ? 'GHS ' + product.price : 'Negotiable'}. Deal photo: ` + (product.images?.[0] || ''))}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-2 px-3 rounded-xl bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
@@ -514,7 +554,7 @@ export const ProductDetail: React.FC = () => {
 
                 {/* Twitter / X */}
                 <a
-                  href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this ${product.title} on Ghana Marketplace!`)}`}
+                  href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out "${product.title}" on Tedbuy Ghana! Price: ${product.price ? 'GHS ' + product.price : 'Negotiable'}. Deal photo: ` + (product.images?.[0] || ''))}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-2 px-3 rounded-xl bg-slate-50 text-slate-800 hover:bg-slate-100 border border-slate-200 transition flex items-center justify-center gap-1.5 text-xs font-semibold flex-1 min-w-[100px]"
