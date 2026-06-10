@@ -160,3 +160,62 @@ export interface Review {
   productTitle?: string;
 }
 
+export function normalizeCategory(cat: string): Category {
+  if (!cat) return 'Other';
+  const clean = cat.trim().toLowerCase();
+  if (clean === 'phone' || clean === 'phones') return 'Phones';
+  if (clean === 'laptop' || clean === 'laptops') return 'Laptops';
+  if (clean === 'fashion') return 'Fashion';
+  if (clean === 'home appliance' || clean === 'home appliances' || clean === 'appliances' || clean === 'appliance') return 'Home Appliances';
+  if (clean === 'vehicle' || clean === 'vehicles') return 'Vehicles';
+  if (clean === 'other' || clean === 'others') return 'Other';
+  if (clean === 'trending' || clean === 'trending list') return 'Trending';
+  if (clean === 'property' || clean === 'properties' || clean === 'real estate') return 'Property';
+  if (clean === 'food' || clean === 'foods' || clean === 'foodstuff') return 'Food';
+  if (clean === 'home') return 'Home';
+  if (clean === 'furniture') return 'Furniture';
+  if (clean === 'repair and construction' || clean === 'repair & construction' || clean === 'repair' || clean === 'construction') return 'Repair and Construction';
+  if (clean === 'beauty and care' || clean === 'beauty & care' || clean === 'beauty' || clean === 'care') return 'Beauty and Care';
+  if (clean === 'electronics' || clean === 'electronic') return 'Electronics';
+  if (clean === 'jobs & services' || clean === 'jobs and services' || clean === 'jobs' || clean === 'job') return 'Jobs & Services';
+  if (clean === 'services' || clean === 'service') return 'Services';
+  if (clean === 'animals & pets' || clean === 'animals and pets' || clean === 'pets' || clean === 'pet' || clean === 'animals' || clean === 'animal') return 'Animals & Pets';
+  if (clean === 'books & education' || clean === 'books and education' || clean === 'books' || clean === 'education' || clean === 'book') return 'Books & Education';
+  if (clean === 'sports & outdoors' || clean === 'sports and outdoors' || clean === 'sports' || clean === 'sport' || clean === 'outdoors') return 'Sports & Outdoors';
+  if (clean === 'toys & games' || clean === 'toys and games' || clean === 'toys' || clean === 'games' || clean === 'game') return 'Toys & Games';
+  if (clean === 'agriculture & foodstuff' || clean === 'agriculture and foodstuff' || clean === 'agriculture' || clean === 'farming') return 'Agriculture & Foodstuff';
+  if (clean === 'health & fitness' || clean === 'health and fitness' || clean === 'health' || clean === 'fitness') return 'Health & Fitness';
+  if (clean === 'commercial equipment' || clean === 'commercial equipments' || clean === 'equipment') return 'Commercial Equipment';
+  if (clean === 'art & crafts' || clean === 'art and crafts' || clean === 'art' || clean === 'crafts' || clean === 'craft') return 'Art & Crafts';
+
+  const knownCategories: Category[] = [
+    'Phones',
+    'Laptops',
+    'Fashion',
+    'Home Appliances',
+    'Vehicles',
+    'Trending',
+    'Property',
+    'Food',
+    'Home',
+    'Furniture',
+    'Repair and Construction',
+    'Beauty and Care',
+    'Electronics',
+    'Jobs & Services',
+    'Services',
+    'Animals & Pets',
+    'Books & Education',
+    'Sports & Outdoors',
+    'Toys & Games',
+    'Agriculture & Foodstuff',
+    'Health & Fitness',
+    'Commercial Equipment',
+    'Art & Crafts',
+    'Other'
+  ];
+
+  const found = knownCategories.find(c => c.toLowerCase() === clean);
+  return found || 'Other';
+}
+

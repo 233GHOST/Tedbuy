@@ -109,7 +109,7 @@ const MarketplaceContent: React.FC = () => {
       (product.category && selectedCategory && product.category.toLowerCase() === selectedCategory.toLowerCase());
     const matchesSearch = !searchQuery.trim() ||
       product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (product.category && product.category.toLowerCase().includes(searchQuery.toLowerCase())) ||
       product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.location.toLowerCase().includes(searchQuery.toLowerCase());
 

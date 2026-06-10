@@ -56,17 +56,13 @@ service cloud.firestore {
     // 2. Products Collection rules
     match /products/{productId} {
       function isValidProduct(data) {
-        return data.id is string && data.id.size() <= 128 &&
-               data.sellerId is string && data.sellerId.size() <= 128 &&
-               (isOwner(data.sellerId) || data.sellerId == request.auth.uid || data.get('sellerId', '').matches('^user_.*') || data.get('sellerId', '').matches('^phone_.*') || data.get('id', '').matches('^prod_.*')) &&
-               data.title is string && data.title.size() <= 200 &&
-               data.description is string && data.description.size() <= 10000 &&
-               (data.price is string || data.price is int || data.price is float) &&
-               data.category is string && data.category.size() <= 120 &&
-               data.location is string && data.location.size() <= 250 &&
-               (data.get('negotiable', null) == null || data.negotiable is bool) &&
-               (data.get('videos', null) == null || (data.videos is list && data.videos.size() <= 10)) &&
-               (data.get('images', null) == null || (data.images is list && data.images.size() <= 10));
+        return data.get('id', '') is string && data.get('id', '').size() <= 128 &&
+               data.get('sellerId', '') is string && data.get('sellerId', '').size() <= 128 &&
+               data.get('title', '') is string && data.get('title', '').size() <= 1000 &&
+               data.get('description', '') is string && data.get('description', '').size() <= 30000 &&
+               data.get('category', '') is string && data.get('category', '').size() <= 500 &&
+               data.get('location', '') is string && data.get('location', '').size() <= 1000 &&
+               (data.get('price', null) != null);
       }
 
       allow read: if true; // Listings are public
@@ -77,6 +73,7 @@ service cloud.firestore {
                         isSignedIn() &&
                         (isOwner(existing().get('sellerId', '')) || existing().get('sellerId', '') == request.auth.uid) &&
                         incoming().get('sellerId', '') == existing().get('sellerId', '') &&
+                        incoming().get('id', '') == existing().get('id', '') &&
                         isValidProduct(incoming())
                       ) ||
                       // 2. Spectators can increment viewsCount

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Product, Chat, Message, Category, Review } from '../types';
+import { User, Product, Chat, Message, Category, Review, normalizeCategory } from '../types';
 import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS } from '../data';
 import {
   createUserWithEmailAndPassword,
@@ -323,6 +323,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       snapshot.forEach(docSnap => {
         const item = docSnap.data() as Product;
         if (item.id !== 'prod_1780927804590') {
+          if (item.category) {
+            item.category = normalizeCategory(item.category);
+          }
           pList.push(item);
         }
       });
@@ -705,6 +708,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sellerPhoto: currentUser.photoUrl || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80',
       sellerJoinDate: currentUser.joinDate,
       ...productData,
+      category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
       viewsCount: 0
     };
@@ -718,7 +722,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateProduct = async (id: string, productData: Partial<Product>) => {
     try {
-      await updateDoc(doc(db, 'products', id), cleanObject(productData));
+      const updatedData = { ...productData };
+      if (updatedData.category) {
+        updatedData.category = normalizeCategory(updatedData.category);
+      }
+
+      const productRef = doc(db, 'products', id);
+      const productDoc = await getDoc(productRef);
+      if (productDoc.exists()) {
+        const existingData = productDoc.data() as Product;
+        const fullProductUpdate = {
+          ...existingData,
+          ...updatedData,
+          id,
+          sellerId: existingData.sellerId || currentUser?.id || '',
+        };
+        await setDoc(productRef, cleanObject(fullProductUpdate));
+      } else {
+        await updateDoc(productRef, cleanObject(updatedData));
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
     }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Category, Product } from '../types';
+import { Category, Product, normalizeCategory } from '../types';
 import { X, Image, Upload, AlertCircle, Plus, Video } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
@@ -73,13 +73,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setTitle(productToEdit.title);
       setDescription(productToEdit.description);
       setPrice(productToEdit.price.toString());
-      // Standardize category casing to capital 'Care' for UI/database uniformity
+      // Standardize category casing for UI/database uniformity
       const rawCat = productToEdit.category;
-      if (rawCat && rawCat.toLowerCase() === 'beauty and care') {
-        setCategory('Beauty and Care');
-      } else {
-        setCategory(rawCat);
-      }
+      setCategory(normalizeCategory(rawCat));
       setLocation(productToEdit.location);
       setImages(productToEdit.images);
       setVideos(productToEdit.videos || []);
@@ -293,17 +289,37 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setCurrentView('my-dashboard');
     } catch (e: any) {
       let errStr = e?.message || String(e);
+      let isPermissionDenied = false;
       if (errStr.trim().startsWith('{') && errStr.trim().endsWith('}')) {
         try {
           const parsed = JSON.parse(errStr);
           if (parsed.error) {
             errStr = parsed.error;
+            if (errStr.includes('permission-denied') || errStr.toLowerCase().includes('permission') || errStr.toLowerCase().includes('insufficient')) {
+              isPermissionDenied = true;
+            }
           }
         } catch {
           // ignore
         }
+      } else if (errStr.includes('permission-denied') || errStr.toLowerCase().includes('permission') || errStr.toLowerCase().includes('insufficient')) {
+        isPermissionDenied = true;
       }
-      setErrorMsg(`Submission failed: ${errStr}. (Hint: High-resolution photos/videos might exceed standard firestore sizes; try smaller images/compressing).`);
+
+      if (errStr.startsWith('FirebaseError: ')) {
+        errStr = errStr.replace('FirebaseError: ', '');
+      }
+      if (errStr.includes('[code=permission-denied]:')) {
+        errStr = errStr.substring(errStr.indexOf('[code=permission-denied]:') + '[code=permission-denied]:'.length).trim();
+      }
+
+      let finalMsg = `Submission failed: ${errStr}`;
+      if (isPermissionDenied) {
+        finalMsg += '. (Possible causes: Your login session might have expired - try logging out and back in. Also, compile smaller compressed images if you are using high-resolution photos, or verify you are editing folders/products created by your exact account).';
+      } else {
+        finalMsg += ' (Hint: High-resolution photos/videos might exceed standard firestore sizes; try smaller images/compressing).';
+      }
+      setErrorMsg(finalMsg);
     } finally {
       setIsSubmitting(false);
     }
