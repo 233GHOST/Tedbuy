@@ -73,7 +73,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setTitle(productToEdit.title);
       setDescription(productToEdit.description);
       setPrice(productToEdit.price.toString());
-      setCategory(productToEdit.category);
+      // Standardize category casing to capital 'Care' for UI/database uniformity
+      const rawCat = productToEdit.category;
+      if (rawCat && rawCat.toLowerCase() === 'beauty and care') {
+        setCategory('Beauty and Care');
+      } else {
+        setCategory(rawCat);
+      }
       setLocation(productToEdit.location);
       setImages(productToEdit.images);
       setVideos(productToEdit.videos || []);

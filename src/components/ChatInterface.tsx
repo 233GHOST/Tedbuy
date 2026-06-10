@@ -11,6 +11,7 @@ export const ChatInterface: React.FC = () => {
     chats,
     messages,
     sendMessage,
+    markChatAsRead,
     setCurrentView,
     setSelectedProductId,
     reviews,
@@ -48,8 +49,10 @@ export const ChatInterface: React.FC = () => {
           m.read = true;
         }
       });
+      // Fire asynchronous Firestore update with debounce/deduplication guard
+      markChatAsRead(activeChatId);
     }
-  }, [activeChatId, messages, currentUser]);
+  }, [activeChatId, messages.length, currentUser]);
 
   // Scroll to bottom of chat
   const scrollToBottom = () => {

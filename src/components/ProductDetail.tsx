@@ -296,7 +296,7 @@ export const ProductDetail: React.FC = () => {
   });
 
   const similarProducts = products
-    .filter(p => p.category === product.category && p.id !== product.id)
+    .filter(p => p.id !== product.id && p.category && product.category && p.category.toLowerCase() === product.category.toLowerCase())
     .slice(0, 4);
 
   const numericPrice = extractNumericPrice(product.price);

@@ -77,7 +77,8 @@ const MarketplaceContent: React.FC = () => {
   // Ghana Region & City filter states
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [selectedCity, setSelectedCity] = useState<string>('All');
-  const [sortBy, setSortBy] = useState<'default' | 'price-asc' | 'price-desc'>('default');
+  const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
+  const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
 
   if (isAuthLoading) {
     return (
@@ -103,7 +104,9 @@ const MarketplaceContent: React.FC = () => {
 
   // Filter listings based on category, search query, region, and city
   const filteredProducts = products.filter(product => {
-    const matchesCategory = !selectedCategory || product.category === selectedCategory;
+    const matchesCategory = !selectedCategory || 
+      product.category === selectedCategory || 
+      (product.category && selectedCategory && product.category.toLowerCase() === selectedCategory.toLowerCase());
     const matchesSearch = !searchQuery.trim() ||
       product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -136,13 +139,25 @@ const MarketplaceContent: React.FC = () => {
   };
 
   const sortedProducts = [...filteredProducts].sort((a, b) => {
-    if (sortBy === 'price-asc') {
-      return parseNumericPrice(a.price) - parseNumericPrice(b.price);
+    // 1. Sort by Price if actively configured
+    if (sortByPrice === 'asc') {
+      const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
+      if (diff !== 0) return diff;
+    } else if (sortByPrice === 'desc') {
+      const diff = parseNumericPrice(b.price) - parseNumericPrice(a.price);
+      if (diff !== 0) return diff;
     }
-    if (sortBy === 'price-desc') {
-      return parseNumericPrice(b.price) - parseNumericPrice(a.price);
+
+    // 2. Sort by Ads (Chronological based on createdAt timestamp)
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (sortByAds === 'newest') {
+      return dateB - dateA;
+    } else if (sortByAds === 'oldest') {
+      return dateA - dateB;
     }
-    return 0; // default (chrono/initial order)
+
+    return 0; // secondary stable order
   });
 
   const handlePostAdBtn = () => {
@@ -429,19 +444,36 @@ const MarketplaceContent: React.FC = () => {
                       <p className="text-xs text-slate-500 mt-0.5">{filteredProducts.length} active listings found</p>
                     </div>
 
-                    {/* Price Sort Dropdown replacing Ghana's verified listings */}
-                    <div className="flex items-center gap-2 self-start sm:self-center">
-                      <label htmlFor="sort-dropdown" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort by:</label>
-                      <select
-                        id="sort-dropdown"
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value as 'default' | 'price-asc' | 'price-desc')}
-                        className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300"
-                      >
-                        <option value="default">Latest Ads</option>
-                        <option value="price-asc">Price: Low to High</option>
-                        <option value="price-desc">Price: High to Low</option>
-                      </select>
+                    {/* Multi-Dimensional Dual Selection Controls (Ads and Price side-by-side) */}
+                    <div className="flex flex-wrap items-center gap-3.5 self-start sm:self-center">
+                      {/* Sort by Date/Ads */}
+                      <div className="flex items-center gap-1.5">
+                        <label htmlFor="sort-ads" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort Ads:</label>
+                        <select
+                          id="sort-ads"
+                          value={sortByAds}
+                          onChange={(e) => setSortByAds(e.target.value as 'newest' | 'oldest')}
+                          className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300 animate-fade-in"
+                        >
+                          <option value="newest">Newest First</option>
+                          <option value="oldest">Oldest First</option>
+                        </select>
+                      </div>
+
+                      {/* Sort by Price */}
+                      <div className="flex items-center gap-1.5">
+                        <label htmlFor="sort-price" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort Price:</label>
+                        <select
+                          id="sort-price"
+                          value={sortByPrice}
+                          onChange={(e) => setSortByPrice(e.target.value as 'default' | 'asc' | 'desc')}
+                          className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300 animate-fade-in"
+                        >
+                          <option value="default">All Prices</option>
+                          <option value="asc">Low to High</option>
+                          <option value="desc">High to Low</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
 

@@ -73,6 +73,7 @@ interface AppContextType {
   messages: Message[];
   startChat: (productId: string, initialMessage?: string) => Promise<string>;
   sendMessage: (chatId: string, text: string, optionalSenderId?: string) => Promise<void>;
+  markChatAsRead: (chatId: string) => Promise<void>;
   markAsDelivered: (chatId: string) => Promise<void>;
   markAsPickedUp: (chatId: string) => Promise<void>;
   resetChats: () => Promise<void>;
@@ -120,14 +121,56 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [chats, setChats] = useState<Chat[]>([]);
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const stored = localStorage.getItem('tedbuy_local_users_backup');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const stored = localStorage.getItem('tedbuy_local_products_backup');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [chats, setChats] = useState<Chat[]>(() => {
+    try {
+      const stored = localStorage.getItem('tedbuy_local_chats_backup');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
   const [messages, setMessages] = useState<Message[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [currentUser, setCurrentUserState] = useState<User | null>(null);
+  const [reviews, setReviews] = useState<Review[]>(() => {
+    try {
+      const stored = localStorage.getItem('tedbuy_local_reviews_backup');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [currentUser, setCurrentUserState] = useState<User | null>(() => {
+    try {
+      const stored = localStorage.getItem('tedbuy_local_current_user_backup');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [isProductsLoading, setIsProductsLoading] = useState(() => {
+    try {
+      const stored = localStorage.getItem('tedbuy_local_products_backup');
+      return !(stored && JSON.parse(stored).length > 0);
+    } catch {
+      return true;
+    }
+  });
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -239,6 +282,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return unsub;
   }, []);
 
+  // Sync currentUser backup to localStorage
+  useEffect(() => {
+    try {
+      if (currentUser) {
+        localStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem('tedbuy_local_current_user_backup');
+      }
+    } catch (err) {
+      console.warn('Could not save current user backup:', err);
+    }
+  }, [currentUser]);
+
   // 1. Real-time Users Synchronization
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -270,8 +326,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           pList.push(item);
         }
       });
-      setProducts(pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setProducts(sorted);
       setIsProductsLoading(false);
+      try {
+        localStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+      } catch (err) {
+        console.warn('Could not save products backup:', err);
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');
       setIsProductsLoading(false);
@@ -319,7 +381,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       snapshot.forEach(docSnap => {
         rList.push(docSnap.data() as Review);
       });
-      setReviews(rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      const sorted = rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setReviews(sorted);
+      try {
+        localStorage.setItem('tedbuy_local_reviews_backup', JSON.stringify(sorted));
+      } catch (err) {
+        console.warn('Could not save reviews backup:', err);
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'reviews');
     });
@@ -339,7 +407,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const chatMap = new Map<string, Chat>();
 
     const updateCombined = () => {
-      setChats(Array.from(chatMap.values()).sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime)));
+      const combined = Array.from(chatMap.values()).sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
+      setChats(combined);
+      try {
+        localStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(combined));
+      } catch (err) {
+        console.warn('Could not save chats backup:', err);
+      }
     };
 
     const unsub1 = onSnapshot(qBuyer, (snap) => {
@@ -755,6 +829,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const markChatAsRead = async (chatId: string) => {
+    if (!currentUser) return;
+    const unreadMsgs = messages.filter(
+      m => m.chatId === chatId && m.recipientId === currentUser.id && !m.read
+    );
+    if (unreadMsgs.length === 0) return;
+
+    // Snappy optimistic local state update
+    setMessages(prev =>
+      prev.map(m => {
+        if (m.chatId === chatId && m.recipientId === currentUser.id && !m.read) {
+          return { ...m, read: true };
+        }
+        return m;
+      })
+    );
+
+    try {
+      const promises = unreadMsgs.map(msg =>
+        updateDoc(doc(db, 'messages', msg.id), { read: true })
+      );
+      await Promise.all(promises);
+    } catch (err) {
+      console.error('Error marking messages as read in Firestore:', err);
+    }
+  };
+
   const markAsDelivered = async (chatId: string) => {
     const chat = chats.find(c => c.id === chatId);
     if (!chat) return;
@@ -1040,6 +1141,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       messages,
       startChat,
       sendMessage,
+      markChatAsRead,
       markAsDelivered,
       markAsPickedUp,
       resetChats,

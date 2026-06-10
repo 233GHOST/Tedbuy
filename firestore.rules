@@ -122,7 +122,11 @@ service cloud.firestore {
       allow read: if !isSignedIn() || 
                      (resource.data.get('senderId', '') == request.auth.uid || resource.data.get('recipientId', '') == request.auth.uid);
       allow create: if (isSignedIn() || incoming().get('senderId', '').matches('^user_.*')) && isValidId(messageId) && isValidMessage(incoming());
-      allow update, delete: if false;
+      allow update: if (isSignedIn() || existing().get('recipientId', '').matches('^user_.*')) &&
+                       (isOwner(existing().get('recipientId', '')) || existing().get('recipientId', '') == request.auth.uid || existing().get('recipientId', '').matches('^user_.*')) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
+                       incoming().read == true;
+      allow delete: if false;
     }
 
     // 5. Reviews Collection rules
