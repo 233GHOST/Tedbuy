@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Product, Chat, Message, Category, Review, normalizeCategory } from '../types';
 import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS } from '../data';
 import {
@@ -116,10 +116,6 @@ interface AppContextType {
   setUnauthorizedDomainDetected: (detected: boolean) => void;
   isAuthLoading: boolean;
   isProductsLoading: boolean;
-  isCreatingProduct: boolean;
-  isSendingMessage: boolean;
-  isFollowingSeller: string | null;
-  isSavingProduct: string | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -175,12 +171,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     }
   });
-
-  // Loading states for async operations
-  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
-  const [isSendingMessage, setIsSendingMessage] = useState(false);
-  const [isFollowingSeller, setIsFollowingSeller] = useState<string | null>(null);
-  const [isSavingProduct, setIsSavingProduct] = useState<string | null>(null);
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -307,23 +297,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 1. Real-time Users Synchronization
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const uList: User[] = [];
-      snapshot.forEach(docSnap => {
-        uList.push(docSnap.data() as User);
+    let unsub: (() => void) | undefined;
+    const timer = setTimeout(() => {
+      unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+        const uList: User[] = [];
+        snapshot.forEach(docSnap => {
+          uList.push(docSnap.data() as User);
+        });
+        setUsers(uList);
+        
+        // Update local storage offline backup mapping
+        try {
+          localStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
+        } catch (err) {
+          console.warn('Could not save user backups to local storage:', err);
+        }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users');
       });
-      setUsers(uList);
-      
-      // Update local storage offline backup mapping
-      try {
-        localStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
-      } catch (err) {
-        console.warn('Could not save user backups to local storage:', err);
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'users');
-    });
-    return unsub;
+    }, 450); // Defer to prioritize product fetching and main paint thread
+    return () => {
+      clearTimeout(timer);
+      if (unsub) unsub();
+    };
   }, []);
 
   // 2. Real-time Products Synchronization
@@ -360,17 +356,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsProductsLoading(false);
     });
 
-    // Clean up/delete the target orphaned product from Firestore permanently
-    const performCleanup = async () => {
-      try {
-        await deleteDoc(doc(db, 'products', 'prod_1780927804590'));
-        console.log('Successfully completed cleanup of orphaned product prod_1780927804590');
-      } catch (err) {
-        console.warn('Ondemand cleanup notice: could not delete orphaned product prod_1780927804590 from Firestore:', err);
-      }
-    };
-    performCleanup();
-
     return unsub;
   }, []);
 
@@ -397,22 +382,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 3. Real-time Reviews Synchronization
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'reviews'), (snapshot) => {
-      const rList: Review[] = [];
-      snapshot.forEach(docSnap => {
-        rList.push(docSnap.data() as Review);
+    let unsub: (() => void) | undefined;
+    const timer = setTimeout(() => {
+      unsub = onSnapshot(collection(db, 'reviews'), (snapshot) => {
+        const rList: Review[] = [];
+        snapshot.forEach(docSnap => {
+          rList.push(docSnap.data() as Review);
+        });
+        const sorted = rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setReviews(sorted);
+        try {
+          localStorage.setItem('tedbuy_local_reviews_backup', JSON.stringify(sorted));
+        } catch (err) {
+          console.warn('Could not save reviews backup:', err);
+        }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'reviews');
       });
-      const sorted = rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      setReviews(sorted);
-      try {
-        localStorage.setItem('tedbuy_local_reviews_backup', JSON.stringify(sorted));
-      } catch (err) {
-        console.warn('Could not save reviews backup:', err);
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'reviews');
-    });
-    return unsub;
+    }, 300); // Defer to prioritize products and authentication paint
+    return () => {
+      clearTimeout(timer);
+      if (unsub) unsub();
+    };
   }, []);
 
   // 4. Real-time Chats Synchronization (Secure Participant Filtering)
@@ -705,7 +696,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Listings Operations
-  const createProduct = useCallback(async (productData: {
+  const createProduct = async (productData: {
     title: string;
     description: string;
     price: string | number;
@@ -718,7 +709,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     negotiable?: boolean;
   }) => {
     if (!currentUser) return;
-    setIsCreatingProduct(true);
     const prodId = `prod_${Date.now()}`;
     const newProduct: Product = {
       id: prodId,
@@ -736,10 +726,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `products/${prodId}`);
-    } finally {
-      setIsCreatingProduct(false);
     }
-  }, [currentUser]);
+  };
 
   const updateProduct = async (id: string, productData: Partial<Product>) => {
     try {
@@ -841,7 +829,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const sendMessage = useCallback(async (chatId: string, text: string, optionalSenderId?: string) => {
+  const sendMessage = async (chatId: string, text: string, optionalSenderId?: string) => {
     const sender = optionalSenderId ? users.find(u => u.id === optionalSenderId) : currentUser;
     if (!sender) return;
 
@@ -869,10 +857,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `messages/${msgId}`);
-    } finally {
-      setIsSendingMessage(false);
     }
-  }, [chats, currentUser]);
+  };
 
   const markChatAsRead = async (chatId: string) => {
     if (!currentUser) return;

@@ -100,7 +100,8 @@ export const ProductDetail: React.FC = () => {
     setSelectedSellerId,
     toggleSaveProduct,
     setShowAuthModal,
-    setAuthMode
+    setAuthMode,
+    incrementProductViews
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
@@ -163,7 +164,10 @@ export const ProductDetail: React.FC = () => {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
     setActiveMediaIdx(0);
-  }, [selectedProductId]);
+    if (selectedProductId) {
+      incrementProductViews(selectedProductId);
+    }
+  }, [selectedProductId, incrementProductViews]);
 
   // Dynamic OpenGraph, Google and Twitter Metadata inject/update (Requirement 3)
   useEffect(() => {
@@ -366,7 +370,7 @@ export const ProductDetail: React.FC = () => {
             <div className="grid grid-cols-5 gap-3">
               {mediaGallery.map((med, i) => (
                 <button
-                  key={med.type === 'image' ? `img_${i}` : `vid_${i}`}
+                  key={i}
                   id={`media-thumb-${i}`}
                   onClick={() => setActiveMediaIdx(i)}
                   className={`aspect-square rounded-xl overflow-hidden bg-slate-100 border-2 transition-all relative ${

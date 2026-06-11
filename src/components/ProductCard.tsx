@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React from 'react';
 import { Product, isUserVerified } from '../types';
 import { useApp } from '../context/AppContext';
 import { MapPin, Eye, Calendar, Tag, Bookmark } from 'lucide-react';
@@ -14,7 +14,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     toggleSaveProduct,
     setSelectedProductId,
     setCurrentView,
-    incrementProductViews,
     setShowAuthModal,
     setAuthMode
   } = useApp();
@@ -24,7 +23,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const isSellerVerified = isUserVerified(seller);
 
   const handleDetailsClick = () => {
-    incrementProductViews(product.id);
     setSelectedProductId(product.id);
     setCurrentView('product-detail');
   };
