@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, Product, Chat, Message, Category, Review, normalizeCategory } from '../types';
 import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS } from '../data';
 import {
@@ -21,7 +21,8 @@ import {
   deleteDoc,
   onSnapshot,
   query,
-  where
+  where,
+  increment
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 
@@ -850,17 +851,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const incrementProductViews = async (id: string) => {
-    const p = products.find(prod => prod.id === id);
-    if (!p) return;
+  const incrementProductViews = useCallback(async (id: string) => {
     try {
       await updateDoc(doc(db, 'products', id), {
-        viewsCount: (p.viewsCount || 0) + 1
+        viewsCount: increment(1)
       });
     } catch (error) {
       console.warn('Failed to increment metrics view:', error);
     }
-  };
+  }, []);
 
   // Chats Operations
   const startChat = async (productId: string, initialMessage?: string) => {
