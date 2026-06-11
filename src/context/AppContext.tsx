@@ -120,10 +120,58 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Ignore security/quota exceptions
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignore security exceptions
+    }
+  }
+};
+
+const safeSessionStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // Ignore security exceptions
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // Ignore security exceptions
+    }
+  }
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>(() => {
     try {
-      const stored = localStorage.getItem('tedbuy_local_users_backup');
+      const stored = safeLocalStorage.getItem('tedbuy_local_users_backup');
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -131,7 +179,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [products, setProducts] = useState<Product[]>(() => {
     try {
-      const stored = localStorage.getItem('tedbuy_local_products_backup');
+      const stored = safeLocalStorage.getItem('tedbuy_local_products_backup');
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -139,7 +187,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [chats, setChats] = useState<Chat[]>(() => {
     try {
-      const stored = localStorage.getItem('tedbuy_local_chats_backup');
+      const stored = safeLocalStorage.getItem('tedbuy_local_chats_backup');
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -148,7 +196,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [messages, setMessages] = useState<Message[]>([]);
   const [reviews, setReviews] = useState<Review[]>(() => {
     try {
-      const stored = localStorage.getItem('tedbuy_local_reviews_backup');
+      const stored = safeLocalStorage.getItem('tedbuy_local_reviews_backup');
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -156,7 +204,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [currentUser, setCurrentUserState] = useState<User | null>(() => {
     try {
-      const stored = localStorage.getItem('tedbuy_local_current_user_backup');
+      const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
       return stored ? JSON.parse(stored) : null;
     } catch {
       return null;
@@ -165,7 +213,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProductsLoading, setIsProductsLoading] = useState(() => {
     try {
-      const stored = localStorage.getItem('tedbuy_local_products_backup');
+      const stored = safeLocalStorage.getItem('tedbuy_local_products_backup');
       return !(stored && JSON.parse(stored).length > 0);
     } catch {
       return true;
@@ -180,7 +228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const params = new URLSearchParams(window.location.search);
       const urlProductId = params.get('productId');
       if (urlProductId) return 'product-detail';
-      const saved = sessionStorage.getItem('tedbuy_current_view');
+      const saved = safeSessionStorage.getItem('tedbuy_current_view');
       return (saved as any) || 'browse';
     }
     return 'browse';
@@ -190,27 +238,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const params = new URLSearchParams(window.location.search);
       const urlProductId = params.get('productId');
       if (urlProductId) return urlProductId;
-      return sessionStorage.getItem('tedbuy_selected_product_id');
+      return safeSessionStorage.getItem('tedbuy_selected_product_id');
     }
     return null;
   });
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('tedbuy_selected_seller_id');
+      return safeSessionStorage.getItem('tedbuy_selected_seller_id');
     }
     return null;
   });
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('tedbuy_active_chat_id');
+      return safeSessionStorage.getItem('tedbuy_active_chat_id');
     }
     return null;
   });
   const [viewingChatOnMobile, setViewingChatOnMobile] = useState<boolean>(false);
   const [dashboardTab, setDashboardTab] = useState<'listings' | 'saved'>('listings');
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
-    const saved = localStorage.getItem('tedbuy_recent_searches');
-    return saved ? JSON.parse(saved) : ['iPhone', 'Laptop', 'Fashion', 'Appliance'];
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_recent_searches');
+      return saved ? JSON.parse(saved) : ['iPhone', 'Laptop', 'Fashion', 'Appliance'];
+    } catch {
+      return ['iPhone', 'Laptop', 'Fashion', 'Appliance'];
+    }
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
@@ -218,77 +270,112 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Synchronize dynamic searches with localStorage
   useEffect(() => {
-    localStorage.setItem('tedbuy_recent_searches', JSON.stringify(recentSearches));
+    safeLocalStorage.setItem('tedbuy_recent_searches', JSON.stringify(recentSearches));
   }, [recentSearches]);
 
   // Synchronize navigation view context to sessionStorage for reload persistence
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      sessionStorage.setItem('tedbuy_current_view', currentView);
+      safeSessionStorage.setItem('tedbuy_current_view', currentView);
       if (selectedProductId) {
-        sessionStorage.setItem('tedbuy_selected_product_id', selectedProductId);
+        safeSessionStorage.setItem('tedbuy_selected_product_id', selectedProductId);
       } else {
-        sessionStorage.removeItem('tedbuy_selected_product_id');
+        safeSessionStorage.removeItem('tedbuy_selected_product_id');
       }
       if (selectedSellerId) {
-        sessionStorage.setItem('tedbuy_selected_seller_id', selectedSellerId);
+        safeSessionStorage.setItem('tedbuy_selected_seller_id', selectedSellerId);
       } else {
-        sessionStorage.removeItem('tedbuy_selected_seller_id');
+        safeSessionStorage.removeItem('tedbuy_selected_seller_id');
       }
       if (activeChatId) {
-        sessionStorage.setItem('tedbuy_active_chat_id', activeChatId);
+        safeSessionStorage.setItem('tedbuy_active_chat_id', activeChatId);
       } else {
-        sessionStorage.removeItem('tedbuy_active_chat_id');
+        safeSessionStorage.removeItem('tedbuy_active_chat_id');
       }
     }
   }, [currentView, selectedProductId, selectedSellerId, activeChatId]);
 
   // Firebase Auth state listener
   useEffect(() => {
+    let active = true;
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!active) return;
       try {
         if (firebaseUser) {
-          const userRef = doc(db, 'users', firebaseUser.uid);
-          const userDoc = await getDoc(userRef);
-          if (userDoc.exists()) {
-            setCurrentUserState(userDoc.data() as User);
-          } else {
-            // If profile doc doesn't exist yet, we create it dynamically.
-            // This accommodates newly registered users or returning Google users seamlessly.
-            const initialUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
-            const newUser: User = {
-              id: firebaseUser.uid,
-              username: initialUsername,
-              email: firebaseUser.email || undefined,
-              role: 'both',
-              joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-              photoUrl: firebaseUser.photoURL || undefined,
-              followingSellers: [],
-              savedProductIds: []
-            };
-            await setDoc(userRef, cleanObject(newUser));
-            setCurrentUserState(newUser);
+          const initialUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
+          
+          // Construct a dynamic backup/fallback user structure
+          const tempUser: User = {
+            id: firebaseUser.uid,
+            username: initialUsername,
+            email: firebaseUser.email || undefined,
+            role: 'both',
+            joinDate: 'Joined recently',
+            photoUrl: firebaseUser.photoURL || undefined,
+            followingSellers: [],
+            savedProductIds: []
+          };
+          
+          // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
+          setCurrentUserState(prev => {
+            if (prev && prev.id === firebaseUser.uid) {
+              return prev; // Use cache
+            }
+            return tempUser; // Use template
+          });
+
+          // Instantly hide any full screen loading blocking screen
+          setIsAuthLoading(false);
+
+          // Now fetch the true DB record asynchronously in the background so it never blocks UI.
+          try {
+            const userRef = doc(db, 'users', firebaseUser.uid);
+            const userDoc = await getDoc(userRef);
+            if (!active) return;
+            
+            if (userDoc.exists()) {
+              setCurrentUserState(userDoc.data() as User);
+            } else {
+              // Create the user document in Firestore asynchronously if first time
+              const newUser: User = {
+                id: firebaseUser.uid,
+                username: initialUsername,
+                email: firebaseUser.email || undefined,
+                role: 'both',
+                joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                photoUrl: firebaseUser.photoURL || undefined,
+                followingSellers: [],
+                savedProductIds: []
+              };
+              await setDoc(userRef, cleanObject(newUser));
+              if (active) setCurrentUserState(newUser);
+            }
+          } catch (dbErr) {
+            console.warn('Background user record fetch failed (normal offline fallback):', dbErr);
           }
         } else {
           setCurrentUserState(null);
+          setIsAuthLoading(false);
         }
       } catch (err) {
         console.error('Error fetching/setting auth user details:', err);
-      } finally {
         setIsAuthLoading(false);
       }
     });
 
-    return unsub;
+    return () => {
+      active = false;
+      unsub();
+    };
   }, []);
 
   // Sync currentUser backup to localStorage
   useEffect(() => {
     try {
       if (currentUser) {
-        localStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(currentUser));
+        safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(currentUser));
       } else {
-        localStorage.removeItem('tedbuy_local_current_user_backup');
+        safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
       }
     } catch (err) {
       console.warn('Could not save current user backup:', err);
@@ -308,7 +395,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         
         // Update local storage offline backup mapping
         try {
-          localStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
+          safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
         } catch (err) {
           console.warn('Could not save user backups to local storage:', err);
         }
@@ -347,7 +434,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Truncate descriptions to save space
           description: p.description ? (p.description.length > 800 ? p.description.substring(0, 800) + '...' : p.description) : ''
         }));
-        localStorage.setItem('tedbuy_local_products_backup', JSON.stringify(safeBackup));
+        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(safeBackup));
       } catch (err) {
         console.warn('Could not save offline products backup:', err);
       }
@@ -392,7 +479,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const sorted = rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         setReviews(sorted);
         try {
-          localStorage.setItem('tedbuy_local_reviews_backup', JSON.stringify(sorted));
+          safeLocalStorage.setItem('tedbuy_local_reviews_backup', JSON.stringify(sorted));
         } catch (err) {
           console.warn('Could not save reviews backup:', err);
         }
@@ -422,7 +509,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const combined = Array.from(chatMap.values()).sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
       setChats(combined);
       try {
-        localStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(combined));
+        safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(combined));
       } catch (err) {
         console.warn('Could not save chats backup:', err);
       }
@@ -606,7 +693,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const userDoc = await getDoc(doc(db, 'users', defaultSeed.id));
           if (userDoc.exists()) {
             setCurrentUserState(userDoc.data() as User);
-            localStorage.setItem('tedbuy_simulated_user', JSON.stringify(userDoc.data()));
+            safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(userDoc.data()));
           } else {
             const newUser: User = {
               ...defaultSeed,
@@ -614,12 +701,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             };
             await setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
             setCurrentUserState(newUser);
-            localStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
+            safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
           }
         } catch (simErr) {
           console.warn('Fallback simulated user check failed, using direct memory fallback:', simErr);
           setCurrentUserState(defaultSeed);
-          localStorage.setItem('tedbuy_simulated_user', JSON.stringify(defaultSeed));
+          safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(defaultSeed));
         }
         return; // Resolve cleanly!
       }
@@ -650,7 +737,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const userDoc = await getDoc(doc(db, 'users', seed.id));
         if (userDoc.exists()) {
           setCurrentUserState(userDoc.data() as User);
-          localStorage.setItem('tedbuy_simulated_user', JSON.stringify(userDoc.data()));
+          safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(userDoc.data()));
         } else {
           const newUser: User = {
             ...seed,
@@ -658,13 +745,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           };
           await setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
           setCurrentUserState(newUser);
-          localStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
+          safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
         }
       } catch (dbErr) {
         console.warn('Failed to load/create simulated user in Firestore, performing in-memory fallback:', dbErr);
         // Even if Firestore write/read fails, set the local state so the app continues working elegantly
         setCurrentUserState(seed);
-        localStorage.setItem('tedbuy_simulated_user', JSON.stringify(seed));
+        safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(seed));
       }
     };
 
@@ -1036,7 +1123,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Always update local status & localStorage
     setCurrentUserState(updatedUser);
-    localStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
+    safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
   };
 
   const deleteAccount = async () => {
@@ -1101,15 +1188,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Could not delete auth user:', err);
     }
 
-    localStorage.removeItem('tedbuy_simulated_user');
+    safeLocalStorage.removeItem('tedbuy_simulated_user');
 
     // Filter out deleted user from local users backup cache
     try {
-      const cached = localStorage.getItem('tedbuy_local_users_backup');
+      const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
       if (cached) {
         const uList: User[] = JSON.parse(cached);
         const filtered = uList.filter(u => u.id !== uid);
-        localStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
       }
     } catch (cacheErr) {
       console.warn('Could not filter custom backup data upon account deletion:', cacheErr);

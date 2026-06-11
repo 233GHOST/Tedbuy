@@ -162,7 +162,11 @@ export const ProductDetail: React.FC = () => {
   };
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    try {
+      window.scrollTo(0, 0);
+    } catch {
+      // standard fallback
+    }
     setActiveMediaIdx(0);
     if (selectedProductId) {
       incrementProductViews(selectedProductId);
