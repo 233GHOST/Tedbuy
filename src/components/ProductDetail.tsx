@@ -119,6 +119,9 @@ export const ProductDetail: React.FC = () => {
    const [showTikTokToast, setShowTikTokToast] = useState(false);
    const [previewPlatform, setPreviewPlatform] = useState<'whatsapp' | 'facebook' | 'tiktok'>('whatsapp');
 
+   // Client-side image URL for the social simulator to guarantee no broken images inside browser iframe/SPA context
+   const clientProductImageUrl = product?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+
    const productImageUrl = product?.images?.[0]?.startsWith('data:')
      ? typeof window !== 'undefined'
        ? `${window.location.origin}/api/products/${product.id}/image.jpg`
@@ -126,7 +129,7 @@ export const ProductDetail: React.FC = () => {
      : (product?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80');
 
    const shareUrl = typeof window !== 'undefined'
-     ? `${window.location.origin}${window.location.pathname}?productId=${product?.id || ''}&title=${encodeURIComponent(product?.title || '')}&price=${encodeURIComponent(product?.price ? 'GHS ' + product.price : 'Negotiable')}&image=${encodeURIComponent(productImageUrl)}&_r=1&share_item_id=${product?.id || ''}&source=h5_m&utm_source=copy&utm_medium=social&utm_campaign=client_share`
+     ? `${window.location.origin}${window.location.pathname}?productId=${product?.id || ''}&title=${encodeURIComponent(product?.title || '')}&price=${encodeURIComponent(product?.price ? 'GHS ' + product.price : 'Negotiable')}&image=${encodeURIComponent(productImageUrl)}&_r=1&u_code=${Math.random().toString(36).substring(2, 10)}&preview_pb=0&sharer_language=en&_d=${Math.random().toString(36).substring(2, 10)}&share_item_id=${product?.id || ''}&source=h5_m&timestamp=${Math.floor(Date.now() / 1000)}&utm_source=copy&share_enter_from=homepage_hot&tt_from=copy&enable_checksum=1&utm_medium=ios&share_link_id=${Math.random().toString(36).substring(2, 12).toUpperCase()}-${Math.random().toString(36).substring(2, 12).toUpperCase()}&user_id=${product?.sellerId || '7035610431519966214'}&sec_user_id=MS4wLjABAAAAw23aZ-j6DFb3ml4t4ssq5ITPPpMobxUbgwgCxXChKSI9Bq9yPlpocpu_7Vq6C7UI&utm_campaign=client_share&panel_source_v2=share_panel&ug_btm=b2001,b2001&social_share_type=0`
      : `https://ghanamarketplace.com/?productId=${product?.id || ''}`;
 
   const handleCopyLink = async () => {
@@ -513,25 +516,6 @@ export const ProductDetail: React.FC = () => {
                 )}
               </div>
 
-              {/* Direct share URL visual widget */}
-              <div className="flex gap-2">
-                <div className="flex-1 bg-slate-50 border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-mono select-all truncate flex items-center justify-between">
-                  <span className="truncate mr-2">{shareUrl}</span>
-                </div>
-                <button
-                  onClick={handleCopyLink}
-                  className={`px-3 py-2 rounded-xl border text-xs font-semibold transition duration-200 flex items-center gap-1.5 shrink-0 ${
-                    isCopied
-                      ? 'bg-emerald-50 border-emerald-250 text-emerald-600 border-emerald-300'
-                      : 'bg-slate-900 border-slate-900 text-white hover:bg-slate-800'
-                  }`}
-                  title="Copy Listing Link"
-                >
-                  {isCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                  <span>{isCopied ? 'Copied' : 'Copy'}</span>
-                </button>
-              </div>
-
               {/* Social Media Link Preview Simulation */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 mt-2 space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
@@ -565,10 +549,10 @@ export const ProductDetail: React.FC = () => {
                     <div className="bg-[#DCF8C6] text-[#303030] text-xs p-2.5 rounded-xl border border-[#C6E1A4] leading-relaxed relative text-left">
                       {/* WhatsApp Link Preview Box */}
                       <div className="bg-[#E4F5D4] rounded-lg border border-[#D0E6BE] overflow-hidden mb-1 flex flex-col cursor-pointer hover:bg-[#DCF1CC] transition">
-                        {productImageUrl && (
+                        {clientProductImageUrl && (
                           <div className="aspect-[1.91/1] w-full bg-white relative overflow-hidden">
                             <img 
-                              src={productImageUrl} 
+                              src={clientProductImageUrl} 
                               alt="WhatsApp Link Preview" 
                               className="w-full h-full object-cover" 
                               referrerPolicy="no-referrer"
@@ -616,10 +600,10 @@ export const ProductDetail: React.FC = () => {
                       Check out "{product?.title || 'this item'}" on Tedbuy Ghana! Price: {product?.price ? 'GHS ' + product?.price : 'Negotiable'}. View details directly:
                     </div>
                     <div className="bg-slate-100 border-t border-slate-200 cursor-pointer hover:bg-slate-150 transition">
-                      {productImageUrl && (
+                      {clientProductImageUrl && (
                         <div className="aspect-[1.91/1] w-full relative overflow-hidden bg-white">
                           <img 
-                            src={productImageUrl} 
+                            src={clientProductImageUrl} 
                             alt="Facebook Link Preview" 
                             className="w-full h-full object-cover" 
                             referrerPolicy="no-referrer"
@@ -644,9 +628,9 @@ export const ProductDetail: React.FC = () => {
                 {previewPlatform === 'tiktok' && (
                   <div className="bg-slate-950 text-white rounded-xl max-w-[340px] mx-auto overflow-hidden relative shadow-md font-sans border border-slate-800 text-left">
                     <div className="aspect-[1.91/1] w-full bg-slate-900 relative flex items-center justify-center overflow-hidden">
-                      {productImageUrl ? (
+                      {clientProductImageUrl ? (
                         <img 
-                          src={productImageUrl} 
+                          src={clientProductImageUrl} 
                           alt="TikTok Link Preview" 
                           className="w-full h-full object-cover opacity-80" 
                           referrerPolicy="no-referrer"
