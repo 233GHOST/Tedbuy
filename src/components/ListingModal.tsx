@@ -18,6 +18,17 @@ const CATEGORIES: Category[] = [
   'Home Appliances',
   'Vehicles',
   'Beauty and Care',
+  'Furniture & Home Decor',
+  'Sports & Outdoors',
+  'Books & Media',
+  'Food & Beverages',
+  'Pet Supplies',
+  'Toys & Games',
+  'Jewelry & Watches',
+  'Health & Wellness',
+  'Services',
+  'Arts & Crafts',
+  'Baby & Kids',
   'Other'
 ];
 

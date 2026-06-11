@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useDebounce } from './hooks/useDebounce';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
@@ -20,6 +21,17 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
   'Home Appliances': '🔌',
   Vehicles: '🚗',
   'Beauty and Care': '💄',
+  'Furniture & Home Decor': '🛋️',
+  'Sports & Outdoors': '⛺',
+  'Books & Media': '📚',
+  'Food & Beverages': '🍔',
+  'Pet Supplies': '🐾',
+  'Toys & Games': '🎮',
+  'Jewelry & Watches': '⌚',
+  'Health & Wellness': '💊',
+  'Services': '🔧',
+  'Arts & Crafts': '🎨',
+  'Baby & Kids': '👶',
   Other: '📦'
 };
 
@@ -39,6 +51,8 @@ const MarketplaceContent: React.FC = () => {
     isAuthLoading,
     isProductsLoading
   } = useApp();
+  // Debounce search for better responsiveness
+  const debouncedSearch = useDebounce(searchQuery, 300);
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
 
@@ -63,6 +77,66 @@ const MarketplaceContent: React.FC = () => {
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
 
+  // Filter listings based on category, search query, region, and city
+  // NOTE: useMemo must be called before any early returns (React rules of hooks)
+  const filteredProducts = useMemo(() => products.filter(product => {
+    const matchesCategory = !selectedCategory || 
+      product.category === selectedCategory || 
+      (product.category && selectedCategory && product.category.toLowerCase() === selectedCategory.toLowerCase());
+    const matchesSearch = !debouncedSearch.trim() ||
+      product.title.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      (product.category && product.category.toLowerCase().includes(debouncedSearch.toLowerCase())) ||
+      product.description.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+      product.location.toLowerCase().includes(debouncedSearch.toLowerCase());
+
+    // Region verification
+    let matchesRegion = true;
+    if (selectedRegion !== 'All') {
+      const prodRegion = getRegionForLocation(product.location);
+      matchesRegion = (prodRegion === selectedRegion);
+    }
+
+    // City verification
+    let matchesCity = true;
+    if (selectedCity !== 'All') {
+      matchesCity = product.location.toLowerCase().includes(selectedCity.toLowerCase());
+    }
+
+    return matchesCategory && matchesSearch && matchesRegion && matchesCity;
+  }), [products, searchQuery, selectedCategory, selectedRegion, selectedCity]);
+
+  const parseNumericPrice = (p: string | number): number => {
+    if (typeof p === 'number') return p;
+    if (!p) return 0;
+    // Extract numbers and dot, get rid of commas, spaces, letters
+    const cleaned = p.replace(/[^0-9.]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const sortedProducts = useMemo(() => [...filteredProducts].sort((a, b) => {
+    // 1. Sort by Price if actively configured
+    if (sortByPrice === 'asc') {
+      const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
+      if (diff !== 0) return diff;
+    } else if (sortByPrice === 'desc') {
+      const diff = parseNumericPrice(b.price) - parseNumericPrice(a.price);
+      if (diff !== 0) return diff;
+    }
+
+    // 2. Sort by Ads (Chronological based on createdAt timestamp)
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (sortByAds === 'newest') {
+      return dateB - dateA;
+    } else if (sortByAds === 'oldest') {
+      return dateA - dateB;
+    }
+
+    return 0; // secondary stable order
+  }), [filteredProducts, sortByAds, sortByPrice]);
+
+  // Early return for auth loading — placed AFTER all hooks
   if (isAuthLoading) {
     return (
       <div id="app-session-splash" className="min-h-screen bg-slate-900 flex flex-col items-center justify-center font-sans text-white p-6">
@@ -84,64 +158,6 @@ const MarketplaceContent: React.FC = () => {
       </div>
     );
   }
-
-  // Filter listings based on category, search query, region, and city
-  const filteredProducts = products.filter(product => {
-    const matchesCategory = !selectedCategory || 
-      product.category === selectedCategory || 
-      (product.category && selectedCategory && product.category.toLowerCase() === selectedCategory.toLowerCase());
-    const matchesSearch = !searchQuery.trim() ||
-      product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (product.category && product.category.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.location.toLowerCase().includes(searchQuery.toLowerCase());
-
-    // Region verification
-    let matchesRegion = true;
-    if (selectedRegion !== 'All') {
-      const prodRegion = getRegionForLocation(product.location);
-      matchesRegion = (prodRegion === selectedRegion);
-    }
-
-    // City verification
-    let matchesCity = true;
-    if (selectedCity !== 'All') {
-      matchesCity = product.location.toLowerCase().includes(selectedCity.toLowerCase());
-    }
-
-    return matchesCategory && matchesSearch && matchesRegion && matchesCity;
-  });
-
-  const parseNumericPrice = (p: string | number): number => {
-    if (typeof p === 'number') return p;
-    if (!p) return 0;
-    // Extract numbers and dot, get rid of commas, spaces, letters
-    const cleaned = p.replace(/[^0-9.]/g, '');
-    const parsed = parseFloat(cleaned);
-    return isNaN(parsed) ? 0 : parsed;
-  };
-
-  const sortedProducts = [...filteredProducts].sort((a, b) => {
-    // 1. Sort by Price if actively configured
-    if (sortByPrice === 'asc') {
-      const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
-      if (diff !== 0) return diff;
-    } else if (sortByPrice === 'desc') {
-      const diff = parseNumericPrice(b.price) - parseNumericPrice(a.price);
-      if (diff !== 0) return diff;
-    }
-
-    // 2. Sort by Ads (Chronological based on createdAt timestamp)
-    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    if (sortByAds === 'newest') {
-      return dateB - dateA;
-    } else if (sortByAds === 'oldest') {
-      return dateA - dateB;
-    }
-
-    return 0; // secondary stable order
-  });
 
   const handlePostAdBtn = () => {
     if (!currentUser) {

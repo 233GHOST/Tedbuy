@@ -59,12 +59,12 @@ service cloud.firestore {
         return data.get('id', '') is string && data.get('id', '').size() <= 128 &&
                data.get('sellerId', '') is string && data.get('sellerId', '').size() <= 128 &&
                data.get('title', '') is string && data.get('title', '').size() <= 1000 &&
-               data.get('category', '') is string && data.get('category', '').size() <= 500;
+               data.get('category', '') is string && data.get('category', '').size() <= 100;
       }
 
       allow read: if true; // Listings are public
       allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
-      allow update: if isValidId(productId) && (
+      allow update: if isValidId(productId) && isValidProduct(incoming()) && (
                       (isSignedIn() && isOwner(existing().get('sellerId', ''))) ||
                       incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount'])
                     );

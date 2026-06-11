@@ -366,7 +366,7 @@ export const ProductDetail: React.FC = () => {
             <div className="grid grid-cols-5 gap-3">
               {mediaGallery.map((med, i) => (
                 <button
-                  key={i}
+                  key={med.type === 'image' ? `img_${i}` : `vid_${i}`}
                   id={`media-thumb-${i}`}
                   onClick={() => setActiveMediaIdx(i)}
                   className={`aspect-square rounded-xl overflow-hidden bg-slate-100 border-2 transition-all relative ${

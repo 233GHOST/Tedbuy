@@ -82,6 +82,17 @@ export type Category =
   | 'Home Appliances'
   | 'Vehicles'
   | 'Beauty and Care'
+  | 'Furniture & Home Decor'
+  | 'Sports & Outdoors'
+  | 'Books & Media'
+  | 'Food & Beverages'
+  | 'Pet Supplies'
+  | 'Toys & Games'
+  | 'Jewelry & Watches'
+  | 'Health & Wellness'
+  | 'Services'
+  | 'Arts & Crafts'
+  | 'Baby & Kids'
   | 'Other';
 
 export interface Product {
@@ -146,16 +157,15 @@ export interface Review {
 export function normalizeCategory(cat: string): Category {
   if (!cat) return 'Other';
   const clean = cat.trim().toLowerCase();
-  
-  // High-priority exact or robust matching for Beauty and Care
+
+  // Beauty and Care
   if (
-    clean.includes('beauty') || 
-    clean.includes('makeup') || 
-    clean.includes('cosmetic') || 
-    clean === 'care' || 
-    clean === 'beauty and care' || 
-    clean === 'beauty & care' || 
-    clean === 'beauty care' || 
+    clean.includes('beauty') ||
+    clean.includes('makeup') ||
+    clean.includes('cosmetic') ||
+    clean === 'beauty and care' ||
+    clean === 'beauty & care' ||
+    clean === 'beauty care' ||
     clean === 'beautycare' ||
     clean === 'skin care' ||
     clean === 'eyecare' ||
@@ -165,13 +175,58 @@ export function normalizeCategory(cat: string): Category {
     return 'Beauty and Care';
   }
 
+  // Phones
   if (clean === 'phone' || clean === 'phones' || clean.includes('phone')) return 'Phones';
-  if (clean === 'laptop' || clean === 'laptops' || clean.includes('laptop') || clean.includes('notebook')) return 'Laptops';
-  if (clean === 'fashion' || clean.includes('fashion') || clean.includes('cloth') || clean.includes('wear')) return 'Fashion';
-  if (clean === 'home appliance' || clean === 'home appliances' || clean === 'appliances' || clean === 'appliance' || clean.includes('appliance') || clean.includes('fridge') || clean.includes('microwave') || clean.includes('washing machine')) return 'Home Appliances';
-  if (clean === 'vehicle' || clean === 'vehicles' || clean === 'car' || clean === 'cars' || clean.includes('vehicle')) return 'Vehicles';
+  
+  // Laptops
+  if (clean === 'laptop' || clean === 'laptops' || clean.includes('laptop') || clean.includes('notebook') || clean.includes('computer')) return 'Laptops';
+  
+  // Fashion
+  if (clean === 'fashion' || clean.includes('fashion') || clean.includes('cloth') || clean.includes('wear') || clean.includes('apparel') || clean.includes('outfit') || clean.includes('sneaker') || clean.includes('shoe') || clean.includes('dress')) return 'Fashion';
+  
+  // Home Appliances
+  if (clean === 'home appliance' || clean === 'home appliances' || clean === 'appliances' || clean === 'appliance' || clean.includes('appliance') || clean.includes('fridge') || clean.includes('microwave') || clean.includes('washing machine') || clean.includes('oven') || clean.includes('stove')) return 'Home Appliances';
+  
+  // Vehicles
+  if (clean === 'vehicle' || clean === 'vehicles' || clean === 'car' || clean === 'cars' || clean.includes('vehicle') || clean.includes('bike') || clean.includes('motorcycle') || clean.includes('truck')) return 'Vehicles';
+  
+  // Furniture & Home Decor
+  if (clean.includes('furniture') || clean.includes('sofa') || clean.includes('chair') || clean.includes('table') || clean.includes('bed') || clean.includes('desk') || clean.includes('couch') || clean.includes('cabinet') || clean.includes('decor') || clean.includes('home decor') || clean.includes('interior')) return 'Furniture & Home Decor';
+  
+  // Sports & Outdoors
+  if (clean.includes('sport') || clean.includes('outdoor') || clean.includes('camping') || clean.includes('hiking') || clean.includes('bicycle') || clean.includes('gym') || clean.includes('fitness') || clean.includes('ball') || clean.includes('equipment')) return 'Sports & Outdoors';
+  
+  // Books & Media
+  if (clean.includes('book') || clean.includes('magazine') || clean.includes('journal') || clean.includes('dvd') || clean.includes('cd') || clean.includes('media') || clean.includes('literature')) return 'Books & Media';
+  
+  // Food & Beverages
+  if (clean.includes('food') || clean.includes('beverage') || clean.includes('drink') || clean.includes('snack') || clean.includes('grocery') || clean.includes('meal') || clean.includes('restaurant')) return 'Food & Beverages';
+  
+  // Pet Supplies
+  if (clean.includes('pet') || clean.includes('dog') || clean.includes('cat') || clean.includes('animal') || clean.includes('pet supplies') || clean.includes('pet food')) return 'Pet Supplies';
+  
+  // Toys & Games
+  if (clean.includes('toy') || clean.includes('game') || clean.includes('board game') || clean.includes('puzzle') || clean.includes('lego')) return 'Toys & Games';
+  
+  // Jewelry & Watches
+  if (clean.includes('jewelry') || clean.includes('jewel') || clean.includes('watch') || clean.includes('ring') || clean.includes('bracelet') || clean.includes('necklace') || clean.includes('earring') || clean.includes('pendant')) return 'Jewelry & Watches';
+  
+  // Health & Wellness
+  if (clean.includes('health') || clean.includes('wellness') || clean.includes('supplement') || clean.includes('vitamin') || clean.includes('medicine') || clean.includes('medical')) return 'Health & Wellness';
+  
+  // Services
+  if (clean === 'service' || clean === 'services' || clean.includes('service')) return 'Services';
+  
+  // Arts & Crafts
+  if (clean.includes('art') || clean.includes('craft') || clean.includes('painting') || clean.includes('drawing') || clean.includes('handmade') || clean.includes('diy')) return 'Arts & Crafts';
+  
+  // Baby & Kids
+  if (clean.includes('baby') || clean.includes('kid') || clean.includes('children') || clean.includes('infant') || clean.includes('toddler') || clean.includes('stroller') || clean.includes('crib')) return 'Baby & Kids';
+  
+  // Other
   if (clean === 'other' || clean === 'others') return 'Other';
 
+  // Fallback with all known categories
   const knownCategories: Category[] = [
     'Phones',
     'Laptops',
@@ -179,10 +234,20 @@ export function normalizeCategory(cat: string): Category {
     'Home Appliances',
     'Vehicles',
     'Beauty and Care',
+    'Furniture & Home Decor',
+    'Sports & Outdoors',
+    'Books & Media',
+    'Food & Beverages',
+    'Pet Supplies',
+    'Toys & Games',
+    'Jewelry & Watches',
+    'Health & Wellness',
+    'Services',
+    'Arts & Crafts',
+    'Baby & Kids',
     'Other'
   ];
 
   const found = knownCategories.find(c => c.toLowerCase() === clean);
   return found || 'Other';
 }
-

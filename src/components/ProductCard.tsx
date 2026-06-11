@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Product, isUserVerified } from '../types';
 import { useApp } from '../context/AppContext';
 import { MapPin, Eye, Calendar, Tag, Bookmark } from 'lucide-react';

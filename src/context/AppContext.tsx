@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, Product, Chat, Message, Category, Review, normalizeCategory } from '../types';
 import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS } from '../data';
 import {
@@ -116,6 +116,10 @@ interface AppContextType {
   setUnauthorizedDomainDetected: (detected: boolean) => void;
   isAuthLoading: boolean;
   isProductsLoading: boolean;
+  isCreatingProduct: boolean;
+  isSendingMessage: boolean;
+  isFollowingSeller: string | null;
+  isSavingProduct: string | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -171,6 +175,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     }
   });
+
+  // Loading states for async operations
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isFollowingSeller, setIsFollowingSeller] = useState<string | null>(null);
+  const [isSavingProduct, setIsSavingProduct] = useState<string | null>(null);
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -695,7 +705,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Listings Operations
-  const createProduct = async (productData: {
+  const createProduct = useCallback(async (productData: {
     title: string;
     description: string;
     price: string | number;
@@ -708,6 +718,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     negotiable?: boolean;
   }) => {
     if (!currentUser) return;
+    setIsCreatingProduct(true);
     const prodId = `prod_${Date.now()}`;
     const newProduct: Product = {
       id: prodId,
@@ -725,8 +736,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `products/${prodId}`);
+    } finally {
+      setIsCreatingProduct(false);
     }
-  };
+  }, [currentUser]);
 
   const updateProduct = async (id: string, productData: Partial<Product>) => {
     try {
@@ -828,7 +841,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const sendMessage = async (chatId: string, text: string, optionalSenderId?: string) => {
+  const sendMessage = useCallback(async (chatId: string, text: string, optionalSenderId?: string) => {
     const sender = optionalSenderId ? users.find(u => u.id === optionalSenderId) : currentUser;
     if (!sender) return;
 
@@ -856,8 +869,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `messages/${msgId}`);
+    } finally {
+      setIsSendingMessage(false);
     }
-  };
+  }, [chats, currentUser]);
 
   const markChatAsRead = async (chatId: string) => {
     if (!currentUser) return;
