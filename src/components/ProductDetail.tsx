@@ -753,7 +753,7 @@ export const ProductDetail: React.FC = () => {
               </div>
 
               <div className="h-36 w-full font-sans">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <AreaChart
                     data={priceHistory}
                     margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
