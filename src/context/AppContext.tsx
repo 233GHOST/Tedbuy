@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { User, Product, Chat, Message, Category, Review, normalizeCategory } from '../types';
 import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS } from '../data';
 import {
@@ -220,6 +220,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     }
   });
+
+  const hasProcessedDeepLink = useRef(false);
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -449,12 +451,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 2.5. Deep Linking Handler for product sharing (?productId=...)
   useEffect(() => {
-    if (products.length > 0 && typeof window !== 'undefined') {
+    if (products.length > 0 && !hasProcessedDeepLink.current && typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const urlProductId = params.get('productId');
       if (urlProductId) {
         const found = products.find(p => p.id === urlProductId);
         if (found) {
+          hasProcessedDeepLink.current = true;
           setSelectedProductId(found.id);
           setCurrentView('product-detail');
           try {
@@ -464,6 +467,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             console.warn('Could not replace history state:', historyErr);
           }
         }
+      } else {
+        // No productId present in URL, mark check as successfully completed once list loads
+        hasProcessedDeepLink.current = true;
       }
     }
   }, [products]);
@@ -852,6 +858,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const incrementProductViews = useCallback(async (id: string) => {
+    try {
+      const sessionKey = `tedbuy_viewed_product_${id}`;
+      if (safeSessionStorage.getItem(sessionKey)) {
+        return; // Already logged this session, skip duplicate remote increment to avoid infinite feedback loops and quota waste
+      }
+      safeSessionStorage.setItem(sessionKey, 'true');
+    } catch {
+      // safe fallback
+    }
+
     try {
       await updateDoc(doc(db, 'products', id), {
         viewsCount: increment(1)
