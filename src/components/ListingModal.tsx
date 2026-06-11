@@ -18,6 +18,8 @@ const CATEGORIES: Category[] = [
   'Home Appliances',
   'Vehicles',
   'Beauty and Care',
+  'Games',
+  'Electronics',
   'Other'
 ];
 
@@ -394,7 +396,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             {/* Price & Location Selectors */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price (GHS or Description)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -402,7 +404,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                     id="listing-price"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    placeholder=""
+                    placeholder="eg.50"
                     className="flex-1 px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
                   />
                   <label className="flex items-center gap-2 px-3 border border-slate-200 rounded-xl bg-slate-50/50 cursor-pointer hover:bg-slate-50 transition shrink-0 select-none">

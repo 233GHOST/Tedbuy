@@ -69,7 +69,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     <article
       id={`product-card-${product.id}`}
       onClick={handleDetailsClick}
-      className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-lg hover:-translate-y-1 hover:border-slate-300 transition-all duration-200 cursor-pointer flex flex-col h-full group"
+      className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group"
     >
       {/* Listing image section */}
       <div className="relative aspect-4/3 w-full bg-slate-100 overflow-hidden shrink-0">

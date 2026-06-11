@@ -9,7 +9,7 @@ import { SellerProfilePage } from './components/SellerProfilePage';
 import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
 import { Category } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 
@@ -20,6 +20,8 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
   'Home Appliances': '🔌',
   Vehicles: '🚗',
   'Beauty and Care': '💄',
+  Games: '🎮',
+  Electronics: '⚡',
   Other: '📦'
 };
 
@@ -37,7 +39,9 @@ const MarketplaceContent: React.FC = () => {
     unauthorizedDomainDetected,
     setUnauthorizedDomainDetected,
     isAuthLoading,
-    isProductsLoading
+    isProductsLoading,
+    messages,
+    setAuthMode
   } = useApp();
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
@@ -135,8 +139,13 @@ const MarketplaceContent: React.FC = () => {
     setIsPostAdOpen(true);
   };
 
+  const unreadCount = useMemo(() => {
+    if (!currentUser || !messages) return 0;
+    return messages.filter(m => m.recipientId === currentUser.id && !m.read).length;
+  }, [messages, currentUser]);
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-16 md:pb-0">
       <Navbar />
 
       {unauthorizedDomainDetected && (
@@ -498,7 +507,7 @@ const MarketplaceContent: React.FC = () => {
       </main>
 
       {/* Persistent platform footer */}
-      <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-8 mt-12">
+      <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-8 mt-12 mb-16 md:mb-0">
         <div className="max-w-7xl mx-auto px-4 text-center space-y-2">
           <p className="font-sans font-bold text-slate-800">Tedbuy Classifieds Marketplace &copy; 2026</p>
           <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
@@ -512,6 +521,117 @@ const MarketplaceContent: React.FC = () => {
         isOpen={isPostAdOpen}
         onClose={() => setIsPostAdOpen(false)}
       />
+
+      {/* Responsive Bottom Navigation Bar for Mobile Devices */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden py-1.5 px-4 flex items-center justify-around">
+        {/* Home Tab */}
+        <button
+          onClick={() => {
+            setCurrentView('browse');
+            setSearchQuery('');
+          }}
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 ${
+            currentView === 'browse'
+              ? 'text-slate-950 font-black'
+              : 'text-slate-400 hover:text-slate-600 font-medium'
+          }`}
+        >
+          <Home className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
+            currentView === 'browse' ? 'scale-110 text-slate-900' : 'text-slate-400'
+          }`} />
+          <span className="text-[10px] tracking-tight">Home</span>
+        </button>
+
+        {/* Search Tab */}
+        <button
+          onClick={() => {
+            if (currentView !== 'browse') {
+              setCurrentView('browse');
+            }
+            setTimeout(() => {
+              const inputEl = document.getElementById('hero-search-input');
+              if (inputEl) {
+                inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                inputEl.focus();
+              }
+            }, 100);
+          }}
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 ${
+            currentView === 'browse' && searchQuery
+              ? 'text-slate-950 font-black'
+              : 'text-slate-400 hover:text-slate-600 font-medium'
+          }`}
+        >
+          <Search className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
+            currentView === 'browse' && searchQuery ? 'scale-110 text-slate-900' : 'text-slate-400'
+          }`} />
+          <span className="text-[10px] tracking-tight">Search</span>
+        </button>
+
+        {/* Messages Tab */}
+        <button
+          onClick={() => {
+            if (!currentUser) {
+              setAuthMode('login');
+              setShowAuthModal(true);
+            } else {
+              setCurrentView('chats');
+            }
+          }}
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 relative ${
+            currentView === 'chats'
+              ? 'text-slate-950 font-black'
+              : 'text-slate-400 hover:text-slate-600 font-medium'
+          }`}
+        >
+          <div className="relative">
+            <MessageSquare className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
+              currentView === 'chats' ? 'scale-110 text-slate-900' : 'text-slate-400'
+            }`} />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white font-extrabold text-[8px] min-w-[14px] h-[14px] px-1 rounded-full flex items-center justify-center shadow-xs border border-white animate-pulse">
+                {unreadCount}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight">Messages</span>
+        </button>
+
+        {/* Profile Tab */}
+        <button
+          onClick={() => {
+            if (!currentUser) {
+              setAuthMode('login');
+              setShowAuthModal(true);
+            } else {
+              setCurrentView('profile-settings');
+            }
+          }}
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 ${
+            currentView === 'profile-settings' || currentView === 'my-dashboard'
+              ? 'text-slate-950 font-black'
+              : 'text-slate-400 hover:text-slate-600 font-medium'
+          }`}
+        >
+          {currentUser && currentUser.photoUrl ? (
+            <img
+              src={currentUser.photoUrl}
+              alt="Account Avatar"
+              referrerPolicy="no-referrer"
+              className={`w-6 h-6 rounded-full object-cover border-2 transition-all ${
+                currentView === 'profile-settings' || currentView === 'my-dashboard'
+                  ? 'border-slate-950 scale-110'
+                  : 'border-transparent'
+              }`}
+            />
+          ) : (
+            <User className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
+              currentView === 'profile-settings' || currentView === 'my-dashboard' ? 'scale-110 text-slate-900' : 'text-slate-400'
+            }`} />
+          )}
+          <span className="text-[10px] tracking-tight">Profile</span>
+        </button>
+      </div>
     </div>
   );
 };
