@@ -1,23 +1,34 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(
-  app,
-  firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+
+// Resilient initialization of Firestore with multi-tab offline cache
+const getResilientDb = () => {
+  const dbId = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
     ? firebaseConfig.firestoreDatabaseId
-    : undefined
-); /* CRITICAL: The app will break without this line */
+    : undefined;
 
-// Enable offline persistence for seamless LTE/offline support
-if (typeof window !== 'undefined') {
-  enableIndexedDbPersistence(db).catch((err) => {
-    console.warn('Firestore offline persistence could not be enabled:', err.code, err.message);
-  });
-}
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    }, dbId);
+  } catch (err) {
+    console.warn('Could not initialize persistent local cache due to browser restrictions, falling back to basic setup:', err);
+    try {
+      return initializeFirestore(app, {}, dbId);
+    } catch (fallbackErr) {
+      console.warn('Basic initializeFirestore failed, using default getFirestore fallback:', fallbackErr);
+      return initializeFirestore(app, {});
+    }
+  }
+};
 
+export const db = getResilientDb();
 export const auth = getAuth();
 
 export enum OperationType {
