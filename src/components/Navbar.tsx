@@ -358,7 +358,7 @@ export const Navbar: React.FC = () => {
 
             {/* Account Info Or Auth Trigger */}
             {currentUser ? (
-              <div className="hidden md:flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
                 <div 
                   onClick={() => setCurrentView('profile-settings')}
                   className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
@@ -395,7 +395,7 @@ export const Navbar: React.FC = () => {
                   setShowAuthModal(true);
                   setAuthError('');
                 }}
-                className="hidden md:flex px-4 py-2 bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm rounded-xl transition duration-200 items-center gap-1.5 shadow-xs border border-white"
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm rounded-xl transition duration-200 flex items-center gap-1.5 shadow-xs border border-white"
               >
                 <LogIn className="w-4 h-4" />
                 <span>Log In</span>
