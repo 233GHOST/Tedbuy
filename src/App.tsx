@@ -63,27 +63,7 @@ const MarketplaceContent: React.FC = () => {
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
 
-  if (isAuthLoading && products.length === 0) {
-    return (
-      <div id="app-session-splash" className="min-h-screen bg-slate-900 flex flex-col items-center justify-center font-sans text-white p-6">
-        <div className="flex flex-col items-center max-w-sm text-center space-y-4">
-          {/* Logo Badge Accent */}
-          <div className="w-16 h-16 rounded-2xl bg-white text-slate-950 flex items-center justify-center text-3xl font-black shadow-lg animate-bounce duration-1000">
-            🛍️
-          </div>
-          <div className="space-y-1">
-            <h1 className="text-lg font-black tracking-tight text-white leading-none">Tedbuy Ghana</h1>
-            <p className="text-xs text-slate-400 font-medium">Direct Classifieds Marketplace</p>
-          </div>
-          {/* Premium micro status spinner */}
-          <div className="pt-2 flex items-center gap-1.5 text-[11px] text-slate-400 font-semibold font-mono">
-            <span className="w-4 h-4 border-2 border-slate-700 border-t-white rounded-full animate-spin"></span>
-            <span>Connecting securely...</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+
 
   // Filter listings based on category, search query, region, and city
   const filteredProducts = useMemo(() => {

@@ -75,7 +75,11 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
   if (isPermissionError) {
     console.error('Firestore Security Permission Error: ', JSON.stringify(errInfo));
-    throw new Error(JSON.stringify(errInfo));
+    // Let's NOT throw on background reads/lists since unhandled exceptions inside background listeners
+    // cause standard mobile Safari/Chrome to crash or go blank, while manual user writes/creates can still safely throw!
+    if (operationType !== OperationType.LIST && operationType !== OperationType.GET) {
+      throw new Error(JSON.stringify(errInfo));
+    }
   } else {
     // Graceful warning for network issues, connection-failed, offline or unavailable states.
     // This allows offline persistence cache to operate without crashing the app shell!
