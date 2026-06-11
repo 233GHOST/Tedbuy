@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
 import { Product, Category } from '../types';
-import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark } from 'lucide-react';
+import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle } from 'lucide-react';
 
 export const SellerDashboard: React.FC = () => {
   const {
@@ -18,6 +18,7 @@ export const SellerDashboard: React.FC = () => {
   } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   if (!currentUser) {
     return (
@@ -38,12 +39,9 @@ export const SellerDashboard: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
+  const handleDelete = (product: Product, e: React.MouseEvent) => {
     e.stopPropagation();
-    const confirmed = window.confirm('Are you sure you want to permanently delete this product listing? This action is irreversible.');
-    if (confirmed) {
-      deleteProduct(id);
-    }
+    setProductToDelete(product);
   };
 
   const handleCreateNew = () => {
@@ -222,7 +220,7 @@ export const SellerDashboard: React.FC = () => {
                     </button>
                     <button
                       id={`btn-delete-${prod.id}`}
-                      onClick={(e) => handleDelete(prod.id, e)}
+                      onClick={(e) => handleDelete(prod, e)}
                       className="p-2 border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200 rounded-xl hover:bg-red-50/20 transition-all shadow-3xs flex items-center justify-center cursor-pointer"
                       title="Remove Ad"
                     >
@@ -346,6 +344,69 @@ export const SellerDashboard: React.FC = () => {
         }}
         productToEdit={editProduct}
       />
+
+      {/* Custom Confirmation Dialog for Deleting listing */}
+      {productToDelete && (
+        <div 
+          onClick={() => setProductToDelete(null)}
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl w-full max-w-md p-6 border border-slate-100 shadow-2xl animate-fade-in text-left font-sans"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="bg-red-50 p-2.5 rounded-xl border border-red-100 shrink-0 text-red-600">
+                <AlertTriangle className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Delete Listing?</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Are you sure you want to permanently delete <strong className="text-slate-800">"{productToDelete.title}"</strong> from the Tedbuy classifieds marketplace?
+                </p>
+                <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 mt-2 flex items-center gap-3">
+                  {productToDelete.images?.[0] ? (
+                    <img
+                      src={productToDelete.images[0]}
+                      alt="Product item"
+                      referrerPolicy="no-referrer"
+                      className="w-10 h-10 rounded-lg object-cover border border-slate-150 shrink-0"
+                    />
+                  ) : null}
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-800 truncate">{productToDelete.title}</p>
+                    <p className="text-[10px] text-slate-400 font-mono">Location: {productToDelete.location}</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-rose-600 font-semibold mt-1">This action is irreversible and cannot be undone.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 mt-5 pt-3 border-t border-slate-100">
+              <button
+                onClick={() => setProductToDelete(null)}
+                className="px-4 py-2 hover:bg-slate-100 border border-slate-200 text-slate-650 hover:text-slate-950 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Cancel, Keep Ad
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await deleteProduct(productToDelete.id);
+                  } catch (err) {
+                    console.error("Deletion error:", err);
+                  } finally {
+                    setProductToDelete(null);
+                  }
+                }}
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-3xs"
+              >
+                Yes, Delete Ad
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

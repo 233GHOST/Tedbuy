@@ -43,12 +43,6 @@ export const ChatInterface: React.FC = () => {
   // Set messages as read when active chat changes
   useEffect(() => {
     if (activeChatId && currentUser) {
-      // Mark all messages in this chat sent to me as read
-      messages.forEach(m => {
-        if (m.chatId === activeChatId && m.recipientId === currentUser.id) {
-          m.read = true;
-        }
-      });
       // Fire asynchronous Firestore update with debounce/deduplication guard
       markChatAsRead(activeChatId);
     }
@@ -131,7 +125,9 @@ export const ChatInterface: React.FC = () => {
                 const active = chat.id === activeChatId;
 
                 // Count unread messages for this particular chat
-                const unreadForThisChat = messages.filter(m => m.chatId === chat.id && m.recipientId === currentUser.id && !m.read).length;
+                const unreadForThisChat = chat.tradeStatus === 'completed'
+                  ? 0
+                  : messages.filter(m => m.chatId === chat.id && m.recipientId === currentUser.id && !m.read).length;
 
                 return (
                   <button

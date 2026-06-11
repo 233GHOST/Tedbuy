@@ -294,30 +294,66 @@ export const SellerProfilePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Action button */}
-        {!isOwner && (
-          <button
-            id="seller-profile-follow-btn"
-            onClick={handleToggleFollow}
-            className={`w-full md:w-auto px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 shrink-0 ${
-              isFollowing
-                ? 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-750'
-                : 'bg-white hover:bg-slate-100 text-slate-900 shadow-xs'
-            }`}
-          >
-            {isFollowing ? (
-              <>
-                <UserCheck className="w-4 h-4" />
-                <span>Following Store</span>
-              </>
+        {/* Action buttons */}
+        <div className="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto shrink-0 select-none items-center">
+          {isOwner && currentUser?.whatsappNumber && currentUser?.whatsappOptIn !== false && (
+            <div className="flex items-center gap-2 bg-emerald-950/20 border border-emerald-500/10 px-3 py-1.5 rounded-lg text-[11px] text-emerald-400 font-bold">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              WhatsApp Active: {currentUser.whatsappNumber}
+            </div>
+          )}
+
+          {!isOwner && (
+            seller?.whatsappNumber && seller?.whatsappOptIn !== false ? (
+              <a
+                href={`https://wa.me/${seller.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hi! I'm interested in viewing items from your store: "${seller.username}" on Tedbuy.`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-xs cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4 fill-white/10 stroke-[2.2]" />
+                <span>WhatsApp Store</span>
+              </a>
             ) : (
-              <>
-                <UserPlus className="w-4 h-4" />
-                <span>Follow Store</span>
-              </>
-            )}
-          </button>
-        )}
+              <div className="flex flex-col items-center">
+                <a
+                  href="https://wa.me/233241234567"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 bg-emerald-600/80 hover:bg-emerald-700 text-white shadow-xs cursor-pointer"
+                  title="This is a test WhatsApp button for demo listings. This seller hasn't set their number."
+                >
+                  <MessageSquare className="w-4 h-4 fill-white/10 stroke-[2.2]" />
+                  <span>WhatsApp Store (Demo)</span>
+                </a>
+              </div>
+            )
+          )}
+
+          {!isOwner && (
+            <button
+              id="seller-profile-follow-btn"
+              onClick={handleToggleFollow}
+              className={`w-full md:w-auto px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 shrink-0 ${
+                isFollowing
+                  ? 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-750'
+                  : 'bg-white hover:bg-slate-100 text-slate-900 shadow-xs'
+              }`}
+            >
+              {isFollowing ? (
+                <>
+                  <UserCheck className="w-4 h-4" />
+                  <span>Following Store</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  <span>Follow Store</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Two-Column Layout: Catalog on Left (col-span-8), Reviews on Right (col-span-4) */}

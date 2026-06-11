@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MessageCircle, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2 } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { isUserVerified, calculateTrustScore } from '../types';
 import {
@@ -110,11 +110,31 @@ export const ProductDetail: React.FC = () => {
   const sellerReviews = reviews.filter(r => r.sellerId === product?.sellerId);
   const trustResult = calculateTrustScore(sellerUser, sellerReviews);
   const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string } | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
     ...(product.videos || []).map(url => ({ type: 'video' as const, url }))
   ] : [];
+
+  // Keyboard navigation support for Media Lightbox
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (lightboxIndex !== null && mediaGallery.length > 0) {
+        if (e.key === 'Escape') {
+          setLightboxIndex(null);
+        } else if (e.key === 'ArrowRight') {
+          setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
+        } else if (e.key === 'ArrowLeft') {
+          setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [lightboxIndex, mediaGallery.length]);
 
   useEffect(() => {
     try {
@@ -297,7 +317,10 @@ export const ProductDetail: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left">
         {/* Left column: Visual display images & videos (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
-          <div className="relative aspect-4/3 w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md">
+          <div 
+            onClick={() => setLightboxIndex(activeMediaIdx)}
+            className="group/media relative aspect-4/3 w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md cursor-zoom-in"
+          >
             {mediaGallery[activeMediaIdx]?.type === 'video' ? (
               <video
                 src={mediaGallery[activeMediaIdx].url}
@@ -311,9 +334,29 @@ export const ProductDetail: React.FC = () => {
                 src={mediaGallery[activeMediaIdx]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80'}
                 alt={product.title}
                 referrerPolicy="no-referrer"
-                className="max-w-full max-h-full object-contain"
+                className="max-w-full max-h-full object-contain transition duration-500 group-hover/media:scale-[1.03]"
               />
             )}
+            
+            {/* Hover overlay prompts */}
+            <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/media:opacity-100 transition duration-300 flex items-center justify-center z-10 pointer-events-none">
+              <span className="bg-slate-900/85 backdrop-blur-xs text-white text-[11px] font-black tracking-wider px-3.5 py-2 rounded-xl flex items-center gap-1.5 border border-slate-800">
+                <Maximize2 className="w-4 h-4 text-slate-350" />
+                <span>EXPAND VIEW</span>
+              </span>
+            </div>
+
+            {/* Top-right zoom trigger button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxIndex(activeMediaIdx);
+              }}
+              className="absolute top-4 right-4 bg-slate-900/80 hover:bg-slate-900 backdrop-blur-xs text-white p-2 rounded-full border border-slate-800 transition z-20 cursor-pointer flex items-center justify-center"
+              title="Expand with image lightbox"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
             
             {/* Overlay indicators */}
             <span className="absolute top-4 left-4 bg-slate-900/80 backdrop-blur-xs text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider z-10">
@@ -421,32 +464,86 @@ export const ProductDetail: React.FC = () => {
             {/* Messaging / Call buttons */}
             <div className="space-y-3">
               {isOwner ? (
-                <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs">
-                  👋 **You posted this product listing!** You can manage, edit details, or remove it from your personal store dashboard dashboard.
+                <div className="space-y-3">
+                  <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs">
+                    👋 **You posted this product listing!** You can manage, edit details, or remove it from your personal store dashboard dashboard.
+                  </div>
+                  {currentUser?.whatsappNumber && currentUser?.whatsappOptIn !== false && (
+                    <div className="bg-emerald-50/20 border border-emerald-500/15 p-4 rounded-2xl space-y-2.5">
+                      <div className="flex items-center justify-between text-xs font-bold text-emerald-800">
+                        <span className="flex items-center gap-1.5 font-sans">
+                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Your WhatsApp button is ACTIVE
+                        </span>
+                        <span className="text-[9px] uppercase tracking-wider font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-md">
+                          Live Active
+                        </span>
+                      </div>
+                      <a
+                        href={`https://wa.me/${currentUser.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hi! From WhatsApp Preview, I'm interested in your listing: "${product.title}" on Tedbuy.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl flex items-center justify-center gap-2 text-xs shadow-xs hover:shadow-md transition duration-200 cursor-pointer"
+                      >
+                        <MessageCircle className="w-4 h-4 stroke-[2.5]" />
+                        <span>Preview: Chat on WhatsApp ({currentUser.whatsappNumber})</span>
+                      </a>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="flex gap-3">
-                  <button
-                    id="btn-message-seller"
-                    onClick={handleMessageSeller}
-                    className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl flex items-center justify-center gap-2 text-sm shadow-xs hover:shadow-md transition duration-200"
-                  >
-                    <MessageSquare className="w-5 h-5 fill-white/20 stroke-[2.2]" />
-                    <span>Message Seller</span>
-                  </button>
-                  
-                  <button
-                    id="btn-save-detail"
-                    onClick={handleToggleSave}
-                    className={`px-4 py-3.5 rounded-2xl border transition duration-200 text-sm flex items-center justify-center gap-2 shrink-0 ${
-                      isSaved
-                        ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
-                    }`}
-                    title={isSaved ? "Remove from Watchlist" : "Save to Watchlist"}
-                  >
-                    <Bookmark className="w-5 h-5" fill={isSaved ? "currentColor" : "none"} />
-                  </button>
+                <div className="space-y-2.5">
+                  <div className="flex gap-3">
+                    <button
+                      id="btn-message-seller"
+                      onClick={handleMessageSeller}
+                      className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl flex items-center justify-center gap-2 text-sm shadow-xs hover:shadow-md transition duration-200"
+                    >
+                      <MessageSquare className="w-5 h-5 fill-white/20 stroke-[2.2]" />
+                      <span>Message Seller</span>
+                    </button>
+                    
+                    <button
+                      id="btn-save-detail"
+                      onClick={handleToggleSave}
+                      className={`px-4 py-3.5 rounded-2xl border transition duration-200 text-sm flex items-center justify-center gap-2 shrink-0 ${
+                        isSaved
+                          ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                      }`}
+                      title={isSaved ? "Remove from Watchlist" : "Save to Watchlist"}
+                    >
+                      <Bookmark className="w-5 h-5" fill={isSaved ? "currentColor" : "none"} />
+                    </button>
+                  </div>
+
+                  {sellerUser?.whatsappNumber && sellerUser?.whatsappOptIn !== false ? (
+                    <a
+                      href={`https://wa.me/${sellerUser.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hi! I'm interested in your listing: "${product.title}" on Tedbuy.`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-2xl flex items-center justify-center gap-2 text-sm shadow-xs hover:shadow-md transition duration-200 cursor-pointer"
+                    >
+                      <MessageCircle className="w-4.5 h-4.5 stroke-[2.5]" />
+                      <span>Chat on WhatsApp</span>
+                    </a>
+                  ) : (
+                    <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-2xl space-y-2">
+                      <a
+                        href={`https://wa.me/233241234567?text=${encodeURIComponent(`[DEMO CHAT] Hi! I'm interested in: "${product.title}" listed by ${product.sellerName} on Tedbuy.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold rounded-xl flex items-center justify-center gap-2 text-xs transition duration-200 cursor-pointer"
+                        title="Try the premium direct WhatsApp Chat feature!"
+                      >
+                        <MessageCircle className="w-4 h-4 stroke-[2.5]" />
+                        <span>Demo WhatsApp Contact</span>
+                      </a>
+                      <p className="text-[10px] text-slate-400 text-center leading-relaxed">
+                        💡 Since this is a default demo of Tedbuy and the seller hasn't set their own WhatsApp, we show this demo contact button so you can see the feature.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -688,6 +785,120 @@ export const ProductDetail: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Product Images & Media Full-screen Lightbox Modal */}
+      {lightboxIndex !== null && (
+        <div 
+          className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[9999] flex flex-col items-center justify-between p-4 md:p-6 font-sans select-none animate-fade-in"
+          onClick={() => setLightboxIndex(null)}
+        >
+          {/* Header strip */}
+          <div className="w-full max-w-5xl flex items-center justify-between pb-3 border-b border-white/10 z-10 shrink-0">
+            <div className="flex flex-col text-left">
+              <span className="text-xs font-black text-white tracking-wider uppercase">
+                {product.title}
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                {mediaGallery[lightboxIndex]?.type === 'video' ? 'VIDEO PREVIEW' : 'IMAGE SPECIFICATION'} — {lightboxIndex + 1} of {mediaGallery.length}
+              </span>
+            </div>
+            <button
+              onClick={() => setLightboxIndex(null)}
+              className="p-2 rounded-full bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition duration-200 cursor-pointer flex items-center justify-center border border-white/5"
+              title="Close Fullscreen View"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Primary View Area */}
+          <div className="flex-1 w-full max-w-5xl flex items-center justify-between relative my-4 min-h-0">
+            {/* Left navigation arrow button */}
+            {mediaGallery.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
+                }}
+                className="absolute left-2 md:left-4 bg-slate-900/80 hover:bg-slate-900 border border-white/10 text-white p-3 rounded-full hover:scale-105 active:scale-95 transition cursor-pointer z-35 flex items-center justify-center shadow-2xl backdrop-blur-xs"
+                title="Previous Media"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+            )}
+
+            {/* Central Media container */}
+            <div 
+              className="w-full h-full flex items-center justify-center bg-transparent max-h-[75vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {mediaGallery[lightboxIndex]?.type === 'video' ? (
+                <video
+                  src={mediaGallery[lightboxIndex].url}
+                  className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/5 shadow-2xl"
+                  controls
+                  autoPlay
+                  muted
+                />
+              ) : (
+                <img
+                  src={mediaGallery[lightboxIndex]?.url}
+                  alt={product.title}
+                  referrerPolicy="no-referrer"
+                  className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up"
+                />
+              )}
+            </div>
+
+            {/* Right navigation arrow button */}
+            {mediaGallery.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
+                }}
+                className="absolute right-2 md:right-4 bg-slate-900/80 hover:bg-slate-900 border border-white/10 text-white p-3 rounded-full hover:scale-105 active:scale-95 transition cursor-pointer z-35 flex items-center justify-center shadow-2xl backdrop-blur-xs"
+                title="Next Media"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick-jump Thumbnail dots/strip */}
+          {mediaGallery.length > 1 && (
+            <div 
+              className="w-full max-w-3xl flex items-center justify-center gap-1.5 px-4 py-2 bg-white/5 border border-white/10 rounded-2xl backdrop-blur-xs overflow-x-auto select-none mt-2 shrink-0 z-10 scrollbar-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {mediaGallery.map((med, i) => (
+                <button
+                  key={i}
+                  onClick={() => setLightboxIndex(i)}
+                  className={`relative w-10 h-10 rounded-lg overflow-hidden border transition duration-200 shrink-0 ${
+                    i === lightboxIndex
+                      ? 'border-white scale-105 ring-2 ring-white/10 shadow-lg'
+                      : 'border-white/10 opacity-60 hover:opacity-100 hover:border-white/30'
+                  }`}
+                >
+                  {med.type === 'video' ? (
+                    <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center text-white text-[8px] font-black tracking-tighter">
+                      VIDEO
+                    </div>
+                  ) : (
+                    <img 
+                      src={med.url} 
+                      alt="" 
+                      referrerPolicy="no-referrer" 
+                      className="w-full h-full object-cover" 
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

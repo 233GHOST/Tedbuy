@@ -8,8 +8,9 @@ import { SellerDashboard } from './components/SellerDashboard';
 import { SellerProfilePage } from './components/SellerProfilePage';
 import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
-import { Category } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare } from 'lucide-react';
+import { PullToRefresh } from './components/PullToRefresh';
+import { Category, Product } from './types';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 
@@ -41,8 +42,19 @@ const MarketplaceContent: React.FC = () => {
     isAuthLoading,
     isProductsLoading,
     messages,
-    setAuthMode
+    chats,
+    setAuthMode,
+    recentlyViewedIds,
+    clearRecentlyViewed,
+    setSelectedProductId
   } = useApp();
+
+  const recentlyViewedProducts = useMemo(() => {
+    if (!recentlyViewedIds || recentlyViewedIds.length === 0) return [];
+    return recentlyViewedIds
+      .map(id => products.find(p => p.id === id))
+      .filter((p): p is Product => !!p);
+  }, [recentlyViewedIds, products]);
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
 
@@ -141,8 +153,13 @@ const MarketplaceContent: React.FC = () => {
 
   const unreadCount = useMemo(() => {
     if (!currentUser || !messages) return 0;
-    return messages.filter(m => m.recipientId === currentUser.id && !m.read).length;
-  }, [messages, currentUser]);
+    return messages.filter(m => {
+      if (m.recipientId !== currentUser.id || m.read) return false;
+      const chat = chats?.find(c => c.id === m.chatId);
+      if (chat && chat.tradeStatus === 'completed') return false;
+      return true;
+    }).length;
+  }, [messages, chats, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-16 md:pb-0">
@@ -206,7 +223,8 @@ const MarketplaceContent: React.FC = () => {
 
       <main className="flex-1">
         {currentView === 'browse' && (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <PullToRefresh>
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             
             {/* Promotional Marketplace Hero Badge */}
             <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
@@ -401,6 +419,65 @@ const MarketplaceContent: React.FC = () => {
                   setSelectedCity={setSelectedCity}
                   products={products}
                 />
+
+                {recentlyViewedProducts.length > 0 && (
+                  <div
+                    id="recently-viewed-panel"
+                    className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3.5 text-left font-sans animate-fade-in"
+                  >
+                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                      <div className="flex items-center gap-1.5 text-slate-800">
+                        <History className="w-4 h-4 text-slate-600 shrink-0" />
+                        <h4 className="text-xs font-black tracking-tight uppercase text-slate-900">Recently Viewed</h4>
+                      </div>
+                      <button
+                        onClick={clearRecentlyViewed}
+                        className="text-[10px] text-slate-400 hover:text-red-500 font-extrabold hover:bg-red-50 px-1.5 py-0.5 rounded-md transition duration-250 cursor-pointer"
+                        title="Clear history list"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className="space-y-2.5">
+                      {recentlyViewedProducts.map(product => {
+                        const formattedPrice = Number(product.price) > 0
+                          ? `GH₵${Number(product.price).toLocaleString()}`
+                          : 'Contact Seller';
+                        return (
+                          <div
+                            key={product.id}
+                            id={`recently-viewed-item-${product.id}`}
+                            onClick={() => {
+                              setSelectedProductId(product.id);
+                              setCurrentView('product-detail');
+                            }}
+                            className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer group select-none"
+                          >
+                            <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-slate-100 border border-slate-150 shrink-0">
+                              <img
+                                src={product.images?.[0] || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=120&q=80'}
+                                alt=""
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[11px] font-bold text-slate-800 truncate group-hover:text-slate-950 transition duration-200 leading-tight">
+                                {product.title}
+                              </p>
+                              <p className="text-[10px] font-black text-slate-900 mt-0.5">
+                                {formattedPrice}
+                              </p>
+                              <p className="text-[9px] text-slate-400 truncate mt-0.5">
+                                {product.location}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Right main items layout - span 3 */}
@@ -495,7 +572,8 @@ const MarketplaceContent: React.FC = () => {
                 </section>
               </div>
             </div>
-          </div>
+            </div>
+          </PullToRefresh>
         )}
 
         {/* Dynamic sub screens */}

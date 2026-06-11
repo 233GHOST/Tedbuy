@@ -17,6 +17,7 @@ import {
   setDoc,
   getDoc,
   getDocs,
+  getDocsFromServer,
   updateDoc,
   deleteDoc,
   onSnapshot,
@@ -92,6 +93,8 @@ interface AppContextType {
     phoneNumber?: string;
     photoUrl?: string;
     role: 'buyer' | 'seller' | 'both';
+    whatsappNumber?: string;
+    whatsappOptIn?: boolean;
   }) => Promise<void>;
   deleteAccount: () => Promise<void>;
   selectedProductId: string | null;
@@ -109,6 +112,8 @@ interface AppContextType {
   recentSearches: string[];
   addRecentQuery: (query: string) => void;
   clearRecentSearches: () => void;
+  recentlyViewedIds: string[];
+  clearRecentlyViewed: () => void;
   showAuthModal: boolean;
   setShowAuthModal: (show: boolean) => void;
   authMode: 'login' | 'register' | 'forgot-password';
@@ -117,6 +122,8 @@ interface AppContextType {
   setUnauthorizedDomainDetected: (detected: boolean) => void;
   isAuthLoading: boolean;
   isProductsLoading: boolean;
+  isRefreshingProducts: boolean;
+  refreshProducts: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -220,6 +227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     }
   });
+  const [isRefreshingProducts, setIsRefreshingProducts] = useState(false);
 
   const hasProcessedDeepLink = useRef(false);
 
@@ -267,6 +275,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return ['iPhone', 'Laptop', 'Fashion', 'Appliance'];
     }
   });
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(() => {
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_recently_viewed_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [unauthorizedDomainDetected, setUnauthorizedDomainDetected] = useState(false);
@@ -275,6 +291,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     safeLocalStorage.setItem('tedbuy_recent_searches', JSON.stringify(recentSearches));
   }, [recentSearches]);
+
+  // Track product selection for recently viewed section
+  useEffect(() => {
+    if (selectedProductId) {
+      setRecentlyViewedIds((prev) => {
+        const filtered = prev.filter(id => id !== selectedProductId);
+        const updated = [selectedProductId, ...filtered].slice(0, 5);
+        safeLocalStorage.setItem('tedbuy_recently_viewed_ids', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, [selectedProductId]);
 
   // Synchronize navigation view context to sessionStorage for reload persistence
   useEffect(() => {
@@ -447,6 +475,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return unsub;
+  }, []);
+
+  // 2.3. Force refresh products from firestore directly (bypassing local cache where possible)
+  const refreshProducts = useCallback(async () => {
+    setIsRefreshingProducts(true);
+    try {
+      const q = collection(db, 'products');
+      const snapshot = await getDocsFromServer(q);
+      const pList: Product[] = [];
+      snapshot.forEach(docSnap => {
+        const item = docSnap.data() as Product;
+        if (item.id !== 'prod_1780927804590') {
+          if (item.category) {
+            item.category = normalizeCategory(item.category);
+          }
+          pList.push(item);
+        }
+      });
+      const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setProducts(sorted);
+      
+      // Update local storage backup
+      try {
+        const safeBackup = sorted.map(p => ({
+          ...p,
+          images: p.images ? p.images.map(img => img.startsWith('data:') ? (img.length > 300 ? img.substring(0, 100) + '...[truncated base64]' : img) : img) : [],
+          description: p.description ? (p.description.length > 800 ? p.description.substring(0, 800) + '...' : p.description) : ''
+        }));
+        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(safeBackup));
+      } catch (err) {
+        console.warn('Could not save offline products backup:', err);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'products');
+    } finally {
+      // Keep it active for at least 800ms so transition is visible and elegant
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setIsRefreshingProducts(false);
+    }
   }, []);
 
   // 2.5. Deep Linking Handler for product sharing (?productId=...)
@@ -957,6 +1024,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastMessageText: text,
         lastMessageTime: new Date().toISOString()
       }));
+      // Mark all incoming messages in this chat as read since we are replying
+      if (!optionalSenderId || optionalSenderId === currentUser?.id) {
+        await markChatAsRead(chatId);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `messages/${msgId}`);
     }
@@ -1012,6 +1083,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         read: false
       };
       await setDoc(doc(db, 'messages', msgId), cleanObject(systemMsg));
+      await markChatAsRead(chatId);
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `chats/${chatId}`);
     }
@@ -1037,9 +1109,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         recipientId: chat.sellerId,
         text: "🤝 Buyer has marked this item as PICKED UP and confirmed purchase.",
         createdAt: new Date().toISOString(),
-        read: false
+        read: true
       };
       await setDoc(doc(db, 'messages', msgId), cleanObject(systemMsg));
+      
+      // Mark all messages in this now-completed chat as read
+      await markChatAsRead(chatId);
+      
+      // Also sweep and mark all other messages in this completed chat as read
+      const unreadMsgsInChat = messages.filter(m => m.chatId === chatId && !m.read);
+      if (unreadMsgsInChat.length > 0) {
+        setMessages(prev => prev.map(m => m.chatId === chatId ? { ...m, read: true } : m));
+        const promises = unreadMsgsInChat.map(msg =>
+          updateDoc(doc(db, 'messages', msg.id), { read: true })
+        );
+        await Promise.all(promises);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `chats/${chatId}`);
     }
@@ -1114,15 +1199,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     phoneNumber?: string;
     photoUrl?: string;
     role: 'buyer' | 'seller' | 'both';
+    whatsappNumber?: string;
+    whatsappOptIn?: boolean;
   }) => {
     if (!currentUser) return;
-    const { username, phoneNumber, photoUrl, role } = profileData;
+    const { username, phoneNumber, photoUrl, role, whatsappNumber, whatsappOptIn } = profileData;
     const updatedUser: User = {
       ...currentUser,
       username,
       phoneNumber: phoneNumber || undefined,
       photoUrl: photoUrl || undefined,
-      role
+      role,
+      whatsappNumber: whatsappNumber || undefined,
+      whatsappOptIn: whatsappOptIn !== undefined ? whatsappOptIn : false
     };
 
     try {
@@ -1130,7 +1219,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         username,
         phoneNumber: phoneNumber || null,
         photoUrl: photoUrl || null,
-        role
+        role,
+        whatsappNumber: whatsappNumber || null,
+        whatsappOptIn: whatsappOptIn !== undefined ? whatsappOptIn : false
       }));
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
@@ -1256,6 +1347,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRecentSearches([]);
   };
 
+  const clearRecentlyViewed = () => {
+    setRecentlyViewedIds([]);
+    try {
+      safeLocalStorage.removeItem('tedbuy_recently_viewed_ids');
+    } catch {}
+  };
+
   return (
     <AppContext.Provider value={{
       currentUser,
@@ -1306,6 +1404,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       recentSearches,
       addRecentQuery,
       clearRecentSearches,
+      recentlyViewedIds,
+      clearRecentlyViewed,
       showAuthModal,
       setShowAuthModal,
       authMode,
@@ -1313,7 +1413,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unauthorizedDomainDetected,
       setUnauthorizedDomainDetected,
       isAuthLoading,
-      isProductsLoading
+      isProductsLoading,
+      isRefreshingProducts,
+      refreshProducts
     }}>
       {children}
     </AppContext.Provider>
