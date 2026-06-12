@@ -9,6 +9,7 @@ export interface User {
   followingSellers?: string[]; // IDs of sellers this user follows
   savedProductIds?: string[]; // Bookmarked product IDs
   whatsAppNumber?: string;
+  isAdmin?: boolean;
 }
 
 export const isUserVerified = (user?: User | null): boolean => {

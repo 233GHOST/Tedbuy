@@ -141,8 +141,12 @@ export const Navbar: React.FC = () => {
   // Calculate unread chat badges with an optimized single-pass memoized filter
   const unreadCount = useMemo(() => {
     if (!currentUser) return 0;
-    return messages.filter(m => m.recipientId === currentUser.id && !m.read).length;
-  }, [messages, currentUser]);
+    return messages.filter(m => {
+      if (m.recipientId !== currentUser.id || m.read) return false;
+      const ch = chats.find(c => c.id === m.chatId);
+      return !ch || ch.tradeStatus !== 'completed';
+    }).length;
+  }, [messages, chats, currentUser]);
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-950 text-white shadow-md">

@@ -40,10 +40,12 @@ export const ChatInterface: React.FC = () => {
 
   const activeChat = chats.find(c => c.id === activeChatId);
 
-  // Calculate unread count for current active chat
-  const activeUnreadCount = messages.filter(
-    m => m.chatId === activeChatId && m.recipientId === currentUser.id && !m.read
-  ).length;
+  // Calculate unread count for current active chat, ignoring if trade is completed
+  const activeUnreadCount = activeChat?.tradeStatus === 'completed'
+    ? 0
+    : messages.filter(
+        m => m.chatId === activeChatId && m.recipientId === currentUser.id && !m.read
+      ).length;
 
   // Set messages as read when active chat changes or new messages arrive
   useEffect(() => {
@@ -128,10 +130,10 @@ export const ChatInterface: React.FC = () => {
               Need assistance or want to report an issue? Contact administrative support directly on WhatsApp.
             </p>
             <a
-              href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%20I%20am%20using%20the%20platform%20and%20need%20some%20assistance."
+              href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-2 w-full py-2 bg-emerald-650 hover:bg-emerald-700 bg-emerald-600 text-white font-extrabold text-[11px] rounded-xl text-center shadow-3xs cursor-pointer select-none transition flex items-center justify-center gap-1.5"
+              className="mt-2 w-full py-2 bg-emerald-650 hover:bg-emerald-700 bg-emerald-600 text-white font-extrabold text-[11px] rounded-xl text-center shadow-3xs"
             >
               <span>Message Admin on WhatsApp</span>
             </a>
@@ -149,8 +151,10 @@ export const ChatInterface: React.FC = () => {
                 const peerName = isPeerSeller ? chat.sellerName : chat.buyerName;
                 const active = chat.id === activeChatId;
 
-                // Count unread messages for this particular chat
-                const unreadForThisChat = messages.filter(m => m.chatId === chat.id && m.recipientId === currentUser.id && !m.read).length;
+                // Count unread messages for this particular chat, ignoring if trade is completed
+                const unreadForThisChat = chat.tradeStatus === 'completed'
+                  ? 0
+                  : messages.filter(m => m.chatId === chat.id && m.recipientId === currentUser.id && !m.read).length;
 
                 return (
                   <button
@@ -495,7 +499,7 @@ export const ChatInterface: React.FC = () => {
                   Encountered an issue, want to report an advertising post, or seek direct setup help? Chat with me directly.
                 </p>
                 <a
-                  href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%20I%20am%20using%20the%20platform%20and%20need%20some%20assistance."
+                  href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer"

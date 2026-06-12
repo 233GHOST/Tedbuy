@@ -206,14 +206,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [];
     }
   });
-  const [currentUser, setCurrentUserState] = useState<User | null>(() => {
+  const [currentUser, setCurrentUserStateRaw] = useState<User | null>(() => {
     try {
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
-      return stored ? JSON.parse(stored) : null;
+      if (stored) {
+        const parsed = JSON.parse(stored) as User;
+        if (parsed.email === 'asumaduvincent7@gmail.com') {
+          parsed.isAdmin = true;
+        }
+        return parsed;
+      }
+      return null;
     } catch {
       return null;
     }
   });
+
+  const setCurrentUserState = (val: User | null | ((prev: User | null) => User | null)) => {
+    setCurrentUserStateRaw(prev => {
+      let next = typeof val === 'function' ? val(prev) : val;
+      if (next && next.email === 'asumaduvincent7@gmail.com') {
+        next = { ...next, isAdmin: true };
+      }
+      return next;
+    });
+  };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProductsLoading, setIsProductsLoading] = useState(() => {
     try {

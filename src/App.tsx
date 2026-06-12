@@ -41,6 +41,7 @@ const MarketplaceContent: React.FC = () => {
     isAuthLoading,
     isProductsLoading,
     messages,
+    chats,
     setAuthMode,
     recentlyViewedIds,
     clearRecentlyViewed,
@@ -151,8 +152,12 @@ const MarketplaceContent: React.FC = () => {
 
   const unreadCount = useMemo(() => {
     if (!currentUser || !messages) return 0;
-    return messages.filter(m => m.recipientId === currentUser.id && !m.read).length;
-  }, [messages, currentUser]);
+    return messages.filter(m => {
+      if (m.recipientId !== currentUser.id || m.read) return false;
+      const ch = chats.find(c => c.id === m.chatId);
+      return !ch || ch.tradeStatus !== 'completed';
+    }).length;
+  }, [messages, chats, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-16 md:pb-0">

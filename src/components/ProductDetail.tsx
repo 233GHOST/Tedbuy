@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2 } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2 } from 'lucide-react';
 import { ProductCard } from './ProductCard';
+import { ListingModal } from './ListingModal';
 import { isUserVerified, calculateTrustScore } from '../types';
 import {
   ResponsiveContainer,
@@ -101,7 +102,8 @@ export const ProductDetail: React.FC = () => {
     toggleSaveProduct,
     setShowAuthModal,
     setAuthMode,
-    incrementProductViews
+    incrementProductViews,
+    deleteProduct
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
@@ -112,6 +114,8 @@ export const ProductDetail: React.FC = () => {
   const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string } | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
     ...(product.videos || []).map(url => ({ type: 'video' as const, url }))
@@ -260,6 +264,16 @@ export const ProductDetail: React.FC = () => {
       unfollowSeller(product.sellerId);
     } else {
       followSeller(product.sellerId);
+    }
+  };
+
+  const handleDeleteAd = async () => {
+    if (!product) return;
+    try {
+      await deleteProduct(product.id);
+      setCurrentView('browse');
+    } catch (err) {
+      console.error("Could not delete product as admin:", err);
     }
   };
 
@@ -484,8 +498,36 @@ export const ProductDetail: React.FC = () => {
 
             {/* Messaging / Call buttons */}
             <div className="space-y-3">
+              {currentUser?.isAdmin && (
+                <div className="bg-rose-50 border-2 border-rose-200/80 p-5 rounded-3xl text-xs space-y-3 text-left">
+                  <div className="flex items-center gap-1.5 text-rose-800 font-extrabold uppercase tracking-wider">
+                    <ShieldAlert className="w-4.5 h-4.5" />
+                    <span>Admin Moderator Controls</span>
+                  </div>
+                  <p className="text-slate-600 font-sans leading-relaxed">
+                    You have administrative access to this post as <strong className="text-slate-900 font-bold">{currentUser.email}</strong>. You can edit the parameters of this listing or permanently delete it from the system.
+                  </p>
+                  <div className="flex gap-2.5">
+                    <button
+                      onClick={() => setShowEditModal(true)}
+                      className="flex-1 py-2.5 bg-slate-905 hover:bg-slate-800 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit Ad Details</span>
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Listing</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {isOwner ? (
-                <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs">
+                <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs text-left">
                   👋 **You posted this product listing!** You can manage, edit details, or remove it from your personal store dashboard dashboard.
                 </div>
               ) : (
@@ -879,6 +921,47 @@ export const ProductDetail: React.FC = () => {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Admin Edit Listing Modal */}
+      {showEditModal && (
+        <ListingModal
+          isOpen={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          productToEdit={product}
+        />
+      )}
+
+      {/* Admin Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full border border-slate-150 relative animate-scale-up text-left" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5 text-rose-750">
+              <ShieldAlert className="w-4.5 h-4.5 text-rose-600 animate-pulse" />
+              <span>Confirm Admin Deletion</span>
+            </h3>
+            <p className="text-xs text-slate-500 font-sans leading-relaxed mt-3">
+              Are you sure you want to permanently delete <strong className="text-slate-800">"{product.title}"</strong> from the Tedbuy classifieds marketplace? This action is irreversible.
+            </p>
+            <div className="flex gap-2.5 mt-5">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setShowDeleteConfirm(false);
+                  await handleDeleteAd();
+                }}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                Yes, Delete Ad
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
