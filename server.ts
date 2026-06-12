@@ -216,7 +216,7 @@ async function startServer() {
         let productId = queryProductId;
         let queryTitle = req.query.title as string;
         let queryPrice = req.query.price as string;
-        let queryImage = req.query.image as string;
+        let queryImage = (req.query.image || req.query.img) as string;
         let queryDescription = req.query.description as string;
 
         if (!productId) {
@@ -225,7 +225,7 @@ async function startServer() {
             productId = parsedUrl.searchParams.get('productId') || '';
             queryTitle = parsedUrl.searchParams.get('title') || queryTitle || '';
             queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
-            queryImage = parsedUrl.searchParams.get('image') || queryImage || '';
+            queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
             queryDescription = parsedUrl.searchParams.get('description') || queryDescription || '';
           } catch (e) {
             // Ignored
@@ -281,7 +281,7 @@ async function startServer() {
       let productId = queryProductId;
       let queryTitle = req.query.title as string;
       let queryPrice = req.query.price as string;
-      let queryImage = req.query.image as string;
+      let queryImage = (req.query.image || req.query.img) as string;
       let queryDescription = req.query.description as string;
 
       if (!productId) {
@@ -290,7 +290,7 @@ async function startServer() {
           productId = parsedUrl.searchParams.get('productId') || '';
           queryTitle = parsedUrl.searchParams.get('title') || queryTitle || '';
           queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
-          queryImage = parsedUrl.searchParams.get('image') || queryImage || '';
+          queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
           queryDescription = parsedUrl.searchParams.get('description') || queryDescription || '';
         } catch (e) {
           // Ignored

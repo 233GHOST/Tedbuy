@@ -75,6 +75,7 @@ interface AppContextType {
   startChat: (productId: string, initialMessage?: string) => Promise<string>;
   sendMessage: (chatId: string, text: string, optionalSenderId?: string) => Promise<void>;
   markChatAsRead: (chatId: string) => Promise<void>;
+  toggleMessageReadStatus: (messageId: string, read?: boolean) => Promise<void>;
   markAsDelivered: (chatId: string) => Promise<void>;
   markAsPickedUp: (chatId: string) => Promise<void>;
   resetChats: () => Promise<void>;
@@ -120,6 +121,7 @@ interface AppContextType {
   setUnauthorizedDomainDetected: (detected: boolean) => void;
   isAuthLoading: boolean;
   isProductsLoading: boolean;
+  refreshProducts: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -197,7 +199,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [];
     }
   });
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const stored = safeLocalStorage.getItem('tedbuy_local_messages_backup');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const msgMapRef = useRef<Map<string, Message>>(new Map());
   const [reviews, setReviews] = useState<Review[]>(() => {
     try {
       const stored = safeLocalStorage.getItem('tedbuy_local_reviews_backup');
@@ -489,30 +499,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return unsub;
   }, []);
 
-  // 2.5. Deep Linking Handler for product sharing (?productId=...)
+  // 2.5. Deep Linking and Browser URL Synchronization
   useEffect(() => {
-    if (products.length > 0 && !hasProcessedDeepLink.current && typeof window !== 'undefined') {
+    if (typeof window === 'undefined') return;
+
+    try {
       const params = new URLSearchParams(window.location.search);
       const urlProductId = params.get('productId');
-      if (urlProductId) {
-        const found = products.find(p => p.id === urlProductId);
+
+      if (currentView === 'product-detail' && selectedProductId) {
+        // If we are viewing a product, ensure the URL has the correct parameters
+        const found = products.find(p => p.id === selectedProductId);
         if (found) {
-          hasProcessedDeepLink.current = true;
-          setSelectedProductId(found.id);
-          setCurrentView('product-detail');
-          try {
-            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-            window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
-          } catch (historyErr) {
-            console.warn('Could not replace history state:', historyErr);
+          params.set('productId', selectedProductId);
+          params.set('title', found.title);
+          if (found.images && found.images[0] && !found.images[0].startsWith('data:')) {
+            params.set('img', found.images[0]);
+            params.set('image', found.images[0]);
+          } else {
+            params.delete('img');
+            params.delete('image');
+          }
+          params.set('price', typeof found.price === 'number' ? `GH₵${found.price}` : String(found.price));
+          params.set('location', found.location);
+          
+          const newSearch = `?${params.toString()}`;
+          if (window.location.search !== newSearch) {
+            window.history.replaceState({ path: window.location.pathname + newSearch }, '', window.location.pathname + newSearch);
           }
         }
-      } else {
-        // No productId present in URL, mark check as successfully completed once list loads
-        hasProcessedDeepLink.current = true;
+      } else if (currentView === 'browse') {
+        // Clear search parameters when return to browse
+        if (window.location.search !== '') {
+          window.history.replaceState({ path: window.location.pathname }, '', window.location.pathname);
+        }
       }
+    } catch (err) {
+      console.warn('URL Sync Error:', err);
     }
-  }, [products]);
+  }, [currentView, selectedProductId, products]);
 
   // 3. Real-time Reviews Synchronization
   useEffect(() => {
@@ -588,23 +613,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 5. Real-time Messages Synchronization (Secure Participant Querying)
   useEffect(() => {
+    msgMapRef.current.clear();
     if (!currentUser) {
       setMessages([]);
       return;
     }
 
+    // Pre-populate with currently loaded messages from previous session backup to prevent flicker
+    messages.forEach(m => {
+      if (m.senderId === currentUser.id || m.recipientId === currentUser.id) {
+        msgMapRef.current.set(m.id, m);
+      }
+    });
+
     const qSender = query(collection(db, 'messages'), where('senderId', '==', currentUser.id));
     const qRecipient = query(collection(db, 'messages'), where('recipientId', '==', currentUser.id));
 
-    const msgMap = new Map<string, Message>();
-
     const updateCombined = () => {
-      setMessages(Array.from(msgMap.values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+      const sorted = (Array.from(msgMapRef.current.values()) as Message[]).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      setMessages(sorted);
+      try {
+        safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(sorted));
+      } catch (err) {
+        console.warn('Could not save messages backup:', err);
+      }
     };
 
     const unsub1 = onSnapshot(qSender, (snap) => {
       snap.forEach(docSnap => {
-        msgMap.set(docSnap.id, docSnap.data() as Message);
+        msgMapRef.current.set(docSnap.id, docSnap.data() as Message);
       });
       updateCombined();
     }, (error) => {
@@ -613,7 +650,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const unsub2 = onSnapshot(qRecipient, (snap) => {
       snap.forEach(docSnap => {
-        msgMap.set(docSnap.id, docSnap.data() as Message);
+        msgMapRef.current.set(docSnap.id, docSnap.data() as Message);
       });
       updateCombined();
     }, (error) => {
@@ -1010,14 +1047,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (unreadMsgs.length === 0) return;
 
     // Snappy optimistic local state update
-    setMessages(prev =>
-      prev.map(m => {
-        if (m.chatId === chatId && m.recipientId === currentUser.id && !m.read) {
-          return { ...m, read: true };
-        }
-        return m;
-      })
-    );
+    const updated = messages.map(m => {
+      if (m.chatId === chatId && m.recipientId === currentUser.id && !m.read) {
+        // Synchronously update msgMapRef so any subsequent background snapshot doesn't revert it
+        msgMapRef.current.set(m.id, { ...m, read: true });
+        return { ...m, read: true };
+      }
+      return m;
+    });
+
+    setMessages(updated);
+    try {
+      safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(updated));
+    } catch (err) {
+      console.warn('Could not save messages backup:', err);
+    }
 
     try {
       const promises = unreadMsgs.map(msg =>
@@ -1026,6 +1070,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await Promise.all(promises);
     } catch (err) {
       console.error('Error marking messages as read in Firestore:', err);
+    }
+  };
+
+  const toggleMessageReadStatus = async (messageId: string, read: boolean = true) => {
+    setMessages(prev => {
+      const next = prev.map(m => m.id === messageId ? { ...m, read } : m);
+      const targetMsg = msgMapRef.current.get(messageId);
+      if (targetMsg) {
+        msgMapRef.current.set(messageId, { ...targetMsg, read });
+      }
+      try {
+        safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(next));
+      } catch (err) {
+        console.warn('Could not save messages backup:', err);
+      }
+      return next;
+    });
+
+    try {
+      await updateDoc(doc(db, 'messages', messageId), { read });
+    } catch (err) {
+      console.error('Error toggling message read status in Firestore:', err);
+      handleFirestoreError(err, OperationType.UPDATE, `messages/${messageId}`);
     }
   };
 
@@ -1306,6 +1373,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   };
 
+  const refreshProducts = async () => {
+    setIsProductsLoading(true);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    try {
+      const snapshot = await getDocs(collection(db, 'products'));
+      const pList: Product[] = [];
+      snapshot.forEach(docSnap => {
+        const item = docSnap.data() as Product;
+        if (item.id !== 'prod_1780927804590') {
+          if (item.category) {
+            item.category = normalizeCategory(item.category);
+          }
+          pList.push(item);
+        }
+      });
+      const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setProducts(sorted);
+    } catch (err) {
+      console.error('Error manually refreshing products:', err);
+    } finally {
+      setIsProductsLoading(false);
+    }
+  };
+
   return (
     <AppContext.Provider value={{
       currentUser,
@@ -1325,6 +1416,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       startChat,
       sendMessage,
       markChatAsRead,
+      toggleMessageReadStatus,
       markAsDelivered,
       markAsPickedUp,
       resetChats,
@@ -1365,7 +1457,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unauthorizedDomainDetected,
       setUnauthorizedDomainDetected,
       isAuthLoading,
-      isProductsLoading
+      isProductsLoading,
+      refreshProducts
     }}>
       {children}
     </AppContext.Provider>

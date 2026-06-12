@@ -57,6 +57,25 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     return priceVal;
   };
 
+  const getCategoryPlaceholder = (categoryName: string) => {
+    const cat = categoryName ? categoryName.toLowerCase() : '';
+    if (cat.includes('phone')) return 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=600&q=80';
+    if (cat.includes('laptop') || cat.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80';
+    if (cat.includes('fashion') || cat.includes('wear') || cat.includes('clothes')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=600&q=80';
+    if (cat.includes('vehicle') || cat.includes('car')) return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
+    if (cat.includes('beauty')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=600&q=80';
+    if (cat.includes('game') || cat.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80';
+    if (cat.includes('appliance') || cat.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=600&q=80';
+    return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+  };
+
+  const initialSrc = product.images?.[0] || getCategoryPlaceholder(product.category);
+  const [imgSrc, setImgSrc] = React.useState<string>(initialSrc);
+
+  React.useEffect(() => {
+    setImgSrc(product.images?.[0] || getCategoryPlaceholder(product.category));
+  }, [product.images, product.category]);
+
   const formattedPrice = formatProductPrice(product.price);
 
   // Format the relative/absolute date
@@ -64,8 +83,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     month: 'short',
     day: 'numeric'
   });
-
-
 
   return (
     <article
@@ -76,12 +93,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       {/* Listing image section */}
       <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-[4/3]" style={{ aspectRatio: '4/3' }}>
         <img
-          src={product.images[0] || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80'}
+          src={imgSrc}
           alt={product.title}
           loading="lazy"
           decoding="async"
           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           referrerPolicy="no-referrer"
+          onError={() => {
+            const fallback = getCategoryPlaceholder(product.category);
+            if (imgSrc !== fallback) {
+              setImgSrc(fallback);
+            }
+          }}
         />
         <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1">
           <span className="px-2 py-0.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold rounded-md flex items-center gap-1 uppercase tracking-wider">
@@ -114,14 +137,23 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         
         {/* Dynamic bottom status bar on image hover */}
         <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <span className="text-[10px] flex items-center gap-1 font-sans">
-            <Eye className="w-3 h-3 text-slate-100" />
-            {product.viewsCount} views
-          </span>
-          <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium">
-            <Calendar className="w-3 h-3" />
-            {dateFormatted}
-          </span>
+          {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) ? (
+            <>
+              <span className="text-[10px] flex items-center gap-1 font-sans">
+                <Eye className="w-3 h-3 text-slate-100" />
+                {product.viewsCount} views
+              </span>
+              <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium">
+                <Calendar className="w-3 h-3" />
+                {dateFormatted}
+              </span>
+            </>
+          ) : (
+            <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium ml-auto">
+              <Calendar className="w-3 h-3" />
+              {dateFormatted}
+            </span>
+          )}
         </div>
       </div>
 

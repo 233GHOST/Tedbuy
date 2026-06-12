@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
@@ -9,7 +9,7 @@ import { SellerProfilePage } from './components/SellerProfilePage';
 import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
 import { Category, Product } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 
@@ -45,8 +45,45 @@ const MarketplaceContent: React.FC = () => {
     setAuthMode,
     recentlyViewedIds,
     clearRecentlyViewed,
-    setSelectedProductId
+    setSelectedProductId,
+    refreshProducts
   } = useApp();
+
+  // Mobile pull-to-refresh touch tracking
+  const [pullY, setPullY] = useState(0);
+  const [isPulling, setIsPulling] = useState(false);
+  const touchStartY = useRef(0);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    // Only detect pull when scrolled to the top of window
+    if (window.scrollY === 0) {
+      touchStartY.current = e.touches[0].clientY;
+      setIsPulling(true);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isPulling) return;
+    const currentY = e.touches[0].clientY;
+    const diff = currentY - touchStartY.current;
+    if (diff > 0) {
+      // Fluid pulling resistance
+      const resistance = Math.min(diff * 0.35, 80);
+      setPullY(resistance);
+      // Suppress default refresh behaviors if we have successfully started pulling
+      if (diff > 15 && e.cancelable) {
+        e.preventDefault();
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsPulling(false);
+    if (pullY >= 55) {
+      refreshProducts();
+    }
+    setPullY(0);
+  };
 
   const recentlyViewedProducts = useMemo(() => {
     if (!recentlyViewedIds || recentlyViewedIds.length === 0) return [];
@@ -75,12 +112,14 @@ const MarketplaceContent: React.FC = () => {
   // Ghana Region & City filter states
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [selectedCity, setSelectedCity] = useState<string>('All');
+  const [minPrice, setMinPrice] = useState<string>('');
+  const [maxPrice, setMaxPrice] = useState<string>('');
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
 
 
 
-  // Filter listings based on category, search query, region, and city
+  // Filter listings based on category, search query, region, city, and price range
   const filteredProducts = useMemo(() => {
     return products.filter(product => {
       const matchesCategory = !selectedCategory || 
@@ -105,18 +144,37 @@ const MarketplaceContent: React.FC = () => {
         matchesCity = product.location.toLowerCase().includes(selectedCity.toLowerCase());
       }
 
-      return matchesCategory && matchesSearch && matchesRegion && matchesCity;
-    });
-  }, [products, selectedCategory, searchQuery, selectedRegion, selectedCity]);
+      // Price verification
+      const numericPrice = parseNumericPrice(product.price);
 
-  const parseNumericPrice = (p: string | number): number => {
+      let matchesMinPrice = true;
+      if (minPrice.trim() !== '') {
+        const minVal = parseFloat(minPrice);
+        if (!isNaN(minVal)) {
+          matchesMinPrice = numericPrice >= minVal;
+        }
+      }
+
+      let matchesMaxPrice = true;
+      if (maxPrice.trim() !== '') {
+        const maxVal = parseFloat(maxPrice);
+        if (!isNaN(maxVal)) {
+          matchesMaxPrice = numericPrice <= maxVal;
+        }
+      }
+
+      return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice;
+    });
+  }, [products, selectedCategory, searchQuery, selectedRegion, selectedCity, minPrice, maxPrice]);
+
+  function parseNumericPrice(p: string | number): number {
     if (typeof p === 'number') return p;
     if (!p) return 0;
     // Extract numbers and dot, get rid of commas, spaces, letters
     const cleaned = p.replace(/[^0-9.]/g, '');
     const parsed = parseFloat(cleaned);
     return isNaN(parsed) ? 0 : parsed;
-  };
+  }
 
   const sortedProducts = useMemo(() => {
     return [...filteredProducts].sort((a, b) => {
@@ -163,65 +221,24 @@ const MarketplaceContent: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-16 md:pb-0">
       <Navbar />
 
-      {unauthorizedDomainDetected && (
-        <div className="bg-amber-50 border-b border-amber-200 text-amber-900 py-3.5 px-4 sm:px-6 lg:px-8">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-left">
-            <div className="flex gap-2.5 items-start">
-              <span className="text-lg mt-0.5" role="img" aria-label="warning">⚠️</span>
-              <div>
-                <p className="font-bold text-sm text-amber-950">Firebase Unauthorized Domain Notice</p>
-                <p className="text-xs text-amber-800 mt-1 max-w-4xl leading-relaxed">
-                  Google Sign-In was automatically completed via a <strong>resilient sandbox fallback profile</strong> because the current domain is not yet added to your Firebase authorized domains list. To enable real Google authentication, visit your <strong>Firebase Console &rarr; Authentication &rarr; Settings &rarr; Authorized domains</strong>, click <strong>Add domain</strong>, and add:
-                </p>
-                <div className="mt-2.5 flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-[11px] bg-amber-100 border border-amber-200/65 px-2 py-1 rounded text-amber-950 font-medium select-all">
-                    {typeof window !== 'undefined' ? window.location.hostname : 'development-domain'}
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (typeof window !== 'undefined') {
-                        navigator.clipboard.writeText(window.location.hostname);
-                      }
-                    }}
-                    className="text-[11px] font-bold bg-amber-600/10 hover:bg-amber-600/15 border border-amber-300 text-amber-950 px-2 py-1 rounded transition cursor-pointer active:scale-95"
-                  >
-                    Copy
-                  </button>
-                  
-                  {typeof window !== 'undefined' && window.location.hostname.includes('-dev-') && (
-                    <>
-                      <span className="font-mono text-[11px] bg-amber-100 border border-amber-200/65 px-2 py-1 rounded text-amber-950 font-medium select-all">
-                        {window.location.hostname.replace('-dev-', '-pre-')}
-                      </span>
-                      <button
-                        onClick={() => {
-                          if (typeof window !== 'undefined') {
-                            navigator.clipboard.writeText(window.location.hostname.replace('-dev-', '-pre-'));
-                          }
-                        }}
-                        className="text-[11px] font-bold bg-amber-600/10 hover:bg-amber-600/15 border border-amber-300 text-amber-950 px-2 py-1 rounded transition cursor-pointer active:scale-95"
-                      >
-                        Copy
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <button
-              onClick={() => setUnauthorizedDomainDetected(false)}
-              className="p-1 px-2.5 text-xs font-bold hover:bg-amber-100 border border-amber-200 text-amber-900 rounded-lg hover:text-amber-950 transition shrink-0 cursor-pointer"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
       <main className="flex-1">
         {currentView === 'browse' && (
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div 
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
+          >
+            {/* Smooth Pull to Refresh indicator */}
+            {pullY > 0 && (
+              <div 
+                className="flex items-center justify-center gap-2 overflow-hidden transition-all duration-150 text-slate-550 font-sans font-bold text-xs bg-slate-50 border border-slate-200/50 py-2.5 rounded-2xl mb-4"
+                style={{ height: `${pullY}px`, opacity: pullY / 30 }}
+              >
+                <RefreshCw className={`w-4 h-4 ${pullY >= 55 ? 'rotate-180 text-slate-900 font-black' : 'text-slate-405'} transition-transform duration-200 ${isProductsLoading ? 'animate-spin' : ''}`} />
+                <span>{pullY >= 55 ? 'Release to reload deals...' : 'Pull down to refresh deals'}</span>
+              </div>
+            )}
             
             {/* Promotional Marketplace Hero Badge */}
             <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
@@ -417,6 +434,91 @@ const MarketplaceContent: React.FC = () => {
                   products={products}
                 />
 
+                {/* Price Budget Filter */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4 text-left font-sans animate-fade-in animate-duration-300">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <SlidersHorizontal className="w-4 h-4 text-slate-900 shrink-0" />
+                      <h4 className="text-sm font-black text-slate-900 tracking-tight">
+                        Price Range (GH₵)
+                      </h4>
+                    </div>
+                    {(minPrice || maxPrice) && (
+                      <button
+                        onClick={() => {
+                          setMinPrice('');
+                          setMaxPrice('');
+                        }}
+                        className="text-[10px] bg-red-50 hover:bg-red-100 text-red-650 font-bold px-2 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>Reset</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Min Price
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={minPrice}
+                        onChange={(e) => setMinPrice(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-slate-500 transition-all font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Max Price
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="No limit"
+                        value={maxPrice}
+                        onChange={(e) => setMaxPrice(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-slate-500 transition-all font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preset quick ranges */}
+                  <div className="space-y-2 pt-1.5 border-t border-slate-100">
+                    <span className="block text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                      Quick Budgets (GH₵)
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: 'Under 100', min: '', max: '100' },
+                        { label: '100 - 500', min: '100', max: '500' },
+                        { label: '500 - 2k', min: '500', max: '2000' },
+                        { label: '2k - 10k', min: '2000', max: '10000' },
+                        { label: '10k+', min: '10000', max: '' },
+                      ].map((range) => {
+                        const isSelected = minPrice === range.min && maxPrice === range.max;
+                        return (
+                          <button
+                            key={range.label}
+                            onClick={() => {
+                              setMinPrice(range.min);
+                              setMaxPrice(range.max);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all border ${
+                              isSelected
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                : 'bg-slate-50 text-slate-650 border-slate-200 hover:border-slate-350 hover:bg-slate-100'
+                            }`}
+                          >
+                            {range.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
                 {recentlyViewedProducts.length > 0 && (
                   <div
                     id="recently-viewed-panel"
@@ -484,15 +586,26 @@ const MarketplaceContent: React.FC = () => {
                 <section className="space-y-6">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4 text-left">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900 font-sans tracking-tight">
-                        {searchQuery.trim()
-                          ? `Results for ${searchQuery}`
-                          : selectedCategory
-                          ? `${selectedCategory} listings`
-                          : (selectedRegion !== 'All' || selectedCity !== 'All')
-                          ? `${selectedRegion} Region ${selectedCity !== 'All' ? '- ' + selectedCity : ''} Deals`
-                          : 'Latest Classified Deals'}
-                      </h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-lg font-bold text-slate-900 font-sans tracking-tight">
+                          {searchQuery.trim()
+                            ? `Results for ${searchQuery}`
+                            : selectedCategory
+                            ? `${selectedCategory} listings`
+                            : (selectedRegion !== 'All' || selectedCity !== 'All')
+                            ? `${selectedRegion} Region ${selectedCity !== 'All' ? '- ' + selectedCity : ''} Deals`
+                            : 'Latest Classified Deals'}
+                        </h3>
+                        <button
+                          id="btn-manual-refresh"
+                          onClick={() => refreshProducts()}
+                          disabled={isProductsLoading}
+                          className="p-1 px-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all cursor-pointer flex items-center justify-center shrink-0 active:scale-90"
+                          title="Refresh listings feed"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${isProductsLoading ? 'animate-spin text-slate-800' : ''}`} />
+                        </button>
+                      </div>
                       <p className="text-xs text-slate-500 mt-0.5">{filteredProducts.length} active listings found</p>
                     </div>
 

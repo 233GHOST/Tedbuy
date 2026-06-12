@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2 } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
 import { isUserVerified, calculateTrustScore } from '../types';
@@ -116,6 +116,78 @@ export const ProductDetail: React.FC = () => {
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showShareToast, setShowShareToast] = useState(false);
+
+  useEffect(() => {
+    if (showShareToast) {
+      const timer = setTimeout(() => {
+        setShowShareToast(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showShareToast]);
+
+  const handleShareProduct = () => {
+    if (!product) return;
+
+    // Use absolute URL and include descriptive parameters for instantaneous preview unfurls
+    const baseUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+    const params = new URLSearchParams();
+    params.set('productId', product.id);
+    params.set('title', product.title);
+    if (product.images && product.images[0]) {
+      // Avoid raw large data-urls in query string (not professional)
+      if (!product.images[0].startsWith('data:')) {
+        params.set('img', product.images[0]);
+        params.set('image', product.images[0]);
+      }
+    }
+    const displayPrice = typeof product.price === 'number' ? `GH₵${product.price}` : String(product.price);
+    params.set('price', displayPrice);
+    params.set('location', product.location);
+
+    const shareUrl = `${baseUrl}?${params.toString()}`;
+
+    // Elegant TikTok styled share message content
+    const shareMessage = `Check out this amazing find on TedBuy! 🌟
+
+🔥 Ad: ${product.title}
+💰 Price: ${displayPrice}
+📍 Location: ${product.location}
+💼 Category: ${product.category}
+
+👇 Click to preview photos & details:
+${shareUrl}`;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(shareMessage)
+        .then(() => {
+          setShowShareToast(true);
+        })
+        .catch((err) => {
+          console.error('Failed to copy text: ', err);
+          fallbackCopyText(shareMessage);
+        });
+    } else {
+      fallbackCopyText(shareMessage);
+    }
+  };
+
+  const fallbackCopyText = (text: string) => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setShowShareToast(true);
+    } catch (err) {
+      console.error('Fallback copy failed', err);
+    }
+  };
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
     ...(product.videos || []).map(url => ({ type: 'video' as const, url }))
@@ -192,7 +264,94 @@ export const ProductDetail: React.FC = () => {
     };
   }, [product]);
 
+  const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const pId = params?.get('productId');
+  const pTitle = params?.get('title');
+  const pImg = params?.get('image') || params?.get('img');
+  const pPrice = params?.get('price');
+  const pLoc = params?.get('location');
+
   if (!product) {
+    if (pId || pTitle) {
+      return (
+        <div className="max-w-xl mx-auto px-4 py-8 animate-fade-in font-sans">
+          {/* Back to main classifieds */}
+          <button
+            onClick={() => setCurrentView('browse')}
+            className="flex items-center gap-2 text-xs font-black text-slate-500 hover:text-slate-900 mb-6 transition uppercase tracking-wider cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Go to Marketplace</span>
+          </button>
+
+          {/* Gorgeous Welcome Card */}
+          <div className="bg-white border border-slate-200 rounded-[32px] p-6 shadow-xl space-y-6 text-left relative overflow-hidden">
+            {/* Ambient Background decoration */}
+            <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/10 rounded-full blur-2xl -z-10 animate-pulse"></div>
+            <div className="absolute bottom-0 left-0 w-28 h-28 bg-blue-500/10 rounded-full blur-2xl -z-10"></div>
+
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">
+                TedBuy Live Deal Preview
+              </p>
+            </div>
+
+            {/* Product Image preview */}
+            {pImg ? (
+              <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 shadow-sm flex items-center justify-center">
+                <img 
+                  src={pImg} 
+                  alt={pTitle || "Shared deal preview"} 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 flex flex-col items-center justify-center text-slate-300">
+                <Package className="w-16 h-16 stroke-[1.2] text-slate-300 animate-pulse" />
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider mt-2 font-bold font-mono">Photo Loading...</span>
+              </div>
+            )}
+
+            {/* Details */}
+            <div className="space-y-3">
+              <h3 className="text-xl font-black text-slate-900 leading-tight tracking-tight">
+                {pTitle || "Loading listing title..."}
+              </h3>
+
+              <div className="flex flex-wrap gap-2.5 pt-1">
+                {pPrice && (
+                  <span className="bg-slate-900 text-white font-mono text-xs font-black px-3.5 py-1.5 rounded-xl shadow-xs">
+                    {pPrice}
+                  </span>
+                )}
+                {pLoc && (
+                  <span className="bg-slate-50 border border-slate-200 text-slate-650 font-bold text-[10px] px-3 py-1.5 rounded-xl flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{pLoc}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setCurrentView('browse')}
+              className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[11px] uppercase tracking-wider rounded-2xl transition cursor-pointer active:scale-98 text-center block shadow-md"
+            >
+              Browse All Listings on TedBuy
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="max-w-7xl mx-auto px-4 py-12 text-center text-slate-500">
         <p className="mb-4">No product selected or item does not exist anymore.</p>
@@ -337,15 +496,27 @@ export const ProductDetail: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      {/* Navigation bar and back button */}
-      <button
-        id="btn-back-to-browse"
-        onClick={() => setCurrentView('browse')}
-        className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 font-semibold mb-6 transition"
-      >
-        <ArrowLeft className="w-4.5 h-4.5" />
-        <span>Back to Classifieds</span>
-      </button>
+      {/* Navigation bar and back button/share utility */}
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <button
+          id="btn-back-to-browse"
+          onClick={() => setCurrentView('browse')}
+          className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 font-semibold transition"
+        >
+          <ArrowLeft className="w-4.5 h-4.5" />
+          <span>Back to Classifieds</span>
+        </button>
+
+        <button
+          id="btn-share-product-top"
+          onClick={handleShareProduct}
+          className="flex items-center gap-2 text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-900 font-bold px-3.5 py-2.5 rounded-xl transition cursor-pointer active:scale-95"
+          title="Share Ad"
+        >
+          <Share2 className="w-4 h-4" />
+          <span>Share Ad</span>
+        </button>
+      </div>
 
       {/* Main product view grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left">
@@ -370,6 +541,9 @@ export const ProductDetail: React.FC = () => {
                 alt={product.title}
                 referrerPolicy="no-referrer"
                 className="max-w-full max-h-full object-contain transition duration-500 group-hover/media:scale-[1.03]"
+                onError={(e) => {
+                  e.currentTarget.src = 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
+                }}
               />
             )}
             
@@ -462,10 +636,12 @@ export const ProductDetail: React.FC = () => {
                 <MapPin className="w-4 h-4 text-slate-400" />
                 {product.location}
               </span>
-              <span className="flex items-center gap-1.5">
-                <Eye className="w-4 h-4 text-slate-400" />
-                {product.viewsCount} total visitors
-              </span>
+              {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) && (
+                <span className="flex items-center gap-1.5">
+                  <Eye className="w-4 h-4 text-slate-400" />
+                  {product.viewsCount} total visitors
+                </span>
+              )}
               <span className="flex items-center gap-1.5 flex-1 min-w-[120px]">
                 <Calendar className="w-4 h-4 text-slate-400" />
                 {dateFormatted}
@@ -568,6 +744,16 @@ export const ProductDetail: React.FC = () => {
                   )}
                 </div>
               )}
+
+              {/* Share Ad Button */}
+              <button
+                id="btn-share-product-detail"
+                onClick={handleShareProduct}
+                className="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-900 font-extrabold rounded-2xl flex items-center justify-center gap-2 text-xs uppercase tracking-wider transition cursor-pointer active:scale-98"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Share Ad / Copy Link</span>
+              </button>
             </div>
           </div>
 
@@ -962,6 +1148,27 @@ export const ProductDetail: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast Notification confirming that the link was copied */}
+      {showShareToast && (
+        <div className="fixed bottom-6 right-6 z-55 bg-slate-900 border border-slate-800 text-white rounded-3xl p-4 shadow-2xl flex items-center gap-3.5 animate-scale-up max-w-sm font-sans">
+          <div className="p-2 bg-emerald-500 rounded-2xl text-white shrink-0">
+            <Check className="w-4 h-4" />
+          </div>
+          <div className="text-left min-w-0 pr-2">
+            <p className="text-xs font-black text-white">Share link copied successfully!</p>
+            <p className="text-[10px] text-slate-400 mt-0.5 truncate leading-relaxed">
+              Paste the link anywhere to share this ad.
+            </p>
+          </div>
+          <button 
+            onClick={() => setShowShareToast(false)} 
+            className="text-slate-400 hover:text-white transition cursor-pointer p-1 rounded-lg hover:bg-slate-800 shrink-0 ml-auto"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>
