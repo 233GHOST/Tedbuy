@@ -128,7 +128,7 @@ export const ChatInterface: React.FC = () => {
               Need assistance or want to report an issue? Contact administrative support directly on WhatsApp.
             </p>
             <a
-              href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%2520I%20am%20using%20the%20platform%20and%20need%20some%20assistance."
+              href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%20I%20am%20using%20the%20platform%20and%20need%20some%20assistance."
               target="_blank"
               rel="noopener noreferrer"
               className="mt-2 w-full py-2 bg-emerald-650 hover:bg-emerald-700 bg-emerald-600 text-white font-extrabold text-[11px] rounded-xl text-center shadow-3xs cursor-pointer select-none transition flex items-center justify-center gap-1.5"
@@ -495,7 +495,7 @@ export const ChatInterface: React.FC = () => {
                   Encountered an issue, want to report an advertising post, or seek direct setup help? Chat with me directly.
                 </p>
                 <a
-                  href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%2520I%20have%20an%20issue%20I'd%2520like%252520to%252520report."
+                  href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%20I%20am%20using%20the%20platform%20and%20need%20some%20assistance."
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer"
