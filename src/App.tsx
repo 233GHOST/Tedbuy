@@ -28,6 +28,7 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
 const MarketplaceContent: React.FC = () => {
   const {
     products,
+    users,
     currentView,
     searchQuery,
     setSearchQuery,
@@ -45,9 +46,70 @@ const MarketplaceContent: React.FC = () => {
     setAuthMode,
     recentlyViewedIds,
     clearRecentlyViewed,
+    selectedProductId,
     setSelectedProductId,
+    selectedSellerId,
     refreshProducts
   } = useApp();
+
+  // Dynamic Document Title and Meta Description for Client-Side SEO indexing
+  React.useEffect(() => {
+    let title = 'Tedbuy Ghana - Verified Classifieds Marketplace';
+    let description = 'Shop safely on Tedbuy Ghana. Peer-verified electronics, phones, laptops, sneakers, fashion, and other listings with zero hidden fees and direct trade.';
+
+    if (currentView === 'product-detail' && selectedProductId) {
+      const product = products.find(p => p.id === selectedProductId);
+      if (product) {
+        const productPrice = typeof product.price === 'number'
+          ? `GHS ${product.price.toLocaleString()}`
+          : String(product.price).startsWith('GHS')
+            ? product.price
+            : `GHS ${product.price}`;
+        title = `${product.title} - ${productPrice} | Tedbuy Ghana`;
+        description = product.description
+          ? (product.description.length > 155 ? product.description.substring(0, 155) + '...' : product.description)
+          : `Buy ${product.title} for ${productPrice} on Tedbuy Ghana. Category: ${product.category}. Verified seller trades.`;
+      }
+    } else if (currentView === 'seller-profile' && selectedSellerId) {
+      const seller = users?.find(u => u.id === selectedSellerId);
+      if (seller) {
+        title = `${seller.fullName || 'Verified Seller'}'s Shop & Ads | Tedbuy Ghana`;
+        description = `Browse listing offers, ratings, and verified products posted by ${seller.fullName || 'Verified Seller'} in Ghana. Trade directly on Tedbuy.`;
+      }
+    } else if (currentView === 'chats') {
+      title = 'My Messages & Active Chats | Tedbuy Ghana';
+      description = 'Securely message buyers and sellers to negotiate and agree on deal meetups on Tedbuy Ghana.';
+    } else if (currentView === 'my-dashboard') {
+      title = 'Seller Dashboard & My Ads | Tedbuy Ghana';
+      description = 'Manage your live classified advertisements, check incoming chats, edit pricing, or promote your listings.';
+    } else if (currentView === 'profile-settings') {
+      title = 'Account Settings & Verification | Tedbuy Ghana';
+      description = 'Update your profile information, phone numbers, location, and verify your ID to gain trustworthiness on Tedbuy.';
+    } else if (selectedCategory) {
+      title = `Buy Verified ${selectedCategory} in Ghana | Tedbuy`;
+      description = `Find amazing deals on checked ${selectedCategory} with reviews on Tedbuy Ghana. Direct, premium classifieds.`;
+    }
+
+    // Set Document Title
+    document.title = title;
+
+    // Set Description Meta Tag
+    let metaDescription = document.querySelector('meta[name="description"]');
+    if (!metaDescription) {
+      metaDescription = document.createElement('meta');
+      metaDescription.setAttribute('name', 'description');
+      document.head.appendChild(metaDescription);
+    }
+    metaDescription.setAttribute('content', description);
+
+    // Update Open Graph tags dynamically for client-side sharing indexers
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.setAttribute('content', title);
+
+    const ogDescription = document.querySelector('meta[property="og:description"]');
+    if (ogDescription) ogDescription.setAttribute('content', description);
+
+  }, [currentView, selectedProductId, selectedSellerId, products, users, selectedCategory]);
 
   // Mobile pull-to-refresh touch tracking (Ref-based optimize for mobile GPU and re-render prevention)
   const [isPulling, setIsPulling] = useState(false);

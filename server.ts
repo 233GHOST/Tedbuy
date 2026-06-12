@@ -83,7 +83,28 @@ function injectMetaTags(html: string, product: { title: string; description: str
   // This solves base64 size limits, external redirects and domain/port mismatch crawler bugs perfectly.
   const image = `${protocol}://${host}/api/products/${productId}/image.jpg`;
 
-  console.log(`[Meta Crawler] Injecting Open Graph tags. URL: ${shareUrl}, Image URL: ${image}`);
+  // Generate dynamic JSON-LD Product Schema representation for googlebot search console indexing
+  const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '';
+  const priceSchema = cleanPrice && !isNaN(Number(cleanPrice)) ? cleanPrice : '0';
+
+  const schemaJson = {
+    "@context": "https://schema.org/",
+    "@type": "Product",
+    "name": product.title,
+    "image": [image],
+    "description": product.description || `Buy "${product.title}" on Tedbuy Ghana classifieds marketplace.`,
+    "offers": {
+      "@type": "Offer",
+      "url": shareUrl,
+      "priceCurrency": "GHS",
+      "price": priceSchema,
+      "itemCondition": "https://schema.org/UsedCondition",
+      "availability": "https://schema.org/InStock",
+      "priceValidUntil": "2027-12-31"
+    }
+  };
+
+  console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Image URL: ${image}`);
 
   const tags = `
     <!-- Dynamic Social Share Meta Tags -->
@@ -112,6 +133,11 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta itemprop="image" content="${escapeHtml(image)}">
     <!-- Legacy / Crawler Fallbacks -->
     <link rel="image_src" href="${escapeHtml(image)}" />
+    
+    <!-- Rich Snippets / Google Product Schema Search Integration -->
+    <script type="application/ld+json">
+${JSON.stringify(schemaJson, null, 6)}
+    </script>
   `;
 
   // Strip existing tags that we are replacing to avoid redundant elements
@@ -187,6 +213,15 @@ function slugify(text: string): string {
 async function startServer() {
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', projectId });
+  });
+
+  // Dynamic robots.txt declaring active domain's sitemap.xml to speed up indexing on custom domains
+  app.get('/robots.txt', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    res.type('text/plain');
+    res.send(`User-agent: *\nAllow: /\nDisallow: /settings\nDisallow: /dashboard\n\nSitemap: ${protocol}://${host}/sitemap.xml`);
   });
 
   // Dynamic Google XML Sitemap Endpoint
@@ -355,7 +390,7 @@ async function startServer() {
           const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
           if (pathnameMatch) {
             const slugOrId = pathnameMatch[1];
-            const matchId = slugOrId.match(/prod_\d+/);
+            const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
             if (matchId) {
               productId = matchId[0];
             }
@@ -440,7 +475,7 @@ async function startServer() {
         const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
         if (pathnameMatch) {
           const slugOrId = pathnameMatch[1];
-          const matchId = slugOrId.match(/prod_\d+/);
+          const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
           if (matchId) {
             productId = matchId[0];
           }

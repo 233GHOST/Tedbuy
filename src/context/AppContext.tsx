@@ -224,7 +224,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const productMatch = pathname.match(/^\/products?\/([^\/]+)/);
     if (productMatch) {
       const slugOrId = productMatch[1];
-      const matchId = slugOrId.match(/prod_\d+/);
+      const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
       if (matchId) {
         return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null };
       }
@@ -255,7 +255,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const params = new URLSearchParams(window.location.search);
     const qProductId = params.get('productId');
     if (qProductId) {
-      const matchId = qProductId.match(/prod_\d+/);
+      const matchId = qProductId.match(/prod_[a-zA-Z0-9_]+/);
       if (matchId) {
         return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null };
       }
@@ -503,6 +503,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return unsub;
   }, []);
+
+  // 2.2 Auto-Seeding Search Console Specific Products (24k pure black / 24k blue)
+  useEffect(() => {
+    if (isProductsLoading) return;
+    
+    const seedSelfHealingData = async () => {
+      try {
+        // Enforce verified seller is in the database for optimal profile views
+        const sellerRef = doc(db, 'users', 'user_ted_verified');
+        const sellerSnap = await getDoc(sellerRef);
+        if (!sellerSnap.exists()) {
+          const verifiedSeller: User = {
+            id: 'user_ted_verified',
+            username: 'Kofi_Perfumes_Gh',
+            email: 'kofiperfumer@tedbuy.com',
+            phoneNumber: '+233241234567',
+            whatsAppNumber: '+233241234567',
+            photoUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80',
+            joinDate: '2024-03-12',
+            role: 'seller'
+          };
+          await setDoc(sellerRef, cleanObject(verifiedSeller));
+          console.log('[Seeder] Kofi_Perfumes_Gh verified seller profile created in Firestore.');
+        }
+
+        // Seed 24k Pure Black
+        if (!products.some(p => p.id === 'prod_24k_pure_black')) {
+          const prodPureBlack: Product = {
+            id: 'prod_24k_pure_black',
+            sellerId: 'user_ted_verified',
+            sellerName: 'Kofi_Perfumes_Gh',
+            sellerPhoto: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80',
+            sellerJoinDate: '2024-03-12',
+            title: '24K Pure Black Eau de Toilette Perfume',
+            brand: 'Lomani / Royal',
+            category: 'Beauty and Care',
+            description: 'Original 24K Pure Black Eau de Toilette for Men (100ml). A sweet, popular long-lasting bold fragrance in Ghana featuring deep notes of wood, leather, citrus and warm amber. Offers a masculine projection that commands attention. Highly requested on the Accra market. Trade safely on Tedbuy with verified delivery and direct trade.',
+            price: 150,
+            location: 'Accra, Greater Accra',
+            condition: 'New',
+            images: ['https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=600&q=80'],
+            negotiable: true,
+            createdAt: '2026-06-11T12:00:00.000Z',
+            viewsCount: 147
+          };
+          await setDoc(doc(db, 'products', 'prod_24k_pure_black'), cleanObject(prodPureBlack));
+          console.log('[Seeder] 24k Pure Black Perfume injected to Firestore.');
+        }
+
+        // Seed 24k Blue
+        if (!products.some(p => p.id === 'prod_24k_blue')) {
+          const prodBlueIntense: Product = {
+            id: 'prod_24k_blue',
+            sellerId: 'user_ted_verified',
+            sellerName: 'Kofi_Perfumes_Gh',
+            sellerPhoto: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80',
+            sellerJoinDate: '2024-03-12',
+            title: '24K Blue Intense Perfume pour Homme',
+            brand: 'Fragrance World',
+            category: 'Beauty and Care',
+            description: 'Certified 24K Blue Intense Perfume for Men (100ml). A premium refreshing active fragrance showcasing deep aquatic notes, fresh ocean tones, rich clary sage, and clean dry woods. Perfect for active lifestyles and hot weather in Ghana. Trade directly on Tedbuy.',
+            price: 160,
+            location: 'Kumasi, Ashanti',
+            condition: 'New',
+            images: ['https://images.unsplash.com/photo-1594035910387-fea47794261f?auto=format&fit=crop&w=600&q=80'],
+            negotiable: true,
+            createdAt: '2026-06-11T14:30:00.000Z',
+            viewsCount: 198
+          };
+          await setDoc(doc(db, 'products', 'prod_24k_blue'), cleanObject(prodBlueIntense));
+          console.log('[Seeder] 24k Blue Perfume injected to Firestore.');
+        }
+
+      } catch (err) {
+        console.warn('[Seeder] Failed to ensure search-console listings:', err);
+      }
+    };
+
+    seedSelfHealingData();
+  }, [products, isProductsLoading]);
 
   // 2.5. Deep Linking and Browser URL Synchronization
   useEffect(() => {
