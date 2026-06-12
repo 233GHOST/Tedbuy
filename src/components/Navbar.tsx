@@ -141,13 +141,8 @@ export const Navbar: React.FC = () => {
   // Calculate unread chat badges with an optimized single-pass memoized filter
   const unreadCount = useMemo(() => {
     if (!currentUser) return 0;
-    return messages.filter(m => {
-      if (m.recipientId !== currentUser.id || m.read) return false;
-      const chat = chats?.find(c => c.id === m.chatId);
-      if (chat && chat.tradeStatus === 'completed') return false;
-      return true;
-    }).length;
-  }, [messages, chats, currentUser]);
+    return messages.filter(m => m.recipientId === currentUser.id && !m.read).length;
+  }, [messages, currentUser]);
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-950 text-white shadow-md">
@@ -358,7 +353,7 @@ export const Navbar: React.FC = () => {
 
             {/* Account Info Or Auth Trigger */}
             {currentUser ? (
-              <div className="hidden md:flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
+              <div className="flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
                 <div 
                   onClick={() => setCurrentView('profile-settings')}
                   className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
@@ -395,7 +390,7 @@ export const Navbar: React.FC = () => {
                   setShowAuthModal(true);
                   setAuthError('');
                 }}
-                className="hidden md:flex px-4 py-2 bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm rounded-xl transition duration-200 items-center gap-1.5 shadow-xs border border-white"
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm rounded-xl transition duration-200 flex items-center gap-1.5 shadow-xs border border-white"
               >
                 <LogIn className="w-4 h-4" />
                 <span>Log In</span>

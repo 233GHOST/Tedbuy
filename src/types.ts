@@ -8,8 +8,7 @@ export interface User {
   role: 'buyer' | 'seller' | 'both';
   followingSellers?: string[]; // IDs of sellers this user follows
   savedProductIds?: string[]; // Bookmarked product IDs
-  whatsappNumber?: string;
-  whatsappOptIn?: boolean;
+  whatsAppNumber?: string;
 }
 
 export const isUserVerified = (user?: User | null): boolean => {

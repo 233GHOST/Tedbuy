@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 
@@ -28,8 +28,7 @@ export const ProfileSettings: React.FC = () => {
 
   const [username, setUsername] = useState(currentUser.username || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser.phoneNumber || '');
-  const [whatsappNumber, setWhatsappNumber] = useState(currentUser.whatsappNumber || '');
-  const [whatsappOptIn, setWhatsappOptIn] = useState(currentUser.whatsappOptIn !== false); // Default to true
+  const [whatsAppNumber, setWhatsAppNumber] = useState(currentUser.whatsAppNumber || '');
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(currentUser.photoUrl);
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser.role || 'both');
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -90,7 +89,7 @@ export const ProfileSettings: React.FC = () => {
       setErrorMsg('Phone number must be under 25 characters.');
       return;
     }
-    if (whatsappNumber && whatsappNumber.length > 25) {
+    if (whatsAppNumber && whatsAppNumber.length > 25) {
       setErrorMsg('WhatsApp number must be under 25 characters.');
       return;
     }
@@ -100,10 +99,9 @@ export const ProfileSettings: React.FC = () => {
       await updateUserProfile({
         username: username.trim(),
         phoneNumber: phoneNumber.trim() || undefined,
+        whatsAppNumber: whatsAppNumber.trim() || undefined,
         photoUrl,
-        role,
-        whatsappNumber: whatsappNumber.trim() || undefined,
-        whatsappOptIn
+        role
       });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 4500);
@@ -267,6 +265,16 @@ export const ProfileSettings: React.FC = () => {
                 )}
               </div>
 
+              {/* WhatsApp set */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">WhatsApp Link Setup</span>
+                {whatsAppNumber.trim().length >= 7 ? (
+                  <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-md flex items-center gap-1">✓ Complete</span>
+                ) : (
+                  <span className="text-slate-400 bg-slate-200/60 px-2 py-0.5 rounded-md">Missing</span>
+                )}
+              </div>
+
             </div>
 
             {/* Overall status and triggers */}
@@ -363,42 +371,28 @@ export const ProfileSettings: React.FC = () => {
               </p>
             </div>
 
-            {/* WhatsApp Contact Integration */}
-            <div className="bg-emerald-50/20 border border-emerald-500/15 p-5 rounded-2xl space-y-3">
-              <div>
-                <label htmlFor="settings-whatsapp" className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-2">
-                  WhatsApp Contact Number
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-600">
-                    <span className="text-xs font-extrabold font-mono">WA</span>
-                  </div>
-                  <input
-                    type="text"
-                    id="settings-whatsapp"
-                    value={whatsappNumber}
-                    onChange={(e) => setWhatsappNumber(e.target.value)}
-                    placeholder="e.g. +233 24 123 4567"
-                    className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm transition"
-                  />
+            {/* WhatsApp Contact Input */}
+            <div>
+              <label htmlFor="settings-whatsapp" className="block text-xs font-extrabold text-emerald-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <span>WhatsApp Contact Number</span>
+                <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-sm">Message option</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-600/90">
+                  <MessageSquare className="w-4 h-4 text-emerald-600 fill-emerald-600/10" />
                 </div>
-                <p className="text-[11px] text-slate-450 mt-1.5">
-                  Your WhatsApp contact number. If enabled, buyers can tap a single button to chat with you directly.
-                </p>
-              </div>
-
-              <div className="flex items-start gap-2.5 bg-white border border-slate-200/60 p-3 rounded-xl">
                 <input
-                  type="checkbox"
-                  id="settings-whatsapp-optin"
-                  checked={whatsappOptIn}
-                  onChange={(e) => setWhatsappOptIn(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-650 focus:ring-emerald-500 focus:ring-offset-0 cursor-pointer"
+                  type="text"
+                  id="settings-whatsapp"
+                  value={whatsAppNumber}
+                  onChange={(e) => setWhatsAppNumber(e.target.value)}
+                  placeholder="e.g. +233 24 123 4567"
+                  className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm transition"
                 />
-                <label htmlFor="settings-whatsapp-optin" className="text-xs text-slate-650 font-medium select-none cursor-pointer">
-                  <strong>Enable Direct WhatsApp Chat:</strong> Present a "Chat on WhatsApp" button to buyers next to my listings.
-                </label>
               </div>
+              <p className="text-[11px] text-slate-450 mt-1.5 leading-normal">
+                Please add your <strong>valid WhatsApp number</strong> here. Buyers will be shown a highly prominent <strong className="text-emerald-700 font-bold">"Message seller on whatsapp"</strong> button directly on your product listings.
+              </p>
             </div>
 
             {/* Account Role Segment */}

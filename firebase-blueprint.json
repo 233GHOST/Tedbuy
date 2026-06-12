@@ -9,6 +9,7 @@
         "username": { "type": "string", "description": "Display name of the user" },
         "email": { "type": "string", "description": "Optional email address" },
         "phoneNumber": { "type": "string", "description": "Optional phone number" },
+        "whatsAppNumber": { "type": "string", "description": "Optional valid WhatsApp contact number" },
         "photoUrl": { "type": "string", "description": "Profile picture URL" },
         "joinDate": { "type": "string", "description": "Month and year when user signed up" },
         "role": { "type": "string", "enum": ["buyer", "seller", "both"], "description": "User persona role" },

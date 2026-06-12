@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MessageCircle, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2 } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2 } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { isUserVerified, calculateTrustScore } from '../types';
 import {
@@ -228,6 +228,26 @@ export const ProductDetail: React.FC = () => {
     }
     const chatId = startChat(product.id, "Hi, is this still available?");
     setCurrentView('chats');
+  };
+
+  const handleMessageWhatsApp = () => {
+    if (!currentUser) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (!sellerUser?.whatsAppNumber) return;
+
+    let cleanNumber = sellerUser.whatsAppNumber.replace(/\D/g, '');
+    if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
+      cleanNumber = '233' + cleanNumber.substring(1);
+    } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
+      cleanNumber = '233' + cleanNumber;
+    }
+
+    const prefilledText = `Hello! I'm interested in your listed item "${product.title}" on Tedbuy marketplace. Let's chat!`;
+    const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
+    window.open(finalUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleToggleFollow = () => {
@@ -464,32 +484,8 @@ export const ProductDetail: React.FC = () => {
             {/* Messaging / Call buttons */}
             <div className="space-y-3">
               {isOwner ? (
-                <div className="space-y-3">
-                  <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs">
-                    👋 **You posted this product listing!** You can manage, edit details, or remove it from your personal store dashboard dashboard.
-                  </div>
-                  {currentUser?.whatsappNumber && currentUser?.whatsappOptIn !== false && (
-                    <div className="bg-emerald-50/20 border border-emerald-500/15 p-4 rounded-2xl space-y-2.5">
-                      <div className="flex items-center justify-between text-xs font-bold text-emerald-800">
-                        <span className="flex items-center gap-1.5 font-sans">
-                          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                          Your WhatsApp button is ACTIVE
-                        </span>
-                        <span className="text-[9px] uppercase tracking-wider font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-md">
-                          Live Active
-                        </span>
-                      </div>
-                      <a
-                        href={`https://wa.me/${currentUser.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hi! From WhatsApp Preview, I'm interested in your listing: "${product.title}" on Tedbuy.`)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-xl flex items-center justify-center gap-2 text-xs shadow-xs hover:shadow-md transition duration-200 cursor-pointer"
-                      >
-                        <MessageCircle className="w-4 h-4 stroke-[2.5]" />
-                        <span>Preview: Chat on WhatsApp ({currentUser.whatsappNumber})</span>
-                      </a>
-                    </div>
-                  )}
+                <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs">
+                  👋 **You posted this product listing!** You can manage, edit details, or remove it from your personal store dashboard dashboard.
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -517,32 +513,15 @@ export const ProductDetail: React.FC = () => {
                     </button>
                   </div>
 
-                  {sellerUser?.whatsappNumber && sellerUser?.whatsappOptIn !== false ? (
-                    <a
-                      href={`https://wa.me/${sellerUser.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hi! I'm interested in your listing: "${product.title}" on Tedbuy.`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-black rounded-2xl flex items-center justify-center gap-2 text-sm shadow-xs hover:shadow-md transition duration-200 cursor-pointer"
+                  {sellerUser?.whatsAppNumber && (
+                    <button
+                      id="btn-message-whatsapp"
+                      onClick={handleMessageWhatsApp}
+                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 text-sm shadow-xs hover:shadow-md transition duration-200 cursor-pointer"
                     >
-                      <MessageCircle className="w-4.5 h-4.5 stroke-[2.5]" />
-                      <span>Chat on WhatsApp</span>
-                    </a>
-                  ) : (
-                    <div className="bg-slate-50 border border-slate-150 p-3.5 rounded-2xl space-y-2">
-                      <a
-                        href={`https://wa.me/233241234567?text=${encodeURIComponent(`[DEMO CHAT] Hi! I'm interested in: "${product.title}" listed by ${product.sellerName} on Tedbuy.`)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-extrabold rounded-xl flex items-center justify-center gap-2 text-xs transition duration-200 cursor-pointer"
-                        title="Try the premium direct WhatsApp Chat feature!"
-                      >
-                        <MessageCircle className="w-4 h-4 stroke-[2.5]" />
-                        <span>Demo WhatsApp Contact</span>
-                      </a>
-                      <p className="text-[10px] text-slate-400 text-center leading-relaxed">
-                        💡 Since this is a default demo of Tedbuy and the seller hasn't set their own WhatsApp, we show this demo contact button so you can see the feature.
-                      </p>
-                    </div>
+                      <MessageSquare className="w-5 h-5 fill-white/20 stroke-[2.2]" />
+                      <span>Message seller on whatsapp</span>
+                    </button>
                   )}
                 </div>
               )}
