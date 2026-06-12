@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState,
 } from 'react';
-
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
@@ -15,7 +14,6 @@ import { SellerDashboard } from './components/SellerDashboard';
 import { SellerProfilePage } from './components/SellerProfilePage';
 import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
-import { PullToRefresh } from './components/PullToRefresh';
 import { Category, Product } from './types';
 import {
   X,
@@ -46,6 +44,7 @@ const CATEGORY_ICONS: Record<Category, string> = {
 };
 
 const CATEGORIES = Object.keys(CATEGORY_ICONS) as Category[];
+
 const FALLBACK_THUMBNAIL =
   'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=120&q=80';
 
@@ -140,9 +139,11 @@ const MarketplaceContent: React.FC = () => {
 
   const productsById = useMemo(() => {
     const map = new Map<string, Product>();
+
     for (const item of indexedProducts) {
       map.set(item.product.id, item.product);
     }
+
     return map;
   }, [indexedProducts]);
 
@@ -156,7 +157,14 @@ const MarketplaceContent: React.FC = () => {
 
   const { filteredCount, sortedProducts } = useMemo(() => {
     const filtered = indexedProducts.filter((item) => {
-      const { product, titleLower, descriptionLower, locationLower, categoryLower, region } = item;
+      const {
+        product,
+        titleLower,
+        descriptionLower,
+        locationLower,
+        categoryLower,
+        region,
+      } = item;
 
       const matchesCategory =
         !selectedCategory ||
@@ -171,7 +179,6 @@ const MarketplaceContent: React.FC = () => {
         locationLower.includes(normalizedSearchQuery);
 
       const matchesRegion = selectedRegion === 'All' || region === selectedRegion;
-
       const matchesCity =
         selectedCity === 'All' || locationLower.includes(selectedCityLower);
 
@@ -230,6 +237,7 @@ const MarketplaceContent: React.FC = () => {
     if (!el) return;
 
     const scrollAmount = 240;
+
     el.scrollTo({
       left: direction === 'left' ? el.scrollLeft - scrollAmount : el.scrollLeft + scrollAmount,
       behavior: 'smooth',
@@ -261,9 +269,7 @@ const MarketplaceContent: React.FC = () => {
   }, [setSearchQuery, setSelectedCategory]);
 
   const hostname =
-    typeof window !== 'undefined'
-      ? window.location.hostname
-      : 'development-domain';
+    typeof window !== 'undefined' ? window.location.hostname : 'development-domain';
 
   const altHostname =
     typeof window !== 'undefined' && window.location.hostname.includes('-dev-')
@@ -356,107 +362,160 @@ const MarketplaceContent: React.FC = () => {
 
       <main className="flex-1">
         {currentView === 'browse' && (
-          <PullToRefresh>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-              <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden flex flex-col gap-6">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10 w-full">
-                  <div className="text-left">
-                    <span className="text-slate-400 font-extrabold text-[10px] tracking-wider uppercase block mb-1">
-                      Tedbuy Ghana
-                    </span>
-                    <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
-                      Direct Local Market
-                    </h1>
-                  </div>
-
-                  <button
-                    id="hero-post-ad-btn"
-                    onClick={handlePostAdBtn}
-                    className="w-full md:w-auto px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm rounded-xl shadow-sm hover:shadow-md transition duration-200 shrink-0 text-center"
-                  >
-                    Post an Ad Free
-                  </button>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden flex flex-col gap-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10 w-full">
+                <div className="text-left">
+                  <span className="text-slate-400 font-extrabold text-[10px] tracking-wider uppercase block mb-1">
+                    Tedbuy Ghana
+                  </span>
+                  <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
+                    Direct Local Market
+                  </h1>
                 </div>
 
-                <div className="relative z-10 max-w-xl text-left w-full">
-                  <label className="block text-xs font-black text-slate-500 mb-2 tracking-wider uppercase">
-                    looking for something?
-                  </label>
-
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Search className="h-5 w-5 text-slate-400" />
-                    </div>
-
-                    <input
-                      type="text"
-                      id="hero-search-input"
-                      value={searchQuery}
-                      onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        if (currentView !== 'browse') setCurrentView('browse');
-                      }}
-                      placeholder="Search phones, laptops, sneakers, furniture, beauty care..."
-                      className="block w-full pl-11 pr-10 py-3.5 border-2 border-slate-200 focus:border-slate-800 rounded-2xl bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-slate-100 text-sm font-semibold transition"
-                    />
-
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition"
-                        title="Clear Search"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="hidden sm:block absolute top-1/2 left-1/4 -translate-y-1/2 w-48 h-48 bg-slate-400/15 rounded-full blur-3xl pointer-events-none" />
-                <div className="hidden sm:block absolute -right-24 -top-24 w-60 h-60 bg-slate-400/10 rounded-full blur-3xl pointer-events-none" />
+                <button
+                  id="hero-post-ad-btn"
+                  onClick={handlePostAdBtn}
+                  className="w-full md:w-auto px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm rounded-xl shadow-sm hover:shadow-md transition duration-200 shrink-0 text-center"
+                >
+                  Post an Ad Free
+                </button>
               </div>
 
-              <section className="space-y-4 mb-8 text-left">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <h2 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
-                      <TrendingUp className="w-4 h-4 text-slate-900" />
-                      <span>Explore Classified Categories</span>
-                    </h2>
+              <div className="relative z-10 max-w-xl text-left w-full">
+                <label className="block text-xs font-black text-slate-500 mb-2 tracking-wider uppercase">
+                  looking for something?
+                </label>
 
-                    <button
-                      onClick={() => setShowAllCategories((prev) => !prev)}
-                      className="text-[11px] bg-slate-100 font-black px-2.5 py-1 text-slate-700 hover:bg-slate-200 hover:text-slate-950 rounded-lg flex items-center gap-1 transition"
-                    >
-                      <LayoutGrid className="w-3 h-3" />
-                      <span>{showAllCategories ? 'Show Scroll' : 'View All Grid'}</span>
-                    </button>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Search className="h-5 w-5 text-slate-400" />
                   </div>
 
-                  {selectedCategory && (
+                  <input
+                    type="text"
+                    id="hero-search-input"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      if (currentView !== 'browse') setCurrentView('browse');
+                    }}
+                    placeholder="Search phones, laptops, sneakers, furniture, beauty care..."
+                    className="block w-full pl-11 pr-10 py-3.5 border-2 border-slate-200 focus:border-slate-800 rounded-2xl bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-slate-100 text-sm font-semibold transition"
+                  />
+
+                  {searchQuery && (
                     <button
-                      id="clear-category-filter"
-                      onClick={() => setSelectedCategory(null)}
-                      className="text-xs text-slate-500 hover:text-slate-950 font-semibold"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition"
+                      title="Clear Search"
                     >
-                      Clear Filter
+                      <X className="w-4 h-4" />
                     </button>
                   )}
                 </div>
+              </div>
 
-                {showAllCategories ? (
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 shadow-sm">
+              <div className="hidden sm:block absolute top-1/2 left-1/4 -translate-y-1/2 w-48 h-48 bg-slate-400/15 rounded-full blur-3xl pointer-events-none" />
+              <div className="hidden sm:block absolute -right-24 -top-24 w-60 h-60 bg-slate-400/10 rounded-full blur-3xl pointer-events-none" />
+            </div>
+
+            <section className="space-y-4 mb-8 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
+                    <TrendingUp className="w-4 h-4 text-slate-900" />
+                    <span>Explore Classified Categories</span>
+                  </h2>
+
+                  <button
+                    onClick={() => setShowAllCategories((prev) => !prev)}
+                    className="text-[11px] bg-slate-100 font-black px-2.5 py-1 text-slate-700 hover:bg-slate-200 hover:text-slate-950 rounded-lg flex items-center gap-1 transition"
+                  >
+                    <LayoutGrid className="w-3 h-3" />
+                    <span>{showAllCategories ? 'Show Scroll' : 'View All Grid'}</span>
+                  </button>
+                </div>
+
+                {selectedCategory && (
+                  <button
+                    id="clear-category-filter"
+                    onClick={() => setSelectedCategory(null)}
+                    className="text-xs text-slate-500 hover:text-slate-950 font-semibold"
+                  >
+                    Clear Filter
+                  </button>
+                )}
+              </div>
+
+              {showAllCategories ? (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 shadow-sm">
+                  <button
+                    id="category-tag-all-grid"
+                    onClick={() => setSelectedCategory(null)}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border text-left truncate ${
+                      selectedCategory === null
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>🌐</span>
+                    <span className="truncate">All Categories</span>
+                  </button>
+
+                  {CATEGORIES.map((cat) => {
+                    const active = selectedCategory === cat;
+
+                    return (
+                      <button
+                        key={cat}
+                        id={`category-tag-grid-${cat.toLowerCase().replace(/\s+/g, '-')}`}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border text-left truncate ${
+                          active
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="text-sm leading-none flex-shrink-0">
+                          {CATEGORY_ICONS[cat]}
+                        </span>
+                        <span className="truncate">{cat}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="relative flex items-center">
+                  <button
+                    onClick={() => handleScrollCategories('left')}
+                    className="absolute -left-2 z-10 hidden md:flex w-8 h-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-md text-slate-700 hover:bg-slate-50 hover:text-slate-950 active:scale-95 transition-all"
+                    aria-label="Scroll left"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div
+                    ref={categoriesScrollRef}
+                    className="flex gap-2 pb-2 overflow-x-auto w-full px-0 md:px-7 scroll-smooth"
+                    style={{
+                      scrollbarWidth: 'none',
+                      msOverflowStyle: 'none',
+                      WebkitOverflowScrolling: 'touch',
+                    }}
+                  >
                     <button
-                      id="category-tag-all-grid"
+                      id="category-tag-all"
                       onClick={() => setSelectedCategory(null)}
-                      className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border text-left truncate ${
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border ${
                         selectedCategory === null
                           ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                           : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                       }`}
                     >
                       <span>🌐</span>
-                      <span className="truncate">All Categories</span>
+                      <span>All Categories</span>
                     </button>
 
                     {CATEGORIES.map((cat) => {
@@ -465,271 +524,216 @@ const MarketplaceContent: React.FC = () => {
                       return (
                         <button
                           key={cat}
-                          id={`category-tag-grid-${cat.toLowerCase().replace(/\s+/g, '-')}`}
+                          id={`category-tag-${cat.toLowerCase().replace(/\s+/g, '-')}`}
                           onClick={() => setSelectedCategory(cat)}
-                          className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border text-left truncate ${
+                          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border ${
                             active
                               ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                               : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                           }`}
                         >
-                          <span className="text-sm leading-none flex-shrink-0">
-                            {CATEGORY_ICONS[cat]}
-                          </span>
-                          <span className="truncate">{cat}</span>
+                          <span className="text-sm leading-none">{CATEGORY_ICONS[cat]}</span>
+                          <span>{cat}</span>
                         </button>
                       );
                     })}
                   </div>
-                ) : (
-                  <div className="relative flex items-center">
-                    <button
-                      onClick={() => handleScrollCategories('left')}
-                      className="absolute -left-2 z-10 hidden md:flex w-8 h-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-md text-slate-700 hover:bg-slate-50 hover:text-slate-950 active:scale-95 transition-all"
-                      aria-label="Scroll left"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
 
-                    <div
-                      ref={categoriesScrollRef}
-                      className="flex gap-2 pb-2 overflow-x-auto w-full px-0 md:px-7 scroll-smooth"
-                      style={{
-                        scrollbarWidth: 'none',
-                        msOverflowStyle: 'none',
-                        WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'],
-                      }}
-                    >
+                  <button
+                    onClick={() => handleScrollCategories('right')}
+                    className="absolute -right-2 z-10 hidden md:flex w-8 h-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-md text-slate-700 hover:bg-slate-50 hover:text-slate-950 active:scale-95 transition-all"
+                    aria-label="Scroll right"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </section>
+
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+              <div className="lg:col-span-1 space-y-4">
+                <GhanaLocationFilter
+                  selectedRegion={selectedRegion}
+                  setSelectedRegion={setSelectedRegion}
+                  selectedCity={selectedCity}
+                  setSelectedCity={setSelectedCity}
+                  products={products}
+                />
+
+                {recentlyViewedProducts.length > 0 && (
+                  <div
+                    id="recently-viewed-panel"
+                    className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3.5 text-left font-sans"
+                  >
+                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                      <div className="flex items-center gap-1.5 text-slate-800">
+                        <History className="w-4 h-4 text-slate-600 shrink-0" />
+                        <h4 className="text-xs font-black tracking-tight uppercase text-slate-900">
+                          Recently Viewed
+                        </h4>
+                      </div>
+
                       <button
-                        id="category-tag-all"
-                        onClick={() => setSelectedCategory(null)}
-                        className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border ${
-                          selectedCategory === null
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
+                        onClick={clearRecentlyViewed}
+                        className="text-[10px] text-slate-400 hover:text-red-500 font-extrabold hover:bg-red-50 px-1.5 py-0.5 rounded-md transition"
+                        title="Clear history list"
                       >
-                        <span>🌐</span>
-                        <span>All Categories</span>
+                        Clear
                       </button>
+                    </div>
 
-                      {CATEGORIES.map((cat) => {
-                        const active = selectedCategory === cat;
+                    <div className="space-y-2.5">
+                      {recentlyViewedProducts.map((product) => {
+                        const numericPrice = parseNumericPrice(product.price);
+                        const formattedPrice =
+                          numericPrice > 0
+                            ? `GH₵${numericPrice.toLocaleString()}`
+                            : 'Contact Seller';
 
                         return (
-                          <button
-                            key={cat}
-                            id={`category-tag-${cat.toLowerCase().replace(/\s+/g, '-')}`}
-                            onClick={() => setSelectedCategory(cat)}
-                            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap border ${
-                              active
-                                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                                : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                            }`}
+                          <div
+                            key={product.id}
+                            id={`recently-viewed-item-${product.id}`}
+                            onClick={() => handleOpenProduct(product.id)}
+                            className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition group select-none cursor-pointer"
                           >
-                            <span className="text-sm leading-none">{CATEGORY_ICONS[cat]}</span>
-                            <span>{cat}</span>
-                          </button>
+                            <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                              <img
+                                src={product.images?.[0] || FALLBACK_THUMBNAIL}
+                                alt={product.title}
+                                loading="lazy"
+                                decoding="async"
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
+                              />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[11px] font-bold text-slate-800 truncate group-hover:text-slate-950 transition duration-200 leading-tight">
+                                {product.title}
+                              </p>
+                              <p className="text-[10px] font-black text-slate-900 mt-0.5">
+                                {formattedPrice}
+                              </p>
+                              <p className="text-[9px] text-slate-400 truncate mt-0.5">
+                                {product.location}
+                              </p>
+                            </div>
+                          </div>
                         );
                       })}
                     </div>
-
-                    <button
-                      onClick={() => handleScrollCategories('right')}
-                      className="absolute -right-2 z-10 hidden md:flex w-8 h-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-md text-slate-700 hover:bg-slate-50 hover:text-slate-950 active:scale-95 transition-all"
-                      aria-label="Scroll right"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
                   </div>
                 )}
-              </section>
+              </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-                <div className="lg:col-span-1 space-y-4">
-                  <GhanaLocationFilter
-                    selectedRegion={selectedRegion}
-                    setSelectedRegion={setSelectedRegion}
-                    selectedCity={selectedCity}
-                    setSelectedCity={setSelectedCity}
-                    products={products}
-                  />
+              <div className="lg:col-span-3 space-y-6">
+                <section className="space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4 text-left">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+                        {resultTitle}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {filteredCount} active listings found
+                      </p>
+                    </div>
 
-                  {recentlyViewedProducts.length > 0 && (
-                    <div
-                      id="recently-viewed-panel"
-                      className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3.5 text-left font-sans"
-                    >
-                      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-                        <div className="flex items-center gap-1.5 text-slate-800">
-                          <History className="w-4 h-4 text-slate-600 shrink-0" />
-                          <h4 className="text-xs font-black tracking-tight uppercase text-slate-900">
-                            Recently Viewed
-                          </h4>
-                        </div>
-
-                        <button
-                          onClick={clearRecentlyViewed}
-                          className="text-[10px] text-slate-400 hover:text-red-500 font-extrabold hover:bg-red-50 px-1.5 py-0.5 rounded-md transition"
-                          title="Clear history list"
+                    <div className="flex flex-wrap items-center gap-3.5 self-start sm:self-center">
+                      <div className="flex items-center gap-1.5">
+                        <label
+                          htmlFor="sort-ads"
+                          className="text-xs font-bold text-slate-500 whitespace-nowrap"
                         >
-                          Clear
-                        </button>
+                          Sort Ads:
+                        </label>
+                        <select
+                          id="sort-ads"
+                          value={sortByAds}
+                          onChange={(e) =>
+                            setSortByAds(e.target.value as 'newest' | 'oldest')
+                          }
+                          className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-200 transition hover:border-slate-300"
+                        >
+                          <option value="newest">Newest First</option>
+                          <option value="oldest">Oldest First</option>
+                        </select>
                       </div>
 
-                      <div className="space-y-2.5">
-                        {recentlyViewedProducts.map((product) => {
-                          const numericPrice = parseNumericPrice(product.price);
-                          const formattedPrice =
-                            numericPrice > 0
-                              ? `GH₵${numericPrice.toLocaleString()}`
-                              : 'Contact Seller';
-
-                          return (
-                            <div
-                              key={product.id}
-                              id={`recently-viewed-item-${product.id}`}
-                              onClick={() => handleOpenProduct(product.id)}
-                              className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition group select-none cursor-pointer"
-                            >
-                              <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
-                                <img
-                                  src={product.images?.[0] || FALLBACK_THUMBNAIL}
-                                  alt={product.title}
-                                  loading="lazy"
-                                  decoding="async"
-                                  referrerPolicy="no-referrer"
-                                  className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
-                                />
-                              </div>
-
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[11px] font-bold text-slate-800 truncate group-hover:text-slate-950 transition duration-200 leading-tight">
-                                  {product.title}
-                                </p>
-                                <p className="text-[10px] font-black text-slate-900 mt-0.5">
-                                  {formattedPrice}
-                                </p>
-                                <p className="text-[9px] text-slate-400 truncate mt-0.5">
-                                  {product.location}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="flex items-center gap-1.5">
+                        <label
+                          htmlFor="sort-price"
+                          className="text-xs font-bold text-slate-500 whitespace-nowrap"
+                        >
+                          Sort Price:
+                        </label>
+                        <select
+                          id="sort-price"
+                          value={sortByPrice}
+                          onChange={(e) =>
+                            setSortByPrice(e.target.value as 'default' | 'asc' | 'desc')
+                          }
+                          className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-200 transition hover:border-slate-300"
+                        >
+                          <option value="default">All Prices</option>
+                          <option value="asc">Low to High</option>
+                          <option value="desc">High to Low</option>
+                        </select>
                       </div>
+                    </div>
+                  </div>
+
+                  {isProductsLoading ? (
+                    <div
+                      id="listings-shimmer-grid"
+                      className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6"
+                    >
+                      {[1, 2, 3, 4, 5, 6].map((i) => (
+                        <div
+                          key={i}
+                          className="bg-white border border-slate-100 rounded-3xl p-3 space-y-4 sm:animate-pulse shadow-sm min-h-[300px] flex flex-col justify-between"
+                        >
+                          <div className="bg-slate-100 rounded-2xl w-full h-40" />
+                          <div className="space-y-2 flex-1 pt-1">
+                            <div className="bg-slate-100 h-4 rounded-md w-3/4" />
+                            <div className="bg-slate-100 h-3 rounded-md w-1/2" />
+                          </div>
+                          <div className="bg-slate-100 h-5 rounded-md w-1/3 mt-2" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : sortedProducts.length === 0 ? (
+                    <div
+                      id="no-products-found"
+                      className="bg-white border border-slate-200 rounded-3xl p-16 text-center max-w-lg mx-auto shadow-sm"
+                    >
+                      <Package className="w-14 h-14 mx-auto text-slate-300 mb-2" />
+                      <h4 className="text-sm font-bold text-slate-800">
+                        No postings matching your parameters
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1 mb-5">
+                        We couldn&apos;t find any listings matching your search or
+                        location settings. Try broadening your keywords or selecting
+                        &quot;All Regions&quot; to see more options.
+                      </p>
+                      <button
+                        onClick={handleResetAllFilters}
+                        className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition shadow-sm"
+                      >
+                        Reset All Filters
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6">
+                      {sortedProducts.map((product) => (
+                        <ProductCard key={product.id} product={product} />
+                      ))}
                     </div>
                   )}
-                </div>
-
-                <div className="lg:col-span-3 space-y-6">
-                  <section className="space-y-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4 text-left">
-                      <div>
-                        <h3 className="text-lg font-bold text-slate-900 tracking-tight">
-                          {resultTitle}
-                        </h3>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {filteredCount} active listings found
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-3.5 self-start sm:self-center">
-                        <div className="flex items-center gap-1.5">
-                          <label
-                            htmlFor="sort-ads"
-                            className="text-xs font-bold text-slate-500 whitespace-nowrap"
-                          >
-                            Sort Ads:
-                          </label>
-                          <select
-                            id="sort-ads"
-                            value={sortByAds}
-                            onChange={(e) =>
-                              setSortByAds(e.target.value as 'newest' | 'oldest')
-                            }
-                            className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-200 transition hover:border-slate-300"
-                          >
-                            <option value="newest">Newest First</option>
-                            <option value="oldest">Oldest First</option>
-                          </select>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <label
-                            htmlFor="sort-price"
-                            className="text-xs font-bold text-slate-500 whitespace-nowrap"
-                          >
-                            Sort Price:
-                          </label>
-                          <select
-                            id="sort-price"
-                            value={sortByPrice}
-                            onChange={(e) =>
-                              setSortByPrice(e.target.value as 'default' | 'asc' | 'desc')
-                            }
-                            className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-200 transition hover:border-slate-300"
-                          >
-                            <option value="default">All Prices</option>
-                            <option value="asc">Low to High</option>
-                            <option value="desc">High to Low</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {isProductsLoading ? (
-                      <div
-                        id="listings-shimmer-grid"
-                        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6"
-                      >
-                        {[1, 2, 3, 4, 5, 6].map((i) => (
-                          <div
-                            key={i}
-                            className="bg-white border border-slate-100 rounded-3xl p-3 space-y-4 sm:animate-pulse shadow-sm min-h-[300px] flex flex-col justify-between"
-                          >
-                            <div className="bg-slate-100 rounded-2xl w-full h-40" />
-                            <div className="space-y-2 flex-1 pt-1">
-                              <div className="bg-slate-100 h-4 rounded-md w-3/4" />
-                              <div className="bg-slate-100 h-3 rounded-md w-1/2" />
-                            </div>
-                            <div className="bg-slate-100 h-5 rounded-md w-1/3 mt-2" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : sortedProducts.length === 0 ? (
-                      <div
-                        id="no-products-found"
-                        className="bg-white border border-slate-200 rounded-3xl p-16 text-center max-w-lg mx-auto shadow-sm"
-                      >
-                        <Package className="w-14 h-14 mx-auto text-slate-300 mb-2" />
-                        <h4 className="text-sm font-bold text-slate-800">
-                          No postings matching your parameters
-                        </h4>
-                        <p className="text-xs text-slate-500 mt-1 mb-5">
-                          We couldn&apos;t find any listings matching your search or
-                          location settings. Try broadening your keywords or selecting
-                          &quot;All Regions&quot; to see more options.
-                        </p>
-                        <button
-                          onClick={handleResetAllFilters}
-                          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition shadow-sm"
-                        >
-                          Reset All Filters
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6">
-                        {sortedProducts.map((product) => (
-                          <ProductCard key={product.id} product={product} />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                </div>
+                </section>
               </div>
             </div>
-          </PullToRefresh>
+          </div>
         )}
 
         {currentView === 'product-detail' && <ProductDetail />}
