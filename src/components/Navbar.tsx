@@ -353,7 +353,7 @@ export const Navbar: React.FC = () => {
 
             {/* Account Info Or Auth Trigger */}
             {currentUser ? (
-              <div className="flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
+              <div className="hidden md:flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
                 <div 
                   onClick={() => setCurrentView('profile-settings')}
                   className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
