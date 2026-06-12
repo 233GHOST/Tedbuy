@@ -25,6 +25,7 @@ import {
   increment
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import { slugify } from '../utils/slugify';
 
 function cleanObject<T extends any>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
@@ -175,47 +176,12 @@ const safeSessionStorage = {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>(() => {
-    try {
-      const stored = safeLocalStorage.getItem('tedbuy_local_users_backup');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const stored = safeLocalStorage.getItem('tedbuy_local_products_backup');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [chats, setChats] = useState<Chat[]>(() => {
-    try {
-      const stored = safeLocalStorage.getItem('tedbuy_local_chats_backup');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [messages, setMessages] = useState<Message[]>(() => {
-    try {
-      const stored = safeLocalStorage.getItem('tedbuy_local_messages_backup');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [users, setUsers] = useState<User[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const msgMapRef = useRef<Map<string, Message>>(new Map());
-  const [reviews, setReviews] = useState<Review[]>(() => {
-    try {
-      const stored = safeLocalStorage.getItem('tedbuy_local_reviews_backup');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [currentUser, setCurrentUserStateRaw] = useState<User | null>(() => {
     try {
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
@@ -242,45 +208,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(() => {
-    try {
-      const stored = safeLocalStorage.getItem('tedbuy_local_products_backup');
-      return !(stored && JSON.parse(stored).length > 0);
-    } catch {
-      return true;
-    }
-  });
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
 
   const hasProcessedDeepLink = useRef(false);
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings'>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const urlProductId = params.get('productId');
-      if (urlProductId) return 'product-detail';
-      const saved = safeSessionStorage.getItem('tedbuy_current_view');
-      return (saved as any) || 'browse';
+
+  const parseUrlState = useCallback(() => {
+    if (typeof window === 'undefined') return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null };
+    const pathname = window.location.pathname;
+    
+    // /products/:id or /product/:id
+    const productMatch = pathname.match(/^\/products?\/([^\/]+)/);
+    if (productMatch) {
+      const slugOrId = productMatch[1];
+      const matchId = slugOrId.match(/prod_\d+/);
+      if (matchId) {
+        return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null };
+      }
     }
-    return 'browse';
+
+    // /sellers/:sellerId or /seller/:sellerId
+    const sellerMatch = pathname.match(/^\/sellers?\/([^\/]+)/);
+    if (sellerMatch) {
+      return { view: 'seller-profile' as const, selectedProductId: null, selectedSellerId: sellerMatch[1] };
+    }
+
+    // /chats
+    if (pathname === '/chats') {
+      return { view: 'chats' as const, selectedProductId: null, selectedSellerId: null };
+    }
+
+    // /dashboard
+    if (pathname === '/dashboard') {
+      return { view: 'my-dashboard' as const, selectedProductId: null, selectedSellerId: null };
+    }
+
+    // /settings
+    if (pathname === '/settings') {
+      return { view: 'profile-settings' as const, selectedProductId: null, selectedSellerId: null };
+    }
+
+    // Fallback: search parameters
+    const params = new URLSearchParams(window.location.search);
+    const qProductId = params.get('productId');
+    if (qProductId) {
+      const matchId = qProductId.match(/prod_\d+/);
+      if (matchId) {
+        return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null };
+      }
+    }
+
+    return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null };
+  }, []);
+
+  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings'>(() => {
+    return parseUrlState().view;
   });
   const [selectedProductId, setSelectedProductId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const urlProductId = params.get('productId');
-      if (urlProductId) return urlProductId;
-      return safeSessionStorage.getItem('tedbuy_selected_product_id');
-    }
-    return null;
+    return parseUrlState().selectedProductId;
   });
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return safeSessionStorage.getItem('tedbuy_selected_seller_id');
-    }
-    return null;
+    return parseUrlState().selectedSellerId;
   });
+
   const [activeChatId, setActiveChatId] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return safeSessionStorage.getItem('tedbuy_active_chat_id');
@@ -309,6 +302,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [unauthorizedDomainDetected, setUnauthorizedDomainDetected] = useState(false);
 
+  // Popstate listener to update view and states on native back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseUrlState();
+      setCurrentView(parsed.view);
+      setSelectedProductId(parsed.selectedProductId);
+      setSelectedSellerId(parsed.selectedSellerId);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [parseUrlState]);
+
   // Synchronize dynamic searches with localStorage
   useEffect(() => {
     safeLocalStorage.setItem('tedbuy_recent_searches', JSON.stringify(recentSearches));
@@ -326,27 +332,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [selectedProductId]);
 
-  // Synchronize navigation view context to sessionStorage for reload persistence
+  // Synchronize navigation view context to address bar URL
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      safeSessionStorage.setItem('tedbuy_current_view', currentView);
-      if (selectedProductId) {
-        safeSessionStorage.setItem('tedbuy_selected_product_id', selectedProductId);
-      } else {
-        safeSessionStorage.removeItem('tedbuy_selected_product_id');
-      }
-      if (selectedSellerId) {
-        safeSessionStorage.setItem('tedbuy_selected_seller_id', selectedSellerId);
-      } else {
-        safeSessionStorage.removeItem('tedbuy_selected_seller_id');
-      }
-      if (activeChatId) {
-        safeSessionStorage.setItem('tedbuy_active_chat_id', activeChatId);
-      } else {
-        safeSessionStorage.removeItem('tedbuy_active_chat_id');
-      }
+    if (typeof window === 'undefined') return;
+    
+    let targetPath = '/';
+    if (currentView === 'product-detail' && selectedProductId) {
+      const prod = products.find(p => p.id === selectedProductId);
+      const slug = prod ? `-${slugify(prod.title)}` : '';
+      targetPath = `/product/${selectedProductId}${slug}`;
+    } else if (currentView === 'seller-profile' && selectedSellerId) {
+      targetPath = `/seller/${selectedSellerId}`;
+    } else if (currentView === 'chats') {
+      targetPath = '/chats';
+    } else if (currentView === 'my-dashboard') {
+      targetPath = '/dashboard';
+    } else if (currentView === 'profile-settings') {
+      targetPath = '/settings';
     }
-  }, [currentView, selectedProductId, selectedSellerId, activeChatId]);
+
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(
+        { currentView, selectedProductId, selectedSellerId },
+        '',
+        targetPath
+      );
+    }
+
+    if (activeChatId) {
+      safeSessionStorage.setItem('tedbuy_active_chat_id', activeChatId);
+    } else {
+      safeSessionStorage.removeItem('tedbuy_active_chat_id');
+    }
+  }, [currentView, selectedProductId, selectedSellerId, activeChatId, products]);
 
   // Firebase Auth state listener
   useEffect(() => {
@@ -478,19 +496,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setProducts(sorted);
       setIsProductsLoading(false);
-      try {
-        // Proactively generate a lightweight backup schema to avoid QuotaExceeded errors in localStorage
-        const safeBackup = sorted.map(p => ({
-          ...p,
-          // Retain ordinary image URLs but truncate base64 strings to tiny placeholder segments
-          images: p.images ? p.images.map(img => img.startsWith('data:') ? (img.length > 300 ? img.substring(0, 100) + '...[truncated base64]' : img) : img) : [],
-          // Truncate descriptions to save space
-          description: p.description ? (p.description.length > 800 ? p.description.substring(0, 800) + '...' : p.description) : ''
-        }));
-        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(safeBackup));
-      } catch (err) {
-        console.warn('Could not save offline products backup:', err);
-      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');
       setIsProductsLoading(false);

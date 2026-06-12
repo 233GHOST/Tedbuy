@@ -4,6 +4,7 @@ import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, C
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
 import { isUserVerified, calculateTrustScore } from '../types';
+import { slugify } from '../utils/slugify';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -52,37 +53,11 @@ export const ProductDetail: React.FC = () => {
     const numericPart = rawPrice.replace(/[^\d,.]/g, '');
     const displayPrice = numericPart ? `GHS ${numericPart}` : rawPrice;
 
-    // Build perfect matching query parameters
-    const params = new URLSearchParams();
-    params.set('productId', product.id);
-    params.set('title', product.title);
-    params.set('price', displayPrice);
+    // Build the clean Google-indexable Jiji-style URL with slug
+    const slug = slugify(product.title);
+    const shareUrl = `${window.location.protocol}//${window.location.host}/product/${product.id}-${slug}`;
 
-    // Dynamic absolute image URL for beautiful preview generation
-    let imageUrl = '';
-    if (product.images && product.images[0]) {
-      if (product.images[0].startsWith('http')) {
-        imageUrl = product.images[0];
-      } else if (!product.images[0].startsWith('data:')) {
-        imageUrl = `${window.location.protocol}//${window.location.host}${product.images[0].startsWith('/') ? '' : '/'}${product.images[0]}`;
-      } else {
-        imageUrl = `${window.location.protocol}//${window.location.host}/api/products/${product.id}/image.jpg`;
-      }
-    } else {
-      imageUrl = `${window.location.protocol}//${window.location.host}/api/products/${product.id}/image.jpg`;
-    }
-    params.set('image', imageUrl);
-    params.set('_r', '1');
-    params.set('share_item_id', product.id);
-    params.set('source', 'h5_m');
-    params.set('utm_source', 'copy');
-    params.set('utm_medium', 'social');
-    params.set('utm_campaign', 'client_share');
-
-    // Generate clean home URL base with params representing the product link
-    const shareUrl = `${window.location.protocol}//${window.location.host}/?${params.toString()}`;
-
-    // Exact TikTok-style link sharing message requested by the user
+    // Elegant message for sharing listings directly with absolute path
     const shareMessage = `Check out "${product.title}" on Tedbuy Ghana! Price: ${displayPrice}. View details: ${shareUrl}`;
 
     if (navigator.clipboard && navigator.clipboard.writeText) {

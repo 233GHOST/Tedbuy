@@ -172,9 +172,94 @@ function escapeHtml(unsafe: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function slugify(text: string): string {
+  return text
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w\-]+/g, '')
+    .replace(/\-\-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
 async function startServer() {
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', projectId });
+  });
+
+  // Dynamic Google XML Sitemap Endpoint
+  app.get('/sitemap.xml', async (req, res) => {
+    try {
+      const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+      const host = cleanHostHeader(rawHost);
+      const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+      const baseUrl = `${protocol}://${host}`;
+
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+      xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+
+      // 1. Homepage
+      const todayString = new Date().toISOString().split('T')[0];
+      xml += `  <url>\n`;
+      xml += `    <loc>${baseUrl}/</loc>\n`;
+      xml += `    <lastmod>${todayString}</lastmod>\n`;
+      xml += `    <changefreq>daily</changefreq>\n`;
+      xml += `    <priority>1.0</priority>\n`;
+      xml += `  </url>\n`;
+
+      // 2. Main interactive views
+      const staticViews = ['chats', 'dashboard', 'settings'];
+      for (const view of staticViews) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/${view}</loc>\n`;
+        xml += `    <lastmod>${todayString}</lastmod>\n`;
+        xml += `    <changefreq>weekly</changefreq>\n`;
+        xml += `    <priority>0.6</priority>\n`;
+        xml += `  </url>\n`;
+      }
+
+      // 3. Dynamic Products from Firestore REST API
+      try {
+        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products?pageSize=300${apiKey ? `&key=${apiKey}` : ""}`;
+        const response = await fetch(firestoreUrl);
+        if (response.ok) {
+          const data = await response.json();
+          const documents = data.documents || [];
+          for (const doc of documents) {
+            const nameParts = doc.name.split('/');
+            const id = nameParts[nameParts.length - 1];
+            
+            const fields = doc.fields || {};
+            const title = fields.title?.stringValue || '';
+            const createdAt = fields.createdAt?.stringValue || todayString;
+            const updatedTime = doc.updateTime ? doc.updateTime.split('T')[0] : (createdAt ? createdAt.split('T')[0] : todayString);
+
+            if (id && title) {
+              const slug = slugify(title);
+              const productUrl = `${baseUrl}/product/${id}-${slug}`;
+              xml += `  <url>\n`;
+              xml += `    <loc>${productUrl}</loc>\n`;
+              xml += `    <lastmod>${updatedTime}</lastmod>\n`;
+              xml += `    <changefreq>daily</changefreq>\n`;
+              xml += `    <priority>0.8</priority>\n`;
+              xml += `  </url>\n`;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Sitemap] Failed to fetch active products for sitemap:', err);
+      }
+
+      xml += `</urlset>\n`;
+
+      res.header('Content-Type', 'application/xml');
+      res.send(xml);
+    } catch (error) {
+      console.error('[Sitemap] Failed to generate sitemap:', error);
+      res.status(500).send('Error generating sitemap');
+    }
   });
 
   // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files
@@ -250,6 +335,11 @@ async function startServer() {
                             (req.headers.accept?.includes('text/html') || 
                              url === '/' || 
                              url.startsWith('/?') || 
+                             url.includes('/product/') ||
+                             url.includes('/seller/') ||
+                             url.includes('/chats') ||
+                             url.includes('/dashboard') ||
+                             url.includes('/settings') ||
                              url.includes('productId='));
                              
       if (req.method === 'GET' && isHtmlRequest) {
@@ -259,6 +349,18 @@ async function startServer() {
         let queryPrice = req.query.price as string;
         let queryImage = (req.query.image || req.query.img) as string;
         let queryDescription = req.query.description as string;
+
+        if (!productId) {
+          // Attempt to extract product ID from pathname
+          const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
+          if (pathnameMatch) {
+            const slugOrId = pathnameMatch[1];
+            const matchId = slugOrId.match(/prod_\d+/);
+            if (matchId) {
+              productId = matchId[0];
+            }
+          }
+        }
 
         if (!productId) {
           try {
@@ -332,6 +434,18 @@ async function startServer() {
       let queryPrice = req.query.price as string;
       let queryImage = (req.query.image || req.query.img) as string;
       let queryDescription = req.query.description as string;
+
+      if (!productId) {
+        // Attempt to extract product ID from pathname
+        const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
+        if (pathnameMatch) {
+          const slugOrId = pathnameMatch[1];
+          const matchId = slugOrId.match(/prod_\d+/);
+          if (matchId) {
+            productId = matchId[0];
+          }
+        }
+      }
 
       if (!productId) {
         try {

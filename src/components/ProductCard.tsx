@@ -2,6 +2,7 @@ import React from 'react';
 import { Product, isUserVerified } from '../types';
 import { useApp } from '../context/AppContext';
 import { MapPin, Eye, Calendar, Tag, Bookmark } from 'lucide-react';
+import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 
 interface ProductCardProps {
   product: Product;
@@ -17,6 +18,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setShowAuthModal,
     setAuthMode
   } = useApp();
+
+  const [cardRef, isVisible] = useIntersectionObserver({ rootMargin: '200px' });
 
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
   const seller = users?.find(u => u.id === product.sellerId);
@@ -78,6 +81,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const formattedPrice = formatProductPrice(product.price);
 
+  const [loaded, setLoaded] = React.useState(false);
+
   // Format the relative/absolute date
   const dateFormatted = new Date(product.createdAt).toLocaleDateString('en-US', {
     month: 'short',
@@ -86,26 +91,42 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   return (
     <article
+      ref={cardRef as any}
       id={`product-card-${product.id}`}
       onClick={handleDetailsClick}
       className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group"
     >
       {/* Listing image section */}
-      <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-[4/3]" style={{ aspectRatio: '4/3' }}>
-        <img
-          src={imgSrc}
-          alt={product.title}
-          loading="lazy"
-          decoding="async"
-          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          referrerPolicy="no-referrer"
-          onError={() => {
-            const fallback = getCategoryPlaceholder(product.category);
-            if (imgSrc !== fallback) {
-              setImgSrc(fallback);
-            }
-          }}
-        />
+      <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-[4/3] flex items-center justify-center" style={{ aspectRatio: '4/3' }}>
+        {isVisible ? (
+          <>
+            {!loaded && (
+              <div className="absolute inset-0 bg-slate-50 flex items-center justify-center animate-pulse">
+                <div className="w-5 h-5 rounded-full border border-slate-200 border-t-slate-400 animate-spin" />
+              </div>
+            )}
+            <img
+              src={imgSrc}
+              alt={product.title}
+              decoding="async"
+              onLoad={() => setLoaded(true)}
+              className={`absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ${
+                loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+              }`}
+              referrerPolicy="no-referrer"
+              onError={() => {
+                const fallback = getCategoryPlaceholder(product.category);
+                if (imgSrc !== fallback) {
+                  setImgSrc(fallback);
+                }
+              }}
+            />
+          </>
+        ) : (
+          <div className="absolute inset-0 bg-slate-50 flex items-center justify-center">
+            <div className="w-5 h-5 rounded-full border border-slate-200 border-t-slate-400 animate-spin" />
+          </div>
+        )}
         <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1">
           <span className="px-2 py-0.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold rounded-md flex items-center gap-1 uppercase tracking-wider">
             <Tag className="w-2.5 h-2.5" />
