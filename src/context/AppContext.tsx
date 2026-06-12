@@ -713,15 +713,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw authErrorDetail;
       }
     } else {
-      // Identifier is a username or phone number (e.g. Ama, John, Jane or +233...)
+      // Identifier is a username, phone number, or WhatsApp number (e.g. Ama, +233...)
       let targetEmail: string | null = null;
+
+      const normalizePhone = (num: string): string => {
+        if (!num) return '';
+        const digits = num.replace(/\D/g, '');
+        // If it starts with '0' and followed by 9 digits (standard local Ghana format), convert '0' to '233'
+        if (digits.startsWith('0') && digits.length === 10) {
+          return '233' + digits.substring(1);
+        }
+        return digits;
+      };
+
+      const normalizedInput = normalizePhone(cleanIdentifier);
+
       try {
         const usersSnap = await getDocs(collection(db, 'users'));
         usersSnap.forEach((docSnap) => {
           const u = docSnap.data() as User;
           const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
-          const matchPhone = u.phoneNumber?.replace(/\s+/g, '') === cleanIdentifier.replace(/\s+/g, '');
-          if (matchUsername || matchPhone) {
+          
+          const userPhoneNormalized = u.phoneNumber ? normalizePhone(u.phoneNumber) : '';
+          const userWhatsAppNormalized = u.whatsAppNumber ? normalizePhone(u.whatsAppNumber) : '';
+          
+          const matchPhone = normalizedInput && userPhoneNormalized && userPhoneNormalized === normalizedInput;
+          const matchWhatsApp = normalizedInput && userWhatsAppNormalized && userWhatsAppNormalized === normalizedInput;
+          
+          if (matchUsername || matchPhone || matchWhatsApp) {
             targetEmail = u.email || null;
           }
         });

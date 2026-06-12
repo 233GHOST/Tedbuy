@@ -136,25 +136,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         </button>
         
         {/* Dynamic bottom status bar on image hover */}
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
-          {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) ? (
-            <>
-              <span className="text-[10px] flex items-center gap-1 font-sans">
-                <Eye className="w-3 h-3 text-slate-100" />
-                {product.viewsCount} views
-              </span>
-              <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium">
-                <Calendar className="w-3 h-3" />
-                {dateFormatted}
-              </span>
-            </>
-          ) : (
-            <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium ml-auto">
+        {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) && (
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-[10px] flex items-center gap-1 font-sans">
+              <Eye className="w-3 h-3 text-slate-100" />
+              {product.viewsCount} views
+            </span>
+            <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium">
               <Calendar className="w-3 h-3" />
               {dateFormatted}
             </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Detail info section */}

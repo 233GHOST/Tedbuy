@@ -487,8 +487,10 @@ export const ChatInterface: React.FC = () => {
               </form>
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-slate-450 p-6 text-center select-none bg-slate-50">
-              <ShoppingBag className="w-12 h-12 stroke-[1.2] text-slate-300 mb-2 animate-bounce" />
+             <div className="flex flex-col items-center justify-center h-full text-slate-450 p-6 text-center select-none bg-slate-50">
+              <div className="w-14 h-14 bg-slate-950 border border-slate-900 rounded-2xl flex items-center justify-center overflow-hidden mb-3 shadow-xs animate-bounce">
+                <img src="/favicon.svg" alt="TedBuy Logo" className="w-10 h-10 object-contain" referrerPolicy="no-referrer" />
+              </div>
               <p className="font-bold text-slate-800 text-sm">Please select a chat from the timeline history</p>
               <p className="text-xs text-slate-500 mt-1 max-w-sm mb-6 leading-relaxed">Here you will see all pricing negotiations, condition questions, and pickup locations.</p>
               

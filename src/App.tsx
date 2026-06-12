@@ -49,10 +49,12 @@ const MarketplaceContent: React.FC = () => {
     refreshProducts
   } = useApp();
 
-  // Mobile pull-to-refresh touch tracking
-  const [pullY, setPullY] = useState(0);
+  // Mobile pull-to-refresh touch tracking (Ref-based optimize for mobile GPU and re-render prevention)
   const [isPulling, setIsPulling] = useState(false);
   const touchStartY = useRef(0);
+  const pullIndicatorRef = useRef<HTMLDivElement>(null);
+  const pullIconRef = useRef<SVGSVGElement>(null);
+  const pullTextRef = useRef<HTMLSpanElement>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     // Only detect pull when scrolled to the top of window
@@ -69,7 +71,29 @@ const MarketplaceContent: React.FC = () => {
     if (diff > 0) {
       // Fluid pulling resistance
       const resistance = Math.min(diff * 0.35, 80);
-      setPullY(resistance);
+      
+      const indicator = pullIndicatorRef.current;
+      const icon = pullIconRef.current;
+      const txt = pullTextRef.current;
+      
+      if (indicator) {
+        indicator.style.display = 'flex';
+        indicator.style.height = `${resistance}px`;
+        indicator.style.opacity = `${Math.min(resistance / 30, 1)}`;
+      }
+      if (icon) {
+        if (resistance >= 55) {
+          icon.style.transform = 'rotate(180deg)';
+          icon.style.color = '#0f172a'; // slate-900
+        } else {
+          icon.style.transform = 'rotate(0deg)';
+          icon.style.color = '#94a3b8'; // slate-400
+        }
+      }
+      if (txt) {
+        txt.textContent = resistance >= 55 ? 'Release to reload deals...' : 'Pull down to refresh deals';
+      }
+
       // Suppress default refresh behaviors if we have successfully started pulling
       if (diff > 15 && e.cancelable) {
         e.preventDefault();
@@ -79,10 +103,36 @@ const MarketplaceContent: React.FC = () => {
 
   const handleTouchEnd = () => {
     setIsPulling(false);
-    if (pullY >= 55) {
-      refreshProducts();
+    const indicator = pullIndicatorRef.current;
+    const icon = pullIconRef.current;
+    const txt = pullTextRef.current;
+    
+    if (indicator) {
+      const currentHeight = parseFloat(indicator.style.height) || 0;
+      if (currentHeight >= 55) {
+        if (icon) {
+          icon.classList.add('animate-spin');
+        }
+        if (txt) {
+          txt.textContent = 'Reloading listings...';
+        }
+        refreshProducts().finally(() => {
+          if (indicator) {
+            indicator.style.height = '0px';
+            indicator.style.opacity = '0';
+            indicator.style.display = 'none';
+          }
+          if (icon) {
+            icon.classList.remove('animate-spin');
+            icon.style.transform = 'rotate(0deg)';
+          }
+        });
+      } else {
+        indicator.style.height = '0px';
+        indicator.style.opacity = '0';
+        indicator.style.display = 'none';
+      }
     }
-    setPullY(0);
   };
 
   const recentlyViewedProducts = useMemo(() => {
@@ -116,6 +166,12 @@ const MarketplaceContent: React.FC = () => {
   const [maxPrice, setMaxPrice] = useState<string>('');
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
+  const [displayLimit, setDisplayLimit] = useState<number>(12);
+
+  // Reset pagination limit when any filter parameters change to ensure fast and lightweight mobile rendering
+  React.useEffect(() => {
+    setDisplayLimit(12);
+  }, [selectedCategory, searchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
 
 
 
@@ -230,15 +286,16 @@ const MarketplaceContent: React.FC = () => {
             className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
           >
             {/* Smooth Pull to Refresh indicator */}
-            {pullY > 0 && (
-              <div 
-                className="flex items-center justify-center gap-2 overflow-hidden transition-all duration-150 text-slate-550 font-sans font-bold text-xs bg-slate-50 border border-slate-200/50 py-2.5 rounded-2xl mb-4"
-                style={{ height: `${pullY}px`, opacity: pullY / 30 }}
-              >
-                <RefreshCw className={`w-4 h-4 ${pullY >= 55 ? 'rotate-180 text-slate-900 font-black' : 'text-slate-405'} transition-transform duration-200 ${isProductsLoading ? 'animate-spin' : ''}`} />
-                <span>{pullY >= 55 ? 'Release to reload deals...' : 'Pull down to refresh deals'}</span>
-              </div>
-            )}
+            <div 
+              ref={pullIndicatorRef}
+              className="hidden items-center justify-center gap-2 overflow-hidden transition-all duration-150 text-slate-550 font-sans font-bold text-xs bg-slate-50 border border-slate-200/50 py-2.5 rounded-2xl mb-4"
+              style={{ height: '0px', opacity: 0 }}
+            >
+              <span ref={pullIconRef} className="transition-transform duration-200 flex items-center justify-center">
+                <RefreshCw className="w-4 h-4 text-slate-400" />
+              </span>
+              <span ref={pullTextRef}>Pull down to refresh deals</span>
+            </div>
             
             {/* Promotional Marketplace Hero Badge */}
             <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
@@ -675,10 +732,27 @@ const MarketplaceContent: React.FC = () => {
                       </button>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6">
-                      {sortedProducts.map(product => (
-                        <ProductCard key={product.id} product={product} />
-                      ))}
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 animate-fade-in">
+                        {sortedProducts.slice(0, displayLimit).map(product => (
+                          <ProductCard key={product.id} product={product} />
+                        ))}
+                      </div>
+                      
+                      {sortedProducts.length > displayLimit && (
+                        <div className="flex justify-center pt-4">
+                          <button
+                            id="btn-load-more"
+                            onClick={() => setDisplayLimit(prev => prev + 12)}
+                            className="px-6 py-2.5 bg-white border border-slate-200 text-slate-800 hover:text-slate-900 font-extrabold text-xs rounded-xl transition shadow-3xs hover:border-slate-350 flex items-center gap-2 cursor-pointer"
+                          >
+                            <span>Load More Listings</span>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              ({displayLimit} of {sortedProducts.length} shown)
+                            </span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </section>

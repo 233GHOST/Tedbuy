@@ -33,19 +33,22 @@ export const GhanaLocationFilter: React.FC<GhanaLocationFilterProps> = ({
   // Count products for the popular cities of the selected region
   const cityCounts = React.useMemo(() => {
     const counts: { [key: string]: number } = {};
+    if (selectedRegion === 'All' || !products || products.length === 0) return counts;
+    
+    const activeReg = GHANA_REGIONS.find(r => r.name === selectedRegion);
+    if (!activeReg) return counts;
+
     products.forEach(p => {
+      if (!p.location) return;
       const locLower = p.location.toLowerCase();
-      // Test if any city matches
-      GHANA_REGIONS.forEach(reg => {
-        reg.cities.forEach(city => {
-          if (locLower.includes(city.toLowerCase())) {
-            counts[city] = (counts[city] || 0) + 1;
-          }
-        });
+      activeReg.cities.forEach(city => {
+        if (locLower.includes(city.toLowerCase())) {
+          counts[city] = (counts[city] || 0) + 1;
+        }
       });
     });
     return counts;
-  }, [products]);
+  }, [products, selectedRegion]);
 
   const activeRegionObj = GHANA_REGIONS.find(r => r.name === selectedRegion);
 

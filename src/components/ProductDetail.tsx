@@ -1,91 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, TrendingUp, TrendingDown, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
 import { isUserVerified, calculateTrustScore } from '../types';
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid
-} from 'recharts';
-
-// Helper hash function to generate consistent stable seeds based on productId
-const getSeedFromString = (str: string): number => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return Math.abs(hash);
-};
-
-// Seeded random number generator
-const seededRandom = (seed: number) => {
-  let s = seed;
-  return () => {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-};
-
-// Generates a deterministic price history for last 30 days
-const generatePriceHistory = (productId: string, currentPrice: number) => {
-  const seed = getSeedFromString(productId);
-  const rand = seededRandom(seed);
-  
-  const history: { date: string; price: number }[] = [];
-  let priceTracker = currentPrice;
-  const today = new Date();
-  
-  for (let i = 0; i < 30; i++) {
-    const historicalDate = new Date(today);
-    historicalDate.setDate(today.getDate() - i);
-    
-    const formattedDate = historicalDate.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric'
-    });
-    
-    if (i === 0) {
-      history.push({ date: formattedDate, price: currentPrice });
-    } else {
-      // Small random walk backwards in time
-      const change = (rand() - 0.49) * 0.025; // Slight bias to simulate general drop/rise
-      priceTracker = priceTracker * (1 - change);
-      priceTracker = Math.max(1, Math.round(priceTracker));
-      history.unshift({ date: formattedDate, price: priceTracker });
-    }
-  }
-  return history;
-};
-
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: any[];
-  label?: string;
-}
-
-const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    const formattedVal = new Intl.NumberFormat('en-GH', {
-      style: 'currency',
-      currency: 'GHS',
-      maximumFractionDigits: 0
-    }).format(payload[0].value);
-    
-    return (
-      <div className="bg-slate-900 border border-slate-700 p-2 rounded-xl text-xs font-sans text-white shadow-lg">
-        <p className="font-semibold">{label}</p>
-        <p className="font-mono text-emerald-400 mt-0.5">{formattedVal}</p>
-      </div>
-    );
-  }
-  return null;
-};
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -130,34 +48,42 @@ export const ProductDetail: React.FC = () => {
   const handleShareProduct = () => {
     if (!product) return;
 
-    // Use absolute URL and include descriptive parameters for instantaneous preview unfurls
-    const baseUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+    const rawPrice = String(product.price);
+    const numericPart = rawPrice.replace(/[^\d,.]/g, '');
+    const displayPrice = numericPart ? `GHS ${numericPart}` : rawPrice;
+
+    // Build perfect matching query parameters
     const params = new URLSearchParams();
     params.set('productId', product.id);
     params.set('title', product.title);
-    if (product.images && product.images[0]) {
-      // Avoid raw large data-urls in query string (not professional)
-      if (!product.images[0].startsWith('data:')) {
-        params.set('img', product.images[0]);
-        params.set('image', product.images[0]);
-      }
-    }
-    const displayPrice = typeof product.price === 'number' ? `GH₵${product.price}` : String(product.price);
     params.set('price', displayPrice);
-    params.set('location', product.location);
 
-    const shareUrl = `${baseUrl}?${params.toString()}`;
+    // Dynamic absolute image URL for beautiful preview generation
+    let imageUrl = '';
+    if (product.images && product.images[0]) {
+      if (product.images[0].startsWith('http')) {
+        imageUrl = product.images[0];
+      } else if (!product.images[0].startsWith('data:')) {
+        imageUrl = `${window.location.protocol}//${window.location.host}${product.images[0].startsWith('/') ? '' : '/'}${product.images[0]}`;
+      } else {
+        imageUrl = `${window.location.protocol}//${window.location.host}/api/products/${product.id}/image.jpg`;
+      }
+    } else {
+      imageUrl = `${window.location.protocol}//${window.location.host}/api/products/${product.id}/image.jpg`;
+    }
+    params.set('image', imageUrl);
+    params.set('_r', '1');
+    params.set('share_item_id', product.id);
+    params.set('source', 'h5_m');
+    params.set('utm_source', 'copy');
+    params.set('utm_medium', 'social');
+    params.set('utm_campaign', 'client_share');
 
-    // Elegant TikTok styled share message content
-    const shareMessage = `Check out this amazing find on TedBuy! 🌟
+    // Generate clean home URL base with params representing the product link
+    const shareUrl = `${window.location.protocol}//${window.location.host}/?${params.toString()}`;
 
-🔥 Ad: ${product.title}
-💰 Price: ${displayPrice}
-📍 Location: ${product.location}
-💼 Category: ${product.category}
-
-👇 Click to preview photos & details:
-${shareUrl}`;
+    // Exact TikTok-style link sharing message requested by the user
+    const shareMessage = `Check out "${product.title}" on Tedbuy Ghana! Price: ${displayPrice}. View details: ${shareUrl}`;
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(shareMessage)
@@ -482,18 +408,6 @@ ${shareUrl}`;
     .filter(p => p.id !== product.id && p.category && product.category && p.category.toLowerCase() === product.category.toLowerCase())
     .slice(0, 4);
 
-  const numericPrice = extractNumericPrice(product.price);
-  const hasPriceTrend = numericPrice !== null;
-  const priceHistory = generatePriceHistory(product.id, numericPrice || 1000);
-  const startPrice = priceHistory[0].price;
-  const currentPrice = numericPrice || 1000;
-  const lowestPrice = Math.min(...priceHistory.map(h => h.price));
-  const highestPrice = Math.max(...priceHistory.map(h => h.price));
-
-  const priceDiff = currentPrice - startPrice;
-  const pctDiff = ((currentPrice - startPrice) / startPrice) * 100;
-  const formattedPct = `${pctDiff >= 0 ? '+' : ''}${pctDiff.toFixed(1)}%`;
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       {/* Navigation bar and back button/share utility */}
@@ -637,15 +551,17 @@ ${shareUrl}`;
                 {product.location}
               </span>
               {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) && (
-                <span className="flex items-center gap-1.5">
-                  <Eye className="w-4 h-4 text-slate-400" />
-                  {product.viewsCount} total visitors
-                </span>
+                <>
+                  <span className="flex items-center gap-1.5">
+                    <Eye className="w-4 h-4 text-slate-400" />
+                    {product.viewsCount} total visitors
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-slate-400" />
+                    {dateFormatted}
+                  </span>
+                </>
               )}
-              <span className="flex items-center gap-1.5 flex-1 min-w-[120px]">
-                <Calendar className="w-4 h-4 text-slate-400" />
-                {dateFormatted}
-              </span>
             </div>
 
             {/* Brand, Condition, and Negotiability specifications module */}
@@ -756,87 +672,6 @@ ${shareUrl}`;
               </button>
             </div>
           </div>
-
-          {/* 30-Day Price Trend Analysis */}
-          {hasPriceTrend && (
-            <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-xs space-y-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 font-sans tracking-tight">30-Day Price Trend</h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">Price fluctuation trajectory over the past 30 days</p>
-                </div>
-                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 font-mono border ${
-                  pctDiff >= 0 
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-150' 
-                    : 'bg-rose-50 text-rose-750 border-rose-150'
-                }`}>
-                  {pctDiff >= 0 ? <TrendingUp className="w-3.5 h-3.5 text-emerald-600" /> : <TrendingDown className="w-3.5 h-3.5 text-rose-600" />}
-                  <span>{formattedPct}</span>
-                </span>
-              </div>
-
-              <div className="h-36 w-full min-w-0 font-sans">
-                <ResponsiveContainer width="100%" height={144} minWidth={100}>
-                  <AreaChart
-                    data={priceHistory}
-                    margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={pctDiff >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0.15}/>
-                        <stop offset="95%" stopColor={pctDiff >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis 
-                      dataKey="date" 
-                      tickLine={false} 
-                      axisLine={false} 
-                      tick={{ fill: '#94a3b8', fontSize: 9 }}
-                      ticks={[priceHistory[0].date, priceHistory[14].date, priceHistory[29].date]}
-                    />
-                    <YAxis 
-                      tickLine={false} 
-                      axisLine={false} 
-                      tick={{ fill: '#94a3b8', fontSize: 9 }}
-                      domain={['auto', 'auto']}
-                      tickFormatter={(v) => `GH₵${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area 
-                      type="monotone" 
-                      dataKey="price" 
-                      stroke={pctDiff >= 0 ? "#10b981" : "#f43f5e"} 
-                      strokeWidth={2}
-                      fillOpacity={1} 
-                      fill="url(#colorPrice)" 
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center font-sans">
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-medium">30d Ago</span>
-                  <span className="text-xs font-bold text-slate-700 font-mono mt-0.5 select-none block">
-                    {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(startPrice)}
-                  </span>
-                </div>
-                <div className="border-x border-slate-100 font-sans">
-                  <span className="block text-[10px] text-slate-400 font-medium">30d Lowest</span>
-                  <span className="text-xs font-bold text-slate-750 font-mono mt-0.5 select-none block">
-                    {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(lowestPrice)}
-                  </span>
-                </div>
-                <div>
-                  <span className="block text-[10px] text-slate-400 font-medium font-sans">30d Highest</span>
-                  <span className="text-xs font-bold text-slate-750 font-mono mt-0.5 select-none block">
-                    {new Intl.NumberFormat('en-GH', { style: 'currency', currency: 'GHS', maximumFractionDigits: 0 }).format(highestPrice)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Seller Bio Module */}
           <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-xs space-y-4">

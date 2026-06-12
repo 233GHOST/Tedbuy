@@ -122,6 +122,47 @@ function injectMetaTags(html: string, product: { title: string; description: str
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
 
+function injectHomepageMetaTags(html: string, shareUrl: string, host: string, protocol: string): string {
+  const title = "TedBuy Ghana - Premium Buy & Sell Classifieds Marketplace";
+  const description = "Discover the premier platform to buy and sell products in Ghana. Find phones, laptops, electronics, vehicles, and premium deals safely. Experience verified seller trust scores and direct WhatsApp negotiation.";
+  
+  // Use our beautiful vector brand logo from the favicon/logo as the main OG image fallback
+  const image = `${protocol}://${host}/favicon.svg`;
+
+  console.log(`[Meta Crawler] Injecting Homepage Open Graph tags. URL: ${shareUrl}, Image URL: ${image}`);
+
+  const tags = `
+    <!-- Dynamic Social Share Meta Tags -->
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <!-- Open Graph / Facebook / WhatsApp -->
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:image" content="${escapeHtml(image)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
+    <meta property="og:image:type" content="image/svg+xml" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:url" content="${escapeHtml(shareUrl)}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="TedBuy Ghana" />
+    <meta property="og:locale" content="en_GH" />
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(image)}" />
+    <!-- App Logo Metas -->
+    <meta property="og:logo" content="${escapeHtml(image)}" />
+  `;
+
+  let cleanHtml = html
+    .replace(/<title>[\s\S]*?<\/title>/gi, '')
+    .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '');
+
+  return cleanHtml.replace('<head>', `<head>${tags}`);
+}
+
 function escapeHtml(unsafe: string): string {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -140,7 +181,7 @@ async function startServer() {
   app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], async (req, res) => {
     const { productId } = req.params;
     const queryImageUrl = req.query.image as string;
-    const fallbackUrl = 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+    const fallbackUrl = 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&w=1200&h=630&q=80';
     
     if (!productId && !queryImageUrl) {
       return res.redirect(fallbackUrl);
@@ -250,13 +291,21 @@ async function startServer() {
             template = injectMetaTags(template, product, fullUrl, host, protocol, productId || 'temp');
           } else if (productId) {
             const product = await getProductData(productId);
+            const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+            const host = cleanHostHeader(rawHost);
+            const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+            const fullUrl = `${protocol}://${host}${url}`;
             if (product) {
-              const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
-              const host = cleanHostHeader(rawHost);
-              const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
-              const fullUrl = `${protocol}://${host}${url}`;
               template = injectMetaTags(template, product, fullUrl, host, protocol, productId);
+            } else {
+              template = injectHomepageMetaTags(template, fullUrl, host, protocol);
             }
+          } else {
+            const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+            const host = cleanHostHeader(rawHost);
+            const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+            const fullUrl = `${protocol}://${host}${url}`;
+            template = injectHomepageMetaTags(template, fullUrl, host, protocol);
           }
           res.status(200).set({ "Content-Type": "text/html" }).end(template);
           return;
@@ -314,13 +363,21 @@ async function startServer() {
           template = injectMetaTags(template, product, fullUrl, host, protocol, productId || 'temp');
         } else if (productId) {
           const product = await getProductData(productId);
+          const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+          const host = cleanHostHeader(rawHost);
+          const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+          const fullUrl = `${protocol}://${host}${url}`;
           if (product) {
-            const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
-            const host = cleanHostHeader(rawHost);
-            const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
-            const fullUrl = `${protocol}://${host}${url}`;
             template = injectMetaTags(template, product, fullUrl, host, protocol, productId);
+          } else {
+            template = injectHomepageMetaTags(template, fullUrl, host, protocol);
           }
+        } else {
+          const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+          const host = cleanHostHeader(rawHost);
+          const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+          const fullUrl = `${protocol}://${host}${url}`;
+          template = injectHomepageMetaTags(template, fullUrl, host, protocol);
         }
         res.status(200).set({ "Content-Type": "text/html" }).end(template);
       } catch (err) {
