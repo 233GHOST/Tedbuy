@@ -339,7 +339,8 @@ export const ProductDetail: React.FC = () => {
         <div className="lg:col-span-7 space-y-4">
           <div 
             onClick={() => setLightboxIndex(activeMediaIdx)}
-            className="group/media relative aspect-4/3 w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md cursor-zoom-in"
+            className="group/media relative aspect-[4/3] w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md cursor-zoom-in"
+            style={{ aspectRatio: '4/3' }}
           >
             {mediaGallery[activeMediaIdx]?.type === 'video' ? (
               <video

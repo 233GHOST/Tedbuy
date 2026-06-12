@@ -40,19 +40,17 @@ export const ChatInterface: React.FC = () => {
 
   const activeChat = chats.find(c => c.id === activeChatId);
 
-  // Set messages as read when active chat changes
+  // Calculate unread count for current active chat
+  const activeUnreadCount = messages.filter(
+    m => m.chatId === activeChatId && m.recipientId === currentUser.id && !m.read
+  ).length;
+
+  // Set messages as read when active chat changes or new messages arrive
   useEffect(() => {
-    if (activeChatId && currentUser) {
-      // Mark all messages in this chat sent to me as read
-      messages.forEach(m => {
-        if (m.chatId === activeChatId && m.recipientId === currentUser.id) {
-          m.read = true;
-        }
-      });
-      // Fire asynchronous Firestore update with debounce/deduplication guard
+    if (activeChatId && currentUser && activeUnreadCount > 0) {
       markChatAsRead(activeChatId);
     }
-  }, [activeChatId, messages.length, currentUser]);
+  }, [activeChatId, activeUnreadCount, currentUser, markChatAsRead]);
 
   // Scroll to bottom of chat
   const scrollToBottom = () => {
@@ -116,6 +114,27 @@ export const ChatInterface: React.FC = () => {
               <MessageSquare className="w-5 h-5 text-slate-900" />
               <span>Inbox History</span>
             </h2>
+          </div>
+
+          {/* Admin Support WhatsApp Banner */}
+          <div className="p-3.5 bg-emerald-50 border-b border-emerald-100/80 text-left shrink-0">
+            <div className="flex items-center gap-1.5 text-emerald-800 font-black text-xs uppercase tracking-tight">
+              <svg className="w-4 h-4 fill-emerald-600 shrink-0 animate-pulse" viewBox="0 0 24 24">
+                <path d="M12.004 0C5.378 0 0 5.38 0 12.005c0 2.115.549 4.16 1.59 5.968l-1.691 6.18 6.32-1.658c1.737.947 3.69 1.447 5.688 1.447C18.63 23.942 24 18.563 24 12.004c0-3.178-1.24-6.166-3.498-8.423C18.243 1.258 15.253 0 12.004 0zm0 21.944a9.9 9.9 0 01-5.06-1.39l-.36-.215-3.763.987.994-3.665-.236-.376A9.907 9.907 0 012.062 12c0-5.485 4.46-9.946 9.947-9.946 2.657 0 5.154 1.035 7.031 2.91 1.876 1.879 2.91 4.379 2.907 7.04-.006 5.485-4.469 10.14-9.943 10.14z"/>
+              </svg>
+              <span>Need Direct Support?</span>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-1 font-sans leading-normal">
+              Need assistance or want to report an issue? Contact administrative support directly on WhatsApp.
+            </p>
+            <a
+              href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%2520I%20am%20using%20the%20platform%20and%20need%20some%20assistance."
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 w-full py-2 bg-emerald-650 hover:bg-emerald-700 bg-emerald-600 text-white font-extrabold text-[11px] rounded-xl text-center shadow-3xs cursor-pointer select-none transition flex items-center justify-center gap-1.5"
+            >
+              <span>Message Admin on WhatsApp</span>
+            </a>
           </div>
 
           <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
@@ -464,10 +483,29 @@ export const ChatInterface: React.FC = () => {
               </form>
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400 p-8">
-              <ShoppingBag className="w-12 h-12 stroke-[1.5] text-slate-300 mb-2" />
-              <p className="font-semibold text-sm">Please select a chat from the timeline history</p>
-              <p className="text-xs text-slate-400 mt-1 max-w-sm">Here you will see all pricing negotiations, condition questions, and pickup locations.</p>
+            <div className="flex flex-col items-center justify-center h-full text-slate-450 p-6 text-center select-none bg-slate-50">
+              <ShoppingBag className="w-12 h-12 stroke-[1.2] text-slate-300 mb-2 animate-bounce" />
+              <p className="font-bold text-slate-800 text-sm">Please select a chat from the timeline history</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mb-6 leading-relaxed">Here you will see all pricing negotiations, condition questions, and pickup locations.</p>
+              
+              <div className="p-4 bg-white border border-slate-200 rounded-3xl max-w-xs shadow-xs text-left space-y-2 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-full -mr-8 -mt-8 -z-1" />
+                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-extrabold px-2.5 py-0.5 rounded-md uppercase tracking-wide relative z-1">Support Desk</span>
+                <p className="text-xs text-slate-600 font-sans leading-relaxed relative z-1">
+                  Encountered an issue, want to report an advertising post, or seek direct setup help? Chat with me directly.
+                </p>
+                <a
+                  href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support!%2520I%20have%20an%20issue%20I'd%2520like%252520to%252520report."
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer"
+                >
+                  <svg className="w-4 h-4 fill-white" viewBox="0 0 24 24">
+                    <path d="M12.004 0C5.378 0 0 5.38 0 12.005c0 2.115.549 4.16 1.59 5.968l-1.691 6.18 6.32-1.658c1.737.947 3.69 1.447 5.688 1.447C18.63 23.942 24 18.563 24 12.004c0-3.178-1.24-6.166-3.498-8.423C18.243 1.258 15.253 0 12.004 0zm0 21.944a9.9 9.9 0 01-5.06-1.39l-.36-.215-3.763.987.994-3.665-.236-.376A9.907 9.907 0 012.062 12c0-5.485 4.46-9.946 9.947-9.946 2.657 0 5.154 1.035 7.031 2.91 1.876 1.879 2.91 4.379 2.907 7.04-.006 5.485-4.469 10.14-9.943 10.14z"/>
+                  </svg>
+                  <span>Chat on WhatsApp</span>
+                </a>
+              </div>
             </div>
           )}
           {activeChat && (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
 import { Product, Category } from '../types';
@@ -19,6 +19,24 @@ export const SellerDashboard: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+
+  // Auto-dismissing reminder to add their WhatsApp number if it is missing
+  const [showWhatsAppReminder, setShowWhatsAppReminder] = useState(() => {
+    return !currentUser?.whatsAppNumber;
+  });
+  const [timeLeft, setTimeLeft] = useState(15);
+
+  useEffect(() => {
+    if (!currentUser || !showWhatsAppReminder) return;
+    if (timeLeft <= 0) {
+      setShowWhatsAppReminder(false);
+      return;
+    }
+    const timer = setInterval(() => {
+      setTimeLeft(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft, showWhatsAppReminder, currentUser]);
 
   if (!currentUser) {
     return (
@@ -56,6 +74,55 @@ export const SellerDashboard: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-left">
+      {/* WhatsApp setup auto-dismissing reminder banner */}
+      {showWhatsAppReminder && currentUser && (
+        <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-3xl p-5 shadow-xs relative overflow-hidden animate-fade-in text-left">
+          {/* Animated shrinking progress line at the bottom */}
+          <div 
+            className="absolute bottom-0 left-0 h-1.5 bg-emerald-500 transition-all duration-1000 ease-linear" 
+            style={{ width: `${(timeLeft / 15) * 100}%` }}
+          />
+
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex gap-4">
+              <div className="p-3 bg-emerald-100 text-emerald-700 rounded-2xl shrink-0 self-center">
+                <svg className="w-6 h-6 fill-current animate-pulse text-emerald-600" viewBox="0 0 24 24">
+                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.253 8.477 3.517 2.266 2.264 3.515 5.276 3.515 8.48-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.1 1.452 4.7 1.453 5.4 0 9.8-4.4 9.8-9.8-.002-5.4-4.453-9.799-9.852-9.799-5.401 0-9.8 4.4-9.8 9.8 0 1.944.507 3.823 1.47 5.513L1.571 21.082l4.13-1.08c1.649.899 3.12 1.349 4.75 1.349z"/>
+                </svg>
+              </div>
+              <div className="space-y-1.5">
+                <h4 className="text-sm font-black text-emerald-900 uppercase tracking-tight flex items-center flex-wrap gap-2">
+                  <span>Message Seller Direct on WhatsApp Option is Active!</span>
+                  <span className="text-[9px] bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-md font-extrabold normal-case">Direct Chat Info</span>
+                </h4>
+                <p className="text-xs text-slate-600 leading-relaxed font-sans max-w-2xl">
+                  For buyers to be able to instantly tap the <strong className="text-emerald-800 font-bold">&ldquo;Message seller on whatsapp&rdquo;</strong> button and chat with you directly on your ads, you must add your valid WhatsApp number in your store profile settings.
+                </p>
+                <div className="flex items-center gap-4 pt-1">
+                  <button
+                    onClick={() => setCurrentView('profile-settings')}
+                    className="text-xs font-black text-emerald-700 hover:text-emerald-900 select-none cursor-pointer underline hover:no-underline transition"
+                  >
+                    Add WhatsApp Number Now &rarr;
+                  </button>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Auto-closing in {timeLeft} seconds
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <button 
+              onClick={() => setShowWhatsAppReminder(false)}
+              className="p-1 px-2.5 hover:bg-emerald-100/50 rounded-lg text-emerald-800 hover:text-emerald-950 font-bold text-lg leading-none transition shrink-0 self-start cursor-pointer"
+              title="Dismiss"
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Dashboard Overview Cards */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>

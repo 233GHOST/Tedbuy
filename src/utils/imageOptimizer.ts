@@ -3,7 +3,35 @@
  * Keeps physical quality high but decreases storage footprint (under 150KB typically),
  * ensuring swift saves and prevention of Firestore document size limit errors (1MB).
  */
-export const compressImage = (file: File, maxWidth = 900, maxHeight = 900, quality = 0.75): Promise<string> => {
+import heic2any from 'heic2any';
+
+/**
+ * Utility to compress images client-side using Canvas.
+ * Keeps physical quality high but decreases storage footprint (under 150KB typically),
+ * ensuring swift saves and prevention of Firestore document size limit errors (1MB).
+ */
+export const compressImage = async (file: File, maxWidth = 900, maxHeight = 900, quality = 0.75): Promise<string> => {
+  let finalFile = file;
+
+  // Check if file is HEIC/HEIF
+  const fileNameLower = file.name.toLowerCase();
+  const isHeic = fileNameLower.endsWith('.heic') || fileNameLower.endsWith('.heif') || file.type === 'image/heic' || file.type === 'image/heif';
+
+  if (isHeic) {
+    try {
+      const converted = await heic2any({
+        blob: file,
+        toType: 'image/jpeg',
+        quality: quality
+      });
+      const blob = Array.isArray(converted) ? converted[0] : converted;
+      const newName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+      finalFile = new File([blob], newName, { type: 'image/jpeg' });
+    } catch (err) {
+      console.warn('HEIC to JPEG conversion failed, trying to read directly:', err);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -52,6 +80,6 @@ export const compressImage = (file: File, maxWidth = 900, maxHeight = 900, quali
     reader.onerror = (err) => {
       reject(err);
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(finalFile);
   });
 };

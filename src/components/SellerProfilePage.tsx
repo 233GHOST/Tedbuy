@@ -61,6 +61,26 @@ export const SellerProfilePage: React.FC = () => {
     }
   };
 
+  const handleMessageWhatsApp = () => {
+    if (!currentUser) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (!seller?.whatsAppNumber) return;
+
+    let cleanNumber = seller.whatsAppNumber.replace(/\D/g, '');
+    if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
+      cleanNumber = '233' + cleanNumber.substring(1);
+    } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
+      cleanNumber = '233' + cleanNumber;
+    }
+
+    const prefilledText = `Hello! I see your store on Tedbuy marketplace and would love to chat.`;
+    const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
+    window.open(finalUrl, '_blank', 'noopener,noreferrer');
+  };
+
   // Generate an approximate follow count based on seed/active metrics
   const totalFollowersCount = seller.id === 'user_john' ? 15 : seller.id === 'user_kelvin' ? 8 : isFollowing ? 1 : 0;
 
@@ -162,14 +182,19 @@ export const SellerProfilePage: React.FC = () => {
               <input
                 type="file"
                 id="seller-avatar-upload"
-                accept="image/*"
+                accept="image/*, .heic, .heif, .webp, .jfif, .jpg, .jpeg, .png"
                 className="hidden"
                 onClick={(e) => e.stopPropagation()}
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  if (!file.type.startsWith('image/')) {
-                    alert('Please select a valid image file (JPEG, PNG, WEBP).');
+                  
+                  const fileNameLower = file.name.toLowerCase();
+                  const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg)$/i.test(fileNameLower);
+                  const isImageType = file.type && file.type.startsWith('image/');
+
+                  if (!isImageType && !hasImageExt) {
+                    alert('Please select a valid image file (JPEG, PNG, WEBP, HEIC, JFIF).');
                     return;
                   }
                   if (file.size > 16 * 1024 * 1024) {
@@ -296,27 +321,39 @@ export const SellerProfilePage: React.FC = () => {
 
         {/* Action button */}
         {!isOwner && (
-          <button
-            id="seller-profile-follow-btn"
-            onClick={handleToggleFollow}
-            className={`w-full md:w-auto px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 shrink-0 ${
-              isFollowing
-                ? 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-750'
-                : 'bg-white hover:bg-slate-100 text-slate-900 shadow-xs'
-            }`}
-          >
-            {isFollowing ? (
-              <>
-                <UserCheck className="w-4 h-4" />
-                <span>Following Store</span>
-              </>
-            ) : (
-              <>
-                <UserPlus className="w-4 h-4" />
-                <span>Follow Store</span>
-              </>
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            {seller.whatsAppNumber && (
+              <button
+                id="seller-profile-whatsapp-btn"
+                onClick={handleMessageWhatsApp}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition duration-200 text-sm flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <MessageSquare className="w-4.5 h-4.5 fill-white/20 stroke-[2.2]" />
+                <span>Message seller on whatsapp</span>
+              </button>
             )}
-          </button>
+            <button
+              id="seller-profile-follow-btn"
+              onClick={handleToggleFollow}
+              className={`px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 shrink-0 ${
+                isFollowing
+                  ? 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-750'
+                  : 'bg-white hover:bg-slate-100 text-slate-900 shadow-xs'
+              }`}
+            >
+              {isFollowing ? (
+                <>
+                  <UserCheck className="w-4 h-4" />
+                  <span>Following Store</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  <span>Follow Store</span>
+                </>
+              )}
+            </button>
+          </div>
         )}
       </div>
 

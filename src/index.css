@@ -5,3 +5,31 @@
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-serif: "Playfair Display", Georgia, serif;
 }
+
+/* Mobile Safari & iOS specific hardware-acceleration & performance optimizations */
+@layer base {
+  html, body {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  /* Smooth buttery kinetic touch physics on iOS scrollable feeds */
+  .overflow-y-auto, .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Prevent Safari layout text scaling glitches on rotation */
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Optimize card images during dynamic state transitions on low-memory mobile GPUs */
+  img {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transform: translateZ(0);
+  }
+}

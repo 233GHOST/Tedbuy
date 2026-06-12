@@ -74,11 +74,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group"
     >
       {/* Listing image section */}
-      <div className="relative aspect-4/3 w-full bg-slate-100 overflow-hidden shrink-0">
+      <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-[4/3]" style={{ aspectRatio: '4/3' }}>
         <img
           src={product.images[0] || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80'}
           alt={product.title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          loading="lazy"
+          decoding="async"
+          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           referrerPolicy="no-referrer"
         />
         <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1">
@@ -124,7 +126,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       </div>
 
       {/* Detail info section */}
-      <div className="p-4 flex flex-col flex-1 justify-between gap-2.5 text-left bg-linear-to-b from-white to-slate-50">
+      <div className="p-4 flex flex-col flex-1 justify-between gap-2.5 text-left bg-gradient-to-b from-white to-slate-50">
         <div className="space-y-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-xl font-bold text-slate-900 block leading-tight font-sans tracking-tight">

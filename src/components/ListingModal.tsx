@@ -134,9 +134,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     }
 
     (Array.from(files) as File[]).forEach(async file => {
-      // Basic type validation
-      if (!file.type.startsWith('image/')) {
-        setErrorMsg('Only image files (JPEG, PNG, WEBP) are supported.');
+      // Relaxed type validation supporting empty mime-types with recognized image extensions or any startsWith image/
+      const fileNameLower = file.name.toLowerCase();
+      const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg)$/i.test(fileNameLower);
+      const isImageType = file.type && file.type.startsWith('image/');
+
+      if (!isImageType && !hasImageExt) {
+        setErrorMsg('Only image files (JPEG, PNG, WEBP, HEIC, JFIF) are supported.');
         return;
       }
       
@@ -512,7 +516,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                     <input
                       type="file"
                       multiple
-                      accept="image/*"
+                      accept="image/*, .heic, .heif, .webp, .jfif, .jpg, .jpeg, .png"
                       onChange={handleImageUpload}
                       className="hidden"
                     />

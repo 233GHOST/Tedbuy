@@ -449,6 +449,8 @@ const MarketplaceContent: React.FC = () => {
                               <img
                                 src={product.images?.[0] || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=120&q=80'}
                                 alt=""
+                                loading="lazy"
+                                decoding="async"
                                 referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
                               />

@@ -47,8 +47,12 @@ export const ProfileSettings: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setErrorMsg('Please select a valid image file (JPEG, PNG, WEBP).');
+    const fileNameLower = file.name.toLowerCase();
+    const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg)$/i.test(fileNameLower);
+    const isImageType = file.type && file.type.startsWith('image/');
+
+    if (!isImageType && !hasImageExt) {
+      setErrorMsg('Please select a valid image file (JPEG, PNG, WEBP, HEIC, JFIF).');
       return;
     }
 
@@ -141,7 +145,7 @@ export const ProfileSettings: React.FC = () => {
       <input
         type="file"
         id="profile-avatar-upload"
-        accept="image/*"
+        accept="image/*, .heic, .heif, .webp, .jfif, .jpg, .jpeg, .png"
         className="hidden"
         onChange={handleAvatarChange}
       />
