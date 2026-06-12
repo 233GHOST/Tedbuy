@@ -499,11 +499,7 @@ const MarketplaceContent: React.FC = () => {
                   <div
                     ref={categoriesScrollRef}
                     className="flex gap-2 pb-2 overflow-x-auto w-full px-0 md:px-7 scroll-smooth"
-                    style={{
-                      scrollbarWidth: 'none',
-                      msOverflowStyle: 'none',
-                      WebkitOverflowScrolling: 'touch',
-                    }}
+                    style={{ WebkitOverflowScrolling: 'touch' }}
                   >
                     <button
                       id="category-tag-all"
@@ -712,9 +708,9 @@ const MarketplaceContent: React.FC = () => {
                         No postings matching your parameters
                       </h4>
                       <p className="text-xs text-slate-500 mt-1 mb-5">
-                        We couldn&apos;t find any listings matching your search or
-                        location settings. Try broadening your keywords or selecting
-                        &quot;All Regions&quot; to see more options.
+                        We couldn't find any listings matching your search or location
+                        settings. Try broadening your keywords or selecting "All Regions"
+                        to see more options.
                       </p>
                       <button
                         onClick={handleResetAllFilters}
