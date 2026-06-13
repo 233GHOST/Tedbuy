@@ -383,8 +383,44 @@ export const ProductDetail: React.FC = () => {
     .filter(p => p.id !== product.id && p.category && product.category && p.category.toLowerCase() === product.category.toLowerCase())
     .slice(0, 4);
 
+  const cleanPrice = typeof product.price === 'number'
+    ? product.price
+    : parseFloat(String(product.price).replace(/[^\d.]/g, '')) || 0;
+
+  const jsonLdData = {
+    "@context": "https://schema.org/",
+    "@type": "Product",
+    "id": `https://tedbuy.store/product/${product.id}`,
+    "name": product.title,
+    "image": product.images || [],
+    "description": product.description || `Buy ${product.title} on Tedbuy Ghana classifieds.`,
+    "brand": {
+      "@type": "Brand",
+      "name": product.brand || "Unspecified"
+    },
+    "offers": {
+      "@type": "Offer",
+      "url": typeof window !== 'undefined' ? window.location.href : `https://tedbuy.store/product/${product.id}`,
+      "priceCurrency": "GHS",
+      "price": cleanPrice,
+      "itemCondition": product.condition === 'New' ? "https://schema.org/NewCondition" : "https://schema.org/UsedCondition",
+      "availability": "https://schema.org/InStock",
+      "priceValidUntil": "2027-12-31",
+      "seller": {
+        "@type": "Person",
+        "name": sellerUser?.fullName || product.sellerName || "Verified Seller",
+        "url": typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}/seller/${product.sellerId}` : `https://tedbuy.store/seller/${product.sellerId}`
+      }
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* JSON-LD Structured Data for Google Rich Snippets */}
+      <script type="application/ld+json">
+        {JSON.stringify(jsonLdData)}
+      </script>
+
       {/* Navigation bar and back button/share utility */}
       <div className="flex items-center justify-between gap-4 mb-6">
         <button
