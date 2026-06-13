@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
@@ -1023,6 +1024,7 @@ export default function App() {
   return (
     <AppProvider>
       <MarketplaceContent />
+      <SpeedInsights />
     </AppProvider>
   );
 }
