@@ -1,5 +1,0 @@
-{
-  "resource": "https://www.tedbuy.store/api",
-  "authorization_servers": ["https://www.tedbuy.store"],
-  "scopes_supported": ["public", "read"]
-}
