@@ -22,7 +22,8 @@ export const ProductDetail: React.FC = () => {
     setShowAuthModal,
     setAuthMode,
     incrementProductViews,
-    deleteProduct
+    deleteProduct,
+    updateProduct
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
@@ -35,60 +36,7 @@ export const ProductDetail: React.FC = () => {
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showShareToast, setShowShareToast] = useState(false);
 
-  useEffect(() => {
-    if (showShareToast) {
-      const timer = setTimeout(() => {
-        setShowShareToast(false);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [showShareToast]);
-
-  const handleShareProduct = () => {
-    if (!product) return;
-
-    const rawPrice = String(product.price);
-    const numericPart = rawPrice.replace(/[^\d,.]/g, '');
-    const displayPrice = numericPart ? `GHS ${numericPart}` : rawPrice;
-
-    // Build the clean Google-indexable Jiji-style URL with slug
-    const slug = slugify(product.title);
-    const shareUrl = `${window.location.protocol}//${window.location.host}/product/${product.id}-${slug}`;
-
-    // Elegant message for sharing listings directly with absolute path
-    const shareMessage = `Check out "${product.title}" on Tedbuy Ghana! Price: ${displayPrice}. View details: ${shareUrl}`;
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(shareMessage)
-        .then(() => {
-          setShowShareToast(true);
-        })
-        .catch((err) => {
-          console.error('Failed to copy text: ', err);
-          fallbackCopyText(shareMessage);
-        });
-    } else {
-      fallbackCopyText(shareMessage);
-    }
-  };
-
-  const fallbackCopyText = (text: string) => {
-    try {
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      textArea.style.position = "fixed";
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      setShowShareToast(true);
-    } catch (err) {
-      console.error('Fallback copy failed', err);
-    }
-  };
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
     ...(product.videos || []).map(url => ({ type: 'video' as const, url }))
@@ -350,6 +298,12 @@ export const ProductDetail: React.FC = () => {
   };
 
   const formatProductPrice = (priceVal: string | number) => {
+    if (typeof priceVal === 'string') {
+      const lower = priceVal.trim().toLowerCase();
+      if (lower === 'contact for price' || lower === 'contact for price.' || lower.includes('contact for price')) {
+        return 'Inquire';
+      }
+    }
     if (typeof priceVal === 'number') {
       return new Intl.NumberFormat('en-GH', {
         style: 'currency',
@@ -430,16 +384,6 @@ export const ProductDetail: React.FC = () => {
         >
           <ArrowLeft className="w-4.5 h-4.5" />
           <span>Back to Classifieds</span>
-        </button>
-
-        <button
-          id="btn-share-product-top"
-          onClick={handleShareProduct}
-          className="flex items-center gap-2 text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-900 font-bold px-3.5 py-2.5 rounded-xl transition cursor-pointer active:scale-95"
-          title="Share Ad"
-        >
-          <Share2 className="w-4 h-4" />
-          <span>Share Ad</span>
         </button>
       </div>
 
@@ -543,6 +487,12 @@ export const ProductDetail: React.FC = () => {
                 <span className="text-3xl font-black text-slate-950 font-sans tracking-tight">
                   {formattedPrice}
                 </span>
+                {product.isSold && (
+                  <span className="bg-rose-600 border border-rose-500 text-white font-black text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-lg shadow-sm animate-pulse flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping"></span>
+                    <span>Sold Product</span>
+                  </span>
+                )}
                 <span id="detail-price-negotiable-label" className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
                   product.negotiable !== false
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-250/50'
@@ -630,8 +580,47 @@ export const ProductDetail: React.FC = () => {
               )}
 
               {isOwner ? (
-                <div className="bg-slate-50 text-slate-800 p-3.5 rounded-2xl border border-slate-200 text-xs text-left">
-                  👋 **You posted this product listing!** You can manage, edit details, or remove it from your personal store dashboard dashboard.
+                <div className="bg-slate-50 text-slate-800 p-4 rounded-3xl border border-slate-200 text-xs text-left space-y-3.5">
+                  <div className="space-y-1">
+                    <p className="font-semibold text-slate-800">👋 You posted this product listing!</p>
+                    <p className="text-[11px] text-slate-500">You can customize details, delete the ad, or toggle its availability status status below.</p>
+                  </div>
+                  
+                  <div className="flex items-center justify-between py-2 px-3 bg-white rounded-2xl border border-slate-200/60 shadow-3xs">
+                    <span className="font-bold text-slate-700">Item Status:</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-xs text-rose-600 hover:text-rose-700">
+                      <input
+                        type="checkbox"
+                        checked={!!product.isSold}
+                        onChange={async (e) => {
+                          try {
+                            await updateProduct(product.id, { isSold: e.target.checked });
+                          } catch (err) {
+                            console.error("Failed to update product isSold flag", err);
+                          }
+                        }}
+                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
+                      />
+                      <span>Mark as Sold</span>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowEditModal(true)}
+                      className="flex-1 py-2.5 bg-slate-905 hover:bg-slate-800 text-white font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit Ad Details</span>
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100/80 text-rose-600 border border-rose-200/65 font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Listing</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -671,16 +660,6 @@ export const ProductDetail: React.FC = () => {
                   )}
                 </div>
               )}
-
-              {/* Share Ad Button */}
-              <button
-                id="btn-share-product-detail"
-                onClick={handleShareProduct}
-                className="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-900 font-extrabold rounded-2xl flex items-center justify-center gap-2 text-xs uppercase tracking-wider transition cursor-pointer active:scale-98"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Share Ad / Copy Link</span>
-              </button>
             </div>
           </div>
 
@@ -994,27 +973,6 @@ export const ProductDetail: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Toast Notification confirming that the link was copied */}
-      {showShareToast && (
-        <div className="fixed bottom-6 right-6 z-55 bg-slate-900 border border-slate-800 text-white rounded-3xl p-4 shadow-2xl flex items-center gap-3.5 animate-scale-up max-w-sm font-sans">
-          <div className="p-2 bg-emerald-500 rounded-2xl text-white shrink-0">
-            <Check className="w-4 h-4" />
-          </div>
-          <div className="text-left min-w-0 pr-2">
-            <p className="text-xs font-black text-white">Share link copied successfully!</p>
-            <p className="text-[10px] text-slate-400 mt-0.5 truncate leading-relaxed">
-              Paste the link anywhere to share this ad.
-            </p>
-          </div>
-          <button 
-            onClick={() => setShowShareToast(false)} 
-            className="text-slate-400 hover:text-white transition cursor-pointer p-1 rounded-lg hover:bg-slate-800 shrink-0 ml-auto"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
         </div>
       )}
     </div>

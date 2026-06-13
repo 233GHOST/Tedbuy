@@ -86,6 +86,7 @@ export type Category =
   | 'Beauty and Care'
   | 'Games'
   | 'Electronics'
+  | 'Services'
   | 'Other';
 
 export interface Product {
@@ -106,6 +107,8 @@ export interface Product {
   negotiable?: boolean;
   createdAt: string;
   viewsCount: number;
+  isSold?: boolean;
+  likesCount?: number;
 }
 
 export interface Chat {
@@ -176,6 +179,7 @@ export function normalizeCategory(cat: string): Category {
   if (clean === 'vehicle' || clean === 'vehicles' || clean === 'car' || clean === 'cars' || clean.includes('vehicle')) return 'Vehicles';
   if (clean === 'game' || clean === 'games' || clean.includes('game') || clean.includes('playstation') || clean.includes('xbox') || clean.includes('nintendo') || clean.includes('console') || clean.includes('fifa')) return 'Games';
   if (clean === 'electronics' || clean === 'electronic' || clean.includes('electronic') || clean.includes('tv') || clean.includes('television') || clean.includes('audio') || clean.includes('speaker') || clean.includes('headphone') || clean.includes('camera')) return 'Electronics';
+  if (clean === 'service' || clean === 'services' || clean.includes('service') || clean.includes('job') || clean.includes('freelance') || clean.includes('work') || clean.includes('repair')) return 'Services';
   if (clean === 'other' || clean === 'others') return 'Other';
 
   const knownCategories: Category[] = [
@@ -187,6 +191,7 @@ export function normalizeCategory(cat: string): Category {
     'Beauty and Care',
     'Games',
     'Electronics',
+    'Services',
     'Other'
   ];
 

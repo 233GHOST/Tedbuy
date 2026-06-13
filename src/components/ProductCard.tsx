@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, isUserVerified } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Eye, Calendar, Tag, Bookmark } from 'lucide-react';
+import { MapPin, Eye, Calendar, Tag, Bookmark, Video } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 
 interface ProductCardProps {
@@ -16,7 +16,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setSelectedProductId,
     setCurrentView,
     setShowAuthModal,
-    setAuthMode
+    setAuthMode,
+    updateProduct
   } = useApp();
 
   const [cardRef, isVisible] = useIntersectionObserver({ rootMargin: '200px' });
@@ -41,6 +42,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const formatProductPrice = (priceVal: string | number) => {
+    if (typeof priceVal === 'string') {
+      const lower = priceVal.trim().toLowerCase();
+      if (lower === 'contact for price' || lower === 'contact for price.' || lower.includes('contact for price')) {
+        return 'Inquire';
+      }
+    }
     if (typeof priceVal === 'number') {
       return new Intl.NumberFormat('en-GH', {
         style: 'currency',
@@ -74,10 +81,63 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const initialSrc = product.images?.[0] || getCategoryPlaceholder(product.category);
   const [imgSrc, setImgSrc] = React.useState<string>(initialSrc);
+  const [processedVideoUrl, setProcessedVideoUrl] = React.useState<string>('');
 
   React.useEffect(() => {
     setImgSrc(product.images?.[0] || getCategoryPlaceholder(product.category));
   }, [product.images, product.category]);
+
+  React.useEffect(() => {
+    const videoUrl = product.videos?.[0];
+    if (!videoUrl) {
+      setProcessedVideoUrl('');
+      return;
+    }
+
+    if (!videoUrl.startsWith('data:')) {
+      setProcessedVideoUrl(videoUrl);
+      return;
+    }
+
+    let activeUrl = '';
+    try {
+      const parts = videoUrl.split(',');
+      if (parts.length >= 2) {
+        const header = parts[0];
+        const base64Part = parts.slice(1).join(',');
+        const mimeMatch = header.match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : 'video/mp4';
+
+        let normalized = base64Part.trim().replace(/-/g, '+').replace(/_/g, '/');
+        normalized = normalized.replace(/[^A-Za-z0-9+/=]/g, '');
+
+        const pad = normalized.length % 4;
+        if (pad === 2) normalized += '==';
+        else if (pad === 3) normalized += '=';
+
+        const binary = atob(normalized);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        activeUrl = URL.createObjectURL(blob);
+        setProcessedVideoUrl(activeUrl);
+      } else {
+        setProcessedVideoUrl(videoUrl);
+      }
+    } catch (err) {
+      console.warn("ProductCard video decode error:", err);
+      setProcessedVideoUrl(videoUrl);
+    }
+
+    return () => {
+      if (activeUrl && activeUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(activeUrl);
+      }
+    };
+  }, [product.videos]);
 
   const formattedPrice = formatProductPrice(product.price);
 
@@ -100,38 +160,57 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-[4/3] flex items-center justify-center" style={{ aspectRatio: '4/3' }}>
         {isVisible ? (
           <>
-            {!loaded && (
-              <div className="absolute inset-0 bg-slate-50 flex items-center justify-center animate-pulse">
-                <div className="w-5 h-5 rounded-full border border-slate-200 border-t-slate-400 animate-spin" />
-              </div>
+            {processedVideoUrl ? (
+              <video
+                src={processedVideoUrl}
+                muted
+                loop
+                playsInline
+                autoPlay
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
+              />
+            ) : (
+              <>
+                {!loaded && (
+                  <div className="absolute inset-0 bg-slate-50 flex items-center justify-center animate-pulse">
+                    <div className="w-5 h-5 rounded-full border border-slate-200 border-t-slate-400 animate-spin" />
+                  </div>
+                )}
+                <img
+                  src={imgSrc}
+                  alt={product.title}
+                  decoding="async"
+                  onLoad={() => setLoaded(true)}
+                  className={`absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ${
+                    loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+                  }`}
+                  referrerPolicy="no-referrer"
+                  onError={() => {
+                    const fallback = getCategoryPlaceholder(product.category);
+                    if (imgSrc !== fallback) {
+                      setImgSrc(fallback);
+                    }
+                  }}
+                />
+              </>
             )}
-            <img
-              src={imgSrc}
-              alt={product.title}
-              decoding="async"
-              onLoad={() => setLoaded(true)}
-              className={`absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ${
-                loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
-              }`}
-              referrerPolicy="no-referrer"
-              onError={() => {
-                const fallback = getCategoryPlaceholder(product.category);
-                if (imgSrc !== fallback) {
-                  setImgSrc(fallback);
-                }
-              }}
-            />
           </>
         ) : (
           <div className="absolute inset-0 bg-slate-50 flex items-center justify-center">
             <div className="w-5 h-5 rounded-full border border-slate-200 border-t-slate-400 animate-spin" />
           </div>
         )}
-        <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1">
+
+        <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-20">
           <span className="px-2 py-0.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold rounded-md flex items-center gap-1 uppercase tracking-wider">
             <Tag className="w-2.5 h-2.5" />
             {product.category}
           </span>
+          {product.isSold && (
+            <span className="px-2 py-0.5 bg-rose-600 border border-rose-500 text-white text-[10px] font-extrabold rounded-md uppercase tracking-widest shadow-md animate-pulse">
+              SOLD
+            </span>
+          )}
         </div>
 
         {product.condition && (
@@ -139,6 +218,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             <span className="px-2 py-0.5 bg-slate-900/90 text-white border border-slate-700 text-[9px] font-extrabold rounded-md uppercase tracking-wider shadow-xs">
               {product.condition}
             </span>
+          </div>
+        )}
+
+        {product.videos && product.videos.length > 0 && (
+          <div className="absolute bottom-2.5 right-2.5 bg-emerald-600/90 backdrop-blur-xs border border-emerald-500 shadow-sm text-white py-1 px-2 rounded-lg z-15 flex items-center gap-1 leading-none text-[9px] font-extrabold tracking-wide uppercase select-none">
+            <Video className="w-3.5 h-3.5 text-white animate-pulse" />
+            <span>Video Ad</span>
           </div>
         )}
 
@@ -213,6 +299,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             {!product.images[0] && <span className="bg-slate-200 text-slate-600 px-1 py-0.5 rounded text-[8px]">No Image</span>}
           </div>
         </div>
+
+        {currentUser?.id === product.sellerId && (
+          <div className="pt-2.5 border-t border-dashed border-slate-200 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status Toggle</span>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700">
+              <input
+                type="checkbox"
+                checked={!!product.isSold}
+                onChange={async (e) => {
+                  try {
+                    await updateProduct(product.id, { isSold: e.target.checked });
+                  } catch (err) {
+                    console.error("Failed to update product isSold state", err);
+                  }
+                }}
+                className="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
+              />
+              <span>Mark as Sold</span>
+            </label>
+          </div>
+        )}
       </div>
     </article>
   );

@@ -8,8 +8,9 @@ import { SellerDashboard } from './components/SellerDashboard';
 import { SellerProfilePage } from './components/SellerProfilePage';
 import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
+import { VideoAdsFeed } from './components/VideoAdsFeed';
 import { Category, Product } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 
@@ -22,6 +23,7 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
   'Beauty and Care': '💄',
   Games: '🎮',
   Electronics: '⚡',
+  Services: '🛠️',
   Other: '📦'
 };
 
@@ -229,6 +231,7 @@ const MarketplaceContent: React.FC = () => {
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
   const [displayLimit, setDisplayLimit] = useState<number>(12);
+  const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');
 
   // Reset pagination limit when any filter parameters change to ensure fast and lightweight mobile rendering
   React.useEffect(() => {
@@ -361,21 +364,8 @@ const MarketplaceContent: React.FC = () => {
             
             {/* Promotional Marketplace Hero Badge */}
             <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10 w-full">
-                <div className="text-left">
-                  <span className="text-slate-400 font-extrabold text-[10px] tracking-wider uppercase block mb-1">Tedbuy Ghana</span>
-                  <h1 className="text-2xl sm:text-3xl font-black text-slate-950 font-sans tracking-tight">Direct Local Market</h1>
-                </div>
-
-                {/* Action trigger */}
-                <button
-                  id="hero-post-ad-btn"
-                  onClick={handlePostAdBtn}
-                  className="w-full md:w-auto px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-sm rounded-xl shadow-xs hover:shadow-md transition duration-200 shrink-0 cursor-pointer text-center"
-                >
-                  Post an Ad Free
-                </button>
-              </div>
+              {/* Hidden programmatic click trigger so video empty-state CTA remains completely functional */}
+              <button id="hero-post-ad-btn" onClick={handlePostAdBtn} className="hidden" />
 
               {/* Prominent Search bar integrated under the Title as requested */}
               <div className="relative z-10 max-w-xl text-left w-full">
@@ -414,8 +404,43 @@ const MarketplaceContent: React.FC = () => {
               <div className="absolute -right-24 -top-24 w-60 h-60 bg-slate-400/10 rounded-full blur-3xl pointer-events-none"></div>
             </div>
 
-            {/* Category selection ribbon */}
-            <section className="space-y-4 mb-8 text-left">
+            {/* View Mode Switching Tabs (Standard Grid vs Live Video Ads Feed) */}
+            <div className="flex bg-slate-200/50 p-1 rounded-2xl mb-8 font-sans max-w-sm border border-slate-250/60">
+              <button
+                id="tab-view-grid"
+                onClick={() => setHomeViewMode('grid')}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition duration-200 cursor-pointer outline-none ${
+                  homeViewMode === 'grid'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/30'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                <span>Standard Grid</span>
+              </button>
+              <button
+                id="tab-view-video-feed"
+                onClick={() => setHomeViewMode('video-feed')}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition duration-200 cursor-pointer outline-none ${
+                  homeViewMode === 'video-feed'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-650 hover:text-slate-900 hover:bg-white/30'
+                }`}
+              >
+                <Video className="w-4 h-4 text-emerald-500 animate-pulse fill-emerald-500" />
+                <span>Watch Video Ads</span>
+                <span className="hidden sm:inline px-1 py-0.5 bg-emerald-600 text-[8px] text-white rounded-md tracking-wide font-black">
+                  NEW
+                </span>
+              </button>
+            </div>
+
+            {homeViewMode === 'video-feed' ? (
+              <VideoAdsFeed />
+            ) : (
+              <>
+                {/* Category selection ribbon */}
+                <section className="space-y-4 mb-8 text-left">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <h2 className="text-base font-extrabold text-slate-900 font-sans tracking-tight flex items-center gap-1.5">
@@ -553,90 +578,92 @@ const MarketplaceContent: React.FC = () => {
                   products={products}
                 />
 
-                {/* Price Budget Filter */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4 text-left font-sans animate-fade-in animate-duration-300">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <SlidersHorizontal className="w-4 h-4 text-slate-900 shrink-0" />
-                      <h4 className="text-sm font-black text-slate-900 tracking-tight">
-                        Price Range (GH₵)
-                      </h4>
+                {/* Price Budget Filter - Shown only when searching for a product */}
+                {searchQuery.trim() !== '' && (
+                  <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4 text-left font-sans animate-fade-in animate-duration-300">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <SlidersHorizontal className="w-4 h-4 text-slate-900 shrink-0" />
+                        <h4 className="text-sm font-black text-slate-900 tracking-tight">
+                          Price Range (GH₵)
+                        </h4>
+                      </div>
+                      {(minPrice || maxPrice) && (
+                        <button
+                          onClick={() => {
+                            setMinPrice('');
+                            setMaxPrice('');
+                          }}
+                          className="text-[10px] bg-red-50 hover:bg-red-100 text-red-650 font-bold px-2 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Reset</span>
+                        </button>
+                      )}
                     </div>
-                    {(minPrice || maxPrice) && (
-                      <button
-                        onClick={() => {
-                          setMinPrice('');
-                          setMaxPrice('');
-                        }}
-                        className="text-[10px] bg-red-50 hover:bg-red-100 text-red-650 font-bold px-2 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                      >
-                        <X className="w-3 h-3" />
-                        <span>Reset</span>
-                      </button>
-                    )}
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Min Price
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={minPrice}
-                        onChange={(e) => setMinPrice(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-slate-500 transition-all font-mono"
-                      />
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Min Price
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={minPrice}
+                          onChange={(e) => setMinPrice(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-slate-500 transition-all font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Max Price
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="No limit"
+                          value={maxPrice}
+                          onChange={(e) => setMaxPrice(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-slate-500 transition-all font-mono"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Max Price
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="No limit"
-                        value={maxPrice}
-                        onChange={(e) => setMaxPrice(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-slate-500 transition-all font-mono"
-                      />
-                    </div>
-                  </div>
 
-                  {/* Preset quick ranges */}
-                  <div className="space-y-2 pt-1.5 border-t border-slate-100">
-                    <span className="block text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                      Quick Budgets (GH₵)
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        { label: 'Under 100', min: '', max: '100' },
-                        { label: '100 - 500', min: '100', max: '500' },
-                        { label: '500 - 2k', min: '500', max: '2000' },
-                        { label: '2k - 10k', min: '2000', max: '10000' },
-                        { label: '10k+', min: '10000', max: '' },
-                      ].map((range) => {
-                        const isSelected = minPrice === range.min && maxPrice === range.max;
-                        return (
-                          <button
-                            key={range.label}
-                            onClick={() => {
-                              setMinPrice(range.min);
-                              setMaxPrice(range.max);
-                            }}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all border ${
-                              isSelected
-                                ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                                : 'bg-slate-50 text-slate-650 border-slate-200 hover:border-slate-350 hover:bg-slate-100'
-                            }`}
-                          >
-                            {range.label}
-                          </button>
-                        );
-                      })}
+                    {/* Preset quick ranges */}
+                    <div className="space-y-2 pt-1.5 border-t border-slate-100">
+                      <span className="block text-[9px] font-black text-slate-400 uppercase tracking-wider">
+                        Quick Budgets (GH₵)
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { label: 'Under 100', min: '', max: '100' },
+                          { label: '100 - 500', min: '100', max: '500' },
+                          { label: '500 - 2k', min: '500', max: '2000' },
+                          { label: '2k - 10k', min: '2000', max: '10000' },
+                          { label: '10k+', min: '10000', max: '' },
+                        ].map((range) => {
+                          const isSelected = minPrice === range.min && maxPrice === range.max;
+                          return (
+                            <button
+                              key={range.label}
+                              onClick={() => {
+                                setMinPrice(range.min);
+                                setMaxPrice(range.max);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all border ${
+                                isSelected
+                                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                  : 'bg-slate-50 text-slate-650 border-slate-200 hover:border-slate-350 hover:bg-slate-100'
+                              }`}
+                            >
+                              {range.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {recentlyViewedProducts.length > 0 && (
                   <div
@@ -820,6 +847,8 @@ const MarketplaceContent: React.FC = () => {
                 </section>
               </div>
             </div>
+              </>
+            )}
           </div>
         )}
 
@@ -848,23 +877,28 @@ const MarketplaceContent: React.FC = () => {
       />
 
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden py-1.5 px-4 flex items-center justify-around">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around">
         {/* Home Tab */}
         <button
           onClick={() => {
             setCurrentView('browse');
             setSearchQuery('');
           }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 ${
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse'
               ? 'text-slate-950 font-black'
               : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
-          <Home className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
-            currentView === 'browse' ? 'scale-110 text-slate-900' : 'text-slate-400'
-          }`} />
-          <span className="text-[10px] tracking-tight">Home</span>
+          <div className="relative flex flex-col items-center">
+            <Home className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
+              currentView === 'browse' ? 'scale-110 text-slate-950' : 'text-slate-400'
+            }`} />
+            {currentView === 'browse' && (
+              <span className="absolute -bottom-1 w-1 h-1 bg-slate-950 rounded-full" />
+            )}
+          </div>
+          <span className="text-[9px] tracking-tight uppercase font-extrabold">Home</span>
         </button>
 
         {/* Search Tab */}
@@ -881,16 +915,32 @@ const MarketplaceContent: React.FC = () => {
               }
             }, 100);
           }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 ${
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse' && searchQuery
               ? 'text-slate-950 font-black'
               : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
-          <Search className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
-            currentView === 'browse' && searchQuery ? 'scale-110 text-slate-900' : 'text-slate-400'
-          }`} />
-          <span className="text-[10px] tracking-tight">Search</span>
+          <div className="relative flex flex-col items-center">
+            <Search className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
+              currentView === 'browse' && searchQuery ? 'scale-110 text-slate-950' : 'text-slate-400'
+            }`} />
+            {currentView === 'browse' && searchQuery && (
+              <span className="absolute -bottom-1 w-1 h-1 bg-slate-950 rounded-full" />
+            )}
+          </div>
+          <span className="text-[9px] tracking-tight uppercase font-extrabold">Search</span>
+        </button>
+
+        {/* Enhanced Central Raised Sell Tab */}
+        <button
+          onClick={handlePostAdBtn}
+          className="flex flex-col items-center justify-center flex-1 pb-1 relative z-50 cursor-pointer outline-none -translate-y-2.5"
+        >
+          <div className="w-12 h-12 bg-slate-900 text-white rounded-full flex items-center justify-center shadow-lg transition duration-200 active:scale-90 border-4 border-white">
+            <PlusCircle className="w-6 h-6 stroke-[2.5]" />
+          </div>
+          <span className="text-[9px] tracking-tight uppercase font-black text-slate-900 mt-1">Sell</span>
         </button>
 
         {/* Messages Tab */}
@@ -903,23 +953,26 @@ const MarketplaceContent: React.FC = () => {
               setCurrentView('chats');
             }
           }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 relative ${
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 relative cursor-pointer outline-none ${
             currentView === 'chats'
               ? 'text-slate-950 font-black'
               : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
-          <div className="relative">
-            <MessageSquare className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
-              currentView === 'chats' ? 'scale-110 text-slate-900' : 'text-slate-400'
+          <div className="relative flex flex-col items-center">
+            <MessageSquare className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
+              currentView === 'chats' ? 'scale-110 text-slate-950' : 'text-slate-400'
             }`} />
             {unreadCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white font-extrabold text-[8px] min-w-[14px] h-[14px] px-1 rounded-full flex items-center justify-center shadow-xs border border-white animate-pulse">
                 {unreadCount}
               </span>
             )}
+            {currentView === 'chats' && (
+              <span className="absolute -bottom-1.5 w-1 h-1 bg-slate-950 rounded-full" />
+            )}
           </div>
-          <span className="text-[10px] tracking-tight">Messages</span>
+          <span className="text-[9px] tracking-tight uppercase font-extrabold">Chats</span>
         </button>
 
         {/* Profile Tab */}
@@ -932,29 +985,34 @@ const MarketplaceContent: React.FC = () => {
               setCurrentView('profile-settings');
             }
           }}
-          className={`flex flex-col items-center justify-center flex-1 py-1 px-2.5 transition gap-1 ${
+          className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'profile-settings' || currentView === 'my-dashboard'
               ? 'text-slate-950 font-black'
               : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
-          {currentUser && currentUser.photoUrl ? (
-            <img
-              src={currentUser.photoUrl}
-              alt="Account Avatar"
-              referrerPolicy="no-referrer"
-              className={`w-6 h-6 rounded-full object-cover border-2 transition-all ${
-                currentView === 'profile-settings' || currentView === 'my-dashboard'
-                  ? 'border-slate-950 scale-110'
-                  : 'border-transparent'
-              }`}
-            />
-          ) : (
-            <User className={`w-5.5 h-5.5 stroke-[2.2] transition-transform ${
-              currentView === 'profile-settings' || currentView === 'my-dashboard' ? 'scale-110 text-slate-900' : 'text-slate-400'
-            }`} />
-          )}
-          <span className="text-[10px] tracking-tight">Profile</span>
+          <div className="relative flex flex-col items-center">
+            {currentUser && currentUser.photoUrl ? (
+              <img
+                src={currentUser.photoUrl}
+                alt="Account Avatar"
+                referrerPolicy="no-referrer"
+                className={`w-6 h-6 rounded-full object-cover border-2 transition-all duration-200 ${
+                  currentView === 'profile-settings' || currentView === 'my-dashboard'
+                    ? 'border-slate-950 scale-110'
+                    : 'border-transparent'
+                }`}
+              />
+            ) : (
+              <User className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
+                currentView === 'profile-settings' || currentView === 'my-dashboard' ? 'scale-110 text-slate-950' : 'text-slate-400'
+              }`} />
+            )}
+            {(currentView === 'profile-settings' || currentView === 'my-dashboard') && (
+              <span className="absolute -bottom-1.5 w-1 h-1 bg-slate-950 rounded-full" />
+            )}
+          </div>
+          <span className="text-[9px] tracking-tight uppercase font-extrabold">Profile</span>
         </button>
       </div>
     </div>

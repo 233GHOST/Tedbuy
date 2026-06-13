@@ -14,7 +14,8 @@ export const SellerDashboard: React.FC = () => {
     toggleSaveProduct,
     setSelectedSellerId,
     dashboardTab: activeTab,
-    setDashboardTab: setActiveTab
+    setDashboardTab: setActiveTab,
+    updateProduct
   } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -241,8 +242,13 @@ export const SellerDashboard: React.FC = () => {
                       className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
                     />
                     <div className="flex flex-col justify-center min-w-0">
-                      <span className="text-base font-bold text-slate-950 font-sans">
+                      <span className="text-base font-bold text-slate-950 font-sans flex items-center gap-2">
                         GHS {prod.price.toLocaleString()}
+                        {prod.isSold && (
+                          <span className="bg-rose-100 text-rose-700 text-[9px] px-1.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider border border-rose-200/50 shadow-3xs animate-pulse shrink-0">
+                            Sold Product
+                          </span>
+                        )}
                       </span>
                       <h3 className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-slate-950 transition truncate-hover mt-0.5">
                         {prod.title}
@@ -276,7 +282,28 @@ export const SellerDashboard: React.FC = () => {
                   </div>
 
                   {/* Management controls */}
-                  <div className="col-span-1 md:col-span-2 flex items-center justify-end gap-2 text-right relative z-30">
+                  <div className="col-span-1 md:col-span-2 flex items-center justify-end gap-2 text-right relative z-35">
+                    <button
+                      id={`btn-toggle-sold-${prod.id}`}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await updateProduct(prod.id, { isSold: !prod.isSold });
+                        } catch (err) {
+                          console.error("Failed to toggle sold status", err);
+                        }
+                      }}
+                      className={`p-1.5 border rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-3xs text-[10px] font-black uppercase tracking-wider gap-1.5 px-3 select-none shrink-0 ${
+                        prod.isSold
+                          ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
+                          : 'bg-white border-slate-200 text-slate-600 hover:text-slate-905 hover:bg-slate-50'
+                      }`}
+                      title={prod.isSold ? "Mark as Available" : "Mark as Sold"}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${prod.isSold ? 'bg-rose-600 animate-pulse' : 'bg-slate-350'}`}></span>
+                      <span>{prod.isSold ? 'Sold' : 'Mark Sold'}</span>
+                    </button>
+
                     <button
                       id={`btn-edit-${prod.id}`}
                       onClick={(e) => handleEdit(prod, e)}
