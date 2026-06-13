@@ -170,7 +170,15 @@ const ReelItem: React.FC<ReelItemProps> = ({
     }
   }, [product?.id]);
 
-  const { updateProduct } = useApp();
+  const { updateProduct, setCurrentView, setSelectedSellerId } = useApp();
+
+  const handleSellerClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (product?.sellerId) {
+      setSelectedSellerId(product.sellerId);
+      setCurrentView('seller-profile');
+    }
+  };
 
   const handleToggleLike = async (e?: React.MouseEvent) => {
     if (e) {
@@ -537,7 +545,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
             )}
 
             <div className="flex items-center gap-1.5 pt-1">
-              <span className="text-[11px] font-bold text-white hover:underline cursor-pointer drop-shadow-md">
+              <span 
+                onClick={handleSellerClick}
+                className="text-[11px] font-bold text-white hover:underline cursor-pointer drop-shadow-md"
+              >
                 @{product?.sellerName}
               </span>
             </div>
@@ -547,7 +558,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
         {/* Glassmorphic Snapchat-style floating action buttons on the right edge */}
         <div className="absolute right-4 bottom-14 flex flex-col gap-4 z-30 items-center pointer-events-auto">
           {/* Seller Avatar Badge with status */}
-          <div className="relative group/avatar cursor-pointer">
+          <div 
+            onClick={handleSellerClick}
+            className="relative group/avatar cursor-pointer"
+          >
             {product?.sellerPhoto && !product.sellerPhoto.includes('1549399542-7e3f8b79c341') ? (
               <img 
                 src={product.sellerPhoto} 
