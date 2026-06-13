@@ -210,6 +210,31 @@ function slugify(text: string): string {
     .replace(/-+$/, '');
 }
 
+const systemMarkdown = `# TedBuy Ghana Classifieds - Verified Peer Commerce
+
+Welcome to **TedBuy**, Ghana's #1 Social Classifieds & Video Commerce platform.
+
+## Active Classified Categories
+- Phones (Mobile devices, iPhones, Androids)
+- Laptops & Accessories
+- Fashion & Apparel (Sneakers, clothing)
+- Home Appliances
+- Vehicles
+- Beauty & Care
+- Games & Consoles
+- Professional Services
+
+## Core Platform Capabilities & API endpoints
+- GET \`/api/health\`: Retrieve system heartbeat and Firebase configurations
+- GET \`/sitemap.xml\`: Auto-updated index of active listing pathways
+- GET \`/robots.txt\`: Navigation crawling policies
+- GET \`/api/products/:productId/image\`: Web-optimized product JPG deliveries
+
+## Communication & Verification
+- Immersive 9:16 Video Ads for real-time buyer trust
+- Direct verified seller peer chats on WhatsApp
+- Verification badge metrics representing transaction completions`;
+
 async function startServer() {
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', projectId });
@@ -378,6 +403,11 @@ async function startServer() {
                              url.includes('productId='));
                              
       if (req.method === 'GET' && isHtmlRequest) {
+        res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog"');
+        if (req.headers.accept?.includes('text/markdown')) {
+          res.status(200).set({ "Content-Type": "text/markdown" }).end(systemMarkdown);
+          return;
+        }
         const queryProductId = req.query.productId as string;
         let productId = queryProductId;
         let queryTitle = req.query.title as string;
@@ -462,6 +492,11 @@ async function startServer() {
     app.use(express.static(distPath, { index: false })); // Do not auto-serve index.html to allow dynamic intercept
 
     app.get('*', async (req, res) => {
+      res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog"');
+      if (req.headers.accept?.includes('text/markdown')) {
+        res.status(200).set({ "Content-Type": "text/markdown" }).end(systemMarkdown);
+        return;
+      }
       const url = req.originalUrl || req.url || '/';
       const queryProductId = req.query.productId as string;
       let productId = queryProductId;
