@@ -703,7 +703,7 @@ export const ProductDetail: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              {product.sellerPhoto ? (
+              {product.sellerPhoto && !product.sellerPhoto.includes('1549399542-7e3f8b79c341') ? (
                 <img
                   src={product.sellerPhoto}
                   alt={product.sellerName}

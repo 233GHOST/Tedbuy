@@ -150,16 +150,16 @@ export const SellerProfilePage: React.FC = () => {
             <div className="relative shrink-0 select-none">
               <div 
                 onClick={() => {
-                  if (seller.photoUrl) {
+                  if (seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) {
                     setViewedPhoto({ url: seller.photoUrl, name: `${seller.username}'s Profile Picture`, isEditable: true });
                   } else {
                     document.getElementById('seller-avatar-upload')?.click();
                   }
                 }}
                 className="group relative w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 bg-slate-800 cursor-pointer overflow-hidden transition-all hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 flex items-center justify-center"
-                title={seller.photoUrl ? "Click to view or change profile picture" : "Click to add profile picture"}
+                title={(seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) ? "Click to view or change profile picture" : "Click to add profile picture"}
               >
-                {seller.photoUrl ? (
+                {(seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) ? (
                   <img
                     src={seller.photoUrl}
                     alt={seller.username}
@@ -175,7 +175,7 @@ export const SellerProfilePage: React.FC = () => {
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center text-white">
                   <Camera className="w-5 h-5 text-white/95 animate-pulse" />
                   <span className="text-[9px] font-bold mt-1 text-white/90">
-                    {seller.photoUrl ? "View / Change" : "Add Photo"}
+                    {(seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) ? "View / Change" : "Add Photo"}
                   </span>
                 </div>
               </div>
@@ -244,14 +244,14 @@ export const SellerProfilePage: React.FC = () => {
           ) : (
             <div 
               onClick={() => {
-                if (seller.photoUrl) {
+                if (seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) {
                   setViewedPhoto({ url: seller.photoUrl, name: `${seller.username}'s Profile Picture` });
                 }
               }}
-              className={`w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 bg-slate-800 shrink-0 overflow-hidden flex items-center justify-center ${seller.photoUrl ? 'cursor-pointer hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 transition-all' : ''}`}
-              title={seller.photoUrl ? "Click to view profile picture" : "No profile picture added yet"}
+              className={`w-18 h-18 sm:w-20 sm:h-20 rounded-full border-2 border-slate-700/85 bg-slate-800 shrink-0 overflow-hidden flex items-center justify-center ${(seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) ? 'cursor-pointer hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 transition-all' : ''}`}
+              title={(seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) ? "Click to view profile picture" : "No profile picture added yet"}
             >
-              {seller.photoUrl ? (
+              {(seller.photoUrl && !seller.photoUrl.includes('1549399542-7e3f8b79c341')) ? (
                 <img
                   src={seller.photoUrl}
                   alt={seller.username}
@@ -486,7 +486,7 @@ export const SellerProfilePage: React.FC = () => {
                   <div key={rev.id} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-3xs space-y-2 text-left border-b-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        {rev.buyerPhoto ? (
+                        {rev.buyerPhoto && !rev.buyerPhoto.includes('1549399542-7e3f8b79c341') ? (
                           <img 
                             referrerPolicy="no-referrer"
                             src={rev.buyerPhoto}

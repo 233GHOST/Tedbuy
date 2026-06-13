@@ -458,15 +458,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
         )}
 
         {/* Snapchat Floating Header HUD */}
-        <div className="absolute top-4 inset-x-4 flex items-center justify-between z-30 pointer-events-none">
-          <div className="px-3 py-1 bg-black/60 backdrop-blur-xl rounded-full border border-white/10 text-white flex items-center gap-2 shadow-lg">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="text-[9px] font-black tracking-widest uppercase text-emerald-300">DEMO SHIELD</span>
-          </div>
-
+        <div className="absolute top-4 inset-x-4 flex items-center justify-end z-30 pointer-events-none">
           <button
             type="button"
             onClick={(e) => {
@@ -545,8 +537,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
             )}
 
             <div className="flex items-center gap-1.5 pt-1">
-              <span className="text-[9px] font-extrabold text-white/50 lowercase tracking-wide drop-shadow-sm">
-                demonstrated by <strong className="text-white hover:underline cursor-pointer font-extrabold">@{product?.sellerName}</strong>
+              <span className="text-[11px] font-bold text-white hover:underline cursor-pointer drop-shadow-md">
+                @{product?.sellerName}
               </span>
             </div>
           </div>
@@ -556,11 +548,17 @@ const ReelItem: React.FC<ReelItemProps> = ({
         <div className="absolute right-4 bottom-14 flex flex-col gap-4 z-30 items-center pointer-events-auto">
           {/* Seller Avatar Badge with status */}
           <div className="relative group/avatar cursor-pointer">
-            <img 
-              src={product?.sellerPhoto} 
-              alt="" 
-              className="w-11 h-11 rounded-full border-2 border-emerald-400 object-cover shadow-xl transition-transform hover:scale-105 duration-200" 
-            />
+            {product?.sellerPhoto && !product.sellerPhoto.includes('1549399542-7e3f8b79c341') ? (
+              <img 
+                src={product.sellerPhoto} 
+                alt="" 
+                className="w-11 h-11 rounded-full border-2 border-emerald-400 object-cover shadow-xl transition-transform hover:scale-105 duration-200" 
+              />
+            ) : (
+              <div className="w-11 h-11 rounded-full border-2 border-emerald-400 bg-slate-800 text-slate-100 flex items-center justify-center font-black text-xs shadow-xl transition-transform hover:scale-105 duration-200 uppercase whitespace-nowrap">
+                {product?.sellerName ? product.sellerName.substring(0, 2) : 'U'}
+              </div>
+            )}
             {isSellerVerified && (
               <div className="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-slate-950 shadow-md">
                 <CheckCircle className="w-2.5 h-2.5 text-white fill-white" />

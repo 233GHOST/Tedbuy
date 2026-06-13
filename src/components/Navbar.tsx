@@ -365,7 +365,7 @@ export const Navbar: React.FC = () => {
                   className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
                   title="Manage Profile Settings"
                 >
-                  {currentUser.photoUrl ? (
+                  {currentUser.photoUrl && !currentUser.photoUrl.includes('1549399542-7e3f8b79c341') ? (
                     <img
                       src={currentUser.photoUrl}
                       alt={currentUser.username}

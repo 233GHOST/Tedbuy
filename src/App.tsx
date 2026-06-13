@@ -992,7 +992,7 @@ const MarketplaceContent: React.FC = () => {
           }`}
         >
           <div className="relative flex flex-col items-center">
-            {currentUser && currentUser.photoUrl ? (
+            {currentUser && currentUser.photoUrl && !currentUser.photoUrl.includes('1549399542-7e3f8b79c341') ? (
               <img
                 src={currentUser.photoUrl}
                 alt="Account Avatar"

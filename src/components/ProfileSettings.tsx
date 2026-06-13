@@ -181,7 +181,7 @@ export const ProfileSettings: React.FC = () => {
               className="group relative w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200/60 mb-4 shadow-3xs cursor-pointer overflow-hidden transition-all hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 select-none"
               title="Click to change profile picture"
             >
-              {photoUrl ? (
+              {photoUrl && !photoUrl.includes('1549399542-7e3f8b79c341') ? (
                 <img src={photoUrl} alt="Profile Avatar" className="w-full h-full object-cover transition duration-300 group-hover:scale-105" />
               ) : (
                 <img
