@@ -36,6 +36,8 @@ export const ProductDetail: React.FC = () => {
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
@@ -278,10 +280,27 @@ export const ProductDetail: React.FC = () => {
   const handleDeleteAd = async () => {
     if (!product) return;
     try {
+      setIsDeleting(true);
+      setDeleteError(null);
       await deleteProduct(product.id);
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
       setCurrentView('browse');
-    } catch (err) {
-      console.error("Could not delete product as admin:", err);
+    } catch (err: any) {
+      setIsDeleting(false);
+      console.error("Could not delete product:", err);
+      let msg = "Failed to delete listing. Please check your admin privileges.";
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) {
+            msg = `Error: ${parsed.error}`;
+          }
+        } catch {
+          msg = err.message;
+        }
+      }
+      setDeleteError(msg);
     }
   };
 
@@ -569,7 +588,10 @@ export const ProductDetail: React.FC = () => {
                       <span>Edit Ad Details</span>
                     </button>
                     <button
-                      onClick={() => setShowDeleteConfirm(true)}
+                      onClick={() => {
+                        setDeleteError(null);
+                        setShowDeleteConfirm(true);
+                      }}
                       className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -614,7 +636,10 @@ export const ProductDetail: React.FC = () => {
                       <span>Edit Ad Details</span>
                     </button>
                     <button
-                      onClick={() => setShowDeleteConfirm(true)}
+                      onClick={() => {
+                        setDeleteError(null);
+                        setShowDeleteConfirm(true);
+                      }}
                       className="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100/80 text-rose-600 border border-rose-200/65 font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -946,30 +971,45 @@ export const ProductDetail: React.FC = () => {
 
       {/* Admin Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" onClick={() => setShowDeleteConfirm(false)}>
+        <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" onClick={() => !isDeleting && setShowDeleteConfirm(false)}>
           <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full border border-slate-150 relative animate-scale-up text-left" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5 text-rose-750">
               <ShieldAlert className="w-4.5 h-4.5 text-rose-600 animate-pulse" />
-              <span>Confirm Admin Deletion</span>
+              <span>Confirm Deletion</span>
             </h3>
             <p className="text-xs text-slate-500 font-sans leading-relaxed mt-3">
               Are you sure you want to permanently delete <strong className="text-slate-800">"{product.title}"</strong> from the Tedbuy classifieds marketplace? This action is irreversible.
             </p>
+
+            {deleteError && (
+              <div className="mt-3.5 p-3 bg-rose-50 border border-rose-200/50 text-rose-600 rounded-2xl text-[11px] font-mono leading-normal select-text break-all">
+                {deleteError}
+              </div>
+            )}
+
             <div className="flex gap-2.5 mt-5">
               <button
+                disabled={isDeleting}
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
+                disabled={isDeleting}
                 onClick={async () => {
-                  setShowDeleteConfirm(false);
                   await handleDeleteAd();
                 }}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
               >
-                Yes, Delete Ad
+                {isDeleting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <span>Yes, Delete Ad</span>
+                )}
               </button>
             </div>
           </div>

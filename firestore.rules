@@ -8,7 +8,21 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == "asumaduvincent7@gmail.com";
+      return isSignedIn() && (
+        request.auth.token.email == "asumaduvincent7@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('email', '') == "asumaduvincent7@gmail.com") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == "admin") ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true) ||
+        (exists(/databases/$(database)/documents/users/user_$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/user_$(request.auth.uid)).data.get('email', '') == "asumaduvincent7@gmail.com") ||
+        (exists(/databases/$(database)/documents/users/user_$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/user_$(request.auth.uid)).data.get('role', '') == "admin") ||
+        (exists(/databases/$(database)/documents/users/user_$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/user_$(request.auth.uid)).data.get('isAdmin', false) == true)
+      );
     }
 
     // Checks if user is owner under different prefixes

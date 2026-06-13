@@ -154,7 +154,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       ref={cardRef as any}
       id={`product-card-${product.id}`}
       onClick={handleDetailsClick}
-      className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group"
+      className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group animate-fade-in"
     >
       {/* Listing image section */}
       <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-[4/3] flex items-center justify-center" style={{ aspectRatio: '4/3' }}>
@@ -296,11 +296,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                 </span>
               )}
             </span>
-            {!product.images[0] && <span className="bg-slate-200 text-slate-600 px-1 py-0.5 rounded text-[8px]">No Image</span>}
+            {(!product.images[0] && !product.videos?.[0]) && <span className="bg-slate-200 text-slate-600 px-1 py-0.5 rounded text-[8px]">No Image</span>}
           </div>
         </div>
 
-        {currentUser?.id === product.sellerId && (
+        {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) && (
           <div className="pt-2.5 border-t border-dashed border-slate-200 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status Toggle</span>
             <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700">

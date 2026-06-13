@@ -411,31 +411,31 @@ const ReelItem: React.FC<ReelItemProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="flex flex-col md:flex-row items-center justify-center gap-4 w-full px-2 max-w-lg md:max-w-2xl mx-auto py-2">
-      {/* Aspect locked video player container */}
+    <div ref={containerRef} className="flex items-center justify-center w-full px-2 py-3 select-none">
+      {/* Immersive Aspect locked video player container with Snapchat Reels proportions */}
       <div 
         onClick={handleVideoContainerClick}
         onMouseMove={resetControlsTimeout}
         onTouchStart={resetControlsTimeout}
         onMouseEnter={resetControlsTimeout}
-        className="relative aspect-[9/16] w-full max-w-[280px] md:max-w-[310px] h-[480px] md:h-[550px] bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-850 group cursor-pointer flex items-center justify-center shrink-0"
+        className="relative aspect-[9/16] w-full max-w-[320px] sm:max-w-[340px] md:max-w-[360px] h-[550px] sm:h-[600px] md:h-[640px] bg-slate-950 rounded-[2.5rem] overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] border border-white/10 group cursor-pointer flex items-center justify-center shrink-0 transition-transform duration-300 hover:scale-[1.01]"
       >
         {!shouldLoad ? (
-          <div className="text-center p-4 text-slate-500">
-            <Video className="w-12 h-12 mx-auto stroke-[1.2] opacity-40 mb-2 text-emerald-500/85 animate-pulse" />
-            <p className="text-[11px] font-mono font-medium text-slate-400">Tap to load showcase...</p>
+          <div className="text-center p-6 text-slate-500">
+            <Video className="w-14 h-14 mx-auto stroke-[1] text-emerald-500/80 mb-3 animate-pulse" />
+            <p className="text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest">Tap to load showcase</p>
           </div>
         ) : !processedVideoUrl ? (
-          <div className="text-center p-4 text-slate-500">
+          <div className="text-center p-6 text-slate-500">
             {currentVideoUrl ? (
               <>
-                <Video className="w-12 h-12 mx-auto stroke-[1.2] opacity-40 mb-2 animate-spin text-emerald-400" />
-                <p className="text-[11.5px] font-mono font-medium text-slate-400">Initializing showcase stream...</p>
+                <Video className="w-14 h-14 mx-auto stroke-[1.2] text-emerald-400 mb-3 animate-spin" />
+                <p className="text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest">Initializing high-res stream...</p>
               </>
             ) : (
               <>
-                <Video className="w-12 h-12 mx-auto stroke-[1.2] opacity-40 mb-2" />
-                <p className="text-xs font-mono">No video found</p>
+                <Video className="w-14 h-14 mx-auto stroke-[1] text-slate-600 mb-3" />
+                <p className="text-xs font-bold text-slate-500">Showcase Unavailable</p>
               </>
             )}
           </div>
@@ -446,8 +446,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
             loop
             muted={isMuted}
             playsInline
+            webkit-playsinline="true"
             preload="auto"
-            className="w-full h-full object-cover animate-fade-in"
+            className="w-full h-full object-cover animate-fade-in select-none"
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onDurationChange={handleLoadedMetadata}
@@ -456,207 +457,196 @@ const ReelItem: React.FC<ReelItemProps> = ({
           />
         )}
 
+        {/* Snapchat Floating Header HUD */}
+        <div className="absolute top-4 inset-x-4 flex items-center justify-between z-30 pointer-events-none">
+          <div className="px-3 py-1 bg-black/60 backdrop-blur-xl rounded-full border border-white/10 text-white flex items-center gap-2 shadow-lg">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-[9px] font-black tracking-widest uppercase text-emerald-300">DEMO SHIELD</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMuteToggle(e);
+            }}
+            className="w-9 h-9 rounded-full bg-black/60 backdrop-blur-xl border border-white/10 flex items-center justify-center text-white hover:bg-black/85 transition-all cursor-pointer pointer-events-auto shadow-lg"
+            title={isMuted ? "Unmute" : "Mute"}
+          >
+            {isMuted ? (
+              <VolumeX className="w-4 h-4 text-rose-400 stroke-[1.8]" />
+            ) : (
+              <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse stroke-[1.8]" />
+            )}
+          </button>
+        </div>
+
         {/* Floating Heart Burst Overlay on Double-Tap */}
         <AnimatePresence>
           {showBigHeart && (
             <motion.div
               initial={{ scale: 0, opacity: 0, rotate: -25 }}
               animate={{ 
-                scale: [0, 1.4, 0.85, 1.15, 1], 
+                scale: [0, 1.5, 0.85, 1.2, 1], 
                 opacity: [0, 1, 1, 0.8, 0], 
-                y: -45,
-                rotate: [-25, -10, -15]
+                y: -50,
+                rotate: [-25, -5, -15]
               }}
               exit={{ opacity: 0, scale: 0 }}
-              transition={{ duration: 0.7, ease: "easeOut" }}
+              transition={{ duration: 0.65, ease: "easeOut" }}
               style={{
                 position: 'absolute',
-                left: bigHeartCoords.x - 32, // (64 width / 2)
-                top: bigHeartCoords.y - 32, // (64 height / 2)
+                left: bigHeartCoords.x - 40,
+                top: bigHeartCoords.y - 40,
                 zIndex: 40,
                 pointerEvents: 'none'
               }}
-              className="text-white drop-shadow-[0_12px_20px_rgba(244,63,94,0.65)]"
+              className="text-white drop-shadow-[0_15px_30px_rgba(244,63,94,0.85)]"
             >
-              <Heart className="w-16 h-16 fill-rose-500 text-rose-500 stroke-[1.5]" />
+              <Heart className="w-20 h-20 fill-rose-500 text-rose-500 stroke-[1]" />
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Playback overlay control status indicator */}
+        {/* Playback overlay control status indicator (when paused) */}
         {!isPlaying && (
-          <div className="absolute inset-0 z-20 bg-black/30 flex items-center justify-center pointer-events-none animate-fade-in">
-            <div className="p-4 rounded-full bg-slate-900/80 backdrop-blur-sm border border-slate-800 scale-105 transition-all">
-              <Play className="w-6 h-6 text-white fill-white" />
+          <div className="absolute inset-0 z-20 bg-black/40 flex items-center justify-center pointer-events-none animate-fade-in">
+            <div className="p-4 rounded-full bg-black/70 backdrop-blur-md border border-white/15 scale-110 transition-all shadow-2xl">
+              <Play className="w-8 h-8 text-emerald-400 fill-emerald-400" />
             </div>
           </div>
         )}
 
-        {/* Overlay Details Card */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-4 text-left z-20 flex flex-col justify-end pointer-events-none">
-          <div className="space-y-1.5 pointer-events-auto">
-            <span className="px-2 py-0.5 bg-emerald-600 text-white text-[9px] font-black rounded-md tracking-wider uppercase inline-flex items-center gap-1">
+        {/* Immersive bottom text details overlay */}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/100 via-black/60 to-transparent p-4 pb-8 text-left z-20 flex flex-col justify-end pointer-events-none">
+          <div className="space-y-2 pointer-events-auto max-w-[70%]">
+            <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black rounded-md tracking-wider uppercase inline-flex items-center gap-1 shadow-sm">
               <Tag className="w-2.5 h-2.5" />
               {product?.category}
             </span>
             
-            <h3 className="text-sm font-black text-white leading-tight truncate">{product?.title}</h3>
+            <h3 className="text-sm sm:text-base font-black text-white leading-tight truncate drop-shadow-md">{product?.title}</h3>
             
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-black text-emerald-400">{formatPrice(product?.price)}</p>
-              <p className="text-[9px] text-slate-350 flex items-center gap-0.5">
-                <MapPin className="w-2.5 h-2.5 text-slate-400" />
-                <span className="truncate max-w-[100px]">{product?.location}</span>
-              </p>
+            <div className="flex items-center gap-2">
+              <p className="text-base font-black text-emerald-400 drop-shadow-sm">{formatPrice(product?.price)}</p>
+              <div className="text-[9px] font-extrabold text-slate-300 flex items-center gap-0.5 bg-white/10 backdrop-blur-md px-1.5 py-0.5 rounded-full border border-white/5">
+                <MapPin className="w-2.5 h-2.5 text-emerald-400" />
+                <span className="truncate max-w-[80px]">{product?.location}</span>
+              </div>
             </div>
 
             {product?.description && (
-              <p className="text-[10px] text-slate-300 line-clamp-2 leading-tight font-sans font-medium">
+              <p className="text-[10px] text-slate-200 line-clamp-2 leading-relaxed font-sans font-medium drop-shadow-sm">
                 {product.description}
               </p>
             )}
 
-            {/* Custom Interactive Video Control Overlay Panel */}
-            <div 
-              onClick={(e) => e.stopPropagation()}
-              className={`bg-slate-900/95 backdrop-blur-md rounded-xl p-2 border border-slate-800 space-y-2 shadow-xl transition-all duration-300 transform ${
-                showControls 
-                  ? 'opacity-100 translate-y-0 pointer-events-auto' 
-                  : 'opacity-0 translate-y-2 pointer-events-none'
-              }`}
-            >
-              {/* Range scroller slider */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min="0"
-                  max={duration || 10}
-                  step="0.01"
-                  value={currentTime}
-                  onChange={handleSeekChange}
-                  className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer hover:bg-slate-700 transition"
-                />
-              </div>
-
-              {/* Mute and playback button HUD */}
-              <div className="flex items-center justify-between text-white select-none">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePlayPause();
-                    }}
-                    className="p-1 rounded bg-slate-850 hover:bg-slate-800 text-white transition flex items-center justify-center cursor-pointer border border-slate-800 shadow-sm"
-                    title={isPlaying ? "Pause" : "Play"}
-                  >
-                    {isPlaying ? (
-                      <Pause className="w-3 h-3 text-white fill-white" />
-                    ) : (
-                      <Play className="w-3 h-3 text-white fill-white" />
-                    )}
-                  </button>
-
-                  <span className="text-[9px] font-mono leading-none font-bold text-slate-300">
-                    {formatTime(currentTime)} / {formatTime(duration)}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1 group/volume-hud">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMuteToggle(e);
-                    }}
-                    className="p-1 rounded bg-slate-850 hover:bg-slate-800 transition flex items-center justify-center cursor-pointer border border-slate-800 shadow-sm"
-                    title={isMuted ? "Unmute" : "Mute"}
-                  >
-                    {isMuted ? (
-                      <VolumeX className="w-3 h-3 text-slate-450" />
-                    ) : (
-                      <Volume2 className="w-3 h-3 text-emerald-400 animate-pulse" />
-                    )}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeSliderChange}
-                    className="w-10 accent-emerald-500 h-0.5 bg-slate-850 rounded-lg appearance-none cursor-pointer opacity-30 group-hover/volume-hud:opacity-100 transition-all"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Profile badge details */}
-            <div className="flex items-center gap-2 pt-1 border-t border-slate-900/50">
-              <img 
-                src={product?.sellerPhoto} 
-                alt="" 
-                className="w-5 h-5 rounded-full border border-slate-750 object-cover" 
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-0.5">
-                  <p className="text-[9px] font-black text-white truncate leading-none">{product?.sellerName}</p>
-                  {isSellerVerified && <CheckCircle className="w-2.5 h-2.5 text-emerald-400 fill-emerald-400 shrink-0" />}
-                </div>
-              </div>
+            <div className="flex items-center gap-1.5 pt-1">
+              <span className="text-[9px] font-extrabold text-white/50 lowercase tracking-wide drop-shadow-sm">
+                demonstrated by <strong className="text-white hover:underline cursor-pointer font-extrabold">@{product?.sellerName}</strong>
+              </span>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Floating vertical sidebar action buttons */}
-      <div className="flex md:flex-col gap-2.5 justify-center items-center shrink-0">
-        <button
-          onClick={() => handleToggleLike()}
-          className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all duration-200 cursor-pointer w-16 h-14 ${
-            isLiked 
-              ? 'bg-rose-500/15 border-rose-500/40 text-rose-500 font-bold hover:bg-rose-500/25' 
-              : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white'
-          }`}
-        >
-          <motion.div
-            animate={isLiked ? { scale: [1, 1.4, 0.9, 1.15, 1], rotate: [0, -10, 10, 0] } : { scale: 1, rotate: 0 }}
-            transition={{ duration: 0.4 }}
-          >
-            <Heart className={`w-4 h-4 ${isLiked ? 'fill-rose-500 text-rose-500' : 'text-slate-450 hover:text-white'}`} />
-          </motion.div>
-          <span className="text-[9px] mt-0.5 font-black tracking-tight select-none">
-            {likesCount}
-          </span>
-        </button>
+        {/* Glassmorphic Snapchat-style floating action buttons on the right edge */}
+        <div className="absolute right-4 bottom-14 flex flex-col gap-4 z-30 items-center pointer-events-auto">
+          {/* Seller Avatar Badge with status */}
+          <div className="relative group/avatar cursor-pointer">
+            <img 
+              src={product?.sellerPhoto} 
+              alt="" 
+              className="w-11 h-11 rounded-full border-2 border-emerald-400 object-cover shadow-xl transition-transform hover:scale-105 duration-200" 
+            />
+            {isSellerVerified && (
+              <div className="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-slate-950 shadow-md">
+                <CheckCircle className="w-2.5 h-2.5 text-white fill-white" />
+              </div>
+            )}
+          </div>
 
-        <button
-          onClick={onSaveClick}
-          className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all duration-200 cursor-pointer w-16 h-14 ${
-            isSaved 
-              ? 'bg-rose-500/15 border-rose-500/40 text-rose-500 font-bold hover:bg-rose-500/25' 
-              : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white'
-          }`}
-        >
-          <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-rose-500' : ''}`} />
-          <span className="text-[8px] mt-0.5 font-bold tracking-tight">Saved</span>
-        </button>
+          {/* Double tap heart icon widget */}
+          <div className="flex flex-col items-center">
+            <button
+              onClick={() => handleToggleLike()}
+              className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl ${
+                isLiked 
+                  ? 'bg-rose-500 text-white scale-110 shadow-rose-500/20' 
+                  : 'bg-black/55 backdrop-blur-xl text-white border border-white/10 hover:bg-black/75 hover:scale-105'
+              }`}
+            >
+              <motion.div
+                animate={isLiked ? { scale: [1, 1.4, 0.9, 1.15, 1], rotate: [0, -10, 10, 0] } : { scale: 1, rotate: 0 }}
+                transition={{ duration: 0.4 }}
+              >
+                <Heart className={`w-5 h-5 ${isLiked ? 'fill-white text-white stroke-[1.5]' : 'text-white'}`} />
+              </motion.div>
+            </button>
+            <span className="text-[10px] font-black text-white mt-1 drop-shadow-md select-none">
+              {likesCount}
+            </span>
+          </div>
 
-        <button
-          onClick={onMessageSeller}
-          className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 hover:scale-105 active:scale-95 text-white border border-emerald-550/20 transition cursor-pointer w-16 h-14"
-        >
-          <MessageSquare className="w-4 h-4 text-white" />
-          <span className="text-[8px] mt-0.5 font-black tracking-tight">Chat</span>
-        </button>
+          {/* Bookmarks widget */}
+          <div className="flex flex-col items-center">
+            <button
+              onClick={onSaveClick}
+              className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl ${
+                isSaved 
+                  ? 'bg-amber-500 text-white scale-110 shadow-amber-505/20' 
+                  : 'bg-black/55 backdrop-blur-xl text-white border border-white/10 hover:bg-black/75 hover:scale-105'
+              }`}
+            >
+              <Bookmark className={`w-5 h-5 ${isSaved ? 'fill-white text-white' : 'text-white'}`} />
+            </button>
+            <span className="text-[10px] font-black text-white mt-1 drop-shadow-md select-none">
+              {isSaved ? 'Saved' : 'Save'}
+            </span>
+          </div>
 
-        <button
-          onClick={() => onViewFullAd(product.id)}
-          className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-white hover:bg-slate-100 hover:scale-105 active:scale-95 text-slate-950 font-black transition w-16 h-14 cursor-pointer"
-        >
-          <Maximize2 className="w-4 h-4 text-slate-950" />
-          <span className="text-[8px] mt-0.5 tracking-tight leading-none">View Ad</span>
-        </button>
+          {/* Direct chat with seller WhatsApp indicator */}
+          <div className="flex flex-col items-center">
+            <button
+              onClick={onMessageSeller}
+              className="w-11 h-11 rounded-full bg-emerald-500 text-white flex items-center justify-center transition-all duration-300 shadow-xl hover:bg-emerald-400 hover:scale-110 active:scale-95 shadow-emerald-500/10"
+            >
+              <MessageSquare className="w-5 h-5 text-white fill-white" />
+            </button>
+            <span className="text-[10px] font-black text-white mt-1 drop-shadow-md select-none">
+              Chat
+            </span>
+          </div>
+
+          {/* Details / Full Ad presentation */}
+          <div className="flex flex-col items-center">
+            <button
+              onClick={() => onViewFullAd(product.id)}
+              className="w-11 h-11 rounded-full bg-white text-slate-950 flex items-center justify-center transition-all duration-300 shadow-2xl hover:bg-slate-100 hover:scale-110 active:scale-95"
+            >
+              <Maximize2 className="w-4.5 h-4.5 text-slate-950 stroke-[2.2]" />
+            </button>
+            <span className="text-[10px] font-black text-white mt-1 tracking-wide drop-shadow-md select-none">
+              View
+            </span>
+          </div>
+        </div>
+
+        {/* Minimalist interactive seeking timeline at the absolute bottom edge */}
+        <div className="absolute bottom-0 inset-x-0 h-1.5 bg-black/45 z-30 pointer-events-auto flex items-end">
+          <input
+            type="range"
+            min="0"
+            max={duration || 10}
+            step="0.01"
+            value={currentTime}
+            onChange={handleSeekChange}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full accent-emerald-500 hover:accent-emerald-400 h-1 bg-white/20 appearance-none cursor-pointer transition-all outline-none"
+          />
+        </div>
       </div>
     </div>
   );
