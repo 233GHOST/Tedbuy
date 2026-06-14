@@ -10,7 +10,9 @@ import {
   signInWithPopup,
   sendPasswordResetEmail,
   updatePassword,
-  sendEmailVerification
+  sendEmailVerification,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 } from 'firebase/auth';
 import {
   collection,
@@ -97,7 +99,7 @@ interface AppContextType {
     role: 'buyer' | 'seller' | 'both';
     whatsAppNumber?: string;
   }) => Promise<void>;
-  deleteAccount: () => Promise<void>;
+  deleteAccount: (password?: string) => Promise<void>;
   sendWelcomeEmailToAll: (onlyUnsent: boolean, onProgress: (current: number, total: number, logMsg: string) => void) => Promise<void>;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
@@ -1590,9 +1592,35 @@ CEO, Tedbuy Inc`;
     safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
   };
 
-  const deleteAccount = async () => {
+  const deleteAccount = async (password?: string) => {
     if (!currentUser) return;
     const uid = currentUser.id;
+    const authUser = auth.currentUser;
+
+    if (authUser && authUser.uid === uid) {
+      const isPasswordUser = authUser.providerData.some(p => p.providerId === 'password');
+      if (isPasswordUser) {
+        if (!password) {
+          throw new Error('Please enter your current password to authorize permanent account deletion.');
+        }
+        try {
+          const email = authUser.email || currentUser.email || '';
+          if (!email) {
+            throw new Error('Could not resolve user email address for identity verification.');
+          }
+          const credential = EmailAuthProvider.credential(email, password);
+          await reauthenticateWithCredential(authUser, credential);
+        } catch (reauthErr: any) {
+          console.error('[Account Deletion] Re-authentication failed:', reauthErr);
+          if (reauthErr.code === 'auth/wrong-password') {
+            throw new Error('Incorrect password. Please verify and try again.');
+          } else if (reauthErr.code === 'auth/invalid-credential') {
+            throw new Error('Incorrect password or invalid credentials. Account verification failed.');
+          }
+          throw new Error(reauthErr.message || 'Verification failed. Could not authorize permanent account deletion.');
+        }
+      }
+    }
 
     // 1. Delete all user's listings (products)
     try {
@@ -1642,14 +1670,17 @@ CEO, Tedbuy Inc`;
       console.warn('Could not delete user document from firestore:', err);
     }
 
-    // 6. Delete Firebase Auth user
-    try {
-      const authUser = auth.currentUser;
-      if (authUser && authUser.uid === uid) {
+    // 6. Delete Firebase Auth user representation
+    if (authUser && authUser.uid === uid) {
+      try {
         await authUser.delete();
+      } catch (err: any) {
+        console.error('Could not delete auth user representation:', err);
+        if (err.code === 'auth/requires-recent-login') {
+          throw new Error('For security reasons, deleting your account requires you to have signed in very recently. Please log out, sign back in, and immediately delete your account.');
+        }
+        throw new Error(err.message || 'Could not completely delete your secure authentication record. Please try again.');
       }
-    } catch (err) {
-      console.warn('Could not delete auth user:', err);
     }
 
     safeLocalStorage.removeItem('tedbuy_simulated_user');

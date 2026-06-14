@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
+import { auth } from '../firebase';
 
 export const ProfileSettings: React.FC = () => {
   const { 
@@ -48,6 +49,7 @@ export const ProfileSettings: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletePasswordText, setDeletePasswordText] = useState('');
 
   // Email verification action handlers
   const [isResendingEmail, setIsResendingEmail] = useState(false);
@@ -184,7 +186,7 @@ export const ProfileSettings: React.FC = () => {
     setErrorMsg('');
     setIsDeleting(true);
     try {
-      await deleteAccount();
+      await deleteAccount(deletePasswordText);
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err?.message || 'Failed to completely purge account. Please try again.');
@@ -782,12 +784,28 @@ export const ProfileSettings: React.FC = () => {
                   />
                 </div>
 
+                {auth.currentUser?.providerData.some(p => p.providerId === 'password') && (
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-extrabold text-rose-950 uppercase tracking-wide">
+                      Enter account password to verify identity:
+                    </label>
+                    <input
+                      type="password"
+                      value={deletePasswordText}
+                      onChange={(e) => setDeletePasswordText(e.target.value)}
+                      placeholder="Enter Password"
+                      className="w-full px-3.5 py-2.5 border border-rose-200 rounded-xl bg-white text-rose-900 placeholder-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-450 focus:border-rose-450 text-xs font-bold tracking-wide transition"
+                    />
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2 pt-1 font-sans">
                   <button
                     type="button"
                     onClick={() => {
                       setShowDeleteConfirm(false);
                       setDeleteConfirmText('');
+                      setDeletePasswordText('');
                     }}
                     className="px-4 py-2 border border-slate-205 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
                   >
@@ -796,7 +814,7 @@ export const ProfileSettings: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleDeleteAccountAction}
-                    disabled={isDeleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
+                    disabled={isDeleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE' || (auth.currentUser?.providerData.some(p => p.providerId === 'password') && !deletePasswordText)}
                     className="px-4.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-305 text-white font-extrabold rounded-xl text-xs transition shadow-3xs hover:shadow-2xs flex items-center gap-1.5 cursor-pointer"
                   >
                     {isDeleting ? (
