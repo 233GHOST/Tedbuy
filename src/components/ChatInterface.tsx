@@ -21,7 +21,9 @@ export const ChatInterface: React.FC = () => {
     activeChatId,
     setActiveChatId,
     viewingChatOnMobile,
-    setViewingChatOnMobile
+    setViewingChatOnMobile,
+    setIsVerificationBlockOpen,
+    setBlockedActionType
   } = useApp();
 
   const [inputText, setInputText] = useState('');
@@ -75,6 +77,12 @@ export const ChatInterface: React.FC = () => {
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !activeChatId) return;
+
+    if (!currentUser.emailVerified) {
+      setBlockedActionType('chat');
+      setIsVerificationBlockOpen(true);
+      return;
+    }
 
     sendMessage(activeChatId, inputText.trim());
     setInputText('');
@@ -130,7 +138,7 @@ export const ChatInterface: React.FC = () => {
               Need assistance or want to report an issue? Contact administrative support directly on WhatsApp.
             </p>
             <a
-              href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
+              href="https://wa.me/233593565355?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
               target="_blank"
               rel="noopener noreferrer"
               className="mt-2 w-full py-2 bg-emerald-650 hover:bg-emerald-700 bg-emerald-600 text-white font-extrabold text-[11px] rounded-xl text-center shadow-3xs"
@@ -206,46 +214,75 @@ export const ChatInterface: React.FC = () => {
           {activeChat ? (
             <>
               {/* Product Info / Chat Header banner */}
-              <div className="bg-white border-b border-slate-200 p-3.5 flex items-center justify-between shadow-xs sticky top-0 z-25">
-                <div className="flex items-center gap-2 sm:gap-3 text-left min-w-0">
-                  <button
-                    onClick={() => setViewingChatOnMobile(false)}
-                    className="md:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0"
-                    title="Back to inbox list"
-                  >
-                    <ArrowLeft className="w-5 h-5 text-slate-900" />
-                  </button>
+              {activeChat.productId === 'support_welcome' ? (
+                <div className="bg-white border-b border-slate-200 p-3.5 flex items-center justify-between shadow-xs sticky top-0 z-25">
+                  <div className="flex items-center gap-2.5 sm:gap-3 text-left min-w-0">
+                    <button
+                      onClick={() => setViewingChatOnMobile(false)}
+                      className="md:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0"
+                      title="Back to inbox list"
+                    >
+                      <ArrowLeft className="w-5 h-5 text-slate-900" />
+                    </button>
 
-                  <img
-                    src={activeChat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
-                    alt={activeChat.productTitle}
-                    onClick={viewProductDetails}
-                    className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
-                  />
-                  <div className="min-w-0">
-                    <h3 onClick={viewProductDetails} className="text-xs font-bold text-slate-900 cursor-pointer hover:text-slate-950 transition truncate">
-                      {activeChat.productTitle}
-                    </h3>
-                    <p className="text-sm font-bold text-slate-900 font-sans">
-                      GHS {activeChat.productPrice.toLocaleString()}
-                    </p>
+                    <img
+                      src="/favicon.svg"
+                      alt="Tedbuy Support"
+                      className="w-10 h-10 rounded-full object-contain border border-slate-200 shrink-0 p-1 bg-slate-50 shadow-3xs"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="min-w-0">
+                      <h3 className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                        Vincent (CEO, Tedbuy Inc)
+                      </h3>
+                      <p className="text-[11px] text-slate-500 font-medium">
+                        Welcome & Direct Support Channel
+                      </p>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400 text-xs hidden sm:inline">Negotiating with: <strong className="text-slate-700">{otherUserName}</strong></span>
-                  <button
-                    id="btn-chat-view-product"
-                    onClick={viewProductDetails}
-                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 font-bold text-xs text-white rounded-xl transition flex items-center gap-1"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>View Ad</span>
-                  </button>
+              ) : (
+                <div className="bg-white border-b border-slate-200 p-3.5 flex items-center justify-between shadow-xs sticky top-0 z-25">
+                  <div className="flex items-center gap-2 sm:gap-3 text-left min-w-0">
+                    <button
+                      onClick={() => setViewingChatOnMobile(false)}
+                      className="md:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0"
+                      title="Back to inbox list"
+                    >
+                      <ArrowLeft className="w-5 h-5 text-slate-900" />
+                    </button>
+
+                    <img
+                      src={activeChat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
+                      alt={activeChat.productTitle}
+                      onClick={viewProductDetails}
+                      className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <h3 onClick={viewProductDetails} className="text-xs font-bold text-slate-900 cursor-pointer hover:text-slate-950 transition truncate">
+                        {activeChat.productTitle}
+                      </h3>
+                      <p className="text-sm font-bold text-slate-900 font-sans">
+                        GHS {activeChat.productPrice.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 text-xs hidden sm:inline">Negotiating with: <strong className="text-slate-700">{otherUserName}</strong></span>
+                    <button
+                      id="btn-chat-view-product"
+                      onClick={viewProductDetails}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 font-bold text-xs text-white rounded-xl transition flex items-center gap-1"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View Ad</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Dynamic Transaction & Review Status Banner */}
-              {activeChat && (() => {
+              {activeChat && activeChat.productId !== 'support_welcome' && (() => {
                 const currentStatus = activeChat.tradeStatus || (
                   (activeChat.deliveredBySeller && activeChat.pickedUpByBuyer) ? 'completed' : activeChat.deliveredBySeller ? 'delivered' : 'pending'
                 );
@@ -414,10 +451,12 @@ export const ChatInterface: React.FC = () => {
 
               {/* Chat messages viewport */}
               <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3.5 flex flex-col bg-slate-50/50 [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]">
-                <div className="mx-auto bg-slate-150/80 text-slate-650 border border-slate-200/80 px-4 py-2 rounded-2xl text-xs font-semibold flex items-center gap-2 max-w-xs sm:max-w-md mb-4 text-left">
-                  <ShieldAlert className="w-4 h-4 text-slate-800 shrink-0" />
-                  <span>Classified Safety: Verify item condition in person before releasing payment.</span>
-                </div>
+                {activeChat.productId !== 'support_welcome' && (
+                  <div className="mx-auto bg-slate-150/80 text-slate-650 border border-slate-200/80 px-4 py-2 rounded-2xl text-xs font-semibold flex items-center gap-2 max-w-xs sm:max-w-md mb-4 text-left">
+                    <ShieldAlert className="w-4 h-4 text-slate-800 shrink-0" />
+                    <span>Classified Safety: Verify item condition in person before releasing payment.</span>
+                  </div>
+                )}
 
                 {activeMessages.map((msg, i) => {
                   const mine = msg.senderId === currentUser?.id;
@@ -501,7 +540,7 @@ export const ChatInterface: React.FC = () => {
                   Encountered an issue, want to report an advertising post, or seek direct setup help? Chat with me directly.
                 </p>
                 <a
-                  href="https://wa.me/233553066851?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
+                  href="https://wa.me/233593565355?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer"
@@ -522,6 +561,12 @@ export const ChatInterface: React.FC = () => {
               sellerName={activeChat.sellerName}
               productTitle={activeChat.productTitle}
               onSubmit={(rating, comment) => {
+                if (!currentUser?.emailVerified) {
+                  setBlockedActionType('review');
+                  setIsVerificationBlockOpen(true);
+                  setIsReviewOpen(false);
+                  return;
+                }
                 addReview(activeChat.sellerId, rating, comment, activeChat.productTitle);
               }}
             />

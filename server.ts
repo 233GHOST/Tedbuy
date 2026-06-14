@@ -2,8 +2,10 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import nodemailer from "nodemailer";
 
 const app = express();
+app.use(express.json());
 const PORT = 3000;
 
 // Resolve Firebase project ID dynamically
@@ -236,8 +238,185 @@ Welcome to **TedBuy**, Ghana's #1 Social Classifieds & Video Commerce platform.
 - Verification badge metrics representing transaction completions`;
 
 async function startServer() {
+  const getMailTransporter = () => {
+    const host = process.env.SMTP_HOST;
+    const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+
+    if (host && user && pass) {
+      console.log(`[Email Engine] SMTP configured: ${host}:${port}. Initializing real transporter.`);
+      return nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: {
+          user,
+          pass,
+        },
+        tls: {
+          rejectUnauthorized: false
+        }
+      });
+    } else {
+      console.warn(`[Email Engine] No SMTP configurations detected. Running in simulated streaming mode.`);
+      return nodemailer.createTransport({
+        streamTransport: true,
+        newline: "unix",
+        buffer: true
+      });
+    }
+  };
+
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', projectId });
+  });
+
+  app.get('/.well-known/api-catalog', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      "catalog": "1.0",
+      "apis": [
+        {
+          "name": "TedBuy Products API",
+          "description": "API for accessing and managing Ghana classified listings.",
+          "endpoints": {
+            "health": "/api/health",
+            "welcome_email": "/api/send-welcome-email",
+            "product_image": "/api/products/:productId/image"
+          }
+        }
+      ]
+    });
+  });
+
+  app.get('/.well-known/oauth-protected-resource', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      "resource": "https://tedbuy.store",
+      "authorization_servers": [
+        "https://tedbuy.store"
+      ],
+      "scopes_supported": [
+        "public",
+        "read",
+        "write"
+      ]
+    });
+  });
+
+  app.get('/.well-known/oauth-authorization-server', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      "issuer": "https://tedbuy.store",
+      "authorization_endpoint": "https://tedbuy.store/oauth/authorize",
+      "token_endpoint": "https://tedbuy.store/api/oauth/token",
+      "jwks_uri": "https://tedbuy.store/.well-known/jwks.json",
+      "registration_endpoint": "https://tedbuy.store/api/agents/register",
+      "scopes_supported": ["public", "read", "write"],
+      "response_types_supported": ["code", "token"],
+      "agent_auth": {
+        "register_uri": "https://tedbuy.store/api/agents/register",
+        "supported_identity_types": ["individual", "organisation"],
+        "credential_types": ["api_key", "oauth2"],
+        "claim_uri": "https://tedbuy.store/api/agents/claim",
+        "revocation_uri": "https://tedbuy.store/api/agents/revoke"
+      }
+    });
+  });
+
+  app.get('/auth.md', (req, res) => {
+    const paths = [
+      path.join(process.cwd(), 'public', 'auth.md'),
+      path.join(process.cwd(), 'dist', 'auth.md'),
+      path.join(process.cwd(), 'auth.md')
+    ];
+    let content = `# Auth.md\n\n# TedBuy Agent Registration & Discovery Metadata`;
+    for (const p of paths) {
+      if (fs.existsSync(p)) {
+        try {
+          content = fs.readFileSync(p, 'utf-8');
+          break;
+        } catch (e) {
+          // Ignore
+        }
+      }
+    }
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.send(content);
+  });
+
+  app.post('/api/send-welcome-email', async (req, res) => {
+    const { email, username } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email parameter is required.' });
+    }
+
+    const cleanName = username || email.split('@')[0] || 'there';
+
+    try {
+      const transporter = getMailTransporter();
+      
+      const mailOptions = {
+        from: '"Vincent Asumadu (CEO, Tedbuy Inc)" <info@tedbuy.store>',
+        to: email,
+        replyTo: 'info@tedbuy.store',
+        subject: 'Welcome to Tedbuy 🚀',
+        text: `Welcome to Tedbuy\n\nHi ${cleanName},\n\nWelcome to Tedbuy 👋\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.\n\nCustomer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.\n\nThanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`,
+        html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 10px rgb(0 0 0 / 0.04); }
+    .header { background-color: #0f172a; padding: 32px; text-align: center; color: #ffffff; }
+    .header h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.025em; }
+    .content { padding: 36px; line-height: 1.6; font-size: 15px; }
+    .footer { background-color: #f8fafc; padding: 24px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #f1f5f9; }
+    p { margin-top: 0; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 style="color:#ffffff;">Tedbuy 🚀</h1>
+    </div>
+    <div class="content">
+      <p><strong>Welcome to Tedbuy</strong></p>
+      <p>Hi ${cleanName},</p>
+      <p>Welcome to Tedbuy 👋</p>
+      <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.</p>
+      <p>Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
+      <p>Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.</p>
+      <p>Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
+      <p style="margin-top: 32px; line-height: 1.4;">
+        Gratefully yours,<br/>
+        <strong>Vincent Asumadu</strong><br/>
+        <span style="color: #64748b; font-size: 13px;">CEO, Tedbuy Inc</span>
+      </p>
+    </div>
+    <div class="footer">
+      <p>This message was sent from <a href="mailto:info@tedbuy.store" style="color: #0f172a; text-decoration: underline;">info@tedbuy.store</a>. You can directly hit reply to reach our support team.</p>
+      <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
+    </div>
+  </div>
+</body>
+</html>`
+      };
+
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`[Email Engine] Welcome email dispatched successfully for ${email}. MessageId: ${info.messageId || 'virtual'}`);
+      
+      if ((info as any).message) {
+        console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
+      }
+
+      return res.json({ success: true, messageId: info.messageId || 'virtual' });
+    } catch (err: any) {
+      console.error(`[Email Engine] Dispatch failed for ${email}:`, err);
+      return res.status(500).json({ error: 'Failed to send welcome email.', details: err?.message || String(err) });
+    }
   });
 
   // Dynamic robots.txt declaring active domain's sitemap.xml to speed up indexing on custom domains
@@ -246,7 +425,7 @@ async function startServer() {
     const host = cleanHostHeader(rawHost);
     const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
     res.type('text/plain');
-    res.send(`User-agent: *\nAllow: /\nDisallow: /settings\nDisallow: /dashboard\n\nSitemap: ${protocol}://${host}/sitemap.xml`);
+    res.send(`User-agent: *\nAllow: /\nDisallow: /settings\nDisallow: /dashboard\n\nContent-Signal: ai-train=no, search=yes, ai-input=no\n\nSitemap: ${protocol}://${host}/sitemap.xml`);
   });
 
   // Dynamic Google XML Sitemap Endpoint
@@ -403,9 +582,10 @@ async function startServer() {
                              url.includes('productId='));
                              
       if (req.method === 'GET' && isHtmlRequest) {
-        res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog"');
+        res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
         if (req.headers.accept?.includes('text/markdown')) {
-          res.status(200).set({ "Content-Type": "text/markdown" }).end(systemMarkdown);
+          res.setHeader('x-markdown-tokens', '1200');
+          res.status(200).set({ "Content-Type": "text/markdown; charset=utf-8" }).end(systemMarkdown);
           return;
         }
         const queryProductId = req.query.productId as string;
@@ -492,9 +672,10 @@ async function startServer() {
     app.use(express.static(distPath, { index: false })); // Do not auto-serve index.html to allow dynamic intercept
 
     app.get('*', async (req, res) => {
-      res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog"');
+      res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
       if (req.headers.accept?.includes('text/markdown')) {
-        res.status(200).set({ "Content-Type": "text/markdown" }).end(systemMarkdown);
+        res.setHeader('x-markdown-tokens', '1200');
+        res.status(200).set({ "Content-Type": "text/markdown; charset=utf-8" }).end(systemMarkdown);
         return;
       }
       const url = req.originalUrl || req.url || '/';

@@ -9,7 +9,8 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   sendPasswordResetEmail,
-  updatePassword
+  updatePassword,
+  sendEmailVerification
 } from 'firebase/auth';
 import {
   collection,
@@ -123,6 +124,16 @@ interface AppContextType {
   isAuthLoading: boolean;
   isProductsLoading: boolean;
   refreshProducts: () => Promise<void>;
+  toast: { message: string; type: 'success' | 'error' | 'info' } | null;
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  hideToast: () => void;
+  verifyEmailSimulated: () => Promise<void>;
+  sendVerificationEmailReal: () => Promise<void>;
+  reloadUserVerificationStatus: () => Promise<boolean>;
+  isVerificationBlockOpen: boolean;
+  setIsVerificationBlockOpen: (open: boolean) => void;
+  blockedActionType: 'post-ad' | 'chat' | 'whatsApp' | 'review' | null;
+  setBlockedActionType: (type: 'post-ad' | 'chat' | 'whatsApp' | 'review' | null) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -209,6 +220,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
+
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+  }, []);
+
+  const hideToast = useCallback(() => {
+    setToast(null);
+  }, []);
 
   const hasProcessedDeepLink = useRef(false);
 
@@ -301,6 +322,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [unauthorizedDomainDetected, setUnauthorizedDomainDetected] = useState(false);
+  const [isVerificationBlockOpen, setIsVerificationBlockOpen] = useState(false);
+  const [blockedActionType, setBlockedActionType] = useState<'post-ad' | 'chat' | 'whatsApp' | 'review' | null>(null);
 
   // Popstate listener to update view and states on native back/forward buttons
   useEffect(() => {
@@ -384,7 +407,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             joinDate: 'Joined recently',
             photoUrl: firebaseUser.photoURL || undefined,
             followingSellers: [],
-            savedProductIds: []
+            savedProductIds: [],
+            emailVerified: firebaseUser.emailVerified
           };
           
           // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
@@ -405,7 +429,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (!active) return;
             
             if (userDoc.exists()) {
-              setCurrentUserState(userDoc.data() as User);
+              const dbData = userDoc.data() as User;
+              const isEmailVerifiedNow = firebaseUser.emailVerified || dbData.emailVerified || false;
+              if (isEmailVerifiedNow !== dbData.emailVerified) {
+                await updateDoc(userRef, { emailVerified: isEmailVerifiedNow });
+                setCurrentUserState({ ...dbData, emailVerified: isEmailVerifiedNow });
+              } else {
+                setCurrentUserState({ ...dbData, emailVerified: isEmailVerifiedNow });
+              }
             } else {
               // Create the user document in Firestore asynchronously if first time
               const newUser: User = {
@@ -416,7 +447,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
                 photoUrl: firebaseUser.photoURL || undefined,
                 followingSellers: [],
-                savedProductIds: []
+                savedProductIds: [],
+                emailVerified: firebaseUser.emailVerified
               };
               await setDoc(userRef, cleanObject(newUser));
               if (active) setCurrentUserState(newUser);
@@ -503,6 +535,150 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return unsub;
   }, []);
+
+  // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
+  const isTriggeringWelcome = useRef(false);
+  useEffect(() => {
+    if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
+    if (isTriggeringWelcome.current) return;
+    isTriggeringWelcome.current = true;
+
+    const setupWelcomePackage = async () => {
+      const targetUser = currentUser;
+      const email = targetUser.email;
+      if (!email) {
+        isTriggeringWelcome.current = false;
+        return;
+      }
+
+      console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
+
+      try {
+        // 1. Create/Ensure CEO profile exists in users collection
+        const ceoRef = doc(db, 'users', 'user_ted_ceo_support');
+        const ceoDoc = await getDoc(ceoRef);
+        if (!ceoDoc.exists()) {
+          const ceoProfile = {
+            id: 'user_ted_ceo_support',
+            username: 'Vincent (CEO, Tedbuy Inc)',
+            email: 'info@tedbuy.store',
+            photoUrl: '/favicon.svg',
+            role: 'seller',
+            joinDate: 'Jun 2018'
+          };
+          await setDoc(ceoRef, cleanObject(ceoProfile));
+          console.log('[Welcome Trigger] Created CEO Vincent support user profile in Firestore.');
+        }
+
+        // 2. Setup chat room
+        const chatId = `chat_support_${targetUser.id}`;
+        const chatRef = doc(db, 'chats', chatId);
+        
+        let chatExists = false;
+        try {
+          const chatDoc = await getDoc(chatRef);
+          if (chatDoc.exists()) {
+            chatExists = true;
+          }
+        } catch (checkErr) {
+          console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
+        }
+
+        const welcomeMessageBody = `Welcome to Tedbuy 🚀
+
+Hi there,
+
+I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.
+
+Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.
+
+Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.
+
+Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.
+
+Gratefully yours,
+
+Vincent Asumadu,
+CEO, Tedbuy Inc`;
+
+        if (!chatExists) {
+          const supportChat = {
+            id: chatId,
+            productId: 'support_welcome',
+            productTitle: 'CEO Welcome & Support Desk',
+            productPrice: 'Direct Channel',
+            productImage: '/favicon.svg',
+            buyerId: targetUser.id,
+            buyerName: targetUser.username,
+            sellerId: 'user_ted_ceo_support',
+            sellerName: 'Vincent (CEO, Tedbuy Inc)',
+            lastMessageText: 'Welcome to Tedbuy 🚀',
+            lastMessageTime: new Date().toISOString(),
+            tradeStatus: 'pending'
+          };
+          await setDoc(chatRef, cleanObject(supportChat));
+          console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
+
+          // 3. Create message document inside messages collection
+          const msgId = `msg_welcome_${targetUser.id}`;
+          const msgRef = doc(db, 'messages', msgId);
+          const supportMessage = {
+            id: msgId,
+            chatId: chatId,
+            senderId: 'user_ted_ceo_support',
+            recipientId: targetUser.id,
+            text: welcomeMessageBody,
+            createdAt: new Date().toISOString(),
+            read: false
+          };
+          await setDoc(msgRef, cleanObject(supportMessage));
+          console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
+        }
+
+        // 4. Update welcomeSent: true metadata under users/{userId}
+        const userRef = doc(db, 'users', targetUser.id);
+        await setDoc(userRef, { welcomeSent: true }, { merge: true });
+        console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
+
+        // 5. Send Welcome Email synchronously via server SMTP
+        try {
+          const emailResponse = await fetch('/api/send-welcome-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              email: email.trim(),
+              username: targetUser.username
+            })
+          });
+          if (emailResponse.ok) {
+            console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
+            showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
+          } else {
+            console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
+          }
+        } catch (emailErr) {
+          console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
+        }
+
+        // 6. Keep active runtime state in-sync with welcomeSent: true
+        setCurrentUserState(prev => {
+          if (prev && prev.id === targetUser.id) {
+            return { ...prev, welcomeSent: true };
+          }
+          return prev;
+        });
+
+      } catch (err) {
+        console.error('[Welcome Trigger] Critical welcome package generation aborted:', err);
+      } finally {
+        isTriggeringWelcome.current = false;
+      }
+    };
+
+    setupWelcomePackage();
+  }, [currentUser]);
 
   // 2.2 Auto-Seeding Search Console Specific Products (24k pure black / 24k blue)
   useEffect(() => {
@@ -770,8 +946,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
         photoUrl: photoUrl || undefined,
         followingSellers: [],
-        savedProductIds: []
+        savedProductIds: [],
+        emailVerified: false
       };
+
+      try {
+        await sendEmailVerification(userCredential.user);
+        console.log('Real email verification sent to user email.');
+      } catch (emailErr) {
+        console.warn('Real email verification could not be dispatched (normal if local/sandboxed):', emailErr);
+      }
 
       await setDoc(doc(db, 'users', uid), cleanObject(newUser));
       setCurrentUserState(newUser);
@@ -910,6 +1094,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentView('browse');
     } catch (err) {
       console.error('Core Logout failed:', err);
+    }
+  };
+
+  const verifyEmailSimulated = async () => {
+    if (!currentUser) {
+      showToast("No logged in user found to simulate verification.", "error");
+      return;
+    }
+    try {
+      const userRef = doc(db, 'users', currentUser.id);
+      await updateDoc(userRef, { emailVerified: true });
+      setCurrentUserState(prev => prev ? { ...prev, emailVerified: true } : null);
+      showToast("Email successfully marked as verified in Simulation Mode! 🛡️", "success");
+    } catch (err) {
+      console.error("Simulation verification error:", err);
+      showToast("Failed to simulate email verification.", "error");
+    }
+  };
+
+  const sendVerificationEmailReal = async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
+      showToast("No active authentication section found.", "error");
+      return;
+    }
+    try {
+      await sendEmailVerification(firebaseUser);
+      showToast("A new verification link was dispatched to " + firebaseUser.email + "!", "success");
+    } catch (err: any) {
+      console.error("Error sending verification email:", err);
+      showToast(err.message || "Failed to dispatch verification email.", "error");
+    }
+  };
+
+  const reloadUserVerificationStatus = async (): Promise<boolean> => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return false;
+    try {
+      await firebaseUser.reload();
+      const freshUser = auth.currentUser;
+      const isVerified = freshUser?.emailVerified || false;
+      if (isVerified && currentUser) {
+        const userRef = doc(db, 'users', currentUser.id);
+        await updateDoc(userRef, { emailVerified: true });
+        setCurrentUserState(prev => prev ? { ...prev, emailVerified: true } : null);
+        showToast("Success! Your email address has been verified. 🔒", "success");
+      } else if (!isVerified) {
+        showToast("Status: Unverified. Please click the link sent to " + firebaseUser.email, "info");
+      }
+      return isVerified;
+    } catch (err: any) {
+      console.error("Error reloading user status:", err);
+      showToast("Unable to fetch status. Try again shortly.", "error");
+      return false;
     }
   };
 
@@ -1562,7 +1800,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setUnauthorizedDomainDetected,
       isAuthLoading,
       isProductsLoading,
-      refreshProducts
+      refreshProducts,
+      toast,
+      showToast,
+      hideToast,
+      verifyEmailSimulated,
+      sendVerificationEmailReal,
+      reloadUserVerificationStatus,
+      isVerificationBlockOpen,
+      setIsVerificationBlockOpen,
+      blockedActionType,
+      setBlockedActionType
     }}>
       {children}
     </AppContext.Provider>

@@ -13,6 +13,8 @@ import { Category, Product } from './types';
 import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
+import { VerificationBlockModal } from './components/VerificationBlockModal';
+import { WebMCPInitializer } from './components/WebMCPInitializer';
 
 const CATEGORY_ICONS: { [key in Category]: string } = {
   Phones: '📱',
@@ -51,8 +53,25 @@ const MarketplaceContent: React.FC = () => {
     selectedProductId,
     setSelectedProductId,
     selectedSellerId,
-    refreshProducts
+    refreshProducts,
+    toast,
+    hideToast,
+    isVerificationBlockOpen,
+    setIsVerificationBlockOpen,
+    blockedActionType,
+    setBlockedActionType,
+    verifyEmailSimulated
   } = useApp();
+
+  // Toast automatic dismiss timer
+  React.useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        hideToast();
+      }, 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast, hideToast]);
 
   // Dynamic Document Title and Meta Description for Client-Side SEO indexing
   React.useEffect(() => {
@@ -232,6 +251,7 @@ const MarketplaceContent: React.FC = () => {
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
   const [displayLimit, setDisplayLimit] = useState<number>(12);
   const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');
+  const scrollSentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Reset pagination limit when any filter parameters change to ensure fast and lightweight mobile rendering
   React.useEffect(() => {
@@ -321,9 +341,34 @@ const MarketplaceContent: React.FC = () => {
     });
   }, [filteredProducts, sortByPrice, sortByAds]);
 
+  React.useEffect(() => {
+    const sentinel = scrollSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry.isIntersecting) {
+        setDisplayLimit((prev) => prev + 12);
+      }
+    }, {
+      rootMargin: '200px', // start loading before the user completely reaches the bottom
+      threshold: 0.1
+    });
+
+    observer.observe(sentinel);
+    return () => {
+      observer.unobserve(sentinel);
+    };
+  }, [scrollSentinelRef.current, sortedProducts.length, displayLimit]);
+
   const handlePostAdBtn = () => {
     if (!currentUser) {
       setShowAuthModal(true);
+      return;
+    }
+    if (!currentUser.emailVerified) {
+      setBlockedActionType('post-ad');
+      setIsVerificationBlockOpen(true);
       return;
     }
     setIsPostAdOpen(true);
@@ -339,8 +384,38 @@ const MarketplaceContent: React.FC = () => {
   }, [messages, chats, currentUser]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-16 md:pb-0">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-16 md:pb-0 relative">
       <Navbar />
+
+      {currentUser && !currentUser.emailVerified && (
+        <div id="unverified-email-banner" className="bg-amber-500 text-amber-950 px-4 py-2.5 text-xs font-semibold flex flex-col md:flex-row items-center justify-between gap-3 shadow-inner border-b border-amber-600/35 relative z-30">
+          <div className="flex items-center gap-2 text-center md:text-left">
+            <span className="text-sm">📧</span>
+            <span>
+              Your email <strong className="font-extrabold font-mono">{currentUser.email}</strong> is not yet verified. Please verify your address to post ads, start negotiations, and unlock all features.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button 
+              onClick={() => {
+                setBlockedActionType(null);
+                setIsVerificationBlockOpen(true);
+              }}
+              className="bg-amber-950 hover:bg-amber-900 text-white font-extrabold border-none px-3.5 py-1.5 rounded-xl cursor-pointer transition text-[10px] uppercase tracking-wider"
+            >
+              Verify Status
+            </button>
+            <button 
+              onClick={async () => {
+                await verifyEmailSimulated();
+              }}
+              className="bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold border-none px-3.5 py-1.5 rounded-xl cursor-pointer transition text-[10px] uppercase tracking-wider"
+            >
+              Instant Verify (Simulate)
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1">
         {currentView === 'browse' && (
@@ -829,17 +904,11 @@ const MarketplaceContent: React.FC = () => {
                       </div>
                       
                       {sortedProducts.length > displayLimit && (
-                        <div className="flex justify-center pt-4">
-                          <button
-                            id="btn-load-more"
-                            onClick={() => setDisplayLimit(prev => prev + 12)}
-                            className="px-6 py-2.5 bg-white border border-slate-200 text-slate-800 hover:text-slate-900 font-extrabold text-xs rounded-xl transition shadow-3xs hover:border-slate-350 flex items-center gap-2 cursor-pointer"
-                          >
-                            <span>Load More Listings</span>
-                            <span className="text-[10px] text-slate-400 font-normal">
-                              ({displayLimit} of {sortedProducts.length} shown)
-                            </span>
-                          </button>
+                        <div ref={scrollSentinelRef} className="flex justify-center pt-8 pb-4">
+                          <div className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-2xl shadow-3xs text-slate-600 animate-pulse">
+                            <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-800 rounded-full animate-spin" />
+                            <span className="text-xs font-extrabold text-slate-700">Loading more listings...</span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -875,6 +944,35 @@ const MarketplaceContent: React.FC = () => {
         isOpen={isPostAdOpen}
         onClose={() => setIsPostAdOpen(false)}
       />
+
+      {/* Floating Modern Toast Notification */}
+      {toast && (
+        <div id="welcome-success-toast" className="fixed top-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 z-50 w-full max-w-md px-4 md:px-0 pointer-events-none animate-slide-in">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-4.5 shadow-[0_15px_45px_1px_rgba(0,0,0,0.25)] flex items-start gap-4 pointer-events-auto backdrop-blur-md">
+            <div className={`rounded-full p-2.5 shrink-0 flex items-center justify-center ${
+              toast.type === 'success' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 
+              toast.type === 'error' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' : 
+              'bg-blue-500/15 text-blue-400 border border-blue-500/20'
+            }`}>
+              <Check className="w-4.5 h-4.5 stroke-[3]" />
+            </div>
+            <div className="flex-1 space-y-1.5">
+              <p className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5">
+                Join Confirmation 🚀
+              </p>
+              <p className="text-[12px] text-slate-300 leading-relaxed font-medium">{toast.message}</p>
+            </div>
+            <button
+              id="close-toast-btn"
+              onClick={hideToast}
+              className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer shrink-0"
+              title="Dismiss Notification"
+            >
+              <X className="w-4.5 h-4.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around">
@@ -1015,6 +1113,9 @@ const MarketplaceContent: React.FC = () => {
           <span className="text-[9px] tracking-tight uppercase font-extrabold">Profile</span>
         </button>
       </div>
+
+      <VerificationBlockModal />
+      <WebMCPInitializer />
     </div>
   );
 };

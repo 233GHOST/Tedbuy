@@ -1,3 +1,5 @@
+# Auth.md
+
 # TedBuy Agent Registration & Discovery Metadata
 
 Thank you for visiting TedBuy Ghana. We provide first-class classified listings with secure verification, video-commerce ads, and direct communication in Ghana.

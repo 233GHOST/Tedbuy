@@ -23,7 +23,9 @@ export const ProductDetail: React.FC = () => {
     setAuthMode,
     incrementProductViews,
     deleteProduct,
-    updateProduct
+    updateProduct,
+    setIsVerificationBlockOpen,
+    setBlockedActionType
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
@@ -240,6 +242,11 @@ export const ProductDetail: React.FC = () => {
       setShowAuthModal(true);
       return;
     }
+    if (!currentUser.emailVerified) {
+      setBlockedActionType('chat');
+      setIsVerificationBlockOpen(true);
+      return;
+    }
     const chatId = startChat(product.id, "Hi, is this still available?");
     setCurrentView('chats');
   };
@@ -248,6 +255,11 @@ export const ProductDetail: React.FC = () => {
     if (!currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
+      return;
+    }
+    if (!currentUser.emailVerified) {
+      setBlockedActionType('whatsApp');
+      setIsVerificationBlockOpen(true);
       return;
     }
     if (!sellerUser?.whatsAppNumber) return;

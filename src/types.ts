@@ -10,16 +10,13 @@ export interface User {
   savedProductIds?: string[]; // Bookmarked product IDs
   whatsAppNumber?: string;
   isAdmin?: boolean;
+  welcomeSent?: boolean;
+  emailVerified?: boolean;
 }
 
 export const isUserVerified = (user?: User | null): boolean => {
   if (!user) return false;
-  
-  // Completed Profile Setup check
-  const hasUsername = !!(user.username && user.username.trim().length >= 3);
-  const hasPhone = !!(user.phoneNumber && user.phoneNumber.trim().length >= 7);
-
-  return hasUsername && hasPhone;
+  return !!user.emailVerified;
 };
 
 export const calculateTrustScore = (
