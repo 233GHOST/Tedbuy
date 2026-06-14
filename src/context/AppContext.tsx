@@ -98,6 +98,7 @@ interface AppContextType {
     whatsAppNumber?: string;
   }) => Promise<void>;
   deleteAccount: () => Promise<void>;
+  sendWelcomeEmailToAll: (onlyUnsent: boolean, onProgress: (current: number, total: number, logMsg: string) => void) => Promise<void>;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
   selectedSellerId: string | null;
@@ -127,7 +128,6 @@ interface AppContextType {
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   hideToast: () => void;
-  verifyEmailSimulated: () => Promise<void>;
   sendVerificationEmailReal: () => Promise<void>;
   reloadUserVerificationStatus: () => Promise<boolean>;
   isVerificationBlockOpen: boolean;
@@ -430,7 +430,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
-              const isEmailVerifiedNow = firebaseUser.emailVerified || dbData.emailVerified || false;
+              const isEmailVerifiedNow = firebaseUser.emailVerified || false;
               if (isEmailVerifiedNow !== dbData.emailVerified) {
                 await updateDoc(userRef, { emailVerified: isEmailVerifiedNow });
                 setCurrentUserState({ ...dbData, emailVerified: isEmailVerifiedNow });
@@ -584,7 +584,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
         }
 
-        const welcomeMessageBody = `Welcome to Tedbuy 🚀
+        const welcomeMessageBody = `Welcome to Tedbuy 
 
 Hi there,
 
@@ -655,6 +655,19 @@ CEO, Tedbuy Inc`;
           if (emailResponse.ok) {
             console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
             showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
+            
+            // Auto send real email verification request to their inbox right after their welcome email
+            setTimeout(async () => {
+              try {
+                const firebaseUser = auth.currentUser;
+                if (firebaseUser && !firebaseUser.emailVerified) {
+                  await sendEmailVerification(firebaseUser);
+                  showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
+                }
+              } catch (verifErr: any) {
+                console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
+              }
+            }, 1500);
           } else {
             console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
           }
@@ -1094,22 +1107,6 @@ CEO, Tedbuy Inc`;
       setCurrentView('browse');
     } catch (err) {
       console.error('Core Logout failed:', err);
-    }
-  };
-
-  const verifyEmailSimulated = async () => {
-    if (!currentUser) {
-      showToast("No logged in user found to simulate verification.", "error");
-      return;
-    }
-    try {
-      const userRef = doc(db, 'users', currentUser.id);
-      await updateDoc(userRef, { emailVerified: true });
-      setCurrentUserState(prev => prev ? { ...prev, emailVerified: true } : null);
-      showToast("Email successfully marked as verified in Simulation Mode! 🛡️", "success");
-    } catch (err) {
-      console.error("Simulation verification error:", err);
-      showToast("Failed to simulate email verification.", "error");
     }
   };
 
@@ -1674,6 +1671,59 @@ CEO, Tedbuy Inc`;
     setCurrentView('browse');
   };
 
+  const sendWelcomeEmailToAll = async (
+    onlyUnsent: boolean, 
+    onProgress: (current: number, total: number, logMsg: string) => void
+  ) => {
+    if (!currentUser || !currentUser.isAdmin) {
+      throw new Error("Unauthorized: Only administrators can trigger bulk onboarding emails.");
+    }
+
+    const targets = users.filter(u => u.email && (!onlyUnsent || !u.welcomeSent));
+    const total = targets.length;
+
+    if (total === 0) {
+      onProgress(0, 0, "No users found matching the filter criteria.");
+      return;
+    }
+
+    onProgress(0, total, `Starting welcome email dispatch for ${total} users...`);
+
+    let successCount = 0;
+    for (let i = 0; i < total; i++) {
+      const targetUser = targets[i];
+      const email = targetUser.email!.trim();
+      onProgress(i + 1, total, `Sending welcome email to: ${targetUser.username} (${email})`);
+
+      try {
+        const emailResponse = await fetch('/api/send-welcome-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email,
+            username: targetUser.username
+          })
+        });
+
+        if (emailResponse.ok) {
+          successCount++;
+          const userRef = doc(db, 'users', targetUser.id);
+          await setDoc(userRef, { welcomeSent: true }, { merge: true });
+        } else {
+          console.warn(`Failed to send email to ${email} (status: ${emailResponse.status})`);
+        }
+      } catch (err: any) {
+        console.error(`Error sending bulk email to ${email}:`, err);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+
+    onProgress(total, total, `Welcome emails successfully dispatched to ${successCount} of ${total} users!`);
+  };
+
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
     if (!currentUser) return;
     const revId = `rev_${Date.now()}`;
@@ -1767,6 +1817,7 @@ CEO, Tedbuy Inc`;
       toggleSaveProduct,
       updateUserProfile,
       deleteAccount,
+      sendWelcomeEmailToAll,
       reviews,
       addReview,
       searchQuery,
@@ -1804,7 +1855,6 @@ CEO, Tedbuy Inc`;
       toast,
       showToast,
       hideToast,
-      verifyEmailSimulated,
       sendVerificationEmailReal,
       reloadUserVerificationStatus,
       isVerificationBlockOpen,

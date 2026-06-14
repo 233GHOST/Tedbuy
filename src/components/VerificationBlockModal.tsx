@@ -9,7 +9,6 @@ export const VerificationBlockModal: React.FC = () => {
     isVerificationBlockOpen,
     setIsVerificationBlockOpen,
     blockedActionType,
-    verifyEmailSimulated,
     sendVerificationEmailReal,
     reloadUserVerificationStatus
   } = useApp();
@@ -31,18 +30,6 @@ export const VerificationBlockModal: React.FC = () => {
         return 'submit a trust-rating review';
       default:
         return 'access full marketplace features';
-    }
-  };
-
-  const handleSimulatedVerify = async () => {
-    setIsLoading(true);
-    try {
-      await verifyEmailSimulated();
-      setIsVerificationBlockOpen(false);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -121,32 +108,18 @@ export const VerificationBlockModal: React.FC = () => {
 
           {/* Actions */}
           <div className="space-y-2">
-            {/* Simulation button - Extremely prominent and useful for testing */}
-            <button
-              onClick={handleSimulatedVerify}
-              disabled={isLoading || isResending}
-              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
-            >
-              {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-white" />
-              ) : (
-                <Check className="w-4 h-4 text-emerald-100" />
-              )}
-              <span>Instant Simulated Verify (Bypass)</span>
-            </button>
-
-            {/* Check real reload */}
+            {/* Check real reload - Primary action now */}
             <button
               onClick={handleRealReload}
               disabled={isLoading || isResending}
-              className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50 shadow-3xs"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <RefreshCw className="w-4 h-4 text-slate-300" />
+                <RefreshCw className="w-4 h-4 text-emerald-100" />
               )}
-              <span>Reload / Verify Status (Real Firebase)</span>
+              <span>I Have Verified (Check Status)</span>
             </button>
 
             <div className="grid grid-cols-2 gap-2 pt-1">
@@ -154,20 +127,20 @@ export const VerificationBlockModal: React.FC = () => {
               <button
                 onClick={handleResendReal}
                 disabled={isLoading || isResending}
-                className="py-2.5 px-3 border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition disabled:opacity-50"
+                className="py-2.5 px-3 border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition disabled:opacity-50"
               >
                 {isResending ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
                 ) : (
                   <Mail className="w-3.5 h-3.5" />
                 )}
-                <span>Resend Email</span>
+                <span>Resend Link</span>
               </button>
 
               {/* Close/Dismiss */}
               <button
                 onClick={() => setIsVerificationBlockOpen(false)}
-                className="py-2.5 px-3 hover:bg-slate-100 text-slate-500 font-bold rounded-xl text-[11px] cursor-pointer text-center transition"
+                className="py-2.5 px-3 border border-transparent hover:bg-slate-100 text-slate-500 font-bold rounded-xl text-[11px] cursor-pointer text-center transition"
               >
                 Browse Only
               </button>

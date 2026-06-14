@@ -59,8 +59,7 @@ const MarketplaceContent: React.FC = () => {
     isVerificationBlockOpen,
     setIsVerificationBlockOpen,
     blockedActionType,
-    setBlockedActionType,
-    verifyEmailSimulated
+    setBlockedActionType
   } = useApp();
 
   // Toast automatic dismiss timer
@@ -395,23 +394,15 @@ const MarketplaceContent: React.FC = () => {
               Your email <strong className="font-extrabold font-mono">{currentUser.email}</strong> is not yet verified. Please verify your address to post ads, start negotiations, and unlock all features.
             </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 animate-pulse-slow">
             <button 
               onClick={() => {
                 setBlockedActionType(null);
                 setIsVerificationBlockOpen(true);
               }}
-              className="bg-amber-950 hover:bg-amber-900 text-white font-extrabold border-none px-3.5 py-1.5 rounded-xl cursor-pointer transition text-[10px] uppercase tracking-wider"
+              className="bg-amber-950 hover:bg-amber-900 text-white font-extrabold border-none px-4 py-2 rounded-xl cursor-pointer transition text-[10px] uppercase tracking-wider shadow-2xs hover:scale-[1.02] duration-150 active:scale-95"
             >
               Verify Status
-            </button>
-            <button 
-              onClick={async () => {
-                await verifyEmailSimulated();
-              }}
-              className="bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold border-none px-3.5 py-1.5 rounded-xl cursor-pointer transition text-[10px] uppercase tracking-wider"
-            >
-              Instant Verify (Simulate)
             </button>
           </div>
         </div>

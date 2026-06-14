@@ -1,12 +1,23 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 
 export const ProfileSettings: React.FC = () => {
-  const { currentUser, updateUserProfile, deleteAccount, logoutUser, setCurrentView } = useApp();
+  const { 
+    currentUser, 
+    updateUserProfile, 
+    deleteAccount, 
+    logoutUser, 
+    setCurrentView, 
+    users, 
+    sendWelcomeEmailToAll,
+    sendVerificationEmailReal,
+    reloadUserVerificationStatus,
+    showToast
+  } = useApp();
 
   if (!currentUser) {
     return (
@@ -37,6 +48,54 @@ export const ProfileSettings: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
+  // Email verification action handlers
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
+  const [isReloadingStatus, setIsReloadingStatus] = useState(false);
+
+  const handleSendVerificationEmail = async () => {
+    setIsResendingEmail(true);
+    try {
+      await sendVerificationEmailReal();
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setIsResendingEmail(false);
+    }
+  };
+
+  const handleReloadVerificationStatus = async () => {
+    setIsReloadingStatus(true);
+    try {
+      await reloadUserVerificationStatus();
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setIsReloadingStatus(false);
+    }
+  };
+
+  // Admin Onboarding system states
+  const [isAdminRunning, setIsAdminRunning] = useState(false);
+  const [adminLog, setAdminLog] = useState('');
+  const [adminProgress, setAdminProgress] = useState({ current: 0, total: 0 });
+  const [onlyUnsentEmails, setOnlyUnsentEmails] = useState(true);
+
+  const handleBulkOnboard = async () => {
+    setIsAdminRunning(true);
+    setAdminLog('Initializing database search & templates...');
+    setAdminProgress({ current: 0, total: 0 });
+    try {
+      await sendWelcomeEmailToAll(onlyUnsentEmails, (current, total, logMsg) => {
+        setAdminProgress({ current, total });
+        setAdminLog(logMsg);
+      });
+    } catch (err: any) {
+      setAdminLog(`Failed: ${err?.message || 'SMTP or network error occurred.'}`);
+    } finally {
+      setIsAdminRunning(false);
+    }
+  };
 
   const handleAvatarClick = () => {
     document.getElementById('profile-avatar-upload')?.click();
@@ -279,7 +338,55 @@ export const ProfileSettings: React.FC = () => {
                 )}
               </div>
 
+              {/* Email Verified status */}
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Email Address Verified</span>
+                {currentUser?.emailVerified ? (
+                  <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-md flex items-center gap-1">✓ Verified</span>
+                ) : (
+                  <span className="text-rose-700 font-bold bg-rose-50 border border-rose-200/50 px-2 py-0.5 rounded-md">Unverified</span>
+                )}
+              </div>
+
             </div>
+
+            {/* Verification action panel if email is unverified */}
+            {!currentUser?.emailVerified && (
+              <div className="pt-3 border-t border-slate-200/60 space-y-3">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-bold">Email Inbox Verification</span>
+                <p className="text-[10.5px] text-slate-500 leading-normal">
+                  Your email is currently unverified. Click the button below to receive a secure link in your registered email address inbox.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSendVerificationEmail}
+                    disabled={isResendingEmail || isReloadingStatus}
+                    className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-705 text-white font-extrabold text-[11px] rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 transition shadow-3xs"
+                  >
+                    {isResendingEmail ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Mail className="w-3.5 h-3.5" />
+                    )}
+                    <span>Send Verification Link</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReloadVerificationStatus}
+                    disabled={isResendingEmail || isReloadingStatus}
+                    className="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[11px] rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 transition shadow-3xs"
+                  >
+                    {isReloadingStatus ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5 text-slate-300" />
+                    )}
+                    <span>I Have Verified (Check Status)</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Overall status and triggers */}
             <div className="pt-3 border-t border-slate-200/60 flex flex-col items-center text-center gap-2">
@@ -512,6 +619,129 @@ export const ProfileSettings: React.FC = () => {
               </button>
             </div>
           </form>
+
+          {/* CEO Admin Services Command Center */}
+          {currentUser?.isAdmin && (
+            <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl p-6 sm:p-8 mt-8 space-y-6 text-left shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-slate-800 rounded-xl border border-slate-700">
+                  <Mail className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-100">CEO System Controls</h3>
+                  <p className="text-[10px] text-slate-400">Exclusive Administrator Panel (Vincent Asumadu, CEO)</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Manage welcome onboarding workflows for registered users. Dispatch the official CEO greeting to all accounts, enabling support replies directly to <span className="font-bold underline text-emerald-400">info@tedbuy.store</span>.
+                </p>
+
+                {/* Dashboard Metrics */}
+                <div className="grid grid-cols-2 gap-4 pt-2">
+                  <div className="bg-slate-800/80 rounded-2xl p-4 border border-slate-750">
+                    <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-wide">Registered Accounts</span>
+                    <span className="text-xl font-black text-slate-100 flex items-center gap-1.5 mt-1">
+                      <Users className="w-4 h-4 text-indigo-400" />
+                      {users?.length || 0}
+                    </span>
+                  </div>
+                  <div className="bg-slate-800/80 rounded-2xl p-4 border border-slate-750">
+                    <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-wide">Onboarded (With Email)</span>
+                    <span className="text-xl font-black text-slate-100 flex items-center gap-1.5 mt-1">
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      {users?.filter(u => u.welcomeSent && u.email).length || 0}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter Options */}
+                <div className="bg-slate-950 p-4 rounded-2xl space-y-3.5 border border-slate-850">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-450 block mb-2">Configure Onboarding dispatch</span>
+                  
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="dispatchType"
+                      checked={onlyUnsentEmails}
+                      onChange={() => setOnlyUnsentEmails(true)}
+                      className="mt-0.5 w-4 h-4 text-emerald-600 bg-slate-800 rounded border-slate-750 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-200">Onboard remaining users only ({users?.filter(u => !u.welcomeSent && u.email).length || 0} pending)</span>
+                      <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                        Sends greeting email only to verified accounts who haven't received it yet.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="dispatchType"
+                      checked={!onlyUnsentEmails}
+                      onChange={() => setOnlyUnsentEmails(false)}
+                      className="mt-0.5 w-4 h-4 text-emerald-600 bg-slate-800 rounded border-slate-750 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-200">Force/Re-broadcast to all {users?.filter(u => u.email).length || 0} accounts</span>
+                      <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                        Dispatches the welcome package to all users matching the email criteria.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Main Action Trigger */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleBulkOnboard}
+                    disabled={isAdminRunning || (users?.filter(u => u.email).length === 0)}
+                    className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-2xl shadow-md select-none transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {isAdminRunning ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                        <span>Sending Welcome Emails...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 animate-pulse" />
+                        <span>Send Welcome Email to Registered Accounts</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Progress Logs */}
+                {(isAdminRunning || adminLog) && (
+                  <div className="rounded-2xl bg-slate-950 p-4 border border-slate-850 font-mono text-[11px] leading-relaxed mt-2 text-left">
+                    <div className="flex justify-between text-slate-450 text-[10px] uppercase font-bold mb-2 font-sans tracking-wide">
+                      <span>Dispatch Activity Log</span>
+                      {adminProgress.total > 0 && (
+                        <span>{adminProgress.current} / {adminProgress.total} processed</span>
+                      )}
+                    </div>
+                    
+                    {adminProgress.total > 0 && (
+                      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-3">
+                        <div 
+                          className="h-full bg-emerald-500 transition-all duration-300 rounded-full" 
+                          style={{ width: `${(adminProgress.current / adminProgress.total) * 105}%` }}
+                        />
+                      </div>
+                    )}
+
+                    <div className="text-slate-300 max-h-24 overflow-y-auto whitespace-pre-wrap select-all font-mono">
+                      {adminLog}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Danger Zone: Account Deletion */}
           <div className="bg-rose-50/25 border border-rose-150 rounded-3xl p-6 sm:p-8 mt-8 space-y-4">

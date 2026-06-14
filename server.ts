@@ -268,6 +268,77 @@ async function startServer() {
     }
   };
 
+  app.use((req, res, next) => {
+    const url = req.path || '/';
+    
+    // Always set the Link headers for agent discovery on the homepage/index
+    if (url === '/' || url === '/index.html') {
+      res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
+    }
+
+    // Return HTML responses as markdown when agents request it
+    if ((url === '/' || url === '/index.html') && req.headers.accept?.includes('text/markdown')) {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('x-markdown-tokens', '1200');
+      return res.status(200).send(systemMarkdown);
+    }
+
+    next();
+  });
+
+  app.get(['/.well-known/dns-aid', '/.well-known/dns-records'], (req, res) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(`; DNS-AID ServiceMode Records for TedBuy Discovery (RFC 9460)
+_index._agents.tedbuy.store.  3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint="216.58.210.14" key_uri="https://tedbuy.store/.well-known/jwks.json" service-doc="https://tedbuy.store/auth.md" api-catalog="https://tedbuy.store/.well-known/api-catalog"
+_a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint="216.58.210.14" key_uri="https://tedbuy.store/.well-known/jwks.json" service-doc="https://tedbuy.store/auth.md" api-catalog="https://tedbuy.store/.well-known/api-catalog"
+`);
+  });
+
+  app.get(['/.well-known/dns-aid.json', '/.well-known/dns-records.json'], (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      "dnssec": {
+        "status": "active",
+        "algorithm": "RSASHA256",
+        "signed_zone": "tedbuy.store"
+      },
+      "dns_records": [
+        {
+          "name": "_index._agents.tedbuy.store",
+          "type": "HTTPS",
+          "ttl": 3600,
+          "class": "IN",
+          "priority": 1,
+          "target": ".",
+          "params": {
+            "alpn": "h2,h3",
+            "port": 443,
+            "ipv4hint": "216.58.210.14",
+            "key_uri": "https://tedbuy.store/.well-known/jwks.json",
+            "service-doc": "https://tedbuy.store/auth.md",
+            "api-catalog": "https://tedbuy.store/.well-known/api-catalog"
+          }
+        },
+        {
+          "name": "_a2a._agents.tedbuy.store",
+          "type": "HTTPS",
+          "ttl": 3600,
+          "class": "IN",
+          "priority": 1,
+          "target": ".",
+          "params": {
+            "alpn": "h2,h3",
+            "port": 443,
+            "ipv4hint": "216.58.210.14",
+            "key_uri": "https://tedbuy.store/.well-known/jwks.json",
+            "service-doc": "https://tedbuy.store/auth.md",
+            "api-catalog": "https://tedbuy.store/.well-known/api-catalog"
+          }
+        }
+      ]
+    });
+  });
+
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', projectId });
   });
@@ -361,8 +432,8 @@ async function startServer() {
         from: '"Vincent Asumadu (CEO, Tedbuy Inc)" <info@tedbuy.store>',
         to: email,
         replyTo: 'info@tedbuy.store',
-        subject: 'Welcome to Tedbuy 🚀',
-        text: `Welcome to Tedbuy\n\nHi ${cleanName},\n\nWelcome to Tedbuy 👋\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.\n\nCustomer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.\n\nThanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`,
+        subject: 'Welcome to Tedbuy',
+        text: `Welcome to Tedbuy\n\nHi there,\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.\n\nCustomer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.\n\nThanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`,
         html: `<!DOCTYPE html>
 <html>
 <head>
@@ -380,24 +451,22 @@ async function startServer() {
 <body>
   <div class="container">
     <div class="header">
-      <h1 style="color:#ffffff;">Tedbuy 🚀</h1>
+      <h1 style="color:#ffffff;">Tedbuy</h1>
     </div>
     <div class="content">
-      <p><strong>Welcome to Tedbuy</strong></p>
-      <p>Hi ${cleanName},</p>
-      <p>Welcome to Tedbuy 👋</p>
+      <p>Hi there,</p>
       <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.</p>
       <p>Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
       <p>Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.</p>
       <p>Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
       <p style="margin-top: 32px; line-height: 1.4;">
-        Gratefully yours,<br/>
-        <strong>Vincent Asumadu</strong><br/>
+        Gratefully yours,<br/><br/>
+        <strong>Vincent Asumadu</strong>,<br/>
         <span style="color: #64748b; font-size: 13px;">CEO, Tedbuy Inc</span>
       </p>
     </div>
     <div class="footer">
-      <p>This message was sent from <a href="mailto:info@tedbuy.store" style="color: #0f172a; text-decoration: underline;">info@tedbuy.store</a>. You can directly hit reply to reach our support team.</p>
+      <p>This message was sent from <a href="mailto:info@tedbuy.store" style="color: #0f172a; text-decoration: underline;">info@tedbuy.store</a>. You can directly hit reply to reach our support team for support, recommendations, or to report an issue.</p>
       <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
     </div>
   </div>
