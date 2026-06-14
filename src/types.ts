@@ -196,3 +196,21 @@ export function normalizeCategory(cat: string): Category {
   return found || 'Other';
 }
 
+export interface AppNotification {
+  id: string;
+  userId: string; // The user who receives the notification
+  type: 'post_created';
+  title: string;
+  message: string;
+  triggerUserId: string; // The user who made the post
+  triggerUsername: string;
+  triggerUserPhoto?: string;
+  productId: string; // The product that was posted
+  productTitle: string;
+  productPrice: string | number;
+  productImage: string;
+  createdAt: string;
+  read: boolean;
+}
+
+

@@ -97,6 +97,38 @@
         "productTitle": { "type": "string", "description": "Optional title of product traded" }
       },
       "required": ["id", "sellerId", "buyerId", "buyerName", "rating", "comment", "createdAt"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "An activity update alert sent to followers of a seller",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique notification ID" },
+        "userId": { "type": "string", "description": "Target user ID who receives the update" },
+        "type": { "type": "string", "enum": ["post_created"], "description": "The type of the alert event" },
+        "title": { "type": "string", "description": "The clear title of the alert" },
+        "message": { "type": "string", "description": "Brief informational text" },
+        "triggerUserId": { "type": "string", "description": "User ID of the member who posted the item" },
+        "triggerUsername": { "type": "string", "description": "Display name of the poster" },
+        "triggerUserPhoto": { "type": "string", "description": "Avatar of the poster" },
+        "productId": { "type": "string", "description": "Related product ID" },
+        "productTitle": { "type": "string", "description": "Related product title" },
+        "productPrice": { "type": ["string", "number"], "description": "Related product price" },
+        "productImage": { "type": "string", "description": "Related product primary image URL" },
+        "createdAt": { "type": "string", "description": "ISO timestamp for when the alert was fired" },
+        "read": { "type": "boolean", "description": "Read status toggle" }
+      },
+      "required": ["id", "userId", "type", "title", "message", "triggerUserId", "triggerUsername", "productId", "productTitle", "productPrice", "createdAt", "read"]
+    },
+    "DeletedEmail": {
+      "title": "DeletedEmail",
+      "description": "Email registry record for permanently deleted accounts to prevent reuse and ensure identity history",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "The permanently deleted email address in lowercase" },
+        "deletedAt": { "type": "string", "description": "ISO timestamp for when the account was purged" }
+      },
+      "required": ["email", "deletedAt"]
     }
   },
   "firestore": {
@@ -119,6 +151,14 @@
     "/reviews/{reviewId}": {
       "schema": "Review",
       "description": "Marketplace transaction feedback ratings"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "AppNotification",
+      "description": "Real-time user specific notification alerts"
+    },
+    "/deletedEmails/{email}": {
+      "schema": "DeletedEmail",
+      "description": "Permanently deleted email markers to prevent email re-registration"
     }
   }
 }

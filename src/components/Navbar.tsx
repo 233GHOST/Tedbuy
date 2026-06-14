@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff, Bell, CheckCheck, Trash2, ExternalLink } from 'lucide-react';
 import { compressImage } from '../utils/imageOptimizer';
+import { motion, AnimatePresence } from 'motion/react';
 
 export const Navbar: React.FC = () => {
   const {
@@ -28,7 +29,13 @@ export const Navbar: React.FC = () => {
     registerUser,
     loginUser,
     resetPasswordEmail,
-    loginWithGoogle
+    loginWithGoogle,
+    notifications,
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
+    clearAllNotifications,
+    setSelectedProductId,
+    showToast
   } = useApp();
 
   const [loginIdentifierInput, setLoginIdentifierInput] = useState('');
@@ -46,6 +53,18 @@ export const Navbar: React.FC = () => {
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isDesktopFocused, setIsDesktopFocused] = useState(false);
   const [isMobileFocused, setIsMobileFocused] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationsDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (notificationsDropdownRef.current && !notificationsDropdownRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   // Robust cleaning function for emails/usernames that strips hidden spaces, smart quotes, etc.
   const cleanEmailString = (val: string): string => {
@@ -338,6 +357,156 @@ export const Navbar: React.FC = () => {
                     </span>
                   )}
                 </button>
+
+                {/* Real-time Notifications Bell with Dropdown */}
+                <div className="relative font-sans" ref={notificationsDropdownRef}>
+                  <button
+                    id="nav-btn-notifications"
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all relative cursor-pointer ${
+                      showNotifications || notifications.some(n => !n.read)
+                        ? 'bg-slate-800 border border-slate-700 text-white font-extrabold shadow-sm'
+                        : 'text-slate-300 hover:bg-slate-800/60 hover:text-white border border-transparent'
+                    }`}
+                    title="View updates from sellers you follow"
+                  >
+                    <Bell className={`w-4 h-4 ${notifications.some(n => !n.read) ? 'text-amber-400' : ''}`} />
+                    <span className="hidden sm:inline">Alerts</span>
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-slate-950 ring-2 ring-slate-900 shadow-md">
+                        {notifications.filter(n => !n.read).length}
+                      </span>
+                    )}
+                  </button>
+
+                  <AnimatePresence>
+                    {showNotifications && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 lg:-right-12 mt-2 w-80 sm:w-96 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden flex flex-col text-slate-800 text-left font-sans"
+                      >
+                        {/* Header */}
+                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <h3 className="text-xs font-black text-slate-900 tracking-tight uppercase">Activity Stream</h3>
+                            {notifications.filter(n => !n.read).length > 0 && (
+                              <span className="text-[10px] font-extrabold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-sm">
+                                NEW
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            {notifications.some(n => !n.read) && (
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await markAllNotificationsAsRead();
+                                  showToast('All alerts marked as read', 'success');
+                                }}
+                                className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-0.5 transition cursor-pointer"
+                                title="Mark all as read"
+                              >
+                                <CheckCheck className="w-3.5 h-3.5" />
+                                <span>Read All</span>
+                              </button>
+                            )}
+                            {notifications.length > 0 && (
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await clearAllNotifications();
+                                  showToast('Cleared all notifications', 'info');
+                                }}
+                                className="text-[10px] font-bold text-slate-450 hover:text-rose-600 flex items-center gap-0.5 transition cursor-pointer"
+                                title="Delete all notifications"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>Clear</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* List */}
+                        <div className="max-h-85 overflow-y-auto divide-y divide-slate-100">
+                          {notifications.length === 0 ? (
+                            <div className="py-12 px-6 text-center text-slate-500">
+                              <Bell className="w-8 h-8 text-slate-350 stroke-[1.2] mx-auto mb-2" />
+                              <h4 className="text-xs font-bold text-slate-700 font-sans">No alerts yet</h4>
+                              <p className="text-[10px] text-slate-400 max-w-[200px] mx-auto mt-0.5 leading-normal">
+                                Follow Ghanaian sellers or buyers to receive instant notifications when they post sweet deals!
+                              </p>
+                            </div>
+                          ) : (
+                            notifications.map((notif) => (
+                              <div
+                                key={notif.id}
+                                onClick={async () => {
+                                  try {
+                                    if (!notif.read) {
+                                      await markNotificationAsRead(notif.id);
+                                    }
+                                    setSelectedProductId(notif.productId);
+                                    setCurrentView('product-detail');
+                                    setShowNotifications(false);
+                                  } catch (err) {
+                                    console.error(err);
+                                  }
+                                }}
+                                className={`p-3.5 hover:bg-slate-50/80 transition cursor-pointer flex gap-3 text-left relative items-start ${
+                                  !notif.read ? 'bg-indigo-50/40 hover:bg-indigo-50/70 border-l-2 border-indigo-505' : ''
+                                }`}
+                              >
+                                {/* Reporter avatar */}
+                                <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center text-slate-450 font-semibold select-none text-xs">
+                                  {notif.triggerUserPhoto && !notif.triggerUserPhoto.includes('1549399542-7e3f8b79c341') ? (
+                                    <img src={notif.triggerUserPhoto} alt={notif.triggerUsername} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <img
+                                      src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                                      alt={notif.triggerUsername}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  )}
+                                </div>
+
+                                {/* Details */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-[10.5px] font-black text-slate-900 tracking-tight">{notif.triggerUsername}</span>
+                                    <span className="text-[9px] text-slate-400 shrink-0 capitalize">
+                                      {new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-650 font-semibold leading-normal mt-0.5 line-clamp-2">
+                                    {notif.message}
+                                  </p>
+                                  {/* Attached Product Thumbnail info */}
+                                  <div className="mt-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between gap-2.5">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      {notif.productImage && (
+                                        <div className="w-6 h-6 rounded-md overflow-hidden bg-slate-105 border border-slate-200 shrink-0">
+                                          <img src={notif.productImage} className="w-full h-full object-cover" alt="product thumbnail" />
+                                        </div>
+                                      )}
+                                      <span className="text-[10px] font-bold text-slate-800 truncate">{notif.productTitle}</span>
+                                    </div>
+                                    <span className="text-[10px] text-indigo-750 font-black bg-indigo-50/70 px-1 py-0.2 rounded shrink-0">
+                                      GH₵{notif.productPrice}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
 
                 <button
                   id="nav-btn-dashboard"

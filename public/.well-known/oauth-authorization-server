@@ -5,5 +5,12 @@
   "jwks_uri": "https://www.tedbuy.store/api/jwks",
   "scopes_supported": ["public", "read"],
   "response_types_supported": ["code", "token"],
-  "grant_types_supported": ["authorization_code", "client_credentials"]
+  "grant_types_supported": ["authorization_code", "client_credentials"],
+  "agent_auth": {
+    "register_uri": "https://www.tedbuy.store/api/agents/register",
+    "supported_identity_types": ["individual", "organisation"],
+    "credential_types": ["api_key", "oauth2"],
+    "claim_uri": "https://www.tedbuy.store/api/agents/claim",
+    "revocation_uri": "https://www.tedbuy.store/api/agents/revoke"
+  }
 }

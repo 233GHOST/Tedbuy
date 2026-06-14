@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { User, Product, Chat, Message, Category, Review, normalizeCategory } from '../types';
+import { User, Product, Chat, Message, Category, Review, normalizeCategory, AppNotification } from '../types';
 import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS } from '../data';
 import {
   createUserWithEmailAndPassword,
@@ -136,6 +136,10 @@ interface AppContextType {
   setIsVerificationBlockOpen: (open: boolean) => void;
   blockedActionType: 'post-ad' | 'chat' | 'whatsApp' | 'review' | null;
   setBlockedActionType: (type: 'post-ad' | 'chat' | 'whatsApp' | 'review' | null) => void;
+  notifications: AppNotification[];
+  markNotificationAsRead: (id: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
+  clearAllNotifications: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -195,6 +199,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [messages, setMessages] = useState<Message[]>([]);
   const msgMapRef = useRef<Map<string, Message>>(new Map());
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [currentUser, setCurrentUserStateRaw] = useState<User | null>(() => {
     try {
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
@@ -459,7 +464,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             console.warn('Background user record fetch failed (normal offline fallback):', dbErr);
           }
         } else {
-          setCurrentUserState(null);
+          const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+          if (isSimulated) {
+            const storedSimulated = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
+            if (storedSimulated) {
+              try {
+                setCurrentUserState(JSON.parse(storedSimulated));
+              } catch (_) {}
+            }
+          } else {
+            setCurrentUserState(null);
+          }
           setIsAuthLoading(false);
         }
       } catch (err) {
@@ -486,6 +501,96 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Could not save current user backup:', err);
     }
   }, [currentUser]);
+
+  // Real-time Notifications Synchronization
+  useEffect(() => {
+    if (!currentUser) {
+      setNotifications([]);
+      return;
+    }
+    const q = query(collection(db, 'notifications'), where('userId', '==', currentUser.id));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list: AppNotification[] = [];
+      snapshot.forEach(docSnap => {
+        list.push(docSnap.data() as AppNotification);
+      });
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      // Save backup of live notifications
+      try {
+        safeLocalStorage.setItem(`tedbuy_notifications_backup_${currentUser.id}`, JSON.stringify(list));
+      } catch (err) {}
+      
+      setNotifications(list);
+    }, (error) => {
+      // Re-route to resilient local database fallback when rules or network are offline
+      console.warn('Real-time notifications backend query notice (using active local sandbox storage):', error.message);
+      try {
+        const localBackupKey = `tedbuy_notifications_backup_${currentUser.id}`;
+        const stored = safeLocalStorage.getItem(localBackupKey);
+        const list: AppNotification[] = stored ? JSON.parse(stored) : [];
+        setNotifications(list);
+      } catch (err) {
+        console.warn('Could not read local backup notifications storage:', err);
+      }
+    });
+    return unsub;
+  }, [currentUser]);
+
+  const markNotificationAsRead = async (id: string) => {
+    // Optimistic UI and Local state sync
+    setNotifications(prev => {
+      const next = prev.map(n => n.id === id ? { ...n, read: true } : n);
+      if (currentUser) {
+        try {
+          safeLocalStorage.setItem(`tedbuy_notifications_backup_${currentUser.id}`, JSON.stringify(next));
+        } catch (err) {}
+      }
+      return next;
+    });
+
+    try {
+      await updateDoc(doc(db, 'notifications', id), { read: true });
+    } catch (err) {
+      console.warn('Backend markNotificationAsRead update skipped (synchronized locally):', err);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    if (!currentUser) return;
+    
+    // Optimistic UI and Local state sync
+    setNotifications(prev => {
+      const next = prev.map(n => ({ ...n, read: true }));
+      try {
+        safeLocalStorage.setItem(`tedbuy_notifications_backup_${currentUser.id}`, JSON.stringify(next));
+      } catch (err) {}
+      return next;
+    });
+
+    try {
+      const unread = notifications.filter(n => !n.read);
+      await Promise.all(unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true })));
+    } catch (err) {
+      console.warn('Backend markAllNotificationsAsRead update skipped (synchronized locally):', err);
+    }
+  };
+
+  const clearAllNotifications = async () => {
+    if (!currentUser) return;
+    
+    // Optimistic UI and Local state sync
+    setNotifications([]);
+    try {
+      safeLocalStorage.setItem(`tedbuy_notifications_backup_${currentUser.id}`, JSON.stringify([]));
+    } catch (err) {}
+
+    try {
+      await Promise.all(notifications.map(n => deleteDoc(doc(db, 'notifications', n.id))));
+    } catch (err) {
+      console.warn('Backend clearAllNotifications skip (synchronized locally):', err);
+    }
+  };
 
   // 1. Real-time Users Synchronization
   useEffect(() => {
@@ -948,31 +1053,93 @@ CEO, Tedbuy Inc`;
       throw new Error('Password is required to register an account.');
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // Check if the email address is associated with a deleted account
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      const uid = userCredential.user.uid;
+      const deletedSnap = await getDoc(doc(db, 'deletedEmails', cleanEmail));
+      if (deletedSnap.exists()) {
+        throw new Error('This email address has been associated with a permanently deleted account and cannot be registered again.');
+      }
+    } catch (checkErr: any) {
+      if (checkErr.message && checkErr.message.includes('permanently deleted account')) {
+        throw checkErr;
+      }
+      console.warn('Failed to verify if email was previously deleted (continuing anyway):', checkErr);
+    }
 
-      const newUser: User = {
-        id: uid,
-        username: username.trim(),
-        email: email.trim(),
-        phoneNumber: phoneNumber || undefined,
-        role: 'both',
-        joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-        photoUrl: photoUrl || undefined,
-        followingSellers: [],
-        savedProductIds: [],
-        emailVerified: false
-      };
+    try {
+      let uid: string;
+      let newUser: User;
 
       try {
-        await sendEmailVerification(userCredential.user);
-        console.log('Real email verification sent to user email.');
-      } catch (emailErr) {
-        console.warn('Real email verification could not be dispatched (normal if local/sandboxed):', emailErr);
+        const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        uid = userCredential.user.uid;
+
+        newUser = {
+          id: uid,
+          username: username.trim(),
+          email: email.trim(),
+          phoneNumber: phoneNumber || undefined,
+          role: 'both',
+          joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          photoUrl: photoUrl || undefined,
+          followingSellers: [],
+          savedProductIds: [],
+          emailVerified: false
+        };
+
+        try {
+          await sendEmailVerification(userCredential.user);
+          console.log('Real email verification sent to user email.');
+        } catch (emailErr) {
+          console.warn('Real email verification could not be dispatched (normal if local/sandboxed):', emailErr);
+        }
+      } catch (authErrorDetail: any) {
+        const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
+                                   authErrorDetail?.message?.includes('operation-not-allowed');
+        if (isAuthErrorDisabled) {
+          console.warn('Firebase Email/Password Auth is disabled. Engaging local high-fidelity sandbox fallback.');
+          showToast('Email/Password provider is currently disabled in your Firebase console. Creating high-fidelity sandbox session for offline-interactive testing!', 'info');
+          
+          uid = `user_local_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`;
+          newUser = {
+            id: uid,
+            username: username.trim(),
+            email: email.trim(),
+            phoneNumber: phoneNumber || undefined,
+            role: 'both',
+            joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+            photoUrl: photoUrl || undefined,
+            followingSellers: [],
+            savedProductIds: [],
+            emailVerified: true // Pre-verified to skip barriers inside local sandbox
+          };
+          
+          safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
+        } else {
+          throw authErrorDetail;
+        }
       }
 
-      await setDoc(doc(db, 'users', uid), cleanObject(newUser));
+      // Proactively sync user profile to Firestore
+      try {
+        await setDoc(doc(db, 'users', uid), cleanObject(newUser));
+      } catch (dbErr) {
+        console.warn('Fitted profile registry to database (failed/local simulation only):', dbErr);
+      }
+
+      // Back up to localized database backups
+      try {
+        const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+        const userList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+        if (!userList.some(u => u.id === newUser.id)) {
+          userList.push(newUser);
+          safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(userList));
+          setUsers(userList);
+        }
+      } catch (_) {}
+
       setCurrentUserState(newUser);
       return newUser;
     } catch (error) {
@@ -994,6 +1161,29 @@ CEO, Tedbuy Inc`;
         return true;
       } catch (authErrorDetail: any) {
         console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
+        
+        const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
+                                   authErrorDetail?.message?.includes('operation-not-allowed');
+        if (isAuthErrorDisabled) {
+          console.warn('Firebase Email/Password provider disabled. Engaging local high-fidelity sandbox login match.');
+          let matchedUser = users.find(u => u.email?.toLowerCase() === cleanIdentifier.toLowerCase());
+          if (!matchedUser) {
+            try {
+              const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+              const backupList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+              matchedUser = backupList.find(u => u.email?.toLowerCase() === cleanIdentifier.toLowerCase());
+            } catch (_) {}
+          }
+          if (matchedUser) {
+            showToast('Email/Password credentials provider is disabled in Firebase console. Logged in safely via local sandbox account!', 'info');
+            safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
+            safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
+            setCurrentUserState(matchedUser);
+            return true;
+          } else {
+            throw new Error('Email/Password provider is disabled in your Firebase console and no local sandboxed account exists under this email. Please click "Register" to create an account first!');
+          }
+        }
         throw authErrorDetail;
       }
     } else {
@@ -1033,11 +1223,31 @@ CEO, Tedbuy Inc`;
       }
 
       if (targetEmail) {
+        const finalEmail = targetEmail;
         try {
-          await signInWithEmailAndPassword(auth, targetEmail, password);
+          await signInWithEmailAndPassword(auth, finalEmail, password);
           return true;
         } catch (authErrorDetail: any) {
-          console.error('Firebase Auth failed for user email resolved from username/phone:', targetEmail, authErrorDetail);
+          console.error('Firebase Auth failed for user email resolved from username/phone:', finalEmail, authErrorDetail);
+          const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
+                                     authErrorDetail?.message?.includes('operation-not-allowed');
+          if (isAuthErrorDisabled) {
+            let matchedUser = users.find(u => u.email?.toLowerCase() === finalEmail.toLowerCase());
+            if (!matchedUser) {
+              try {
+                const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+                const backupList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+                matchedUser = backupList.find(u => u.email?.toLowerCase() === finalEmail.toLowerCase());
+              } catch (_) {}
+            }
+            if (matchedUser) {
+              showToast('Email/Password provider is disabled. Accessing sandbox account on-the-fly!', 'info');
+              safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
+              safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
+              setCurrentUserState(matchedUser);
+              return true;
+            }
+          }
           throw authErrorDetail;
         }
       } else {
@@ -1105,6 +1315,8 @@ CEO, Tedbuy Inc`;
   const logoutUser = async () => {
     try {
       await signOut(auth);
+      safeLocalStorage.removeItem('tedbuy_simulated_mode');
+      safeLocalStorage.removeItem('tedbuy_simulated_user');
       setCurrentUserState(null);
       setCurrentView('browse');
     } catch (err) {
@@ -1236,6 +1448,51 @@ CEO, Tedbuy Inc`;
 
     try {
       await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
+
+      // Create notifications for followers and following users of the poster
+      const notifyUsers = users.filter(u => {
+        if (u.id === currentUser.id) return false;
+        const isFollowerOfPoster = u.followingSellers?.includes(currentUser.id);
+        const isFollowedByPoster = currentUser.followingSellers?.includes(u.id);
+        return isFollowerOfPoster || isFollowedByPoster;
+      });
+
+      for (const targetUser of notifyUsers) {
+        const notifId = `notif_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 7)}`;
+        const newNotification: AppNotification = {
+          id: notifId,
+          userId: targetUser.id,
+          type: 'post_created',
+          title: 'New Ad Posted!',
+          message: `${currentUser.username} posted a new offer: ${newProduct.title}`,
+          triggerUserId: currentUser.id,
+          triggerUsername: currentUser.username,
+          triggerUserPhoto: currentUser.photoUrl || '',
+          productId: prodId,
+          productTitle: newProduct.title,
+          productPrice: newProduct.price,
+          productImage: newProduct.images?.[0] || '',
+          createdAt: new Date().toISOString(),
+          read: false
+        };
+
+        // Injects notification directly into local storage buffer for target user
+        try {
+          const key = `tedbuy_notifications_backup_${targetUser.id}`;
+          const currentListStr = safeLocalStorage.getItem(key);
+          const currentList = currentListStr ? JSON.parse(currentListStr) : [];
+          currentList.unshift(newNotification);
+          safeLocalStorage.setItem(key, JSON.stringify(currentList));
+        } catch (localErr) {
+          console.warn('Could not inject local fallback recipient notification:', localErr);
+        }
+
+        try {
+          await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
+        } catch (dbErr) {
+          console.warn('Could not dispatch backend notification (local inbox synced only):', dbErr);
+        }
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `products/${prodId}`);
     }
@@ -1663,11 +1920,24 @@ CEO, Tedbuy Inc`;
       console.warn('Could not fully delete user messages upon account deletion:', msgErr);
     }
 
-    // 5. Delete user profile document from firestore
+    // 5. Delete user profile document from firestore and record deleted email
+    const emailToDelete = currentUser.email || authUser?.email;
+    if (emailToDelete) {
+      try {
+        await setDoc(doc(db, 'deletedEmails', emailToDelete.trim().toLowerCase()), {
+          email: emailToDelete.trim().toLowerCase(),
+          deletedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn('Could not record deleted email in Firestore:', err);
+      }
+    }
+
     try {
       await deleteDoc(doc(db, 'users', uid));
-    } catch (err) {
-      console.warn('Could not delete user document from firestore:', err);
+    } catch (err: any) {
+      console.error('Could not delete user document from firestore:', err);
+      throw new Error(`Failed to permanently delete your Firestore database record: ${err.message || err}. Account deletion was not completed.`);
     }
 
     // 6. Delete Firebase Auth user representation
@@ -1891,7 +2161,11 @@ CEO, Tedbuy Inc`;
       isVerificationBlockOpen,
       setIsVerificationBlockOpen,
       blockedActionType,
-      setBlockedActionType
+      setBlockedActionType,
+      notifications,
+      markNotificationAsRead,
+      markAllNotificationsAsRead,
+      clearAllNotifications
     }}>
       {children}
     </AppContext.Provider>

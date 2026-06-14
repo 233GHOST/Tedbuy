@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { auth } from '../firebase';
@@ -17,7 +17,10 @@ export const ProfileSettings: React.FC = () => {
     sendWelcomeEmailToAll,
     sendVerificationEmailReal,
     reloadUserVerificationStatus,
-    showToast
+    showToast,
+    followSeller,
+    unfollowSeller,
+    setSelectedSellerId
   } = useApp();
 
   if (!currentUser) {
@@ -50,6 +53,14 @@ export const ProfileSettings: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletePasswordText, setDeletePasswordText] = useState('');
+
+  // Tab states for Followers/Following Network
+  const [showFollowModal, setShowFollowModal] = useState(false);
+  const [activeFollowTab, setActiveFollowTab] = useState<'following' | 'followers'>('following');
+
+  // Derive followers and following users from list
+  const followerUsers = users?.filter(u => u.followingSellers?.includes(currentUser.id)) || [];
+  const followingUsers = users?.filter(u => currentUser.followingSellers?.includes(u.id)) || [];
 
   // Email verification action handlers
   const [isResendingEmail, setIsResendingEmail] = useState(false);
@@ -265,17 +276,37 @@ export const ProfileSettings: React.FC = () => {
             <p className="text-[10px] text-slate-400 mt-1">Member since: {currentUser.joinDate}</p>
 
             {/* Quick account statistics */}
-            <div className="w-full grid grid-cols-2 gap-3 mt-6 pt-5 border-t border-slate-100 text-left">
-              <div className="bg-slate-50/60 rounded-xl p-3 border border-slate-200/40">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Follows</span>
-                <span className="text-sm font-sans font-extrabold text-slate-800">
+            <div className="w-full grid grid-cols-3 gap-1.5 mt-6 pt-5 border-t border-slate-100 text-left">
+              <div 
+                onClick={() => {
+                  setActiveFollowTab('following');
+                  setShowFollowModal(true);
+                }}
+                className="bg-slate-50/60 hover:bg-slate-100 hover:border-slate-300 rounded-xl p-2.5 border border-slate-200/40 cursor-pointer transition text-center group"
+                title="View Following Sellers"
+              >
+                <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-tight group-hover:text-slate-500 transition">Following</span>
+                <span className="text-xs font-sans font-extrabold text-slate-800 mt-0.5 block truncate">
                   {currentUser.followingSellers?.length || 0} sellers
                 </span>
               </div>
-              <div className="bg-slate-50/60 rounded-xl p-3 border border-slate-200/40">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Saved Ads</span>
-                <span className="text-sm font-sans font-extrabold text-slate-800">
-                  {currentUser.savedProductIds?.length || 0} bookmarked
+              <div 
+                onClick={() => {
+                  setActiveFollowTab('followers');
+                  setShowFollowModal(true);
+                }}
+                className="bg-slate-50/60 hover:bg-slate-100 hover:border-slate-300 rounded-xl p-2.5 border border-slate-200/40 cursor-pointer transition text-center group"
+                title="View Followers"
+              >
+                <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-tight group-hover:text-slate-500 transition">Followers</span>
+                <span className="text-xs font-sans font-extrabold text-slate-800 mt-0.5 block truncate">
+                  {followerUsers.length} users
+                </span>
+              </div>
+              <div className="bg-slate-50/60 rounded-xl p-2.5 border border-slate-200/40 text-center">
+                <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-tight">Saved Ads</span>
+                <span className="text-xs font-sans font-extrabold text-slate-800 mt-0.5 block truncate">
+                  {currentUser.savedProductIds?.length || 0} bookmarks
                 </span>
               </div>
             </div>
@@ -835,6 +866,229 @@ export const ProfileSettings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Following and Followers Modal Overlay */}
+      {showFollowModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowFollowModal(false)}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
+          />
+
+          {/* Modal Content */}
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-3xl w-full max-w-lg shadow-xl border border-slate-200 overflow-hidden relative z-10 flex flex-col max-h-[85vh] text-left animate-duration-150"
+          >
+            {/* Header */}
+            <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">Connection Network</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5 leading-none">Manage sellers you follow and check user followers.</p>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowFollowModal(false)}
+                className="p-1.5 hover:bg-slate-100 hover:text-slate-900 rounded-lg text-slate-400 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-slate-100 bg-slate-50/50 p-1 gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveFollowTab('following')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  activeFollowTab === 'following'
+                    ? 'bg-white text-slate-900 shadow-3xs border border-slate-200/50'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/50'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5 text-slate-400 font-bold" />
+                <span>Following ({followingUsers.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveFollowTab('followers')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  activeFollowTab === 'followers'
+                    ? 'bg-white text-slate-900 shadow-3xs border border-slate-200/50'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/50'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5 text-slate-400 font-bold" />
+                <span>Followers ({followerUsers.length})</span>
+              </button>
+            </div>
+
+            {/* List scroll container */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[250px] max-h-[500px]">
+              {activeFollowTab === 'following' ? (
+                followingUsers.length === 0 ? (
+                  <div className="text-center py-12 px-6">
+                    <div className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                      <ShoppingBag className="w-5 h-5 text-slate-400 stroke-[1.5]" />
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-800">Not following anyone</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 max-w-[260px] mx-auto leading-normal">
+                      Explore the Tedbuy Classifieds feeds and follow your favorite Ghanaian stores to get instant alerts on new listings!
+                    </p>
+                  </div>
+                ) : (
+                  followingUsers.map((user) => (
+                    <div 
+                      key={user.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-white border border-slate-150 hover:bg-slate-50/50 transition gap-4 text-left"
+                    >
+                      {/* Left: User details (Clickable to visit store) */}
+                      <div 
+                        onClick={() => {
+                          if (user.role === 'seller' || user.role === 'both') {
+                            setSelectedSellerId(user.id);
+                            setCurrentView('seller-profile');
+                            setShowFollowModal(false);
+                          } else {
+                            showToast("This user resides as a buyer with no public store listings.", 'info');
+                          }
+                        }}
+                        className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0"
+                      >
+                        <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center text-slate-450 font-bold text-xs select-none">
+                          {user.photoUrl && !user.photoUrl.includes('1549399542-7e3f8b79c341') ? (
+                            <img src={user.photoUrl} alt={user.username} className="w-full h-full object-cover" />
+                          ) : (
+                            <img
+                              src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                              alt={user.username}
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-extrabold text-slate-900 group-hover:text-slate-950 group-hover:underline truncate">{user.username}</span>
+                            {isUserVerified(user) && (
+                              <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded-sm shrink-0">🛡️</span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-mono capitalize block mt-0.5">{user.role}</span>
+                        </div>
+                      </div>
+
+                      {/* Right: Unfollow Action */}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await unfollowSeller(user.id);
+                            showToast(`Successfully unfollowed ${user.username}`, 'success');
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }}
+                        className="px-3 py-1.5 text-[11px] font-bold text-rose-600 hover:text-white border border-rose-200 hover:border-rose-600 hover:bg-rose-600 rounded-xl transition shrink-0 cursor-pointer flex items-center gap-1"
+                      >
+                        <UserMinus className="w-3 h-3" />
+                        <span>Unfollow</span>
+                      </button>
+                    </div>
+                  ))
+                )
+              ) : (
+                /* Followers Tab */
+                followerUsers.length === 0 ? (
+                  <div className="text-center py-12 px-6">
+                    <div className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                      <Users className="w-5 h-5 text-slate-400 stroke-[1.5]" />
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-800">No followers yet</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 max-w-[260px] mx-auto leading-normal">
+                      Share high-quality store deals, completely set up your WhatsApp profile links, and grow your local audience!
+                    </p>
+                  </div>
+                ) : (
+                  followerUsers.map((user) => {
+                    const isFollowingBack = currentUser.followingSellers?.includes(user.id);
+                    return (
+                      <div 
+                        key={user.id}
+                        className="flex items-center justify-between p-3 rounded-2xl bg-white border border-slate-150 hover:bg-slate-50/50 transition gap-4 text-left"
+                      >
+                        {/* Left: User details */}
+                        <div 
+                          onClick={() => {
+                            if (user.role === 'seller' || user.role === 'both') {
+                              setSelectedSellerId(user.id);
+                              setCurrentView('seller-profile');
+                              setShowFollowModal(false);
+                            } else {
+                              showToast("This user resides as a buyer with no public store listings.", 'info');
+                            }
+                          }}
+                          className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0"
+                        >
+                          <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center text-slate-450 font-bold text-xs select-none">
+                            {user.photoUrl && !user.photoUrl.includes('1549399542-7e3f8b79c341') ? (
+                              <img src={user.photoUrl} alt={user.username} className="w-full h-full object-cover" />
+                            ) : (
+                              <img
+                                src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                                alt={user.username}
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-extrabold text-slate-900 group-hover:text-slate-950 group-hover:underline truncate">{user.username}</span>
+                              {isUserVerified(user) && (
+                                <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1 py-0.2 rounded-sm shrink-0">🛡️</span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-mono capitalize block mt-0.5">{user.role}</span>
+                          </div>
+                        </div>
+
+                        {/* Right: Follow back indicator / button */}
+                        {isFollowingBack ? (
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-xl shrink-0 select-none flex items-center gap-1 bg-slate-50">
+                            <Check className="w-3 h-3 text-slate-400" />
+                            <span>Following</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await followSeller(user.id);
+                                showToast(`Now following ${user.username}!`, 'success');
+                              } catch (err) {
+                                console.error(err);
+                              }
+                            }}
+                            className="px-3 py-1.5 text-[11px] font-bold text-slate-900 hover:text-white border border-slate-300 hover:border-slate-900 hover:bg-slate-900 rounded-xl transition shrink-0 cursor-pointer flex items-center gap-1"
+                          >
+                            <UserPlus className="w-3 h-3" />
+                            <span>Follow Back</span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 };
