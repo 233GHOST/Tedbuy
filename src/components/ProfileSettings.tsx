@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { auth } from '../firebase';
@@ -20,7 +20,8 @@ export const ProfileSettings: React.FC = () => {
     showToast,
     followSeller,
     unfollowSeller,
-    setSelectedSellerId
+    setSelectedSellerId,
+    setDashboardTab
   } = useApp();
 
   if (!currentUser) {
@@ -53,6 +54,11 @@ export const ProfileSettings: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletePasswordText, setDeletePasswordText] = useState('');
+
+  // Settings sub tabs and sections
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'more'>('profile');
+  const [moreActiveSection, setMoreActiveSection] = useState<'help' | 'terms'>('help');
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   // Tab states for Followers/Following Network
   const [showFollowModal, setShowFollowModal] = useState(false);
@@ -200,7 +206,7 @@ export const ProfileSettings: React.FC = () => {
       await deleteAccount(deletePasswordText);
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err?.message || 'Failed to completely purge account. Please try again.');
+      setErrorMsg(err?.message || 'Failed to completely delete account. Please try again.');
       setIsDeleting(false);
     }
   };
@@ -303,8 +309,15 @@ export const ProfileSettings: React.FC = () => {
                   {followerUsers.length} users
                 </span>
               </div>
-              <div className="bg-slate-50/60 rounded-xl p-2.5 border border-slate-200/40 text-center">
-                <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-tight">Saved Ads</span>
+              <div 
+                onClick={() => {
+                  setCurrentView('my-dashboard');
+                  setDashboardTab('saved');
+                }}
+                className="bg-slate-50/60 hover:bg-slate-100 hover:border-slate-300 rounded-xl p-2.5 border border-slate-200/40 cursor-pointer transition text-center group"
+                title="View your bookmarks/watchlist"
+              >
+                <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-tight group-hover:text-slate-500 transition">Saved Ads</span>
                 <span className="text-xs font-sans font-extrabold text-slate-800 mt-0.5 block truncate">
                   {currentUser.savedProductIds?.length || 0} bookmarks
                 </span>
@@ -786,7 +799,7 @@ export const ProfileSettings: React.FC = () => {
             <div className="space-y-1">
               <h4 className="text-xs font-bold text-slate-800">Permanent Account Deletion</h4>
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                Purging your account deletes your registered email/phone identification, profile metadata, and saved favorites history from our Firestore cloud instantly. This action is irreversible.
+                Deleting your account deletes your registered email/phone identification, profile metadata, and saved favorites history from our Firestore cloud instantly. This action is irreversible.
               </p>
             </div>
 
@@ -851,12 +864,12 @@ export const ProfileSettings: React.FC = () => {
                     {isDeleting ? (
                       <>
                         <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                        <span>Purging...</span>
+                        <span>Deleting...</span>
                       </>
                     ) : (
                       <>
                         <Trash2 className="w-3.5 h-3.5" />
-                        <span>Confirm Permanent Purge</span>
+                        <span>Confirm Permanent Deletion</span>
                       </>
                     )}
                   </button>
