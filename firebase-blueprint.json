@@ -119,16 +119,6 @@
         "read": { "type": "boolean", "description": "Read status toggle" }
       },
       "required": ["id", "userId", "type", "title", "message", "triggerUserId", "triggerUsername", "productId", "productTitle", "productPrice", "createdAt", "read"]
-    },
-    "DeletedEmail": {
-      "title": "DeletedEmail",
-      "description": "Email registry record for permanently deleted accounts to prevent reuse and ensure identity history",
-      "type": "object",
-      "properties": {
-        "email": { "type": "string", "description": "The permanently deleted email address in lowercase" },
-        "deletedAt": { "type": "string", "description": "ISO timestamp for when the account was purged" }
-      },
-      "required": ["email", "deletedAt"]
     }
   },
   "firestore": {
@@ -155,10 +145,6 @@
     "/notifications/{notificationId}": {
       "schema": "AppNotification",
       "description": "Real-time user specific notification alerts"
-    },
-    "/deletedEmails/{email}": {
-      "schema": "DeletedEmail",
-      "description": "Permanently deleted email markers to prevent email re-registration"
     }
   }
 }
