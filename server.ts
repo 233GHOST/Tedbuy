@@ -6,6 +6,18 @@ import nodemailer from "nodemailer";
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use((req, res, next) => {
+  const logLine = `${new Date().toISOString()} [Express Log] ${req.method} ${req.url} | Body keys: ${Object.keys(req.body || {})}\n`;
+  try {
+    fs.appendFileSync(path.resolve(process.cwd(), "express_requests.log"), logLine);
+  } catch (e) {
+    // ignore
+  }
+  next();
+});
+
 const PORT = 3000;
 
 // Resolve Firebase project ID dynamically
@@ -1059,6 +1071,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    
+    try {
+      const routes: string[] = [];
+      app._router.stack.forEach((middleware: any) => {
+        if (middleware.route) {
+          routes.push(`${Object.keys(middleware.route.methods).join(',').toUpperCase()} ${middleware.route.path}`);
+        } else if (middleware.name === 'router') {
+          middleware.handle.stack.forEach((handler: any) => {
+            if (handler.route) {
+              routes.push(`${Object.keys(handler.route.methods).join(',').toUpperCase()} ${handler.route.path}`);
+            }
+          });
+        }
+      });
+      fs.appendFileSync(
+        path.resolve(process.cwd(), "express_requests.log"), 
+        `${new Date().toISOString()} [Startup] Routes registered:\n` + routes.join('\n') + '\n\n'
+      );
+      console.log('[Express Server Startup] Registered Routes:\n' + routes.join('\n'));
+    } catch (e: any) {
+      console.log('[Express Server Startup] Failed to extract routes description:', e.message);
+    }
   });
 }
 
