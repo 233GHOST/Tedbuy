@@ -863,7 +863,6 @@ const MarketplaceContent: React.FC = () => {
                           <RefreshCw className={`w-4 h-4 ${isProductsLoading ? 'animate-spin text-slate-800' : ''}`} />
                         </button>
                       </div>
-                      <p className="text-xs text-slate-500 mt-0.5">{filteredProducts.length} active listings found</p>
                     </div>
 
                     {/* Multi-Dimensional Dual Selection Controls (Ads and Price side-by-side) */}
