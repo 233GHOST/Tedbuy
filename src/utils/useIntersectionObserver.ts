@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
-export function useIntersectionObserver(options: IntersectionObserverInit = { rootMargin: '100px' }) {
+export function useIntersectionObserver(options: IntersectionObserverInit = {}) {
   const [isIntersecting, setIsIntersecting] = useState(false);
   const elementRef = useRef<HTMLElement | null>(null);
+
+  const root = options.root;
+  const rootMargin = options.rootMargin || '100px';
+  const threshold = options.threshold;
 
   useEffect(() => {
     const element = elementRef.current;
@@ -14,7 +18,7 @@ export function useIntersectionObserver(options: IntersectionObserverInit = { ro
         setIsIntersecting(true);
         observer.unobserve(element);
       }
-    }, options);
+    }, { root, rootMargin, threshold });
 
     observer.observe(element);
 
@@ -23,7 +27,7 @@ export function useIntersectionObserver(options: IntersectionObserverInit = { ro
         observer.unobserve(element);
       }
     };
-  }, [options]);
+  }, [root, rootMargin, threshold]);
 
   return [elementRef, isIntersecting] as const;
 }

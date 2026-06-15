@@ -336,23 +336,26 @@ const ReelItem: React.FC<ReelItemProps> = ({
     };
 
     if (isActive) {
-      if (video.readyState >= 2) {
-        attemptPlay();
-      } else {
-        const handleCanPlay = () => {
-          if (video) {
-            video.removeEventListener('canplay', handleCanPlay);
-          }
+      // Call play immediately for rapid Tiktok-style responsiveness
+      attemptPlay();
+
+      // Also listen to state transition events as a safe backup in case metadata wasn't parsed yet
+      const handleMetadataLoaded = () => {
+        if (isCurrent && isActive) {
           attemptPlay();
-        };
-        video.addEventListener('canplay', handleCanPlay);
-        return () => {
-          if (video) {
-            video.removeEventListener('canplay', handleCanPlay);
-          }
-          isCurrent = false;
-        };
-      }
+        }
+      };
+
+      video.addEventListener('loadedmetadata', handleMetadataLoaded);
+      video.addEventListener('canplay', handleMetadataLoaded);
+
+      return () => {
+        isCurrent = false;
+        if (video) {
+          video.removeEventListener('loadedmetadata', handleMetadataLoaded);
+          video.removeEventListener('canplay', handleMetadataLoaded);
+        }
+      };
     } else {
       video.pause();
       setIsPlaying(false);
@@ -485,6 +488,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
           <video
             ref={videoRef}
             src={processedVideoUrl}
+            autoPlay={isActive}
             loop
             muted={isMuted}
             playsInline

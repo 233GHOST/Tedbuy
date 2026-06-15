@@ -87,6 +87,7 @@ interface AppContextType {
   unfollowSeller: (sellerId: string) => Promise<void>;
   toggleSaveProduct: (productId: string) => Promise<void>;
   searchQuery: string;
+  debouncedSearchQuery: string;
   setSearchQuery: (q: string) => void;
   selectedCategory: Category | null;
   setSelectedCategory: (cat: Category | null) => void;
@@ -244,6 +245,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 200);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
   const parseUrlState = useCallback(() => {
     if (typeof window === 'undefined') return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: null };
@@ -2178,6 +2187,7 @@ CEO, Tedbuy Inc`;
       reviews,
       addReview,
       searchQuery,
+      debouncedSearchQuery,
       setSearchQuery,
       selectedCategory,
       setSelectedCategory,

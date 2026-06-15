@@ -520,16 +520,16 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         throw new Error("Unable to read video duration.");
       }
 
-      // Format size to ~360p for small footprint
-      let targetWidth = 360;
-      let targetHeight = 360;
+      // Format size to ~540p for gorgeous high-resolution layout on mobile
+      let targetWidth = 540;
+      let targetHeight = 540;
       const originalWidth = video.videoWidth || 640;
       const originalHeight = video.videoHeight || 480;
 
       if (originalWidth > originalHeight) {
-        targetHeight = Math.round((originalHeight * 360) / originalWidth);
+        targetHeight = Math.round((originalHeight * 540) / originalWidth);
       } else {
-        targetWidth = Math.round((originalWidth * 360) / originalHeight);
+        targetWidth = Math.round((originalWidth * 540) / originalHeight);
       }
 
       if (targetWidth % 2 !== 0) targetWidth++;
@@ -543,8 +543,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         throw new Error("Canvas context is not supported");
       }
 
-      // Capture standard stream at up to 20 fps
-      const stream = canvas.captureStream(20);
+      // Enable high-quality image smoothing (bicubic downscaling)
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      // Capture standard stream at up to 24 fps for smoother fluid motion
+      const targetFPS = 24;
+      const stream = canvas.captureStream(targetFPS);
       
       const mimeTypes = [
         'video/mp4;codecs=avc1',
@@ -566,10 +571,20 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         throw new Error("No web-compatible recording codecs found in this browser.");
       }
 
-      // A compact bitrate ensures the video stays exceptionally small (~160kbps)
+      // Calculate the absolute highest possible bitrate dynamically based on the clip's duration
+      // to squeeze the maximum possible visual output under the 730KB base64 capacity limit
+      const totalToRecord = trimEnd - trimStart || 5;
+      const targetBinaryBytes = 520 * 1024; // 520 KB raw binary (converts to ~700 KB base64, safe margin)
+      const targetBits = targetBinaryBytes * 8;
+      let calculatedBps = Math.floor(targetBits / totalToRecord);
+      
+      // Cap bitrate between 350,000 bps (already much cleaner than previous 150,000) and 1,200,000 bps
+      if (calculatedBps < 350000) calculatedBps = 350000;
+      if (calculatedBps > 1200000) calculatedBps = 1200000;
+
       const recorderOptions = {
         mimeType: chosenMime,
-        videoBitsPerSecond: 150000 
+        videoBitsPerSecond: calculatedBps
       };
 
       const recorder = new MediaRecorder(stream, recorderOptions);
@@ -609,10 +624,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
       recorder.start();
 
-      const fpsInterval = 1000 / 20;
-      const totalToRecord = trimEnd - trimStart;
+      const fpsInterval = 1000 / targetFPS;
       let ticks = 0;
-      const maxTicks = Math.round((totalToRecord * 20) * 1.5) + 120; // safety ceiling watchdog
+      const maxTicks = Math.round((totalToRecord * targetFPS) * 1.5) + 120; // safety ceiling watchdog
 
       const intervalId = setInterval(() => {
         if (!video) {

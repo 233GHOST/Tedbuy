@@ -38,6 +38,7 @@ const MarketplaceContent: React.FC = () => {
     homeViewMode,
     setHomeViewMode,
     searchQuery,
+    debouncedSearchQuery,
     setSearchQuery,
     selectedCategory,
     setSelectedCategory,
@@ -299,7 +300,7 @@ const MarketplaceContent: React.FC = () => {
   // Reset pagination limit when any filter parameters change to ensure fast and lightweight mobile rendering
   React.useEffect(() => {
     setDisplayLimit(12);
-  }, [selectedCategory, searchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
+  }, [selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
 
 
 
@@ -309,11 +310,11 @@ const MarketplaceContent: React.FC = () => {
       const matchesCategory = !selectedCategory || 
         product.category === selectedCategory || 
         (product.category && selectedCategory && product.category.toLowerCase() === selectedCategory.toLowerCase());
-      const matchesSearch = !searchQuery.trim() ||
-        product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (product.category && product.category.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.location.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = !debouncedSearchQuery.trim() ||
+        product.title.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        (product.category && product.category.toLowerCase().includes(debouncedSearchQuery.toLowerCase())) ||
+        product.description.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        product.location.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
 
       // Region verification
       let matchesRegion = true;
@@ -349,7 +350,7 @@ const MarketplaceContent: React.FC = () => {
 
       return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice;
     });
-  }, [products, selectedCategory, searchQuery, selectedRegion, selectedCity, minPrice, maxPrice]);
+  }, [products, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice]);
 
   function parseNumericPrice(p: string | number): number {
     if (typeof p === 'number') return p;
@@ -689,7 +690,7 @@ const MarketplaceContent: React.FC = () => {
                 />
 
                 {/* Price Budget Filter - Shown only when searching for a product */}
-                {searchQuery.trim() !== '' && (
+                {debouncedSearchQuery.trim() !== '' && (
                   <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4 text-left font-sans animate-fade-in animate-duration-300">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -844,8 +845,8 @@ const MarketplaceContent: React.FC = () => {
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-lg font-bold text-slate-900 font-sans tracking-tight">
-                          {searchQuery.trim()
-                            ? `Results for ${searchQuery}`
+                          {debouncedSearchQuery.trim()
+                            ? `Results for ${debouncedSearchQuery}`
                             : selectedCategory
                             ? `${selectedCategory} listings`
                             : (selectedRegion !== 'All' || selectedCity !== 'All')
