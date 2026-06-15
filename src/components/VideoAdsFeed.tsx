@@ -840,14 +840,8 @@ export const VideoAdsFeed: React.FC = () => {
       {/* 2. Left side navigation list of video showcases */}
       <div className="lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-800 bg-slate-900 p-4 flex flex-col h-full overflow-hidden shrink-0">
         <div className="mb-4 text-left">
-          <div className="flex items-center gap-2">
-            <span className="p-1 px-2 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase tracking-wider animate-pulse flex items-center gap-1">
-              <Sparkles className="w-2.5 h-2.5" />
-              <span>LIVE</span>
-            </span>
-          </div>
           <h3 className="text-sm font-black text-white mt-1">Watch Buyer Showcases</h3>
-          <p className="text-[10px] text-slate-400 mt-0.5">Click to switch or scroll between live demonstrations</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Click to switch or scroll between video demonstrations</p>
         </div>
 
         {/* Scroll list */}
