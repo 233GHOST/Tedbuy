@@ -20,6 +20,7 @@ export const SellerDashboard: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
 
   // Auto-dismissing reminder to add their WhatsApp number if it is missing
   const [showWhatsAppReminder, setShowWhatsAppReminder] = useState(() => {
@@ -60,6 +61,7 @@ export const SellerDashboard: React.FC = () => {
 
   const handleDelete = (product: Product, e: React.MouseEvent) => {
     e.stopPropagation();
+    setDeleteConfirmChecked(false);
     setProductToDelete(product);
   };
 
@@ -473,6 +475,20 @@ export const SellerDashboard: React.FC = () => {
                   </div>
                 </div>
                 <p className="text-[10px] text-rose-600 font-semibold mt-1">This action is irreversible and cannot be undone.</p>
+                
+                <div className="bg-rose-50/50 rounded-xl border border-rose-100 p-2.5 mt-3">
+                  <label className="flex items-start gap-2 cursor-pointer text-slate-700 select-none">
+                    <input
+                      type="checkbox"
+                      checked={deleteConfirmChecked}
+                      onChange={(e) => setDeleteConfirmChecked(e.target.checked)}
+                      className="w-3.5 h-3.5 mt-0.5 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer shrink-0"
+                    />
+                    <span className="text-[10px] leading-tight font-medium">
+                      Yes, I understand and authorize permanent listing deletion.
+                    </span>
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -484,7 +500,9 @@ export const SellerDashboard: React.FC = () => {
                 Cancel, Keep Ad
               </button>
               <button
+                disabled={!deleteConfirmChecked}
                 onClick={async () => {
+                  if (!deleteConfirmChecked) return;
                   try {
                     await deleteProduct(productToDelete.id);
                   } catch (err) {
@@ -493,7 +511,11 @@ export const SellerDashboard: React.FC = () => {
                     setProductToDelete(null);
                   }
                 }}
-                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-3xs"
+                className={`px-5 py-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 ${
+                  deleteConfirmChecked 
+                    ? 'bg-red-600 hover:bg-red-700 text-white cursor-pointer shadow-3xs' 
+                    : 'bg-rose-50 text-rose-400 cursor-not-allowed border border-rose-105/50'
+                }`}
               >
                 Yes, Delete Ad
               </button>

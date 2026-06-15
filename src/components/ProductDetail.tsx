@@ -38,6 +38,7 @@ export const ProductDetail: React.FC = () => {
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteCheckboxConfirmed, setDeleteCheckboxConfirmed] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -602,6 +603,7 @@ export const ProductDetail: React.FC = () => {
                     <button
                       onClick={() => {
                         setDeleteError(null);
+                        setDeleteCheckboxConfirmed(false);
                         setShowDeleteConfirm(true);
                       }}
                       className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
@@ -650,6 +652,7 @@ export const ProductDetail: React.FC = () => {
                     <button
                       onClick={() => {
                         setDeleteError(null);
+                        setDeleteCheckboxConfirmed(false);
                         setShowDeleteConfirm(true);
                       }}
                       className="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100/80 text-rose-600 border border-rose-200/65 font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
@@ -993,6 +996,20 @@ export const ProductDetail: React.FC = () => {
               Are you sure you want to permanently delete <strong className="text-slate-800">"{product.title}"</strong> from the Tedbuy classifieds marketplace? This action is irreversible.
             </p>
 
+            <div className="bg-rose-50/50 rounded-2xl border border-rose-100 p-3 mt-4">
+              <label className="flex items-start gap-2.5 cursor-pointer text-slate-700 select-none">
+                <input
+                  type="checkbox"
+                  checked={deleteCheckboxConfirmed}
+                  onChange={(e) => setDeleteCheckboxConfirmed(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer shrink-0"
+                />
+                <span className="text-[11px] leading-snug font-medium">
+                  Yes, I want to permanently delete this listing. I understand this action cannot be undone.
+                </span>
+              </label>
+            </div>
+
             {deleteError && (
               <div className="mt-3.5 p-3 bg-rose-50 border border-rose-200/50 text-rose-600 rounded-2xl text-[11px] font-mono leading-normal select-text break-all">
                 {deleteError}
@@ -1008,11 +1025,16 @@ export const ProductDetail: React.FC = () => {
                 Cancel
               </button>
               <button
-                disabled={isDeleting}
+                disabled={isDeleting || !deleteCheckboxConfirmed}
                 onClick={async () => {
+                  if (!deleteCheckboxConfirmed) return;
                   await handleDeleteAd();
                 }}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className={`flex-1 py-2.5 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                  deleteCheckboxConfirmed 
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs' 
+                    : 'bg-rose-50 text-rose-400 cursor-not-allowed border border-rose-105/50'
+                }`}
               >
                 {isDeleting ? (
                   <>
