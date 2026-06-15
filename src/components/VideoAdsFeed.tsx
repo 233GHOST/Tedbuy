@@ -21,7 +21,8 @@ import {
   ExternalLink,
   ChevronUp,
   ChevronDown,
-  Heart
+  Heart,
+  Plus
 } from 'lucide-react';
 
 // Helper to convert base64 data URIs securely into highly compatible, sandboxing-safe Blob URLs.
@@ -170,7 +171,30 @@ const ReelItem: React.FC<ReelItemProps> = ({
     }
   }, [product?.id]);
 
-  const { updateProduct, setCurrentView, setSelectedSellerId } = useApp();
+  const { 
+    updateProduct, 
+    setCurrentView, 
+    setSelectedSellerId,
+    currentUser,
+    setAuthMode,
+    setShowAuthModal,
+    followSeller
+  } = useApp();
+
+  const isOwnProfile = currentUser?.id === product?.sellerId;
+  const isFollowing = currentUser?.followingSellers?.includes(product?.sellerId || '') || false;
+
+  const handleFollowClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (product?.sellerId) {
+      await followSeller(product.sellerId);
+    }
+  };
 
   const handleSellerClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -183,6 +207,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const handleToggleLike = async (e?: React.MouseEvent) => {
     if (e) {
       e.stopPropagation();
+    }
+    if (!currentUser) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
     }
     const nextLiked = !isLiked;
     setIsLiked(nextLiked);
@@ -400,6 +429,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
     if (now - prev < 300) {
       e.preventDefault();
+      if (!currentUser) {
+        setAuthMode('login');
+        setShowAuthModal(true);
+        return;
+      }
       const rect = e.currentTarget.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
       const clickY = e.clientY - rect.top;
@@ -573,6 +607,25 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 {product?.sellerName ? product.sellerName.substring(0, 2) : 'U'}
               </div>
             )}
+            
+            {/* Animated Follow Plus button overlay */}
+            <AnimatePresence>
+              {!isOwnProfile && !isFollowing && (
+                <motion.button
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0, opacity: 0 }}
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={handleFollowClick}
+                  className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white border border-slate-950 rounded-full w-4.5 h-4.5 flex items-center justify-center shadow-lg transition-all duration-150 z-20 cursor-pointer outline-none select-none"
+                  title={`Follow ${product?.sellerName}`}
+                >
+                  <Plus className="w-2.5 h-2.5 text-white stroke-[3.5]" />
+                </motion.button>
+              )}
+            </AnimatePresence>
+
             {isSellerVerified && (
               <div className="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-slate-950 shadow-md">
                 <CheckCircle className="w-2.5 h-2.5 text-white fill-white" />

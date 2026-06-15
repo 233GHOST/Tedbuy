@@ -119,9 +119,23 @@
         "read": { "type": "boolean", "description": "Read status toggle" }
       },
       "required": ["id", "userId", "type", "title", "message", "triggerUserId", "triggerUsername", "productId", "productTitle", "productPrice", "createdAt", "read"]
+    },
+    "DeletedEmail": {
+      "title": "DeletedEmail",
+      "description": "Record of a deleted user email address to prevent re-registration",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "The deleted email address" },
+        "deletedAt": { "type": "string", "description": "ISO timestamp of deletion" }
+      },
+      "required": ["email", "deletedAt"]
     }
   },
   "firestore": {
+    "/deletedEmails/{email}": {
+      "schema": "DeletedEmail",
+      "description": "Previously deleted user email identifiers"
+    },
     "/users/{userId}": {
       "schema": "User",
       "description": "User profile records indexed by auth UID"

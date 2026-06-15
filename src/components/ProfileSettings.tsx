@@ -249,7 +249,35 @@ export const ProfileSettings: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* Sub page tabs selector to toggle between profile and other pages, ensuring consistency */}
+      <div className="flex border-b border-slate-200 mb-6 gap-2">
+        <button
+          type="button"
+          onClick={() => setSettingsTab('profile')}
+          className={`px-5 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+            settingsTab === 'profile'
+              ? 'border-slate-900 text-slate-900'
+              : 'border-transparent text-slate-400 hover:text-slate-700'
+          }`}
+        >
+          Profile Settings
+        </button>
+        <button
+          type="button"
+          onClick={() => setSettingsTab('more')}
+          className={`px-5 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+            settingsTab === 'more'
+              ? 'border-slate-900 text-slate-900'
+              : 'border-transparent text-slate-405 hover:text-slate-750'
+          }`}
+        >
+          <Info className="w-3.5 h-3.5" />
+          <span>More / Legal</span>
+        </button>
+      </div>
+
+      {settingsTab === 'profile' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Side: Avatar Panel & Info summary */}
         <div className="space-y-6">
           <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-3xs flex flex-col items-center text-center animate-fade-in">
@@ -879,6 +907,111 @@ export const ProfileSettings: React.FC = () => {
           </div>
         </div>
       </div>
+      ) : (
+        <div className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-3xs space-y-6 animate-fade-in text-left">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5 text-left">
+            <div>
+              <h2 className="text-base font-black text-slate-800 tracking-tight uppercase">Support, Help & Agreements</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5">Access official help document guides, FAQ items and our Terms of Service.</p>
+            </div>
+            {/* Inner Segmented control */}
+            <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 self-start sm:self-center">
+              <button
+                type="button"
+                onClick={() => setMoreActiveSection('help')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                  moreActiveSection === 'help'
+                    ? 'bg-white text-slate-900 shadow-3xs shadow-slate-200/50'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Help & FAQ
+              </button>
+              <button
+                type="button"
+                onClick={() => setMoreActiveSection('terms')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                  moreActiveSection === 'terms'
+                    ? 'bg-white text-slate-900 shadow-3xs shadow-slate-200/50'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Terms of Service
+              </button>
+            </div>
+          </div>
+
+          {moreActiveSection === 'help' ? (
+            <div className="space-y-3.5 animate-fade-in">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 mb-2">Frequently Asked Questions</h3>
+              
+              {[
+                {
+                  q: "How do I buy on TedBuy Ghana?",
+                  a: "Browse listings in your preferred categories and regions. When you find an item of interest, tap the listing card to view detailed specifications. You can message the seller directly using our secure in-app peer chat, or click the WhatsApp button to initiate a direct chat to negotiate, arrange trade, or meet."
+                },
+                {
+                  q: "How do I post a classified ad?",
+                  a: "Tapping the 'Sell' button at the center of the mobile bottom nav bar or the top desktop header opens the listing form. Fill in details, upload clear pictures or a 9:16 interactive video ad, choose your region and price, then publish. Note: verified active accounts receive higher query priority!"
+                },
+                {
+                  q: "What are interactive 9:16 Video Ads?",
+                  a: "They are immersive, vertical product video walkthroughs displayed directly in the feed for high buyer conversion. It is the best way to showcase real performance, physical condition, and build immediate buyer trust."
+                },
+                {
+                  q: "What is Account Verification?",
+                  a: "To ensure a clean marketplace, buyers and sellers can undergo system verification. This validates active email accounts and increases community safety. Complete your verification securely inside your Profile Settings."
+                },
+                {
+                  q: "Are there listing fees?",
+                  a: "Posting classified ads on Tedbuy Ghana is completely free. We do not charge listing fees or commissions. Trades and payments are completed directly between peers."
+                }
+              ].map((faq, idx) => {
+                const isOpen = openFaqIndex === idx;
+                return (
+                  <div key={idx} className="border border-slate-150 rounded-2xl overflow-hidden transition-all bg-slate-50/20">
+                    <button
+                      type="button"
+                      onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
+                      className="w-full flex items-center justify-between p-4 font-bold text-slate-850 hover:text-slate-950 transition text-xs text-left cursor-pointer"
+                    >
+                      <span>{faq.q}</span>
+                      <span className="shrink-0 ml-4 font-extrabold text-slate-400">
+                        {isOpen ? "−" : "+"}
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="px-4 pb-4 pt-1.5 text-xs text-slate-500 leading-relaxed border-t border-slate-100 animate-slide-in font-sans">
+                        {faq.a}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-4 text-slate-600 text-xs leading-relaxed max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 animate-fade-in text-left">
+              <div className="space-y-1.5">
+                <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">1. Agreement to Terms</h4>
+                <p>Welcome to Tedbuy Ghana Classifieds (tedbuy-fb79a.web.app). By creating an account or browsing listings, you agree to comply with our commercial marketplace policies. Services are provided of mutual peer communication.</p>
+              </div>
+              <div className="space-y-1.5">
+                <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">2. Use & Listing Guidelines</h4>
+                <p>Users must provide accurate, non-misleading information for listings. Prohibited post items include illegal goods, counter-brand replicas, or unregistered financial services. We reserve prompt moderation rights over all publications.</p>
+              </div>
+              <div className="space-y-1.5">
+                <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">3. Safety & Payments Warning</h4>
+                <p>TedBuy Classifieds is a peer-to-peer advertising provider. All product delivery, physical inspect evaluation, and financial settlement is coordinate solely between buyer and seller. Never send advance deposits before verifying physical product ownership.</p>
+              </div>
+              <div className="space-y-1.5">
+                <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">4. Privacy Policies</h4>
+                <p>Profile information and WhatsApp numbers provided in settings are publicly listed under product cards to facilitate buyer-seller matching. Password hashes and internal secure access metrics remain highly secure under Firestore rules.</p>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-4 pt-4 border-t border-slate-100 font-mono">Last edited: June 2026. Accra, Ghana.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Following and Followers Modal Overlay */}
       {showFollowModal && (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
 import { isUserVerified, calculateTrustScore } from '../types';
@@ -67,7 +67,7 @@ export const ProductDetail: React.FC = () => {
 
   useEffect(() => {
     try {
-      window.scrollTo(0, 0);
+      window.scrollTo({ top: 0, behavior: 'auto' });
     } catch {
       // standard fallback
     }

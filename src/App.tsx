@@ -34,12 +34,14 @@ const MarketplaceContent: React.FC = () => {
     products,
     users,
     currentView,
+    setCurrentView,
+    homeViewMode,
+    setHomeViewMode,
     searchQuery,
     setSearchQuery,
     selectedCategory,
     setSelectedCategory,
     currentUser,
-    setCurrentView,
     setShowAuthModal,
     unauthorizedDomainDetected,
     setUnauthorizedDomainDetected,
@@ -71,6 +73,49 @@ const MarketplaceContent: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toast, hideToast]);
+
+  // Listen to window scroll when currentView is 'browse' and persist it
+  React.useEffect(() => {
+    const handleScroll = () => {
+      if (currentView === 'browse') {
+        const posY = window.scrollY;
+        if (posY > 0) {
+          sessionStorage.setItem('tedbuy_browse_scroll_pos', String(posY));
+        }
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [currentView]);
+
+  // Restore scroll position when entering 'browse'
+  React.useEffect(() => {
+    if (currentView === 'browse') {
+      const saved = sessionStorage.getItem('tedbuy_browse_scroll_pos');
+      if (saved) {
+        const posY = parseInt(saved, 10);
+        if (posY > 0) {
+          const timer1 = setTimeout(() => {
+            window.scrollTo({ top: posY, behavior: 'auto' });
+          }, 30);
+          const timer2 = setTimeout(() => {
+            window.scrollTo({ top: posY, behavior: 'auto' });
+          }, 100);
+          const timer3 = setTimeout(() => {
+            window.scrollTo({ top: posY, behavior: 'auto' });
+          }, 300);
+          return () => {
+            clearTimeout(timer1);
+            clearTimeout(timer2);
+            clearTimeout(timer3);
+          };
+        }
+      }
+    }
+  }, [currentView]);
 
   // Dynamic Document Title and Meta Description for Client-Side SEO indexing
   React.useEffect(() => {
@@ -249,7 +294,6 @@ const MarketplaceContent: React.FC = () => {
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
   const [displayLimit, setDisplayLimit] = useState<number>(12);
-  const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');
   const scrollSentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Reset pagination limit when any filter parameters change to ensure fast and lightweight mobile rendering
@@ -970,8 +1014,11 @@ const MarketplaceContent: React.FC = () => {
         {/* Home Tab */}
         <button
           onClick={() => {
+            sessionStorage.setItem('tedbuy_browse_scroll_pos', '0');
             setCurrentView('browse');
+            setHomeViewMode('grid');
             setSearchQuery('');
+            window.scrollTo({ top: 0, behavior: 'auto' });
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse'

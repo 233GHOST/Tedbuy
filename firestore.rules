@@ -19,7 +19,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow create, update: if isSignedIn() && (request.auth.uid == userId || userId == "user_" + request.auth.uid || userId == "phone_" + request.auth.uid);
-      allow delete: if false;
+      allow delete: if isSignedIn() && (request.auth.uid == userId || userId == "user_" + request.auth.uid || userId == "phone_" + request.auth.uid);
     }
 
     // 2. Products collection
@@ -54,7 +54,12 @@ service cloud.firestore {
         resource.data.buyerId == "user_" + request.auth.uid ||
         resource.data.sellerId == "user_" + request.auth.uid
       );
-      allow delete: if false;
+      allow delete: if isSignedIn() && (
+        resource.data.buyerId == request.auth.uid || 
+        resource.data.sellerId == request.auth.uid ||
+        resource.data.buyerId == "user_" + request.auth.uid ||
+        resource.data.sellerId == "user_" + request.auth.uid
+      );
     }
 
     // 4. Messages collection
@@ -70,14 +75,24 @@ service cloud.firestore {
         (resource.data.recipientId == request.auth.uid || resource.data.recipientId == "user_") && 
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
       );
-      allow delete: if false;
+      allow delete: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid || 
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.senderId == "user_" + request.auth.uid ||
+        resource.data.recipientId == "user_" + request.auth.uid
+      );
     }
 
     // 5. Reviews collection
     match /reviews/{reviewId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.buyerId != null;
-      allow update, delete: if false;
+      allow update, delete: if isSignedIn() && (
+        resource.data.buyerId == request.auth.uid || 
+        resource.data.sellerId == request.auth.uid ||
+        resource.data.buyerId == "user_" + request.auth.uid ||
+        resource.data.sellerId == "user_" + request.auth.uid
+      );
     }
 
     // 6. Notifications collection
@@ -95,6 +110,13 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid || 
         resource.data.userId == "user_" + request.auth.uid
       );
+    }
+
+    // 7. Deleted Emails collection
+    match /deletedEmails/{email} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if false;
     }
   }
 }

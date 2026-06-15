@@ -89,6 +89,10 @@ function injectMetaTags(html: string, product: { title: string; description: str
   const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '';
   const priceSchema = cleanPrice && !isNaN(Number(cleanPrice)) ? cleanPrice : '0';
 
+  // Build clean absolute product canonical URL to prevent GSC Google Bot parameter/redirect indexing splits
+  const titleSlug = product.title ? slugify(product.title) : '';
+  const canonicalUrl = `${protocol}://${host}/product/${productId}-${titleSlug}`;
+
   const schemaJson = {
     "@context": "https://schema.org/",
     "@type": "Product",
@@ -97,7 +101,7 @@ function injectMetaTags(html: string, product: { title: string; description: str
     "description": product.description || `Buy "${product.title}" on Tedbuy Ghana classifieds marketplace.`,
     "offers": {
       "@type": "Offer",
-      "url": shareUrl,
+      "url": canonicalUrl,
       "priceCurrency": "GHS",
       "price": priceSchema,
       "itemCondition": "https://schema.org/UsedCondition",
@@ -106,12 +110,13 @@ function injectMetaTags(html: string, product: { title: string; description: str
     }
   };
 
-  console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Image URL: ${image}`);
+  console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Canonical URL: ${canonicalUrl}, Image URL: ${image}`);
 
   const tags = `
     <!-- Dynamic Social Share Meta Tags -->
     <title>${escapeHtml(title)}</title>
     <meta name="description" content="${escapeHtml(description)}" />
+    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
     <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:title" content="${escapeHtml(title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
@@ -120,7 +125,7 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:url" content="${escapeHtml(shareUrl)}" />
+    <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
     <meta property="og:type" content="product" />
     <meta property="og:site_name" content="TedBuy Ghana" />
     <meta property="og:locale" content="en_GH" />
@@ -142,10 +147,144 @@ ${JSON.stringify(schemaJson, null, 6)}
     </script>
   `;
 
-  // Strip existing tags that we are replacing to avoid redundant elements
   let cleanHtml = html
     .replace(/<title>[\s\S]*?<\/title>/gi, '')
-    .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '');
+    .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
+    .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
+
+  return cleanHtml.replace('<head>', `<head>${tags}`);
+}
+
+const categorySlugs = [
+  'phones',
+  'laptops',
+  'electronics',
+  'fashion',
+  'games',
+  'home-appliances',
+  'beauty-and-care',
+  'vehicles',
+  'services',
+  'other',
+  'others'
+];
+
+const CATEGORY_META: Record<string, { title: string; description: string; imageSearch: string }> = {
+  'phones': {
+    title: 'Verified Phones for Sale in Ghana - iPhones & Androids | TedBuy',
+    description: 'Browse authentic & verified mobile phones for sale in Ghana. Find top deals on Apple iPhones, Samsung Galaxy, Google Pixel, Xiaomi, and other smart devices with seller trust scores on TedBuy.',
+    imageSearch: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=600&q=80'
+  },
+  'laptops': {
+    title: 'Verified Laptops & Computers for Sale in Ghana | TedBuy',
+    description: 'Looking for a reliable laptop? Find certified and tested laptops for sale in Accra, Kumasi and across Ghana. Shop HP, Dell, Apple MacBook, Lenovo, and Asus from trusted sellers on TedBuy.',
+    imageSearch: 'https://images.unsplash.com/photo-1496181130204-7552aa1ab54a?auto=format&fit=crop&w=600&q=80'
+  },
+  'electronics': {
+    title: 'Verified Electronics & TVs for Sale in Ghana | TedBuy',
+    description: 'Upgrade your home entertainment. Buy high-quality electronics, smart TVs, home theaters, sound systems, cameras, and headphones from verified sellers in Ghana on TedBuy.',
+    imageSearch: 'https://images.unsplash.com/photo-1550009158-9ebf6d2d116e?auto=format&fit=crop&w=600&q=80'
+  },
+  'fashion': {
+    title: 'Verified Fashion, Clothes & Shoes in Ghana | TedBuy',
+    description: 'Elevate your style with verified fashion items. Discover trendy clothes, designer shoes, sneakers, watches, bags, and apparel from vetted sellers across Ghana on TedBuy.',
+    imageSearch: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=600&q=80'
+  },
+  'games': {
+    title: 'Verified Video Games & Consoles for Sale in Ghana | TedBuy',
+    description: 'Get the best gaming gear in Ghana. Search for verified PS5, PlayStation 4, Xbox Series X/S, Nintendo Switch, controllers, and top gaming titles on TedBuy Ghana.',
+    imageSearch: 'https://images.unsplash.com/photo-1385846819339-df8a513c75d4?auto=format&fit=crop&w=600&q=80'
+  },
+  'home-appliances': {
+    title: 'Verified Home & Kitchen Appliances in Ghana | TedBuy',
+    description: 'Equip your home with authentic household appliances. Find amazing listings for verified refrigerators, microwaves, washing machines, blenders, and stoves on TedBuy Ghana.',
+    imageSearch: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=600&q=80'
+  },
+  'beauty-and-care': {
+    title: 'Verified Beauty, Skincare & Cosmetics in Ghana | TedBuy',
+    description: 'Shop verified beauty products, organic skincare, cosmetics, long-lasting perfumes like Pure Black, and grooming products from trusted sellers in Ghana on TedBuy.',
+    imageSearch: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=600&q=80'
+  },
+  'vehicles': {
+    title: 'Verified Cars & Vehicles for Sale in Ghana | TedBuy',
+    description: 'Reliable transport on a budget. Explore verified cars, motorbikes, bicycles, and vehicle accessories for sale in Ghana from trusted private sellers & dealers on TedBuy.',
+    imageSearch: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80'
+  },
+  'services': {
+    title: 'Verified Professional Services & Freelancers in Ghana | TedBuy',
+    description: 'Find trusted local professionals and services in Ghana. Hire vetted experts for repair, construction, web development, photography, tuition, and business services on TedBuy.',
+    imageSearch: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=600&q=80'
+  },
+  'other': {
+    title: 'Misc Verified Goods for Sale in Ghana | TedBuy',
+    description: 'Explore unique listings and everyday items for sale on TedBuy. Vetted peer-to-peer deals on high-quality miscellaneous goods in Accra, Kumasi, and across Ghana.',
+    imageSearch: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?auto=format&fit=crop&w=600&q=80'
+  }
+};
+
+function injectCategoryMetaTags(html: string, slug: string, shareUrl: string, host: string, protocol: string): string {
+  const metaKey = slug === 'others' ? 'other' : slug;
+  const meta = CATEGORY_META[metaKey] || {
+    title: 'Verified Peer Classifieds in Ghana | TedBuy',
+    description: 'Discover the premier marketplace to buy and sell verified products in Ghana safely with trust reviews and direct peer negotiation.',
+    imageSearch: `${protocol}://${host}/favicon.svg`
+  };
+  
+  const title = meta.title;
+  const description = meta.description;
+  const image = meta.imageSearch;
+
+  const canonicalUrl = `${protocol}://${host}/${slug}`;
+
+  const schemaJson = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": title,
+    "url": canonicalUrl,
+    "description": description,
+    "image": image,
+    "publisher": {
+      "@type": "Organization",
+      "name": "TedBuy Ghana",
+      "logo": {
+        "@type": "ImageObject",
+        "url": `${protocol}://${host}/favicon.svg`
+      }
+    }
+  };
+
+  console.log(`[Category Crawler] Injecting Category Meta Tags for: ${slug}. Title: ${title}, Canonical: ${canonicalUrl}`);
+
+  const tags = `
+    <!-- Category SEO Meta Tags -->
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
+    <!-- Open Graph -->
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:image" content="${escapeHtml(image)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
+    <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="TedBuy" />
+    <meta property="og:locale" content="en_GH" />
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(image)}" />
+    
+    <!-- Rich Snippets / Google Category Schema Integration -->
+    <script type="application/ld+json">
+${JSON.stringify(schemaJson, null, 6)}
+    </script>
+  `;
+
+  let cleanHtml = html
+    .replace(/<title>[\s\S]*?<\/title>/gi, '')
+    .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
+    .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
 
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
@@ -157,12 +296,15 @@ function injectHomepageMetaTags(html: string, shareUrl: string, host: string, pr
   // Use our beautiful vector brand logo from the favicon/logo as the main OG image fallback
   const image = `${protocol}://${host}/favicon.svg`;
 
-  console.log(`[Meta Crawler] Injecting Homepage Open Graph tags. URL: ${shareUrl}, Image URL: ${image}`);
+  const canonicalUrl = `${protocol}://${host}/`;
+
+  console.log(`[Meta Crawler] Injecting Homepage Open Graph tags. URL: ${shareUrl}, Canonical: ${canonicalUrl}, Image URL: ${image}`);
 
   const tags = `
     <!-- Dynamic Social Share Meta Tags -->
     <title>${escapeHtml(title)}</title>
     <meta name="description" content="${escapeHtml(description)}" />
+    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
     <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:title" content="${escapeHtml(title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
@@ -171,7 +313,7 @@ function injectHomepageMetaTags(html: string, shareUrl: string, host: string, pr
     <meta property="og:image:type" content="image/svg+xml" />
     <meta property="og:image:width" content="512" />
     <meta property="og:image:height" content="512" />
-    <meta property="og:url" content="${escapeHtml(shareUrl)}" />
+    <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="TedBuy Ghana" />
     <meta property="og:locale" content="en_GH" />
@@ -186,7 +328,8 @@ function injectHomepageMetaTags(html: string, shareUrl: string, host: string, pr
 
   let cleanHtml = html
     .replace(/<title>[\s\S]*?<\/title>/gi, '')
-    .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '');
+    .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
+    .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
 
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
@@ -271,13 +414,16 @@ async function startServer() {
   app.use((req, res, next) => {
     const url = req.path || '/';
     
-    // Always set the Link headers for agent discovery on the homepage/index
-    if (url === '/' || url === '/index.html') {
+    const isHomepage = url === '/' || url === '/index.html' || url === '/index' || !url;
+    const isWebRoute = isHomepage || (!url.startsWith('/api') && !url.includes('.') && req.method === 'GET');
+
+    // Always set the Link headers for agent discovery on all web routes
+    if (isWebRoute) {
       res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
     }
 
     // Return HTML responses as markdown when agents request it
-    if ((url === '/' || url === '/index.html') && req.headers.accept?.includes('text/markdown')) {
+    if (isWebRoute && req.headers.accept?.includes('text/markdown')) {
       res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
       res.setHeader('x-markdown-tokens', '1200');
       return res.status(200).send(systemMarkdown);
@@ -287,24 +433,33 @@ async function startServer() {
   });
 
   app.get(['/.well-known/dns-aid', '/.well-known/dns-records'], (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(`; DNS-AID ServiceMode Records for TedBuy Discovery (RFC 9460)
-_index._agents.tedbuy.store.  3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint="216.58.210.14" key_uri="https://tedbuy.store/.well-known/jwks.json" service-doc="https://tedbuy.store/auth.md" api-catalog="https://tedbuy.store/.well-known/api-catalog"
-_a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint="216.58.210.14" key_uri="https://tedbuy.store/.well-known/jwks.json" service-doc="https://tedbuy.store/auth.md" api-catalog="https://tedbuy.store/.well-known/api-catalog"
+_index._agents.${host}.  3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint="216.58.210.14" key_uri="${protocol}://${host}/.well-known/jwks.json" service-doc="${protocol}://${host}/auth.md" api-catalog="${protocol}://${host}/.well-known/api-catalog"
+_a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint="216.58.210.14" key_uri="${protocol}://${host}/.well-known/jwks.json" service-doc="${protocol}://${host}/auth.md" api-catalog="${protocol}://${host}/.well-known/api-catalog"
 `);
   });
 
   app.get(['/.well-known/dns-aid.json', '/.well-known/dns-records.json'], (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    const origin = `${protocol}://${host}`;
+
     res.setHeader('Content-Type', 'application/json');
     res.json({
       "dnssec": {
         "status": "active",
         "algorithm": "RSASHA256",
-        "signed_zone": "tedbuy.store"
+        "signed_zone": host
       },
       "dns_records": [
         {
-          "name": "_index._agents.tedbuy.store",
+          "name": `_index._agents.${host}`,
           "type": "HTTPS",
           "ttl": 3600,
           "class": "IN",
@@ -314,13 +469,13 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
             "alpn": "h2,h3",
             "port": 443,
             "ipv4hint": "216.58.210.14",
-            "key_uri": "https://tedbuy.store/.well-known/jwks.json",
-            "service-doc": "https://tedbuy.store/auth.md",
-            "api-catalog": "https://tedbuy.store/.well-known/api-catalog"
+            "key_uri": `${origin}/.well-known/jwks.json`,
+            "service-doc": `${origin}/auth.md`,
+            "api-catalog": `${origin}/.well-known/api-catalog`
           }
         },
         {
-          "name": "_a2a._agents.tedbuy.store",
+          "name": `_a2a._agents.${host}`,
           "type": "HTTPS",
           "ttl": 3600,
           "class": "IN",
@@ -330,9 +485,9 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
             "alpn": "h2,h3",
             "port": 443,
             "ipv4hint": "216.58.210.14",
-            "key_uri": "https://tedbuy.store/.well-known/jwks.json",
-            "service-doc": "https://tedbuy.store/auth.md",
-            "api-catalog": "https://tedbuy.store/.well-known/api-catalog"
+            "key_uri": `${origin}/.well-known/jwks.json`,
+            "service-doc": `${origin}/auth.md`,
+            "api-catalog": `${origin}/.well-known/api-catalog`
           }
         }
       ]
@@ -362,11 +517,16 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
   });
 
   app.get('/.well-known/oauth-protected-resource', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    const origin = `${protocol}://${host}`;
+
     res.setHeader('Content-Type', 'application/json');
     res.json({
-      "resource": "https://tedbuy.store",
+      "resource": origin,
       "authorization_servers": [
-        "https://tedbuy.store"
+        origin
       ],
       "scopes_supported": [
         "public",
@@ -377,21 +537,26 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
   });
 
   app.get('/.well-known/oauth-authorization-server', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    const origin = `${protocol}://${host}`;
+
     res.setHeader('Content-Type', 'application/json');
     res.json({
-      "issuer": "https://tedbuy.store",
-      "authorization_endpoint": "https://tedbuy.store/oauth/authorize",
-      "token_endpoint": "https://tedbuy.store/api/oauth/token",
-      "jwks_uri": "https://tedbuy.store/.well-known/jwks.json",
-      "registration_endpoint": "https://tedbuy.store/api/agents/register",
+      "issuer": origin,
+      "authorization_endpoint": `${origin}/oauth/authorize`,
+      "token_endpoint": `${origin}/api/oauth/token`,
+      "jwks_uri": `${origin}/.well-known/jwks.json`,
+      "registration_endpoint": `${origin}/api/agents/register`,
       "scopes_supported": ["public", "read", "write"],
       "response_types_supported": ["code", "token"],
       "agent_auth": {
-        "register_uri": "https://tedbuy.store/api/agents/register",
+        "register_uri": `${origin}/api/agents/register`,
         "supported_identity_types": ["individual", "organisation"],
         "credential_types": ["api_key", "oauth2"],
-        "claim_uri": "https://tedbuy.store/api/agents/claim",
-        "revocation_uri": "https://tedbuy.store/api/agents/revoke"
+        "claim_uri": `${origin}/api/agents/claim`,
+        "revocation_uri": `${origin}/api/agents/revoke`
       }
     });
   });
@@ -528,6 +693,16 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
         xml += `  </url>\n`;
       }
 
+      // 2b. Real Category pathways for Google Search Console indexing
+      for (const cat of categorySlugs) {
+        xml += `  <url>\n`;
+        xml += `    <loc>${baseUrl}/${cat}</loc>\n`;
+        xml += `    <lastmod>${todayString}</lastmod>\n`;
+        xml += `    <changefreq>daily</changefreq>\n`;
+        xml += `    <priority>0.9</priority>\n`;
+        xml += `  </url>\n`;
+      }
+
       // 3. Dynamic Products from Firestore REST API
       try {
         const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products?pageSize=300${apiKey ? `&key=${apiKey}` : ""}`;
@@ -638,11 +813,14 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
       const url = req.originalUrl || req.url || '/';
       
       // Determine if this is a request requiring HTML delivery (not a raw asset or API endpoint)
+      const cleanPathname = url.split('?')[0].replace(/^\/+|\/+$/g, '').toLowerCase();
+      const isCategorySlug = categorySlugs.includes(cleanPathname);
       const isHtmlRequest = !url.startsWith('/api/') && 
                             !url.includes('.') && 
                             (req.headers.accept?.includes('text/html') || 
                              url === '/' || 
                              url.startsWith('/?') || 
+                             isCategorySlug ||
                              url.includes('/product/') ||
                              url.includes('/seller/') ||
                              url.includes('/chats') ||
@@ -716,6 +894,12 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
             } else {
               template = injectHomepageMetaTags(template, fullUrl, host, protocol);
             }
+          } else if (isCategorySlug) {
+            const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+            const host = cleanHostHeader(rawHost);
+            const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+            const fullUrl = `${protocol}://${host}${url}`;
+            template = injectCategoryMetaTags(template, cleanPathname, fullUrl, host, protocol);
           } else {
             const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
             const host = cleanHostHeader(rawHost);
@@ -738,7 +922,14 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
   } else {
     // Production serving static files
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath, { index: false })); // Do not auto-serve index.html to allow dynamic intercept
+    app.use(express.static(distPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
+        }
+      }
+    })); // Do not auto-serve index.html to allow dynamic intercept
 
     app.get('*', async (req, res) => {
       res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
@@ -782,6 +973,8 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
       
       try {
         let template = fs.readFileSync(path.join(distPath, 'index.html'), 'utf-8');
+        const cleanPathname = url.split('?')[0].replace(/^\/+|\/+$/g, '').toLowerCase();
+        const isCategorySlug = categorySlugs.includes(cleanPathname);
         
         if (queryTitle && queryImage) {
           const product = {
@@ -806,6 +999,12 @@ _a2a._agents.tedbuy.store.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4
           } else {
             template = injectHomepageMetaTags(template, fullUrl, host, protocol);
           }
+        } else if (isCategorySlug) {
+          const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+          const host = cleanHostHeader(rawHost);
+          const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+          const fullUrl = `${protocol}://${host}${url}`;
+          template = injectCategoryMetaTags(template, cleanPathname, fullUrl, host, protocol);
         } else {
           const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
           const host = cleanHostHeader(rawHost);

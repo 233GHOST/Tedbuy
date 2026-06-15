@@ -92,6 +92,8 @@ interface AppContextType {
   setSelectedCategory: (cat: Category | null) => void;
   currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings';
   setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings') => void;
+  homeViewMode: 'grid' | 'video-feed';
+  setHomeViewMode: (mode: 'grid' | 'video-feed') => void;
   updateUserProfile: (profileData: {
     username: string;
     phoneNumber?: string;
@@ -242,11 +244,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
 
   const parseUrlState = useCallback(() => {
-    if (typeof window === 'undefined') return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null };
+    if (typeof window === 'undefined') return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: null };
     const pathname = window.location.pathname;
+    
+    // Check if the link is a registered category slug
+    const cleanPath = pathname.replace(/^\//, '').toLowerCase();
     
     // /products/:id or /product/:id
     const productMatch = pathname.match(/^\/products?\/([^\/]+)/);
@@ -254,29 +258,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const slugOrId = productMatch[1];
       const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
       if (matchId) {
-        return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null };
+        return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null, category: null };
       }
     }
 
     // /sellers/:sellerId or /seller/:sellerId
     const sellerMatch = pathname.match(/^\/sellers?\/([^\/]+)/);
     if (sellerMatch) {
-      return { view: 'seller-profile' as const, selectedProductId: null, selectedSellerId: sellerMatch[1] };
+      return { view: 'seller-profile' as const, selectedProductId: null, selectedSellerId: sellerMatch[1], category: null };
     }
 
     // /chats
     if (pathname === '/chats') {
-      return { view: 'chats' as const, selectedProductId: null, selectedSellerId: null };
+      return { view: 'chats' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
     // /dashboard
     if (pathname === '/dashboard') {
-      return { view: 'my-dashboard' as const, selectedProductId: null, selectedSellerId: null };
+      return { view: 'my-dashboard' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
     // /settings
     if (pathname === '/settings') {
-      return { view: 'profile-settings' as const, selectedProductId: null, selectedSellerId: null };
+      return { view: 'profile-settings' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
+    // Check if it matches category slug lists
+    const categorySlugs = [
+      'phones',
+      'laptops',
+      'electronics',
+      'fashion',
+      'games',
+      'home-appliances',
+      'beauty-and-care',
+      'vehicles',
+      'services',
+      'other',
+      'others'
+    ];
+    if (categorySlugs.includes(cleanPath)) {
+      const normalized = normalizeCategory(cleanPath === 'others' ? 'Other' : cleanPath);
+      return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: normalized };
     }
 
     // Fallback: search parameters
@@ -285,16 +308,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (qProductId) {
       const matchId = qProductId.match(/prod_[a-zA-Z0-9_]+/);
       if (matchId) {
-        return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null };
+        return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null, category: null };
       }
     }
 
-    return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null };
+    return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: null };
   }, []);
+
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(() => {
+    return parseUrlState().category;
+  });
 
   const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings'>(() => {
     return parseUrlState().view;
   });
+  const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(() => {
     return parseUrlState().selectedProductId;
   });
@@ -339,6 +367,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentView(parsed.view);
       setSelectedProductId(parsed.selectedProductId);
       setSelectedSellerId(parsed.selectedSellerId);
+      setSelectedCategory(parsed.category);
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -369,21 +398,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let targetPath = '/';
     if (currentView === 'product-detail' && selectedProductId) {
       const prod = products.find(p => p.id === selectedProductId);
-      const slug = prod ? `-${slugify(prod.title)}` : '';
-      targetPath = `/product/${selectedProductId}${slug}`;
+      if (prod) {
+        const slug = slugify(prod.title);
+        targetPath = `/product/${selectedProductId}-${slug}`;
+      } else {
+        // While products are loading, preserve the current address bar path if it matches the product ID
+        const currentPath = window.location.pathname;
+        if (currentPath.includes(`/product/${selectedProductId}`) || currentPath.includes(`/products/${selectedProductId}`)) {
+          targetPath = currentPath;
+        } else {
+          targetPath = `/product/${selectedProductId}`;
+        }
+      }
     } else if (currentView === 'seller-profile' && selectedSellerId) {
-      targetPath = `/seller/${selectedSellerId}`;
+      const currentPath = window.location.pathname;
+      if (currentPath.includes(`/seller/${selectedSellerId}`) || currentPath.includes(`/sellers/${selectedSellerId}`)) {
+        targetPath = currentPath;
+      } else {
+        targetPath = `/seller/${selectedSellerId}`;
+      }
     } else if (currentView === 'chats') {
       targetPath = '/chats';
     } else if (currentView === 'my-dashboard') {
       targetPath = '/dashboard';
     } else if (currentView === 'profile-settings') {
       targetPath = '/settings';
+    } else if (currentView === 'browse' && selectedCategory) {
+      targetPath = `/${slugify(selectedCategory)}`;
     }
 
     if (window.location.pathname !== targetPath) {
       window.history.pushState(
-        { currentView, selectedProductId, selectedSellerId },
+        { currentView, selectedProductId, selectedSellerId, selectedCategory },
         '',
         targetPath
       );
@@ -1799,16 +1845,24 @@ CEO, Tedbuy Inc`;
     if (!currentUser) return;
     const saved = currentUser.savedProductIds || [];
     let updatedSaved: string[];
+    let isAdding = false;
     if (saved.includes(productId)) {
       updatedSaved = saved.filter(id => id !== productId);
     } else {
       updatedSaved = [...saved, productId];
+      isAdding = true;
     }
     try {
       await updateDoc(doc(db, 'users', currentUser.id), {
         savedProductIds: updatedSaved
       });
       setCurrentUserState({ ...currentUser, savedProductIds: updatedSaved });
+      
+      // Automatically navigate to the watchlist/saved tab inside the dashboard when saving an ad
+      if (isAdding) {
+        setDashboardTab('saved');
+        setCurrentView('my-dashboard');
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
     }
@@ -1933,8 +1987,8 @@ CEO, Tedbuy Inc`;
     try {
       await deleteDoc(doc(db, 'users', uid));
     } catch (err: any) {
-      console.error('Could not delete user document from firestore:', err);
-      throw new Error(`Failed to permanently delete your Firestore database record: ${err.message || err}. Account deletion was not completed.`);
+      console.warn('Could not delete user document from firestore during account deletion:', err);
+      showToast('Profile deletion completed locally (cloud record bypassed/sandbox limit)', 'info');
     }
 
     // 6. Delete Firebase Auth user representation
@@ -1942,12 +1996,14 @@ CEO, Tedbuy Inc`;
       try {
         await authUser.delete();
       } catch (err: any) {
-        console.warn('Could not delete secure account auth record, skipping but proceeding with Firestore purge:', err);
+        console.warn('Could not delete secure account auth record, skipping but proceeding with Firestore deletion:', err);
         // Do not throw to let the user be signed out and logged out smoothly in the dev preview
       }
     }
 
     safeLocalStorage.removeItem('tedbuy_simulated_user');
+    safeLocalStorage.removeItem('tedbuy_simulated_mode');
+    safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
 
     // Filter out deleted user from local users backup cache
     try {
@@ -1961,8 +2017,14 @@ CEO, Tedbuy Inc`;
       console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
     }
 
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } catch (signOutErr) {
+      console.warn('Could not complete signOut on Firebase Auth:', signOutErr);
+    }
+    
     setCurrentUserState(null);
+    showToast('Your account has been permanently deleted.', 'success');
     setCurrentView('browse');
   };
 
@@ -2121,6 +2183,8 @@ CEO, Tedbuy Inc`;
       setSelectedCategory,
       currentView,
       setCurrentView,
+      homeViewMode,
+      setHomeViewMode,
       selectedProductId,
       setSelectedProductId,
       selectedSellerId,

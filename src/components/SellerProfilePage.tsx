@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
-import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus } from 'lucide-react';
 import { isUserVerified, calculateTrustScore } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { motion, AnimatePresence } from 'motion/react';
