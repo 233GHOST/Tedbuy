@@ -3,6 +3,9 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(express.json());
