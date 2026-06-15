@@ -594,7 +594,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const transporter = getMailTransporter();
       
       const mailOptions = {
-        from: '"Vincent Asumadu (CEO, Tedbuy Inc)" <info@tedbuy.store>',
+        from: '"Tedbuy" <info@tedbuy.store>',
         to: email,
         replyTo: 'info@tedbuy.store',
         subject: 'Welcome to Tedbuy',
@@ -603,35 +603,72 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 10px rgb(0 0 0 / 0.04); }
-    .header { background-color: #0f172a; padding: 32px; text-align: center; color: #ffffff; }
-    .header h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.025em; }
-    .content { padding: 36px; line-height: 1.6; font-size: 15px; }
-    .footer { background-color: #f8fafc; padding: 24px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #f1f5f9; }
-    p { margin-top: 0; margin-bottom: 16px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
+    .header { background-color: #0f172a; padding: 48px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #f97316; }
+    .logo-container { display: inline-flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; }
+    .logo-text { font-size: 32px; font-weight: 800; letter-spacing: -0.04em; color: #ffffff; display: inline-block; vertical-align: middle; margin-left: 2px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .header h2 { margin: 12px 0 0 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: #f8fafc; }
+    .content { padding: 40px; line-height: 1.7; font-size: 15px; color: #334155; }
+    .content p { margin-top: 0; margin-bottom: 20px; }
+    .highlight-card { background-color: #f8fafc; border-left: 4px solid #f97316; padding: 20px; border-radius: 0 12px 12px 0; margin-bottom: 24px; }
+    .highlight-card p { margin-bottom: 0; font-weight: 600; color: #0f172a; }
+    .footer { background-color: #f8fafc; padding: 32px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
+    .footer a { color: #f97316; text-decoration: underline; font-weight: 600; }
+    .divider { height: 1px; background-color: #e2e8f0; margin: 32px 0; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1 style="color:#ffffff;">Tedbuy</h1>
+      <div class="logo-container">
+        <!-- High Fidelity SVG Tedbuy Official Logo -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="46" height="46" style="vertical-align: middle; display: inline-block;">
+          <defs>
+            <linearGradient id="bagGradientMail" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#1e293b" />
+              <stop offset="100%" stop-color="#0f172a" />
+            </linearGradient>
+            <linearGradient id="handleGradientMail" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#475569" />
+              <stop offset="100%" stop-color="#1e293b" />
+            </linearGradient>
+          </defs>
+          <g>
+            <path d="M 176,190 A 80,80 0 0,1 336,190" stroke="url(#handleGradientMail)" stroke-width="32" fill="none" stroke-linecap="round" />
+            <path d="M 120,180 L 392,180 C 408,180 420,194 418,210 L 390,440 C 388,456 374,468 358,468 L 154,468 C 138,468 124,456 122,440 L 94,210 C 92,194 104,180 120,180 Z" fill="url(#bagGradientMail)" />
+            <rect x="180" y="240" width="152" height="40" rx="10" fill="#ffffff" />
+            <rect x="236" y="240" width="40" height="150" rx="10" fill="#ffffff" />
+            <circle cx="256" cy="420" r="16" fill="#38bdf8" />
+          </g>
+        </svg>
+        <span class="logo-text">tedbuy</span>
+      </div>
+      <h2>Welcome to Tedbuy</h2>
     </div>
     <div class="content">
-      <p>Hi there,</p>
+      <p style="font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 24px;">Hi there,</p>
+      
       <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.</p>
+      
       <p>Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
-      <p>Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.</p>
+      
+      <p>Also, don't forget that our customer support team is here for all your day-to-day and technical questions 24/7.</p>
+      
+      <div class="divider"></div>
+      
       <p>Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
-      <p style="margin-top: 32px; line-height: 1.4;">
-        Gratefully yours,<br/><br/>
-        <strong>Vincent Asumadu</strong>,<br/>
-        <span style="color: #64748b; font-size: 13px;">CEO, Tedbuy Inc</span>
+      
+      <p style="margin-top: 36px; line-height: 1.5; font-size: 14px;">
+        Gratefully yours,<br/>
+        <strong style="font-size: 16px; color: #0f172a;">Vincent Asumadu</strong><br/>
+        <span style="color: #64748b; font-weight: 550;">CEO, Tedbuy Inc</span>
       </p>
     </div>
     <div class="footer">
-      <p>This message was sent from <a href="mailto:info@tedbuy.store" style="color: #0f172a; text-decoration: underline;">info@tedbuy.store</a>. You can directly hit reply to reach our support team for support, recommendations, or to report an issue.</p>
+      <p>This message was sent from <a href="mailto:info@tedbuy.store">info@tedbuy.store</a>. You can directly hit reply to reach our support team for support, recommendations, or to report any issue.</p>
       <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
     </div>
   </div>

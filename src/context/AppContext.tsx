@@ -699,24 +699,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
-  const isTriggeringWelcome = useRef(false);
+  const triggeredWelcomeUserId = useRef<string | null>(null);
   useEffect(() => {
     if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
-    if (isTriggeringWelcome.current) return;
-    isTriggeringWelcome.current = true;
+    if (triggeredWelcomeUserId.current === currentUser.id) return;
+    triggeredWelcomeUserId.current = currentUser.id;
 
     const setupWelcomePackage = async () => {
       const targetUser = currentUser;
       const email = targetUser.email;
       if (!email) {
-        isTriggeringWelcome.current = false;
+        triggeredWelcomeUserId.current = null;
         return;
       }
 
       console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
 
+      // 1. Create/Ensure CEO profile exists in users collection (Wrapped to protect outbound email pipeline)
       try {
-        // 1. Create/Ensure CEO profile exists in users collection
         const ceoRef = doc(db, 'users', 'user_ted_ceo_support');
         const ceoDoc = await getDoc(ceoRef);
         if (!ceoDoc.exists()) {
@@ -731,22 +731,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await setDoc(ceoRef, cleanObject(ceoProfile));
           console.log('[Welcome Trigger] Created CEO Vincent support user profile in Firestore.');
         }
+      } catch (ceoProfileErr) {
+        console.warn('[Welcome Trigger] CEO profile setup failed (continuing program):', ceoProfileErr);
+      }
 
-        // 2. Setup chat room
-        const chatId = `chat_support_${targetUser.id}`;
-        const chatRef = doc(db, 'chats', chatId);
-        
-        let chatExists = false;
-        try {
-          const chatDoc = await getDoc(chatRef);
-          if (chatDoc.exists()) {
-            chatExists = true;
-          }
-        } catch (checkErr) {
-          console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
+      // 2. Setup chat room (Wrapped to protect outbound email pipeline)
+      const chatId = `chat_support_${targetUser.id}`;
+      const chatRef = doc(db, 'chats', chatId);
+      let chatExists = false;
+      try {
+        const chatDoc = await getDoc(chatRef);
+        if (chatDoc.exists()) {
+          chatExists = true;
         }
+      } catch (checkErr) {
+        console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
+      }
 
-        const welcomeMessageBody = `Welcome to Tedbuy 
+      const welcomeMessageBody = `Welcome to Tedbuy 
 
 Hi there,
 
@@ -763,7 +765,8 @@ Gratefully yours,
 Vincent Asumadu,
 CEO, Tedbuy Inc`;
 
-        if (!chatExists) {
+      if (!chatExists) {
+        try {
           const supportChat = {
             id: chatId,
             productId: 'support_welcome',
@@ -795,61 +798,62 @@ CEO, Tedbuy Inc`;
           };
           await setDoc(msgRef, cleanObject(supportMessage));
           console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
+        } catch (chatWriteErr) {
+          console.warn('[Welcome Trigger] Failed to write support chat/message to Firestore (continuing):', chatWriteErr);
         }
+      }
 
-        // 4. Update welcomeSent: true metadata under users/{userId}
+      // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
+      try {
         const userRef = doc(db, 'users', targetUser.id);
         await setDoc(userRef, { welcomeSent: true }, { merge: true });
         console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
-
-        // 5. Send Welcome Email synchronously via server SMTP
-        try {
-          const emailResponse = await fetch('/api/send-welcome-email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              email: email.trim(),
-              username: targetUser.username
-            })
-          });
-          if (emailResponse.ok) {
-            console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
-            showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
-            
-            // Auto send real email verification request to their inbox right after their welcome email
-            setTimeout(async () => {
-              try {
-                const firebaseUser = auth.currentUser;
-                if (firebaseUser && !firebaseUser.emailVerified) {
-                  await sendEmailVerification(firebaseUser);
-                  showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
-                }
-              } catch (verifErr: any) {
-                console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
-              }
-            }, 1500);
-          } else {
-            console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
-          }
-        } catch (emailErr) {
-          console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
-        }
-
-        // 6. Keep active runtime state in-sync with welcomeSent: true
-        setCurrentUserState(prev => {
-          if (prev && prev.id === targetUser.id) {
-            return { ...prev, welcomeSent: true };
-          }
-          return prev;
-        });
-
-      } catch (err) {
-        console.error('[Welcome Trigger] Critical welcome package generation aborted:', err);
-      } finally {
-        isTriggeringWelcome.current = false;
+      } catch (userFlagErr) {
+        console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
       }
+
+      // 5. Send Welcome Email synchronously via server SMTP
+      try {
+        const emailResponse = await fetch('/api/send-welcome-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email: email.trim(),
+            username: targetUser.username
+          })
+        });
+        if (emailResponse.ok) {
+          console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
+          showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
+          
+          // Auto send real email verification request to their inbox right after their welcome email
+          setTimeout(async () => {
+            try {
+              const firebaseUser = auth.currentUser;
+              if (firebaseUser && !firebaseUser.emailVerified) {
+                await sendEmailVerification(firebaseUser);
+                showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
+              }
+            } catch (verifErr: any) {
+              console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
+            }
+          }, 1500);
+        } else {
+          console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
+        }
+      } catch (emailErr) {
+        console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
+      }
+
+      // 6. Keep active runtime state in-sync with welcomeSent: true
+      setCurrentUserState(prev => {
+        if (prev && prev.id === targetUser.id) {
+          return { ...prev, welcomeSent: true };
+        }
+        return prev;
+      });
     };
 
     setupWelcomePackage();
@@ -2053,13 +2057,15 @@ CEO, Tedbuy Inc`;
       return;
     }
 
-    onProgress(0, total, `Starting welcome email dispatch for ${total} users...`);
+    let logs = `Starting welcome email dispatch for ${total} users...\n\n`;
+    onProgress(0, total, logs);
 
     let successCount = 0;
     for (let i = 0; i < total; i++) {
       const targetUser = targets[i];
       const email = targetUser.email!.trim();
-      onProgress(i + 1, total, `Sending welcome email to: ${targetUser.username} (${email})`);
+      const prepMessage = `[${i + 1}/${total}] Sending to: ${targetUser.username} (${email})...`;
+      onProgress(i, total, logs + prepMessage);
 
       try {
         const emailResponse = await fetch('/api/send-welcome-email', {
@@ -2077,17 +2083,24 @@ CEO, Tedbuy Inc`;
           successCount++;
           const userRef = doc(db, 'users', targetUser.id);
           await setDoc(userRef, { welcomeSent: true }, { merge: true });
+          logs += `✔️ [SUCCESS] ${targetUser.username} (${email})\n`;
         } else {
+          const errData = await emailResponse.json().catch(() => ({}));
+          const details = errData.details || errData.error || `Status code ${emailResponse.status}`;
           console.warn(`Failed to send email to ${email} (status: ${emailResponse.status})`);
+          logs += `❌ [FAILED] ${targetUser.username} (${email}): ${details}\n`;
         }
       } catch (err: any) {
         console.error(`Error sending bulk email to ${email}:`, err);
+        logs += `❌ [ERROR] ${targetUser.username} (${email}): ${err?.message || String(err)}\n`;
       }
 
+      onProgress(i + 1, total, logs);
       await new Promise(resolve => setTimeout(resolve, 150));
     }
 
-    onProgress(total, total, `Welcome emails successfully dispatched to ${successCount} of ${total} users!`);
+    logs += `\n✨ Dispatch Complete! Successfully sent to ${successCount} of ${total} users.`;
+    onProgress(total, total, logs);
   };
 
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
