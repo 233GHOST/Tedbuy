@@ -2033,7 +2033,7 @@ CEO, Tedbuy Inc`;
     }
     
     setCurrentUserState(null);
-    showToast('Your account has been permanently deleted.', 'success');
+    showToast('Account Permanently deleted', 'success');
     setCurrentView('browse');
   };
 

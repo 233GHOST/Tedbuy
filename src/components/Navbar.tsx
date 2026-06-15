@@ -50,6 +50,7 @@ export const Navbar: React.FC = () => {
   const [registerPhotoUrlInput, setRegisterPhotoUrlInput] = useState('');
   const [resetEmailInput, setResetEmailInput] = useState('');
   const [passwordResetSuccess, setPasswordResetSuccess] = useState(false);
+  const [agreeTermsInput, setAgreeTermsInput] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isDesktopFocused, setIsDesktopFocused] = useState(false);
@@ -92,6 +93,11 @@ export const Navbar: React.FC = () => {
         await resetPasswordEmail(cleanResetEmail);
         setPasswordResetSuccess(true);
       } else if (authMode === 'register') {
+        if (!agreeTermsInput) {
+          setAuthError('You must agree to the Terms of Service and Marketplace Policies to create an account.');
+          setIsAuthSubmitting(false);
+          return;
+        }
         if (!usernameInput.trim()) {
           setAuthError('Please enter a username.');
           setIsAuthSubmitting(false);
@@ -122,6 +128,7 @@ export const Navbar: React.FC = () => {
         setRegisterPhoneInput('');
         setRegisterPasswordInput('');
         setRegisterPhotoUrlInput('');
+        setAgreeTermsInput(false);
       } else {
         const cleanLoginId = cleanEmailString(loginIdentifierInput);
         if (!cleanLoginId) {
@@ -740,6 +747,43 @@ export const Navbar: React.FC = () => {
                       </div>
                     </div>
                   </div>
+
+                  <div className="mt-3">
+                    <span className="block text-xs font-bold text-slate-700 mb-1.5">Marketplace Terms & Safety Policies *</span>
+                    <div className="max-h-28 overflow-y-auto bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] leading-relaxed text-slate-600 space-y-2 mb-3 scrollbar-thin">
+                      <div>
+                        <h5 className="font-extrabold text-slate-800 uppercase text-[9px] tracking-wider">1. Agreement to Terms</h5>
+                        <p>Welcome to TedBuy Ghana. By creating an account, you agree to comply with our peer-to-peer advertising policies and terms of service.</p>
+                      </div>
+                      <div>
+                        <h5 className="font-extrabold text-slate-800 uppercase text-[9px] tracking-wider">2. Listing & Safety Rules</h5>
+                        <p>No illegal merchandise, counterfeit brand replicas, or unauthorized financial offers. All users must supply accurate, non-misleading information for listings.</p>
+                      </div>
+                      <div className="bg-rose-50 border border-rose-200/60 p-2.5 rounded-xl my-1.5 shadow-3xs">
+                        <p className="text-xs font-black text-rose-700 leading-snug">
+                          ⚠️ Never send advance deposits before verifying physical product ownership.
+                        </p>
+                      </div>
+                      <div>
+                        <h5 className="font-extrabold text-slate-800 uppercase text-[9px] tracking-wider">3. Peer-to-Peer Disclaimer</h5>
+                        <p>TedBuy is an advertising venue. All inspection, item verification, delivery and financial payments are conducted solely between you and the other party. We never hold escrow funds or mediate delivery of hardware.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 pt-2.5 border-t border-slate-100 mt-4 animate-fade-in">
+                    <input
+                      type="checkbox"
+                      id="auth-agree-terms"
+                      required
+                      checked={agreeTermsInput}
+                      onChange={(e) => setAgreeTermsInput(e.target.checked)}
+                      className="mt-0.5 w-4.5 h-4.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900 cursor-pointer accent-slate-900"
+                    />
+                    <label htmlFor="auth-agree-terms" className="text-xs text-slate-600 leading-tight select-none cursor-pointer">
+                      I have read and I agree to the <span className="font-extrabold text-slate-950">Terms of Service</span> and <span className="font-extrabold text-slate-950">Marketplace Policies</span>. *
+                    </label>
+                  </div>
                 </>
               )}
 
@@ -910,17 +954,18 @@ export const Navbar: React.FC = () => {
                   setRegisterPasswordInput('');
                   setLoginPasswordInput('');
                   setPasswordResetSuccess(false);
+                  setAgreeTermsInput(false);
                 }}
-                className="text-xs text-slate-600 hover:underline hover:text-slate-900 font-semibold"
+                className="text-sm text-slate-600 hover:underline hover:text-slate-900 font-semibold py-1"
               >
                 {authMode === 'forgot-password' ? (
                   <span>Cancel and return to sign in</span>
                 ) : authMode === 'login' ? (
-                  <span className="text-slate-600 font-medium">
-                    Don't have an account yet? <strong className="font-black text-slate-950 underline hover:text-slate-850 transition-all text-[13px] tracking-tight ml-1">Create account now</strong>
+                  <span className="text-slate-650 font-medium text-sm">
+                    Don't have an account yet? <strong className="font-black text-slate-950 underline hover:text-slate-850 transition-all text-[15px] sm:text-base tracking-tight ml-1 block sm:inline mt-1 sm:mt-0">Create account now</strong>
                   </span>
                 ) : (
-                  <span>Already have an account? Sign in here</span>
+                  <span className="text-sm">Already have an account? Sign in here</span>
                 )}
               </button>
             </div>

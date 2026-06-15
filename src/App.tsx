@@ -10,7 +10,7 @@ import { ProfileSettings } from './components/ProfileSettings';
 import { ListingModal } from './components/ListingModal';
 import { VideoAdsFeed } from './components/VideoAdsFeed';
 import { Category, Product } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 import { VerificationBlockModal } from './components/VerificationBlockModal';
@@ -990,11 +990,29 @@ const MarketplaceContent: React.FC = () => {
               toast.type === 'error' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' : 
               'bg-blue-500/15 text-blue-400 border border-blue-500/20'
             }`}>
-              <Check className="w-4.5 h-4.5 stroke-[3]" />
+              {toast.type === 'success' ? (
+                <Check className="w-4.5 h-4.5 stroke-[3]" />
+              ) : toast.type === 'error' ? (
+                <AlertCircle className="w-4.5 h-4.5 stroke-[3]" />
+              ) : (
+                <Info className="w-4.5 h-4.5 stroke-[3]" />
+              )}
             </div>
             <div className="flex-1 space-y-1.5">
-              <p className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5">
-                Join Confirmation 🚀
+              <p className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5 font-sans">
+                {toast.message.toLowerCase().includes('delete') ? (
+                  <>Account Deleted 🔒</>
+                ) : toast.message.toLowerCase().includes('welcome') || toast.message.toLowerCase().includes('sign up') ? (
+                  <>Welcome to TedBuy 🚀</>
+                ) : toast.message.toLowerCase().includes('store name') || toast.message.toLowerCase().includes('successfully changed') ? (
+                  <>Store Named Updated 📝</>
+                ) : toast.type === 'success' ? (
+                  <>Success ✨</>
+                ) : toast.type === 'error' ? (
+                  <>Error ⚠️</>
+                ) : (
+                  <>Notification 🔔</>
+                )}
               </p>
               <p className="text-[12px] text-slate-300 leading-relaxed font-medium">{toast.message}</p>
             </div>

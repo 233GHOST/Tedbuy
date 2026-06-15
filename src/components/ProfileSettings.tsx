@@ -160,11 +160,11 @@ export const ProfileSettings: React.FC = () => {
     setSaveSuccess(false);
 
     if (!username.trim()) {
-      setErrorMsg('Username/Display Name is required.');
+      setErrorMsg('Store Name is required.');
       return;
     }
     if (username.length > 50) {
-      setErrorMsg('Username must be 50 characters or less.');
+      setErrorMsg('Store Name must be 50 characters or less.');
       return;
     }
     if (phoneNumber && phoneNumber.length > 25) {
@@ -186,6 +186,7 @@ export const ProfileSettings: React.FC = () => {
         role
       });
       setSaveSuccess(true);
+      showToast('Store name successfully changed', 'success');
       setTimeout(() => setSaveSuccess(false), 4500);
     } catch (err: any) {
       console.error(err);
@@ -272,7 +273,7 @@ export const ProfileSettings: React.FC = () => {
           }`}
         >
           <Info className="w-3.5 h-3.5" />
-          <span>More / Legal</span>
+          <span>More</span>
         </button>
       </div>
 
@@ -382,9 +383,9 @@ export const ProfileSettings: React.FC = () => {
             <div className="pt-3 border-t border-slate-200/60 space-y-2.5 text-xs">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block">Verification Checklist</span>
               
-              {/* Display Name Requirement */}
+              {/* Store Name Requirement */}
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Display Name Set (Length ≥ 3)</span>
+                <span className="text-slate-600">Store Name Set (Length ≥ 3)</span>
                 {username.trim().length >= 3 ? (
                   <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-md flex items-center gap-1">✓ Complete</span>
                 ) : (
@@ -498,7 +499,7 @@ export const ProfileSettings: React.FC = () => {
               <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center">
                 <Check className="w-3.5 h-3.5 stroke-[3]" />
               </div>
-              <span>Sweet! Your account profile settings have been successfully stored and published live.</span>
+              <span>Store name successfully changed</span>
             </motion.div>
           )}
 
@@ -509,10 +510,10 @@ export const ProfileSettings: React.FC = () => {
           )}
 
           <form onSubmit={handleValidationAndSave} className="bg-white border border-slate-200/90 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xs">
-            {/* Display / Store Name */}
+            {/* Store Name */}
             <div>
               <label htmlFor="settings-username" className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-2">
-                Display Name / Store Identifier *
+                Store Name *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -1001,7 +1002,12 @@ export const ProfileSettings: React.FC = () => {
               </div>
               <div className="space-y-1.5">
                 <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">3. Safety & Payments Warning</h4>
-                <p>TedBuy Classifieds is a peer-to-peer advertising provider. All product delivery, physical inspect evaluation, and financial settlement is coordinate solely between buyer and seller. Never send advance deposits before verifying physical product ownership.</p>
+                <p className="text-xs text-slate-600">TedBuy Classifieds is a peer-to-peer advertising provider. All product delivery, physical inspect evaluation, and financial settlement is coordinate solely between buyer and seller.</p>
+                <div className="mt-2 bg-rose-50 border border-rose-200/60 p-3 rounded-2xl">
+                  <p className="text-sm font-black text-rose-700 leading-snug">
+                    ⚠️ Never send advance deposits before verifying physical product ownership.
+                  </p>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">4. Privacy Policies</h4>
