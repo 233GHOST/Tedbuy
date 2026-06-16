@@ -392,10 +392,7 @@ const MarketplaceContent: React.FC = () => {
     const observer = new IntersectionObserver((entries) => {
       const entry = entries[0];
       if (entry.isIntersecting) {
-        setDisplayLimit((prev) => {
-          if (prev >= sortedProducts.length) return prev;
-          return prev + 12;
-        });
+        setDisplayLimit((prev) => prev + 12);
       }
     }, {
       rootMargin: '200px', // start loading before the user completely reaches the bottom
@@ -406,7 +403,7 @@ const MarketplaceContent: React.FC = () => {
     return () => {
       observer.unobserve(sentinel);
     };
-  }, [scrollSentinelRef.current, sortedProducts.length]);
+  }, [scrollSentinelRef.current, sortedProducts.length, displayLimit]);
 
   const handlePostAdBtn = () => {
     if (!currentUser) {

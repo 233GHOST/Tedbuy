@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Chat, Message, User } from '../types';
 import { ArrowLeft, Send, ShoppingBag, Eye, MessageSquare, ShieldAlert, Star, CheckCircle } from 'lucide-react';
@@ -31,9 +31,7 @@ export const ChatInterface: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Filter chats belonging to current user (either as buyer or seller)
-  const myChats = useMemo(() => {
-    return chats.filter(c => currentUser && (c.buyerId === currentUser.id || c.sellerId === currentUser.id));
-  }, [chats, currentUser]);
+  const myChats = chats.filter(c => currentUser && (c.buyerId === currentUser.id || c.sellerId === currentUser.id));
 
   // If no chat is active, pick the first one from the list by default
   useEffect(() => {

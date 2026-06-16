@@ -590,28 +590,8 @@ export const ProductDetail: React.FC = () => {
                     <span>Admin Moderator Controls</span>
                   </div>
                   <p className="text-slate-600 font-sans leading-relaxed">
-                    You have administrative access to this post as <strong className="text-slate-900 font-bold">{currentUser.email}</strong>. You can edit the parameters of this listing, permanently delete it, or toggle its sold status below.
+                    You have administrative access to this post as <strong className="text-slate-900 font-bold">{currentUser.email}</strong>. You can edit the parameters of this listing or permanently delete it from the system.
                   </p>
-                  
-                  <div className="flex items-center justify-between py-2 px-3 bg-white rounded-2xl border border-rose-200/60 shadow-3xs">
-                    <span className="font-bold text-slate-700">Item Status:</span>
-                    <label className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-xs text-rose-600 hover:text-rose-700">
-                      <input
-                        type="checkbox"
-                        checked={!!product.isSold}
-                        onChange={async (e) => {
-                          try {
-                            await updateProduct(product.id, { isSold: e.target.checked });
-                          } catch (err) {
-                            console.error("Failed to update product isSold flag", err);
-                          }
-                        }}
-                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
-                      />
-                      <span>Mark as Sold</span>
-                    </label>
-                  </div>
-
                   <div className="flex gap-2.5">
                     <button
                       onClick={() => setShowEditModal(true)}

@@ -196,22 +196,8 @@ const safeSessionStorage = {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>(() => {
-    try {
-      const saved = safeLocalStorage.getItem('tedbuy_local_users_backup');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [users, setUsers] = useState<User[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const msgMapRef = useRef<Map<string, Message>>(new Map());
@@ -243,20 +229,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(() => {
-    try {
-      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return false;
-        }
-      }
-      return true;
-    } catch {
-      return true;
-    }
-  });
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -717,11 +690,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setProducts(sorted);
       setIsProductsLoading(false);
-      try {
-        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
-      } catch (err) {
-        console.warn('Could not save product backups to local storage:', err);
-      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');
       setIsProductsLoading(false);
@@ -1728,7 +1696,7 @@ CEO, Tedbuy Inc`;
     }
   };
 
-  const markChatAsRead = useCallback(async (chatId: string) => {
+  const markChatAsRead = async (chatId: string) => {
     if (!currentUser) return;
     const unreadMsgs = messages.filter(
       m => m.chatId === chatId && m.recipientId === currentUser.id && !m.read
@@ -1760,7 +1728,7 @@ CEO, Tedbuy Inc`;
     } catch (err) {
       console.error('Error marking messages as read in Firestore:', err);
     }
-  }, [currentUser, messages]);
+  };
 
   const toggleMessageReadStatus = async (messageId: string, read: boolean = true) => {
     setMessages(prev => {
