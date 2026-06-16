@@ -129,26 +129,12 @@
         "deletedAt": { "type": "string", "description": "ISO timestamp of deletion" }
       },
       "required": ["email", "deletedAt"]
-    },
-    "StoreNameMapping": {
-      "title": "StoreNameMapping",
-      "description": "A mapping collection to reserve and register unique display store names",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string", "description": "The unique user identifier owning this store name" },
-        "username": { "type": "string", "description": "The case-preserved original display store name" }
-      },
-      "required": ["userId", "username"]
     }
   },
   "firestore": {
     "/deletedEmails/{email}": {
       "schema": "DeletedEmail",
       "description": "Previously deleted user email identifiers"
-    },
-    "/storeNames/{storeName}": {
-      "schema": "StoreNameMapping",
-      "description": "Unique store names mapped to their respective user identifiers"
     },
     "/users/{userId}": {
       "schema": "User",
