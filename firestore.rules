@@ -57,7 +57,7 @@ service cloud.firestore {
       allow create: if (isSignedIn() || userId.matches('^user_.*') || userId.matches('^phone_.*')) && isValidId(userId) && isValidUser(incoming());
       allow update: if (isSignedIn() || userId.matches('^user_.*') || userId.matches('^phone_.*')) && isValidId(userId) && isValidUser(incoming()) &&
                     incoming().get('id', '') == existing().get('id', '');
-      allow delete: if false;
+      allow delete: if isOwner(userId) || userId.matches('^user_.*') || userId.matches('^phone_.*') || isAdmin();
     }
 
     // 2. Products Collection rules
@@ -99,7 +99,7 @@ service cloud.firestore {
                     incoming().get('id', '') == existing().get('id', '') &&
                     incoming().get('buyerId', '') == existing().get('buyerId', '') &&
                     incoming().get('sellerId', '') == existing().get('sellerId', '');
-      allow delete: if false;
+      allow delete: if (isSignedIn() || existing().get('buyerId', '').matches('^user_.*') || existing().get('sellerId', '').matches('^user_.*')) && (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', '')) || existing().get('buyerId', '').matches('^user_.*') || existing().get('sellerId', '').matches('^user_.*') || isAdmin());
     }
 
     // 4. Messages Collection rules
@@ -119,7 +119,7 @@ service cloud.firestore {
                        (isOwner(existing().get('recipientId', '')) || existing().get('recipientId', '') == request.auth.uid || existing().get('recipientId', '').matches('^user_.*')) &&
                        incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
                        incoming().read == true;
-      allow delete: if false;
+      allow delete: if (isSignedIn() || existing().get('senderId', '').matches('^user_.*') || existing().get('recipientId', '').matches('^user_.*')) && (isOwner(existing().get('senderId', '')) || isOwner(existing().get('recipientId', '')) || existing().get('senderId', '').matches('^user_.*') || existing().get('recipientId', '').matches('^user_.*') || isAdmin());
     }
 
     // 5. Reviews Collection rules
@@ -137,7 +137,8 @@ service cloud.firestore {
       allow create: if (isSignedIn() || incoming().get('buyerId', '').matches('^user_.*')) && isValidId(reviewId) &&
                     incoming().get('buyerId', '') != incoming().get('sellerId', '') && // No self rates
                     isValidReview(incoming());
-      allow update, delete: if false; // Reviews are immutable after locking
+      allow update: if false; // Reviews are immutable after locking
+      allow delete: if (isSignedIn() || existing().get('buyerId', '').matches('^user_.*') || existing().get('sellerId', '').matches('^user_.*')) && (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', '')) || existing().get('buyerId', '').matches('^user_.*') || existing().get('sellerId', '').matches('^user_.*') || isAdmin());
     }
   }
 }

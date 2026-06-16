@@ -106,6 +106,7 @@ interface AppContextType {
     whatsAppNumber?: string;
   }) => Promise<void>;
   deleteAccount: (password?: string) => Promise<void>;
+  adminDeleteUserProfile: (userId: string) => Promise<void>;
   sendWelcomeEmailToAll: (onlyUnsent: boolean, onProgress: (current: number, total: number, logMsg: string) => void) => Promise<void>;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
@@ -554,6 +555,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (active) {
                 justRegisteredUserIds.current.add(firebaseUser.uid);
                 setCurrentUserState(newUser);
+                // Directly trigger welcome package synchronously to prevent race conditions
+                setupWelcomePackage(newUser).catch(err => {
+                  console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
+                });
               }
             }
           } catch (dbErr) {
@@ -804,171 +809,161 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);
+
+  const setupWelcomePackage = async (targetUser: User) => {
+    const email = targetUser.email;
+    if (!email) {
+      return;
+    }
+
+    if (triggeredWelcomeUserId.current === targetUser.id) return;
+    triggeredWelcomeUserId.current = targetUser.id;
+
+    console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
+
+    // 1. Create/Ensure CEO profile exists in users collection (Wrapped to protect outbound email pipeline)
+    try {
+      const ceoRef = doc(db, 'users', 'user_ted_ceo_support');
+      const ceoDoc = await getDoc(ceoRef);
+      if (!ceoDoc.exists()) {
+        const ceoProfile = {
+          id: 'user_ted_ceo_support',
+          username: 'Vincent (CEO, Tedbuy Inc)',
+          email: 'info@tedbuy.store',
+          photoUrl: '/favicon.svg',
+          role: 'seller',
+          joinDate: 'Jun 2018'
+        };
+        await setDoc(ceoRef, cleanObject(ceoProfile));
+        console.log('[Welcome Trigger] Created CEO Vincent support user profile in Firestore.');
+      }
+    } catch (ceoProfileErr) {
+      console.warn('[Welcome Trigger] CEO profile setup failed (continuing program):', ceoProfileErr);
+    }
+
+    // 2. Setup chat room (Wrapped to protect outbound email pipeline)
+    const chatId = `chat_support_${targetUser.id}`;
+    const chatRef = doc(db, 'chats', chatId);
+    let chatExists = false;
+    try {
+      const chatDoc = await getDoc(chatRef);
+      if (chatDoc.exists()) {
+        chatExists = true;
+      }
+    } catch (checkErr) {
+      console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
+    }
+
+    const welcomeMessageBody = `Welcome to Tedbuy
+
+I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights. 
+
+Gratefully yours, 
+Vincent Asumadu, 
+CEO, Tedbuy Inc`;
+
+    if (!chatExists) {
+      try {
+        const supportChat = {
+          id: chatId,
+          productId: 'support_welcome',
+          productTitle: 'CEO Welcome & Support Desk',
+          productPrice: 'Direct Channel',
+          productImage: '/favicon.svg',
+          buyerId: targetUser.id,
+          buyerName: targetUser.username,
+          sellerId: 'user_ted_ceo_support',
+          sellerName: 'Vincent (CEO, Tedbuy Inc)',
+          lastMessageText: 'Welcome to Tedbuy 🚀',
+          lastMessageTime: new Date().toISOString(),
+          tradeStatus: 'pending'
+        };
+        await setDoc(chatRef, cleanObject(supportChat));
+        console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
+
+        // 3. Create message document inside messages collection
+        const msgId = `msg_welcome_${targetUser.id}`;
+        const msgRef = doc(db, 'messages', msgId);
+        const supportMessage = {
+          id: msgId,
+          chatId: chatId,
+          senderId: 'user_ted_ceo_support',
+          recipientId: targetUser.id,
+          text: welcomeMessageBody,
+          createdAt: new Date().toISOString(),
+          read: false
+        };
+        await setDoc(msgRef, cleanObject(supportMessage));
+        console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
+      } catch (chatWriteErr) {
+        console.warn('[Welcome Trigger] Failed to write support chat/message to Firestore (continuing):', chatWriteErr);
+      }
+    }
+
+    // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
+    try {
+      const userRef = doc(db, 'users', targetUser.id);
+      await setDoc(userRef, { welcomeSent: true }, { merge: true });
+      console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
+    } catch (userFlagErr) {
+      console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
+    }
+
+    // 5. Send Welcome Email synchronously via server SMTP
+    try {
+      const emailResponse = await fetch('/api/send-welcome-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          username: targetUser.username
+        })
+      });
+      if (emailResponse.ok) {
+        console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
+        showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
+        
+        // Auto send real email verification request to their inbox right after their welcome email
+        setTimeout(async () => {
+          try {
+            const firebaseUser = auth.currentUser;
+            if (firebaseUser && !firebaseUser.emailVerified) {
+              await sendEmailVerification(firebaseUser);
+              showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
+            }
+          } catch (verifErr: any) {
+            console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
+          }
+        }, 1500);
+      } else {
+        console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
+      }
+    } catch (emailErr) {
+      console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
+    }
+
+    // 6. Keep active runtime state in-sync with welcomeSent: true
+    setCurrentUserState(prev => {
+      if (prev && prev.id === targetUser.id) {
+        return { ...prev, welcomeSent: true };
+      }
+      return prev;
+    });
+  };
+
   useEffect(() => {
     if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
     
-    // Core constraint: only send to newly created accounts, NOT anytime a user logs in, unless performed by CEO SYSTEM CONTROLS
+    // Core constraint: only send to newly created accounts, NOT anytime a user logs in, unless they just registered in this session
     const isNewAccount = justRegisteredUserIds.current.has(currentUser.id);
     if (!isNewAccount) {
       console.log(`[Welcome Trigger] Skipping automated welcome package for existing user login: ${currentUser.username}`);
       return;
     }
 
-    if (triggeredWelcomeUserId.current === currentUser.id) return;
-    triggeredWelcomeUserId.current = currentUser.id;
-
-    const setupWelcomePackage = async () => {
-      const targetUser = currentUser;
-      const email = targetUser.email;
-      if (!email) {
-        triggeredWelcomeUserId.current = null;
-        return;
-      }
-
-      console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
-
-      // 1. Create/Ensure CEO profile exists in users collection (Wrapped to protect outbound email pipeline)
-      try {
-        const ceoRef = doc(db, 'users', 'user_ted_ceo_support');
-        const ceoDoc = await getDoc(ceoRef);
-        if (!ceoDoc.exists()) {
-          const ceoProfile = {
-            id: 'user_ted_ceo_support',
-            username: 'Vincent (CEO, Tedbuy Inc)',
-            email: 'info@tedbuy.store',
-            photoUrl: '/favicon.svg',
-            role: 'seller',
-            joinDate: 'Jun 2018'
-          };
-          await setDoc(ceoRef, cleanObject(ceoProfile));
-          console.log('[Welcome Trigger] Created CEO Vincent support user profile in Firestore.');
-        }
-      } catch (ceoProfileErr) {
-        console.warn('[Welcome Trigger] CEO profile setup failed (continuing program):', ceoProfileErr);
-      }
-
-      // 2. Setup chat room (Wrapped to protect outbound email pipeline)
-      const chatId = `chat_support_${targetUser.id}`;
-      const chatRef = doc(db, 'chats', chatId);
-      let chatExists = false;
-      try {
-        const chatDoc = await getDoc(chatRef);
-        if (chatDoc.exists()) {
-          chatExists = true;
-        }
-      } catch (checkErr) {
-        console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
-      }
-
-      const welcomeMessageBody = `Welcome to Tedbuy 
-
-Hi there,
-
-I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.
-
-Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.
-
-Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.
-
-Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.
-
-Gratefully yours,
-
-Vincent Asumadu,
-CEO, Tedbuy Inc`;
-
-      if (!chatExists) {
-        try {
-          const supportChat = {
-            id: chatId,
-            productId: 'support_welcome',
-            productTitle: 'CEO Welcome & Support Desk',
-            productPrice: 'Direct Channel',
-            productImage: '/favicon.svg',
-            buyerId: targetUser.id,
-            buyerName: targetUser.username,
-            sellerId: 'user_ted_ceo_support',
-            sellerName: 'Vincent (CEO, Tedbuy Inc)',
-            lastMessageText: 'Welcome to Tedbuy 🚀',
-            lastMessageTime: new Date().toISOString(),
-            tradeStatus: 'pending'
-          };
-          await setDoc(chatRef, cleanObject(supportChat));
-          console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
-
-          // 3. Create message document inside messages collection
-          const msgId = `msg_welcome_${targetUser.id}`;
-          const msgRef = doc(db, 'messages', msgId);
-          const supportMessage = {
-            id: msgId,
-            chatId: chatId,
-            senderId: 'user_ted_ceo_support',
-            recipientId: targetUser.id,
-            text: welcomeMessageBody,
-            createdAt: new Date().toISOString(),
-            read: false
-          };
-          await setDoc(msgRef, cleanObject(supportMessage));
-          console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
-        } catch (chatWriteErr) {
-          console.warn('[Welcome Trigger] Failed to write support chat/message to Firestore (continuing):', chatWriteErr);
-        }
-      }
-
-      // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
-      try {
-        const userRef = doc(db, 'users', targetUser.id);
-        await setDoc(userRef, { welcomeSent: true }, { merge: true });
-        console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
-      } catch (userFlagErr) {
-        console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
-      }
-
-      // 5. Send Welcome Email synchronously via server SMTP
-      try {
-        const emailResponse = await fetch('/api/send-welcome-email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            email: email.trim(),
-            username: targetUser.username
-          })
-        });
-        if (emailResponse.ok) {
-          console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
-          showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
-          
-          // Auto send real email verification request to their inbox right after their welcome email
-          setTimeout(async () => {
-            try {
-              const firebaseUser = auth.currentUser;
-              if (firebaseUser && !firebaseUser.emailVerified) {
-                await sendEmailVerification(firebaseUser);
-                showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
-              }
-            } catch (verifErr: any) {
-              console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
-            }
-          }, 1500);
-        } else {
-          console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
-        }
-      } catch (emailErr) {
-        console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
-      }
-
-      // 6. Keep active runtime state in-sync with welcomeSent: true
-      setCurrentUserState(prev => {
-        if (prev && prev.id === targetUser.id) {
-          return { ...prev, welcomeSent: true };
-        }
-        return prev;
-      });
-    };
-
-    setupWelcomePackage();
+    setupWelcomePackage(currentUser);
   }, [currentUser]);
 
   // 2.2 Auto-Seeding Search Console Specific Products (24k pure black / 24k blue)
@@ -1230,19 +1225,6 @@ CEO, Tedbuy Inc`;
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    
-    // Check if the email address is associated with a deleted account
-    try {
-      const deletedSnap = await getDoc(doc(db, 'deletedEmails', cleanEmail));
-      if (deletedSnap.exists()) {
-        throw new Error('This email address has been associated with a permanently deleted account and cannot be registered again.');
-      }
-    } catch (checkErr: any) {
-      if (checkErr.message && checkErr.message.includes('permanently deleted account')) {
-        throw checkErr;
-      }
-      console.warn('Failed to verify if email was previously deleted (continuing anyway):', checkErr);
-    }
 
     try {
       let uid: string;
@@ -1251,6 +1233,8 @@ CEO, Tedbuy Inc`;
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
         uid = userCredential.user.uid;
+        // Instantly mark as registered to prevent race conditions with auth listener
+        justRegisteredUserIds.current.add(uid);
 
         newUser = {
           id: uid,
@@ -1279,6 +1263,9 @@ CEO, Tedbuy Inc`;
           showToast('Email/Password provider is currently disabled in your Firebase console. Creating high-fidelity sandbox session for offline-interactive testing!', 'info');
           
           uid = `user_local_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`;
+          // Instantly mark as registered to prevent race conditions with auth listener
+          justRegisteredUserIds.current.add(uid);
+
           newUser = {
             id: uid,
             username: username.trim(),
@@ -1318,6 +1305,12 @@ CEO, Tedbuy Inc`;
 
       justRegisteredUserIds.current.add(uid);
       setCurrentUserState(newUser);
+
+      // Directly trigger welcome package synchronously to prevent race conditions
+      setupWelcomePackage(newUser).catch(err => {
+        console.warn('[Welcome Trigger] Direct welcome setup call failed from registration:', err);
+      });
+
       return newUser;
     } catch (error) {
       console.error('Core Firebase registration failed:', error);
@@ -2207,16 +2200,13 @@ CEO, Tedbuy Inc`;
       console.warn('Could not fully delete user messages upon account deletion:', msgErr);
     }
 
-    // 5. Delete user profile document from firestore and record deleted email
+    // 5. Delete user profile document from firestore and clear from deletedEmails
     const emailToDelete = currentUser.email || authUser?.email;
     if (emailToDelete) {
       try {
-        await setDoc(doc(db, 'deletedEmails', emailToDelete.trim().toLowerCase()), {
-          email: emailToDelete.trim().toLowerCase(),
-          deletedAt: new Date().toISOString()
-        });
+        await deleteDoc(doc(db, 'deletedEmails', emailToDelete.trim().toLowerCase()));
       } catch (err) {
-        console.warn('Could not record deleted email in Firestore:', err);
+        console.warn('Could not clear deleted email blocklist from Firestore:', err);
       }
     }
 
@@ -2241,16 +2231,16 @@ CEO, Tedbuy Inc`;
     safeLocalStorage.removeItem('tedbuy_simulated_mode');
     safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
 
-    // Filter out deleted user from local users backup cache
+    // Filter out deleted user from local users backup cache and live memory state
     try {
       const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
-      if (cached) {
-        const uList: User[] = JSON.parse(cached);
-        const filtered = uList.filter(u => u.id !== uid);
-        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
-      }
+      const currentList = cached ? JSON.parse(cached) : (users || []);
+      const filtered = currentList.filter((u: User) => u.id !== uid);
+      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+      setUsers(filtered);
     } catch (cacheErr) {
       console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
+      setUsers(prev => prev.filter(u => u.id !== uid));
     }
 
     try {
@@ -2324,6 +2314,91 @@ CEO, Tedbuy Inc`;
 
     logs += `\n✨ Dispatch Complete! Successfully sent to ${successCount} of ${total} users.`;
     onProgress(total, total, logs);
+  };
+
+  const adminDeleteUserProfile = async (userId: string) => {
+    if (!currentUser || !currentUser.isAdmin) {
+      throw new Error("Unauthorized: Only administrators can delete store profiles.");
+    }
+
+    const targetUser = users.find(u => u.id === userId);
+    if (!targetUser) {
+      throw new Error("User profile not found in system.");
+    }
+
+    console.log(`[Admin] Deleting store profile for user: ${targetUser.username} (${userId})`);
+
+    // 1. Delete all user's listings (products)
+    try {
+      const userProducts = products.filter(p => p.sellerId === userId);
+      for (const p of userProducts) {
+        await deleteDoc(doc(db, 'products', p.id));
+      }
+    } catch (productErr) {
+      console.warn('Could not fully delete user product listings upon admin deletion:', productErr);
+    }
+
+    // 2. Delete all user's reviews
+    try {
+      const userReviews = reviews.filter(r => r.buyerId === userId || r.sellerId === userId);
+      for (const r of userReviews) {
+        await deleteDoc(doc(db, 'reviews', r.id));
+      }
+    } catch (reviewErr) {
+      console.warn('Could not fully delete user reviews upon admin deletion:', reviewErr);
+    }
+
+    // 3. Delete all chats involving this user
+    const userChats = chats.filter(c => c.buyerId === userId || c.sellerId === userId);
+    try {
+      for (const c of userChats) {
+        await deleteDoc(doc(db, 'chats', c.id));
+      }
+    } catch (chatErr) {
+      console.warn('Could not fully delete user chats upon admin deletion:', chatErr);
+    }
+
+    // 4. Delete all messages sent/received by this user
+    try {
+      const chatIdsSet = new Set(userChats.map(c => c.id));
+      const userMessages = messages.filter(m => m.senderId === userId || m.recipientId === userId || chatIdsSet.has(m.chatId));
+      for (const m of userMessages) {
+        await deleteDoc(doc(db, 'messages', m.id));
+      }
+    } catch (msgErr) {
+      console.warn('Could not fully delete user messages upon admin deletion:', msgErr);
+    }
+
+    // 5. Delete specific deletedEmails record
+    const emailToDelete = targetUser.email;
+    if (emailToDelete) {
+      try {
+        await deleteDoc(doc(db, 'deletedEmails', emailToDelete.trim().toLowerCase()));
+      } catch (err) {
+        console.warn('Could not clear deleted email blocklist from Firestore:', err);
+      }
+    }
+
+    // 6. Delete user doc
+    try {
+      await deleteDoc(doc(db, 'users', userId));
+    } catch (err: any) {
+      console.warn('Could not delete user document from firestore during admin deletion:', err);
+    }
+
+    // Filter out deleted user from local users backup cache and live memory state
+    try {
+      const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
+      const currentList = cached ? JSON.parse(cached) : (users || []);
+      const filtered = currentList.filter((u: User) => u.id !== userId);
+      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+      setUsers(filtered);
+    } catch (cacheErr) {
+      console.warn('Could not filter custom backup data upon admin deletion:', cacheErr);
+      setUsers(prev => prev.filter(u => u.id !== userId));
+    }
+
+    showToast(`Store profile for "${targetUser.username}" permanently deleted and store name released!`, 'success');
   };
 
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
@@ -2423,6 +2498,7 @@ CEO, Tedbuy Inc`;
       toggleSaveProduct,
       updateUserProfile,
       deleteAccount,
+      adminDeleteUserProfile,
       sendWelcomeEmailToAll,
       reviews,
       addReview,
