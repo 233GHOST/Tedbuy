@@ -599,8 +599,8 @@ export const Navbar: React.FC = () => {
 
       {/* Manual Auth Modal (No external dependencies) */}
       {showAuthModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left text-slate-900 my-auto max-h-[90vh] overflow-y-auto scrollbar-thin">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left text-slate-900">
             <button
               onClick={() => setShowAuthModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 text-lg font-bold"

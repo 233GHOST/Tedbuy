@@ -15,20 +15,15 @@ const getResilientDb = () => {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager()
-      }),
-      experimentalAutoDetectLongPolling: true
+      })
     }, dbId);
   } catch (err) {
     console.warn('Could not initialize persistent local cache due to browser restrictions, falling back to basic setup:', err);
     try {
-      return initializeFirestore(app, {
-        experimentalAutoDetectLongPolling: true
-      }, dbId);
+      return initializeFirestore(app, {}, dbId);
     } catch (fallbackErr) {
       console.warn('Basic initializeFirestore failed, using default getFirestore fallback:', fallbackErr);
-      return initializeFirestore(app, {
-        experimentalAutoDetectLongPolling: true
-      });
+      return initializeFirestore(app, {});
     }
   }
 };

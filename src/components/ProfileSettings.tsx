@@ -11,7 +11,6 @@ export const ProfileSettings: React.FC = () => {
     currentUser, 
     updateUserProfile, 
     deleteAccount, 
-    adminDeleteUserProfile,
     logoutUser, 
     setCurrentView, 
     users, 
@@ -48,15 +47,6 @@ export const ProfileSettings: React.FC = () => {
   const [whatsAppNumber, setWhatsAppNumber] = useState(currentUser.whatsAppNumber || '');
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(currentUser.photoUrl);
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser.role || 'both');
-
-  const filteredStoresForAdmin = (users || []).filter(u => {
-    if (u.id === currentUser?.id) return false; // Don't delete self
-    const q = storeSearch.toLowerCase();
-    return (
-      (u.username && u.username.toLowerCase().includes(q)) ||
-      (u.email && u.email.toLowerCase().includes(q))
-    );
-  });
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -109,10 +99,6 @@ export const ProfileSettings: React.FC = () => {
   const [adminLog, setAdminLog] = useState('');
   const [adminProgress, setAdminProgress] = useState({ current: 0, total: 0 });
   const [onlyUnsentEmails, setOnlyUnsentEmails] = useState(true);
-
-  // Admin Store Manager States
-  const [storeSearch, setStoreSearch] = useState('');
-  const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
 
   const handleBulkOnboard = async () => {
     setIsAdminRunning(true);
@@ -840,89 +826,6 @@ export const ProfileSettings: React.FC = () => {
                     </div>
                   </div>
                 )}
-
-                {/* Store Name & Profile Manager */}
-                <div className="pt-4 border-t border-slate-800/80 space-y-4">
-                  <div>
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
-                      <ShieldAlert className="w-4 h-4 text-rose-400" />
-                      Store Name & Profile Manager
-                    </h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                      Permanently delete stale, test, or orphaned profiles to instantly free up and release their store name.
-                    </p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input 
-                      type="text"
-                      value={storeSearch}
-                      onChange={(e) => setStoreSearch(e.target.value)}
-                      placeholder="Search store name or email (e.g., Juju)..."
-                      className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-3.5 py-2 rounded-xl placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
-                    />
-                    {storeSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setStoreSearch('')}
-                        className="px-3 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs rounded-xl transition cursor-pointer"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="max-h-60 overflow-y-auto bg-slate-950 rounded-2xl border border-slate-850 divide-y divide-slate-905 custom-scrollbar">
-                    {filteredStoresForAdmin.length === 0 ? (
-                      <p className="text-[11px] text-slate-500 text-center py-6 block italic">
-                        {storeSearch ? 'No matching store names found.' : 'Type a store name above to find and manage.'}
-                      </p>
-                    ) : (
-                      filteredStoresForAdmin.map(storeUser => (
-                        <div key={storeUser.id} className="flex items-center justify-between p-3 group hover:bg-slate-900/40 transition">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-extrabold text-slate-400 select-none overflow-hidden shrink-0">
-                              {storeUser.photoUrl ? (
-                                <img src={storeUser.photoUrl} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                              ) : (
-                                (storeUser.username || '?').substring(0, 2).toUpperCase()
-                              )}
-                            </div>
-                            <div className="text-left">
-                              <span className="text-xs font-bold text-slate-200 block group-hover:text-emerald-450 transition">{storeUser.username || 'No Store Name'}</span>
-                              <span className="text-[10px] text-slate-500 font-mono block mt-0.5">{storeUser.email || storeUser.phoneNumber || 'Simulated Account'}</span>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            disabled={adminDeletingId !== null}
-                            onClick={async () => {
-                              if (window.confirm(`Are you absolutely sure you want to permanently delete the profile for "${storeUser.username}"?\nThis will release this store name and make it available immediately.`)) {
-                                setAdminDeletingId(storeUser.id);
-                                try {
-                                  await adminDeleteUserProfile(storeUser.id);
-                                } catch (err: any) {
-                                  showToast(err?.message || 'Deletion failed', 'error');
-                                } finally {
-                                  setAdminDeletingId(null);
-                                }
-                              }
-                            }}
-                            className="p-1.5 text-slate-550 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                            title="Delete Store Profile & Release Name"
-                          >
-                            {adminDeletingId === storeUser.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-450" />
-                            ) : (
-                              <Trash2 className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           )}

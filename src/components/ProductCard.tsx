@@ -88,10 +88,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   }, [product.images, product.category]);
 
   React.useEffect(() => {
-    if (!isVisible) {
-      setProcessedVideoUrl('');
-      return;
-    }
+    if (!isVisible && !processedVideoUrl) return;
     const videoUrl = product.videos?.[0];
     if (!videoUrl) {
       setProcessedVideoUrl('');
@@ -141,7 +138,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         URL.revokeObjectURL(activeUrl);
       }
     };
-  }, [product.videos, isVisible]);
+  }, [product.videos, isVisible, processedVideoUrl]);
 
   const getLowResUrl = (url: string): string => {
     if (!url) return '';

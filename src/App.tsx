@@ -15,9 +15,6 @@ import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 import { VerificationBlockModal } from './components/VerificationBlockModal';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
-import { createProductSelector } from './utils/productSelector';
-
-const selectProducts = createProductSelector();
 
 const CATEGORY_ICONS: { [key in Category]: string } = {
   Phones: '📱',
@@ -35,8 +32,6 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
 const MarketplaceContent: React.FC = () => {
   const {
     products,
-    hasMoreProducts,
-    loadMoreProducts,
     users,
     currentView,
     setCurrentView,
@@ -309,20 +304,86 @@ const MarketplaceContent: React.FC = () => {
 
 
 
-  // Filter and sort listings based on category, search query, region, city, and price range using the memoized selector
+  // Filter listings based on category, search query, region, city, and price range
+  const filteredProducts = useMemo(() => {
+    return products.filter(product => {
+      const matchesCategory = !selectedCategory || 
+        product.category === selectedCategory || 
+        (product.category && selectedCategory && product.category.toLowerCase() === selectedCategory.toLowerCase());
+      const matchesSearch = !debouncedSearchQuery.trim() ||
+        product.title.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        (product.category && product.category.toLowerCase().includes(debouncedSearchQuery.toLowerCase())) ||
+        product.description.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        product.location.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
+
+      // Region verification
+      let matchesRegion = true;
+      if (selectedRegion !== 'All') {
+        const prodRegion = getRegionForLocation(product.location);
+        matchesRegion = (prodRegion === selectedRegion);
+      }
+
+      // City verification
+      let matchesCity = true;
+      if (selectedCity !== 'All') {
+        matchesCity = product.location.toLowerCase().includes(selectedCity.toLowerCase());
+      }
+
+      // Price verification
+      const numericPrice = parseNumericPrice(product.price);
+
+      let matchesMinPrice = true;
+      if (minPrice.trim() !== '') {
+        const minVal = parseFloat(minPrice);
+        if (!isNaN(minVal)) {
+          matchesMinPrice = numericPrice >= minVal;
+        }
+      }
+
+      let matchesMaxPrice = true;
+      if (maxPrice.trim() !== '') {
+        const maxVal = parseFloat(maxPrice);
+        if (!isNaN(maxVal)) {
+          matchesMaxPrice = numericPrice <= maxVal;
+        }
+      }
+
+      return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice;
+    });
+  }, [products, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice]);
+
+  function parseNumericPrice(p: string | number): number {
+    if (typeof p === 'number') return p;
+    if (!p) return 0;
+    // Extract numbers and dot, get rid of commas, spaces, letters
+    const cleaned = p.replace(/[^0-9.]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
   const sortedProducts = useMemo(() => {
-    return selectProducts(
-      products,
-      selectedCategory,
-      debouncedSearchQuery,
-      selectedRegion,
-      selectedCity,
-      minPrice,
-      maxPrice,
-      sortByPrice,
-      sortByAds
-    );
-  }, [products, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
+    return [...filteredProducts].sort((a, b) => {
+      // 1. Sort by Price if actively configured
+      if (sortByPrice === 'asc') {
+        const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
+        if (diff !== 0) return diff;
+      } else if (sortByPrice === 'desc') {
+        const diff = parseNumericPrice(b.price) - parseNumericPrice(a.price);
+        if (diff !== 0) return diff;
+      }
+
+      // 2. Sort by Ads (Chronological based on createdAt timestamp)
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (sortByAds === 'newest') {
+        return dateB - dateA;
+      } else if (sortByAds === 'oldest') {
+        return dateA - dateB;
+      }
+
+      return 0; // secondary stable order
+    });
+  }, [filteredProducts, sortByPrice, sortByAds]);
 
   React.useEffect(() => {
     const sentinel = scrollSentinelRef.current;
@@ -332,11 +393,9 @@ const MarketplaceContent: React.FC = () => {
       const entry = entries[0];
       if (entry.isIntersecting) {
         setDisplayLimit((prev) => {
+          if (prev >= sortedProducts.length) return prev;
           return prev + 12;
         });
-        if (hasMoreProducts) {
-          loadMoreProducts();
-        }
       }
     }, {
       rootMargin: '200px', // start loading before the user completely reaches the bottom
@@ -347,7 +406,7 @@ const MarketplaceContent: React.FC = () => {
     return () => {
       observer.unobserve(sentinel);
     };
-  }, [scrollSentinelRef.current, sortedProducts.length, hasMoreProducts, loadMoreProducts]);
+  }, [scrollSentinelRef.current, sortedProducts.length]);
 
   const handlePostAdBtn = () => {
     if (!currentUser) {
@@ -855,7 +914,7 @@ const MarketplaceContent: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                  ) : sortedProducts.length === 0 ? (
+                  ) : filteredProducts.length === 0 ? (
                     <div id="no-products-found" className="bg-white border border-slate-200 rounded-3xl p-16 text-center max-w-lg mx-auto shadow-sm">
                       <Package className="w-14 h-14 mx-auto stroke-[1.2] text-slate-300 mb-2" />
                       <h4 className="text-sm font-bold text-slate-800">No postings matching your parameters</h4>
