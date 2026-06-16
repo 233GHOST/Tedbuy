@@ -9,7 +9,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == "asumaduvincent7@gmail.com"
+        request.auth.token.email == "asumaduvincent7@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true)
       );
     }
 
@@ -139,6 +141,27 @@ service cloud.firestore {
                     isValidReview(incoming());
       allow update: if false; // Reviews are immutable after locking
       allow delete: if (isSignedIn() || existing().get('buyerId', '').matches('^user_.*') || existing().get('sellerId', '').matches('^user_.*')) && (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', '')) || existing().get('buyerId', '').matches('^user_.*') || existing().get('sellerId', '').matches('^user_.*') || isAdmin());
+    }
+
+    // 6. DeletedEmails Collection rules
+    match /deletedEmails/{email} {
+      allow read, write: if isSignedIn() || isAdmin();
+    }
+
+    // 7. Notifications Collection rules
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.userId == "user_" + request.auth.uid || resource.data.userId == "phone_" + request.auth.uid);
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (existing().userId == request.auth.uid || existing().userId == "user_" + request.auth.uid || existing().userId == "phone_" + request.auth.uid) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
+                    incoming().read is boolean;
+      allow delete: if isSignedIn() && (existing().userId == request.auth.uid || existing().userId == "user_" + request.auth.uid || existing().userId == "phone_" + request.auth.uid || isAdmin());
+    }
+
+    // 8. Store Names Mapping rules
+    match /storeNames/{storeName} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin();
     }
   }
 }

@@ -23,6 +23,7 @@ import {
   getDocs,
   updateDoc,
   deleteDoc,
+  writeBatch,
   onSnapshot,
   query,
   where,
@@ -30,7 +31,7 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener } from '../firebase';
 import { slugify } from '../utils/slugify';
 
 function cleanObject<T extends any>(obj: T): T {
@@ -106,7 +107,7 @@ interface AppContextType {
     whatsAppNumber?: string;
   }) => Promise<void>;
   deleteAccount: (password?: string) => Promise<void>;
-  adminDeleteUserProfile: (userId: string) => Promise<void>;
+  adminDeleteUserProfile: (userId: string, forceDeleteActive?: boolean) => Promise<void>;
   sendWelcomeEmailToAll: (onlyUnsent: boolean, onProgress: (current: number, total: number, logMsg: string) => void) => Promise<void>;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
@@ -276,6 +277,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const hideToast = useCallback(() => {
     setToast(null);
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = registerFirestoreErrorListener((errInfo) => {
+      let friendlyMsg = 'Firestore Operation Failed';
+      const cleanErr = errInfo.error.toLowerCase();
+      
+      const opName = errInfo.operationType ? errInfo.operationType.toUpperCase() : 'WRITE';
+      const pathDisplay = errInfo.path ? ` at [${errInfo.path}]` : '';
+
+      if (cleanErr.includes('permission') || cleanErr.includes('insufficient')) {
+        friendlyMsg = `Firestore Security: Missing permissions to perform ${opName}${pathDisplay}. Please check database security rules.`;
+      } else if (cleanErr.includes('quota') || cleanErr.includes('resource exhausted')) {
+        friendlyMsg = `Firestore Quota Exceeded: Daily database limit reached on your free plan. Code: resource-exhausted.`;
+      } else if (cleanErr.includes('index') || cleanErr.includes('requires an index')) {
+        friendlyMsg = `Firestore Index Required: A composite index is missing for this query. Visit developer console link to initialize.`;
+      } else {
+        friendlyMsg = `Firestore Error (${opName}${pathDisplay}): ${errInfo.error}`;
+      }
+
+      showToast(friendlyMsg, 'error');
+    });
+
+    return () => unsubscribe();
+  }, [showToast]);
 
   const hasProcessedDeepLink = useRef(false);
   const justRegisteredUserIds = useRef<Set<string>>(new Set());
@@ -723,7 +748,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
         const uList: User[] = [];
         snapshot.forEach(docSnap => {
-          uList.push(docSnap.data() as User);
+          const data = docSnap.data();
+          uList.push({
+            ...data,
+            id: docSnap.id || data.id
+          } as User);
         });
         setUsers(uList);
         
@@ -753,7 +782,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsub = onSnapshot(q, (snapshot) => {
       const pList: Product[] = [];
       snapshot.forEach(docSnap => {
-        const item = docSnap.data() as Product;
+        const item = {
+          ...docSnap.data() as Product,
+          id: docSnap.id
+        };
         if (item.id !== 'prod_1780927804590') {
           if (item.category) {
             item.category = normalizeCategory(item.category);
@@ -1093,7 +1125,11 @@ CEO, Tedbuy Inc`;
       unsub = onSnapshot(collection(db, 'reviews'), (snapshot) => {
         const rList: Review[] = [];
         snapshot.forEach(docSnap => {
-          rList.push(docSnap.data() as Review);
+          const data = docSnap.data();
+          rList.push({
+            ...data,
+            id: docSnap.id || data.id
+          } as Review);
         });
         const sorted = rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         setReviews(sorted);
@@ -1136,7 +1172,11 @@ CEO, Tedbuy Inc`;
 
     const unsub1 = onSnapshot(qBuyer, (snap) => {
       snap.forEach(docSnap => {
-        chatMap.set(docSnap.id, docSnap.data() as Chat);
+        const data = docSnap.data();
+        chatMap.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Chat);
       });
       updateCombined();
     }, (error) => {
@@ -1145,7 +1185,11 @@ CEO, Tedbuy Inc`;
 
     const unsub2 = onSnapshot(qSeller, (snap) => {
       snap.forEach(docSnap => {
-        chatMap.set(docSnap.id, docSnap.data() as Chat);
+        const data = docSnap.data();
+        chatMap.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Chat);
       });
       updateCombined();
     }, (error) => {
@@ -1188,7 +1232,11 @@ CEO, Tedbuy Inc`;
 
     const unsub1 = onSnapshot(qSender, (snap) => {
       snap.forEach(docSnap => {
-        msgMapRef.current.set(docSnap.id, docSnap.data() as Message);
+        const data = docSnap.data();
+        msgMapRef.current.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Message);
       });
       updateCombined();
     }, (error) => {
@@ -1197,7 +1245,11 @@ CEO, Tedbuy Inc`;
 
     const unsub2 = onSnapshot(qRecipient, (snap) => {
       snap.forEach(docSnap => {
-        msgMapRef.current.set(docSnap.id, docSnap.data() as Message);
+        const data = docSnap.data();
+        msgMapRef.current.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Message);
       });
       updateCombined();
     }, (error) => {
@@ -1285,11 +1337,23 @@ CEO, Tedbuy Inc`;
         }
       }
 
-      // Proactively sync user profile to Firestore
+      // Proactively sync user profile and store name mapping to Firestore atomically
       try {
-        await setDoc(doc(db, 'users', uid), cleanObject(newUser));
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'users', uid), cleanObject(newUser));
+        const storeNameLower = username.trim().toLowerCase();
+        batch.set(doc(db, 'storeNames', storeNameLower), {
+          userId: uid,
+          username: username.trim()
+        });
+        await batch.commit();
+        console.log(`[Registration] Saved user profile and reserved store name: "${storeNameLower}"`);
       } catch (dbErr) {
         console.warn('Fitted profile registry to database (failed/local simulation only):', dbErr);
+        // Direct fallback
+        try {
+          await setDoc(doc(db, 'users', uid), cleanObject(newUser));
+        } catch (_) {}
       }
 
       // Back up to localized database backups
@@ -1789,10 +1853,26 @@ CEO, Tedbuy Inc`;
   };
 
   const deleteProduct = async (id: string) => {
+    // Optimistically update local memory state and backup cache so listing disappears instantly in screen UI
+    try {
+      setProducts(prev => {
+        const next = prev.filter(p => p.id !== id);
+        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(next));
+        return next;
+      });
+    } catch (cacheErr) {
+      console.warn('Could not filter local cache on product delete:', cacheErr);
+    }
+
     try {
       await deleteDoc(doc(db, 'products', id));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      console.warn('Firestore product delete call bypassed or errored:', err);
+      try {
+        handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      } catch (thrownErr) {
+        console.warn('[Delete Product] Server exception logged gracefully:', thrownErr);
+      }
     }
   };
 
@@ -2116,13 +2196,33 @@ CEO, Tedbuy Inc`;
     };
 
     try {
-      await updateDoc(doc(db, 'users', currentUser.id), cleanObject({
+      const batch = writeBatch(db);
+      
+      batch.update(doc(db, 'users', currentUser.id), cleanObject({
         username,
         phoneNumber: phoneNumber || null,
         whatsAppNumber: whatsAppNumber || null,
         photoUrl: photoUrl || null,
         role
       }));
+
+      if (newStoreNameLower !== currentStoreNameLower) {
+        if (currentStoreNameLower) {
+          batch.delete(doc(db, 'storeNames', currentStoreNameLower));
+        }
+        batch.set(doc(db, 'storeNames', newStoreNameLower), {
+          userId: currentUser.id,
+          username: username.trim()
+        });
+        console.log(`[Profile Update] Atomic store name mapping changed from "${currentStoreNameLower}" to "${newStoreNameLower}"`);
+      } else {
+        batch.set(doc(db, 'storeNames', newStoreNameLower), {
+          userId: currentUser.id,
+          username: username.trim()
+        });
+      }
+
+      await batch.commit();
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
     }
@@ -2163,7 +2263,9 @@ CEO, Tedbuy Inc`;
     try {
       const userProducts = products.filter(p => p.sellerId === uid);
       for (const p of userProducts) {
-        await deleteDoc(doc(db, 'products', p.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'products', p.id));
+        }
       }
     } catch (productErr) {
       console.warn('Could not fully delete user product listings upon account deletion:', productErr);
@@ -2173,7 +2275,9 @@ CEO, Tedbuy Inc`;
     try {
       const userReviews = reviews.filter(r => r.buyerId === uid || r.sellerId === uid);
       for (const r of userReviews) {
-        await deleteDoc(doc(db, 'reviews', r.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'reviews', r.id));
+        }
       }
     } catch (reviewErr) {
       console.warn('Could not fully delete user reviews upon account deletion:', reviewErr);
@@ -2183,7 +2287,9 @@ CEO, Tedbuy Inc`;
     const userChats = chats.filter(c => c.buyerId === uid || c.sellerId === uid);
     try {
       for (const c of userChats) {
-        await deleteDoc(doc(db, 'chats', c.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'chats', c.id));
+        }
       }
     } catch (chatErr) {
       console.warn('Could not fully delete user chats upon account deletion:', chatErr);
@@ -2194,7 +2300,9 @@ CEO, Tedbuy Inc`;
       const chatIdsSet = new Set(userChats.map(c => c.id));
       const userMessages = messages.filter(m => m.senderId === uid || m.recipientId === uid || chatIdsSet.has(m.chatId));
       for (const m of userMessages) {
-        await deleteDoc(doc(db, 'messages', m.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'messages', m.id));
+        }
       }
     } catch (msgErr) {
       console.warn('Could not fully delete user messages upon account deletion:', msgErr);
@@ -2203,18 +2311,44 @@ CEO, Tedbuy Inc`;
     // 5. Delete user profile document from firestore and clear from deletedEmails
     const emailToDelete = currentUser.email || authUser?.email;
     if (emailToDelete) {
+      const emailPath = emailToDelete.trim().toLowerCase();
       try {
-        await deleteDoc(doc(db, 'deletedEmails', emailToDelete.trim().toLowerCase()));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'deletedEmails', emailPath));
+        }
       } catch (err) {
         console.warn('Could not clear deleted email blocklist from Firestore:', err);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, `deletedEmails/${emailPath}`);
+        } catch (thrownErr) {
+          console.warn('[Account Deletion] Blocklist delete exception logged gracefully:', thrownErr);
+        }
       }
     }
 
     try {
-      await deleteDoc(doc(db, 'users', uid));
+      if (!isSimulated) {
+        const batch = writeBatch(db);
+        const userRef = doc(db, 'users', uid);
+        batch.delete(userRef);
+
+        const storeNameLower = currentUser.username?.trim().toLowerCase();
+        if (storeNameLower) {
+          const storeNameRef = doc(db, 'storeNames', storeNameLower);
+          batch.delete(storeNameRef);
+          console.log(`[Account Deletion] Queued deletion of store name registration: "${storeNameLower}"`);
+        }
+
+        await batch.commit();
+        console.log('[Account Deletion] Atomic user and storeNames registry deletion completed.');
+      }
     } catch (err: any) {
-      console.warn('Could not delete user document from firestore during account deletion:', err);
-      showToast('Profile deletion completed locally (cloud record bypassed/sandbox limit)', 'info');
+      console.warn('Could not delete user document and store name mapping from firestore during account deletion:', err);
+      try {
+        handleFirestoreError(err, OperationType.DELETE, `users/${uid}`);
+      } catch (thrownErr) {
+        console.warn('[Account Deletion] User doc delete exception logged gracefully:', thrownErr);
+      }
     }
 
     // 6. Delete Firebase Auth user representation
@@ -2316,23 +2450,63 @@ CEO, Tedbuy Inc`;
     onProgress(total, total, logs);
   };
 
-  const adminDeleteUserProfile = async (userId: string) => {
+  const adminDeleteUserProfile = async (userId: string, forceDeleteActive: boolean = false) => {
     if (!currentUser || !currentUser.isAdmin) {
       throw new Error("Unauthorized: Only administrators can delete store profiles.");
     }
 
-    const targetUser = users.find(u => u.id === userId);
+    const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+
+    // Check system to verify if this user still exists in the master database (Firestore)
+    let existsInDb = false;
+    let targetUserDb: User | null = null;
+    try {
+      const docRef = doc(db, 'users', userId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        existsInDb = true;
+        targetUserDb = docSnap.data() as User;
+      }
+    } catch (dbCheckErr) {
+      console.warn('[Admin Delete] Could not fetch user data from network, falling back to local memory list check:', dbCheckErr);
+      // In case of transient network failure or offline mode, we assume they might exist locally to allow manual override
+      existsInDb = true; 
+    }
+
+    const targetUser = targetUserDb || users.find(u => u.id === userId);
     if (!targetUser) {
       throw new Error("User profile not found in system.");
     }
 
-    console.log(`[Admin] Deleting store profile for user: ${targetUser.username} (${userId})`);
+    if (existsInDb && !forceDeleteActive) {
+      throw new Error("ACTIVE_ACCOUNT_CONFIRM_REQUIRED");
+    }
+
+    if (!existsInDb) {
+      // The account has already been deleted by the user!
+      // We must clean up the local memory state and backup cache to release this store name immediately.
+      try {
+        const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
+        const currentList = cached ? JSON.parse(cached) : (users || []);
+        const filtered = currentList.filter((u: User) => u.id !== userId);
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+        setUsers(filtered);
+      } catch (cacheErr) {
+        setUsers(prev => prev.filter(u => u.id !== userId));
+      }
+      showToast(`Verified: This store account was already deleted by the user! Released store name "${targetUser.username}" instantly.`, 'success');
+      return;
+    }
+
+    console.log(`[Admin] Deleting active store profile for user: ${targetUser.username} (${userId})`);
 
     // 1. Delete all user's listings (products)
     try {
       const userProducts = products.filter(p => p.sellerId === userId);
       for (const p of userProducts) {
-        await deleteDoc(doc(db, 'products', p.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'products', p.id));
+        }
       }
     } catch (productErr) {
       console.warn('Could not fully delete user product listings upon admin deletion:', productErr);
@@ -2342,7 +2516,9 @@ CEO, Tedbuy Inc`;
     try {
       const userReviews = reviews.filter(r => r.buyerId === userId || r.sellerId === userId);
       for (const r of userReviews) {
-        await deleteDoc(doc(db, 'reviews', r.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'reviews', r.id));
+        }
       }
     } catch (reviewErr) {
       console.warn('Could not fully delete user reviews upon admin deletion:', reviewErr);
@@ -2352,7 +2528,9 @@ CEO, Tedbuy Inc`;
     const userChats = chats.filter(c => c.buyerId === userId || c.sellerId === userId);
     try {
       for (const c of userChats) {
-        await deleteDoc(doc(db, 'chats', c.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'chats', c.id));
+        }
       }
     } catch (chatErr) {
       console.warn('Could not fully delete user chats upon admin deletion:', chatErr);
@@ -2363,7 +2541,9 @@ CEO, Tedbuy Inc`;
       const chatIdsSet = new Set(userChats.map(c => c.id));
       const userMessages = messages.filter(m => m.senderId === userId || m.recipientId === userId || chatIdsSet.has(m.chatId));
       for (const m of userMessages) {
-        await deleteDoc(doc(db, 'messages', m.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'messages', m.id));
+        }
       }
     } catch (msgErr) {
       console.warn('Could not fully delete user messages upon admin deletion:', msgErr);
@@ -2372,18 +2552,45 @@ CEO, Tedbuy Inc`;
     // 5. Delete specific deletedEmails record
     const emailToDelete = targetUser.email;
     if (emailToDelete) {
+      const emailPath = emailToDelete.trim().toLowerCase();
       try {
-        await deleteDoc(doc(db, 'deletedEmails', emailToDelete.trim().toLowerCase()));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'deletedEmails', emailPath));
+        }
       } catch (err) {
         console.warn('Could not clear deleted email blocklist from Firestore:', err);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, `deletedEmails/${emailPath}`);
+        } catch (thrownErr) {
+          console.warn('[Admin Delete] Blocklist clearance exception logged gracefully:', thrownErr);
+        }
       }
     }
 
-    // 6. Delete user doc
+    // 6. Delete user doc and store name mapping atomically
     try {
-      await deleteDoc(doc(db, 'users', userId));
+      if (!isSimulated) {
+        const batch = writeBatch(db);
+        const userRef = doc(db, 'users', userId);
+        batch.delete(userRef);
+
+        const storeNameLower = targetUser.username?.trim().toLowerCase();
+        if (storeNameLower) {
+          const storeNameRef = doc(db, 'storeNames', storeNameLower);
+          batch.delete(storeNameRef);
+          console.log(`[Admin Delete] Queued deletion of store name registration: "${storeNameLower}"`);
+        }
+
+        await batch.commit();
+        console.log('[Admin Delete] Atomic user and storeNames registry deletion completed.');
+      }
     } catch (err: any) {
-      console.warn('Could not delete user document from firestore during admin deletion:', err);
+      console.error('Could not delete user document and store name mapping from firestore during admin deletion:', err);
+      try {
+        handleFirestoreError(err, OperationType.DELETE, `users/${userId}`);
+      } catch (thrownErr) {
+        console.warn('[Admin Delete] User doc delete exception logged gracefully:', thrownErr);
+      }
     }
 
     // Filter out deleted user from local users backup cache and live memory state
