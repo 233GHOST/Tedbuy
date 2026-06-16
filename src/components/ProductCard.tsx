@@ -88,7 +88,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   }, [product.images, product.category]);
 
   React.useEffect(() => {
-    if (!isVisible && !processedVideoUrl) return;
+    if (!isVisible) {
+      setProcessedVideoUrl('');
+      return;
+    }
     const videoUrl = product.videos?.[0];
     if (!videoUrl) {
       setProcessedVideoUrl('');
@@ -138,7 +141,26 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         URL.revokeObjectURL(activeUrl);
       }
     };
-  }, [product.videos, isVisible, processedVideoUrl]);
+  }, [product.videos, isVisible]);
+
+  const getLowResUrl = (url: string): string => {
+    if (!url) return '';
+    if (url.includes('images.unsplash.com')) {
+      let lowRes = url;
+      if (lowRes.includes('w=')) {
+        lowRes = lowRes.replace(/([?&])w=\d+/g, '$1w=32');
+      } else {
+        lowRes += (lowRes.includes('?') ? '&' : '?') + 'w=32';
+      }
+      if (lowRes.includes('q=')) {
+        lowRes = lowRes.replace(/([?&])q=\d+/g, '$1q=10');
+      } else {
+        lowRes += '&q=10';
+      }
+      return lowRes;
+    }
+    return 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" fill="%23f1f5f9"/></svg>';
+  };
 
   const formattedPrice = formatProductPrice(product.price);
 
@@ -173,17 +195,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             ) : (
               <>
                 {!loaded && (
-                  <div className="absolute inset-0 bg-slate-50 flex items-center justify-center animate-pulse">
-                    <div className="w-5 h-5 rounded-full border border-slate-200 border-t-slate-400 animate-spin" />
+                  <img
+                    src={getLowResUrl(imgSrc)}
+                    alt=""
+                    aria-hidden="true"
+                    className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+                    style={{ filter: 'blur(10px)', transform: 'scale(1.1)' }}
+                  />
+                )}
+                {!loaded && (
+                  <div className="absolute inset-0 bg-slate-100/10 backdrop-blur-[1px] flex items-center justify-center z-10 animate-fade-in">
+                    <div className="w-5 h-5 rounded-full border border-slate-300/40 border-t-slate-600 animate-spin" />
                   </div>
                 )}
                 <img
                   src={imgSrc}
                   alt={product.title}
                   decoding="async"
+                  loading="lazy"
                   onLoad={() => setLoaded(true)}
                   className={`absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ${
-                    loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+                    loaded ? 'opacity-100 scale-100 blur-none' : 'opacity-0 scale-95'
                   }`}
                   referrerPolicy="no-referrer"
                   onError={() => {

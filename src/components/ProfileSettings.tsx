@@ -167,6 +167,18 @@ export const ProfileSettings: React.FC = () => {
       setErrorMsg('Store Name must be 50 characters or less.');
       return;
     }
+
+    const currentStoreNameLower = currentUser?.username?.trim().toLowerCase();
+    const newStoreNameLower = username.trim().toLowerCase();
+
+    if (newStoreNameLower !== currentStoreNameLower) {
+      const isTaken = users.some(u => u.id !== currentUser?.id && u.username && u.username.trim().toLowerCase() === newStoreNameLower);
+      if (isTaken) {
+        setErrorMsg(`The store name "${username.trim()}" is not available Please select a different store name.`);
+        return;
+      }
+    }
+
     if (phoneNumber && phoneNumber.length > 25) {
       setErrorMsg('Phone number must be under 25 characters.');
       return;
