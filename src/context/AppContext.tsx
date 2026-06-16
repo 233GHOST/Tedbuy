@@ -1696,7 +1696,7 @@ CEO, Tedbuy Inc`;
     }
   };
 
-  const markChatAsRead = async (chatId: string) => {
+  const markChatAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
     const unreadMsgs = messages.filter(
       m => m.chatId === chatId && m.recipientId === currentUser.id && !m.read
@@ -1728,7 +1728,7 @@ CEO, Tedbuy Inc`;
     } catch (err) {
       console.error('Error marking messages as read in Firestore:', err);
     }
-  };
+  }, [currentUser, messages]);
 
   const toggleMessageReadStatus = async (messageId: string, read: boolean = true) => {
     setMessages(prev => {

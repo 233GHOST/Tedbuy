@@ -4,6 +4,7 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import net from "net";
 
 dotenv.config();
 
@@ -426,6 +427,105 @@ async function startServer() {
     }
   };
 
+  /**
+   * SMTP Diagnostic Utility
+   * Checks TCP socket connectivity to the SMTP server (e.g. mail.privateemail.com) on the configured port,
+   * and executes a pre-flight SMTP handshake / credential verification protocol via nodemailer.verify().
+   */
+  const diagnoseSMTPAndVerify = async (transporter: any): Promise<{ success: boolean; details: any }> => {
+    console.log("\n--- [SMTP Diagnostic] INITIATING STAGE 1: TCP CONNECTIVITY CHECK ---");
+    const host = process.env.SMTP_HOST || "mail.privateemail.com";
+    const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+
+    if (!user || !pass) {
+      const errorMsg = "[SMTP Diagnostic] SKIPPED: Missing credentials in SMTP_USER or SMTP_PASS environment variables.";
+      console.warn(errorMsg);
+      return { success: false, details: { error: errorMsg, smtpConfigured: false } };
+    }
+
+    // Stage 1: TCP Port Connectivity test via net.connect
+    const tcpConnection = new Promise<{ connected: boolean; error?: any }>((resolve) => {
+      console.log(`[SMTP Diagnostic] Attempting TCP Connection to ${host}:${port}...`);
+      const socket = net.createConnection(port, host);
+      socket.setTimeout(6000); // 6 seconds timeout
+
+      socket.on('connect', () => {
+        console.log(`[SMTP Diagnostic] TCP handshake SUCCESS: Connected successfully to ${host}:${port}`);
+        socket.end();
+        resolve({ connected: true });
+      });
+
+      socket.on('timeout', () => {
+        console.error(`[SMTP Diagnostic] TCP Connection TIMEOUT: Failed to connect to ${host}:${port} after 6000ms. It is likely that port ${port} is blocked by outbound network security groups / firewall policies.`);
+        socket.destroy();
+        resolve({ connected: false, error: new Error("TCP Connection Timeout (6s)") });
+      });
+
+      socket.on('error', (err) => {
+        console.error(`[SMTP Diagnostic] TCP connection ERROR: Failed to reach host ${host} on port ${port}:`, err);
+        socket.destroy();
+        resolve({ connected: false, error: err });
+      });
+    });
+
+    const tcpResult = await tcpConnection;
+    if (!tcpResult.connected) {
+      return {
+        success: false,
+        details: {
+          stage: "TCP_CONNECTIVITY",
+          host,
+          port,
+          error: tcpResult.error?.message || "TCP Connection Failed"
+        }
+      };
+    }
+
+    // Stage 2: SMTP Handshake & Authentication verify via Nodemailer
+    console.log("\n--- [SMTP Diagnostic] INITIATING STAGE 2: SMTP HANDSHAKE & AUTHENTICATION VERIFICATION ---");
+    try {
+      console.log(`[SMTP Diagnostic] Verifying credentials for user: ${user} ...`);
+      await transporter.verify();
+      console.log("[SMTP Diagnostic] SUCCESS: SMTP credentials and handshake verified successfully!");
+      console.log("------------------------------------------------------------------------\n");
+      return { success: true, details: { stage: "SMTP_HANDSHAKE_AUTH", status: "Verified" } };
+    } catch (err: any) {
+      console.error(`\n========================================================================`);
+      console.error(`[SMTP Diagnostic] ERROR: STAGE 2 SMTP HANDSHAKE OR AUTHENTICATION FAILED`);
+      console.error(`------------------------------------------------------------------------`);
+      console.error(`Error Code:        ${err.code || 'N/A'}`);
+      console.error(`Command:           ${err.command || 'N/A'}`);
+      console.error(`Response Code:     ${err.responseCode || 'N/A'}`);
+      console.error(`Server Response:   ${err.response || 'N/A'}`);
+      console.error(`Detailed Message:  ${err.message || String(err)}`);
+      console.error(`========================================================================\n`);
+      return {
+        success: false,
+        details: {
+          stage: "SMTP_HANDSHAKE_AUTH",
+          code: err.code,
+          command: err.command,
+          responseCode: err.responseCode,
+          response: err.response,
+          error: err.message || String(err)
+        }
+      };
+    }
+  };
+
+  // Pre-flight SMTP check during server launch
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  if (smtpHost && smtpUser && smtpPass) {
+    console.log("[Email Engine] Launching startup pre-flight SMTP validation check...");
+    diagnoseSMTPAndVerify(getMailTransporter()).catch(err => {
+      console.error("[Email Engine] Startup SMTP validation exception:", err);
+    });
+  }
+
   app.use((req, res, next) => {
     const url = req.path || '/';
     
@@ -607,13 +707,27 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     try {
       const transporter = getMailTransporter();
+
+      // Run pre-flight network connection, handshake, and authentication diagnostic check
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        console.log(`[Email Engine] Running pre-flight SMTP diagnostics for recipient: ${email}...`);
+        const diagResult = await diagnoseSMTPAndVerify(transporter);
+        if (!diagResult.success) {
+          console.error(`[Email Engine] Pre-flight SMTP block: Diagnostics failed prior to dispatch to ${email}. Logging to console.`);
+          return res.status(500).json({
+            error: "SMTP pre-flight diagnostic failed.",
+            details: "Authentication or network handshake failure on 'mail.privateemail.com'. Please check container logs/console for details.",
+            diagnostic: diagResult.details
+          });
+        }
+      }
       
       const mailOptions = {
         from: '"Tedbuy" <info@tedbuy.store>',
         to: email,
         replyTo: 'info@tedbuy.store',
-        subject: 'Welcome to Tedbuy',
-        text: `Welcome to Tedbuy\n\nHi there,\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.\n\nCustomer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.\n\nThanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`,
+        subject: 'Welcome to Tedbuy Ghana',
+        text: `Welcome to Tedbuy!\n\nHi ${cleanName},\n\nWe are excited to have you join our classifieds community. Tedbuy is built to help you buy and sell securely with peer reviews and direct connection.\n\nIf you have any feedback, recommendations, or questions about using the platform, feel free to reply directly to this email. We check every reply and are always eager to assist you.\n\nThank you for choosing Tedbuy.\n\nBest regards,\n\nVincent Asumadu\nTedbuy Team`,
         html: `<!DOCTYPE html>
 <html>
 <head>
@@ -622,14 +736,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 0; }
     .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
-    .header { background-color: #0f172a; padding: 48px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #f97316; }
-    .logo-container { display: inline-flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; }
-    .logo-text { font-size: 32px; font-weight: 800; letter-spacing: -0.04em; color: #ffffff; display: inline-block; vertical-align: middle; margin-left: 2px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #f97316; }
+    .logo-text { font-size: 32px; font-weight: 800; letter-spacing: -0.04em; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .header h2 { margin: 12px 0 0 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: #f8fafc; }
     .content { padding: 40px; line-height: 1.7; font-size: 15px; color: #334155; }
     .content p { margin-top: 0; margin-bottom: 20px; }
-    .highlight-card { background-color: #f8fafc; border-left: 4px solid #f97316; padding: 20px; border-radius: 0 12px 12px 0; margin-bottom: 24px; }
-    .highlight-card p { margin-bottom: 0; font-weight: 600; color: #0f172a; }
     .footer { background-color: #f8fafc; padding: 32px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
     .footer a { color: #f97316; text-decoration: underline; font-weight: 600; }
     .divider { height: 1px; background-color: #e2e8f0; margin: 32px 0; }
@@ -638,52 +749,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo-container">
-        <!-- High Fidelity SVG Tedbuy Official Logo -->
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="46" height="46" style="vertical-align: middle; display: inline-block;">
-          <defs>
-            <linearGradient id="bagGradientMail" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#1e293b" />
-              <stop offset="100%" stop-color="#0f172a" />
-            </linearGradient>
-            <linearGradient id="handleGradientMail" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#475569" />
-              <stop offset="100%" stop-color="#1e293b" />
-            </linearGradient>
-          </defs>
-          <g>
-            <path d="M 176,190 A 80,80 0 0,1 336,190" stroke="url(#handleGradientMail)" stroke-width="32" fill="none" stroke-linecap="round" />
-            <path d="M 120,180 L 392,180 C 408,180 420,194 418,210 L 390,440 C 388,456 374,468 358,468 L 154,468 C 138,468 124,456 122,440 L 94,210 C 92,194 104,180 120,180 Z" fill="url(#bagGradientMail)" />
-            <rect x="180" y="240" width="152" height="40" rx="10" fill="#ffffff" />
-            <rect x="236" y="240" width="40" height="150" rx="10" fill="#ffffff" />
-            <circle cx="256" cy="420" r="16" fill="#38bdf8" />
-          </g>
-        </svg>
-        <span class="logo-text">tedbuy</span>
-      </div>
+      <div class="logo-text">tedbuy</div>
       <h2>Welcome to Tedbuy</h2>
     </div>
     <div class="content">
-      <p style="font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 24px;">Hi there,</p>
+      <p style="font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 24px;">Hi ${cleanName},</p>
       
-      <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.</p>
+      <p>We are excited to have you join our classifieds community. Tedbuy is built to help you buy and sell securely with peer reviews and direct messaging.</p>
       
-      <p>Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
-      
-      <p>Also, don't forget that our customer support team is here for all your day-to-day and technical questions 24/7.</p>
+      <p>If you have any feedback, suggestions, or questions about using the platform, feel free to reply directly to this email. We read every message and are always here to support you.</p>
       
       <div class="divider"></div>
       
-      <p>Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
+      <p>Thank you for choosing Tedbuy. We look forward to helping you connect with buyers and sellers across Ghana.</p>
       
       <p style="margin-top: 36px; line-height: 1.5; font-size: 14px;">
-        Gratefully yours,<br/>
+        Best regards,<br/>
         <strong style="font-size: 16px; color: #0f172a;">Vincent Asumadu</strong><br/>
-        <span style="color: #64748b; font-weight: 550;">CEO, Tedbuy Inc</span>
+        <span style="color: #64748b; font-weight: 550;">Tedbuy Team</span>
       </p>
     </div>
     <div class="footer">
-      <p>This message was sent from <a href="mailto:info@tedbuy.store">info@tedbuy.store</a>. You can directly hit reply to reach our support team for support, recommendations, or to report any issue.</p>
+      <p>This message was sent from <a href="mailto:info@tedbuy.store">info@tedbuy.store</a>. You can reply directly to this email to reach our support team.</p>
       <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
     </div>
   </div>
