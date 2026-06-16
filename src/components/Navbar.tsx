@@ -103,14 +103,6 @@ export const Navbar: React.FC = () => {
           setIsAuthSubmitting(false);
           return;
         }
-
-        const isStoreNameTaken = users.some(u => u.username && u.username.trim().toLowerCase() === usernameInput.trim().toLowerCase());
-        if (isStoreNameTaken) {
-          setAuthError(`The store name "${usernameInput.trim()}" is not available Please select a different store name.`);
-          setIsAuthSubmitting(false);
-          return;
-        }
-
         const cleanRegEmail = cleanEmailString(registerEmailInput);
         if (!cleanRegEmail) {
           setAuthError('Email address is required to register an account.');

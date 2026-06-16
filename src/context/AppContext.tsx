@@ -1144,11 +1144,6 @@ CEO, Tedbuy Inc`;
       throw new Error('Password is required to register an account.');
     }
 
-    const isStoreNameTaken = users.some(u => u.username && u.username.trim().toLowerCase() === username.trim().toLowerCase());
-    if (isStoreNameTaken) {
-       throw new Error(`The store name "${username.trim()}" is not available Please select a different store name.`);
-    }
-
     const cleanEmail = email.trim().toLowerCase();
     
     // Check if the email address is associated with a deleted account
@@ -1373,38 +1368,38 @@ CEO, Tedbuy Inc`;
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error: any) {
-      console.warn('Google Auth failed or is unauthorized in this sandboxed context. Falling back to simulated administrator profile to maintain high interactivity:', error);
-      setUnauthorizedDomainDetected(true);
-      
-      const userId = "admin_asumaduvincent7";
-      const fallbackUser: User = {
-        id: userId,
-        username: 'Vincent Asumadu',
-        email: 'asumaduvincent7@gmail.com',
-        photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=256&auto=format&fit=crop',
-        joinDate: new Date().toISOString().split('T')[0],
-        role: 'both',
-        emailVerified: true,
-        isAdmin: true
-      };
+      const isUnauthDomain = 
+        error?.code === 'auth/unauthorized-domain' || 
+        error?.message?.includes('unauthorized-domain') || 
+        error?.message?.includes('unauthorized domain');
 
-      try {
-        const userDoc = await getDoc(doc(db, 'users', userId));
-        if (userDoc.exists()) {
-          const fetchedUser = { ...userDoc.data(), id: userId, isAdmin: true, emailVerified: true } as User;
-          setCurrentUserState(fetchedUser);
-          safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(fetchedUser));
-        } else {
-          await setDoc(doc(db, 'users', userId), cleanObject(fallbackUser));
-          setCurrentUserState(fallbackUser);
-          safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(fallbackUser));
+      if (isUnauthDomain) {
+        setUnauthorizedDomainDetected(true);
+        console.warn('Google Auth domain is unauthorized. Falling back to simulated profile to maintain high interactivity.');
+        const defaultSeed = SEED_USERS[0];
+        try {
+          const userDoc = await getDoc(doc(db, 'users', defaultSeed.id));
+          if (userDoc.exists()) {
+            setCurrentUserState(userDoc.data() as User);
+            safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(userDoc.data()));
+          } else {
+            const newUser: User = {
+              ...defaultSeed,
+              id: defaultSeed.id.startsWith('user_') ? defaultSeed.id : `user_${defaultSeed.id}`
+            };
+            await setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
+            setCurrentUserState(newUser);
+            safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
+          }
+        } catch (simErr) {
+          console.warn('Fallback simulated user check failed, using direct memory fallback:', simErr);
+          setCurrentUserState(defaultSeed);
+          safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(defaultSeed));
         }
-      } catch (simErr) {
-        console.warn('Fallback simulated user write to Firestore failed, using direct memory fallback:', simErr);
-        setCurrentUserState(fallbackUser);
-        safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(fallbackUser));
+        return; // Resolve cleanly!
       }
-      return; // Resolve cleanly!
+      console.error('Core Google Authentication failed:', error);
+      throw error;
     }
   };
 
@@ -1927,17 +1922,6 @@ CEO, Tedbuy Inc`;
   }) => {
     if (!currentUser) return;
     const { username, phoneNumber, photoUrl, role, whatsAppNumber } = profileData;
-
-    const currentStoreNameLower = currentUser.username?.trim().toLowerCase();
-    const newStoreNameLower = username.trim().toLowerCase();
-    
-    if (newStoreNameLower !== currentStoreNameLower) {
-      const isTaken = users.some(u => u.id !== currentUser.id && u.username && u.username.trim().toLowerCase() === newStoreNameLower);
-      if (isTaken) {
-        throw new Error(`The store name "${username.trim()}" is not available Please select a different store name.`);
-      }
-    }
-
     const updatedUser: User = {
       ...currentUser,
       username,
