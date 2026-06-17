@@ -103,6 +103,14 @@ export const Navbar: React.FC = () => {
           setIsAuthSubmitting(false);
           return;
         }
+
+        const isStoreNameTaken = users.some(u => u.username && u.username.trim().toLowerCase() === usernameInput.trim().toLowerCase());
+        if (isStoreNameTaken) {
+          setAuthError(`The store name "${usernameInput.trim()}" is not available Please select a different store name.`);
+          setIsAuthSubmitting(false);
+          return;
+        }
+
         const cleanRegEmail = cleanEmailString(registerEmailInput);
         if (!cleanRegEmail) {
           setAuthError('Email address is required to register an account.');
@@ -591,8 +599,8 @@ export const Navbar: React.FC = () => {
 
       {/* Manual Auth Modal (No external dependencies) */}
       {showAuthModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left text-slate-900">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left text-slate-900 my-auto max-h-[90vh] overflow-y-auto scrollbar-thin">
             <button
               onClick={() => setShowAuthModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 text-lg font-bold"

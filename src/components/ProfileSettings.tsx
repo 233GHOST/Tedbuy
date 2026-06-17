@@ -11,6 +11,7 @@ export const ProfileSettings: React.FC = () => {
     currentUser, 
     updateUserProfile, 
     deleteAccount, 
+    adminDeleteUserProfile,
     logoutUser, 
     setCurrentView, 
     users, 
@@ -47,6 +48,7 @@ export const ProfileSettings: React.FC = () => {
   const [whatsAppNumber, setWhatsAppNumber] = useState(currentUser.whatsAppNumber || '');
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(currentUser.photoUrl);
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser.role || 'both');
+
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -99,6 +101,21 @@ export const ProfileSettings: React.FC = () => {
   const [adminLog, setAdminLog] = useState('');
   const [adminProgress, setAdminProgress] = useState({ current: 0, total: 0 });
   const [onlyUnsentEmails, setOnlyUnsentEmails] = useState(true);
+
+  // Admin Store Manager States
+  const [storeSearch, setStoreSearch] = useState('');
+  const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [activeAccountConfirmUser, setActiveAccountConfirmUser] = useState<{ id: string; username: string } | null>(null);
+
+  const filteredStoresForAdmin = (users || []).filter(u => {
+    if (u.id === currentUser?.id) return false; // Don't delete self
+    const q = storeSearch.toLowerCase();
+    return (
+      (u.username && u.username.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q))
+    );
+  });
 
   const handleBulkOnboard = async () => {
     setIsAdminRunning(true);
@@ -167,6 +184,18 @@ export const ProfileSettings: React.FC = () => {
       setErrorMsg('Store Name must be 50 characters or less.');
       return;
     }
+
+    const currentStoreNameLower = currentUser?.username?.trim().toLowerCase();
+    const newStoreNameLower = username.trim().toLowerCase();
+
+    if (newStoreNameLower !== currentStoreNameLower) {
+      const isTaken = users.some(u => u.id !== currentUser?.id && u.username && u.username.trim().toLowerCase() === newStoreNameLower);
+      if (isTaken) {
+        setErrorMsg(`The store name "${username.trim()}" is not available Please select a different store name.`);
+        return;
+      }
+    }
+
     if (phoneNumber && phoneNumber.length > 25) {
       setErrorMsg('Phone number must be under 25 characters.');
       return;
@@ -814,6 +843,118 @@ export const ProfileSettings: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Store Name & Profile Manager */}
+                <div className="pt-4 border-t border-slate-800/80 space-y-4">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-rose-400" />
+                      Store Name & Profile Manager
+                    </h4>
+                    <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                      Permanently delete stale, test, or orphaned profiles to instantly free up and release their store name.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      value={storeSearch}
+                      onChange={(e) => setStoreSearch(e.target.value)}
+                      placeholder="Search store name or email (e.g., Juju)..."
+                      className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs px-3.5 py-2 rounded-xl placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                    {storeSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setStoreSearch('')}
+                        className="px-3 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs rounded-xl transition cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-60 overflow-y-auto bg-slate-950 rounded-2xl border border-slate-850 divide-y divide-slate-905 custom-scrollbar">
+                    {filteredStoresForAdmin.length === 0 ? (
+                      <p className="text-[11px] text-slate-500 text-center py-6 block italic">
+                        {storeSearch ? 'No matching store names found.' : 'Type a store name above to find and manage.'}
+                      </p>
+                    ) : (
+                      filteredStoresForAdmin.map(storeUser => (
+                        <div key={storeUser.id} className="flex items-center justify-between p-3 group hover:bg-slate-900/40 transition">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-extrabold text-slate-400 select-none overflow-hidden shrink-0">
+                              {storeUser.photoUrl ? (
+                                <img src={storeUser.photoUrl} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                              ) : (
+                                (storeUser.username || '?').substring(0, 2).toUpperCase()
+                              )}
+                            </div>
+                            <div className="text-left">
+                              <span className="text-xs font-bold text-slate-200 block group-hover:text-emerald-450 transition">{storeUser.username || 'No Store Name'}</span>
+                              <span className="text-[10px] text-slate-500 font-mono block mt-0.5">{storeUser.email || storeUser.phoneNumber || 'Simulated Account'}</span>
+                            </div>
+                          </div>
+
+                          {confirmDeleteId === storeUser.id ? (
+                            <div className="flex items-center gap-1.5 bg-rose-950/40 border border-rose-900/50 rounded-lg px-2 py-1 shrink-0">
+                              <span className="text-[9px] font-black uppercase text-rose-400 tracking-wider">Are you sure?</span>
+                              <button
+                                type="button"
+                                disabled={adminDeletingId !== null}
+                                onClick={async () => {
+                                  setAdminDeletingId(storeUser.id);
+                                  try {
+                                    await adminDeleteUserProfile(storeUser.id);
+                                  } catch (err: any) {
+                                    if (err?.message === 'ACTIVE_ACCOUNT_CONFIRM_REQUIRED') {
+                                      setActiveAccountConfirmUser({ id: storeUser.id, username: storeUser.username || 'No Name' });
+                                    } else {
+                                      showToast(err?.message || 'Deletion failed', 'error');
+                                    }
+                                  } finally {
+                                    setAdminDeletingId(null);
+                                    setConfirmDeleteId(null);
+                                  }
+                                }}
+                                className="px-1.5 py-0.5 bg-rose-500 hover:bg-rose-600 text-white text-[9px] font-bold rounded transition cursor-pointer"
+                              >
+                                {adminDeletingId === storeUser.id ? (
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                ) : (
+                                  'Yes'
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={adminDeletingId !== null}
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-bold rounded transition cursor-pointer"
+                              >
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={adminDeletingId !== null}
+                              onClick={() => setConfirmDeleteId(storeUser.id)}
+                              className="p-1.5 text-slate-550 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                              title="Delete Store Profile & Release Name"
+                            >
+                              {adminDeletingId === storeUser.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-450" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1237,6 +1378,73 @@ export const ProfileSettings: React.FC = () => {
                   })
                 )
               )}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Active Account Confirmation Dialog */}
+      {activeAccountConfirmUser && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setActiveAccountConfirmUser(null)}
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs"
+          />
+
+          {/* Dialog Container */}
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden relative z-10 p-6 flex flex-col gap-4 text-left"
+          >
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200/50">
+                <AlertTriangle className="w-6 h-6 text-amber-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase">Warning: Active Store Account</h3>
+                <p className="text-[10px] text-amber-600 font-bold mt-0.5 uppercase tracking-wide">Requires Confirmation</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-650 leading-relaxed">
+              The store name <strong className="text-slate-900 font-bold">"{activeAccountConfirmUser.username}"</strong> is currently associated with an <span className="font-bold text-slate-800">active database account</span> (ID: <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-[10px]">{activeAccountConfirmUser.id}</span>).
+            </p>
+            <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+              Proceeding will recursively and permanently purge all their active listings, messages, reviews, settings, and documents, releasing the name immediately. This action is irreversible.
+            </p>
+
+            <div className="flex gap-2.5 mt-2">
+              <button
+                type="button"
+                onClick={() => setActiveAccountConfirmUser(null)}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-950 text-xs font-black rounded-2xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setAdminDeletingId(activeAccountConfirmUser.id);
+                  const targetId = activeAccountConfirmUser.id;
+                  setActiveAccountConfirmUser(null);
+                  try {
+                    await adminDeleteUserProfile(targetId, true);
+                  } catch (err: any) {
+                    showToast(err?.message || 'Deletion failed', 'error');
+                  } finally {
+                    setAdminDeletingId(null);
+                  }
+                }}
+                className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-2xl transition shadow-md hover:shadow-lg cursor-pointer"
+              >
+                Yes, Decisively Delete
+              </button>
             </div>
           </motion.div>
         </div>

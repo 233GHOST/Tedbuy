@@ -15,15 +15,20 @@ const getResilientDb = () => {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager()
-      })
+      }),
+      experimentalAutoDetectLongPolling: true
     }, dbId);
   } catch (err) {
     console.warn('Could not initialize persistent local cache due to browser restrictions, falling back to basic setup:', err);
     try {
-      return initializeFirestore(app, {}, dbId);
+      return initializeFirestore(app, {
+        experimentalAutoDetectLongPolling: true
+      }, dbId);
     } catch (fallbackErr) {
       console.warn('Basic initializeFirestore failed, using default getFirestore fallback:', fallbackErr);
-      return initializeFirestore(app, {});
+      return initializeFirestore(app, {
+        experimentalAutoDetectLongPolling: true
+      });
     }
   }
 };
@@ -57,6 +62,16 @@ export interface FirestoreErrorInfo {
   };
 }
 
+type ErrorListener = (errorInfo: FirestoreErrorInfo) => void;
+const errorListeners = new Set<ErrorListener>();
+
+export function registerFirestoreErrorListener(listener: ErrorListener) {
+  errorListeners.add(listener);
+  return () => {
+    errorListeners.delete(listener);
+  };
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errMessage = error instanceof Error ? error.message : String(error);
   // Typecasting error for code properties
@@ -83,6 +98,15 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
+
+  // Dispatch details to all registered toast listener hooks
+  errorListeners.forEach(listener => {
+    try {
+      listener(errInfo);
+    } catch (listenerErr) {
+      console.error('Error in registered Firestore error listener callback:', listenerErr);
+    }
+  });
 
   if (isPermissionError) {
     console.error('Firestore Security Permission Error: ', JSON.stringify(errInfo));

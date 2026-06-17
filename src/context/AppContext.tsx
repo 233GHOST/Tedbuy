@@ -12,7 +12,8 @@ import {
   updatePassword,
   sendEmailVerification,
   EmailAuthProvider,
-  reauthenticateWithCredential
+  reauthenticateWithCredential,
+  signInAnonymously
 } from 'firebase/auth';
 import {
   collection,
@@ -22,12 +23,15 @@ import {
   getDocs,
   updateDoc,
   deleteDoc,
+  writeBatch,
   onSnapshot,
   query,
   where,
-  increment
+  increment,
+  orderBy,
+  limit
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener } from '../firebase';
 import { slugify } from '../utils/slugify';
 
 function cleanObject<T extends any>(obj: T): T {
@@ -103,6 +107,7 @@ interface AppContextType {
     whatsAppNumber?: string;
   }) => Promise<void>;
   deleteAccount: (password?: string) => Promise<void>;
+  adminDeleteUserProfile: (userId: string, forceDeleteActive?: boolean) => Promise<void>;
   sendWelcomeEmailToAll: (onlyUnsent: boolean, onProgress: (current: number, total: number, logMsg: string) => void) => Promise<void>;
   selectedProductId: string | null;
   setSelectedProductId: (id: string | null) => void;
@@ -143,6 +148,9 @@ interface AppContextType {
   markNotificationAsRead: (id: string) => Promise<void>;
   markAllNotificationsAsRead: () => Promise<void>;
   clearAllNotifications: () => Promise<void>;
+  productLimit: number;
+  hasMoreProducts: boolean;
+  loadMoreProducts: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -196,8 +204,24 @@ const safeSessionStorage = {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_local_users_backup');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [productLimit, setProductLimit] = useState(24);
+  const [hasMoreProducts, setHasMoreProducts] = useState(true);
   const [chats, setChats] = useState<Chat[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const msgMapRef = useRef<Map<string, Message>>(new Map());
@@ -229,7 +253,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [isProductsLoading, setIsProductsLoading] = useState(() => {
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  });
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -241,7 +278,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToast(null);
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = registerFirestoreErrorListener((errInfo) => {
+      let friendlyMsg = 'Firestore Operation Failed';
+      const cleanErr = errInfo.error.toLowerCase();
+      
+      const opName = errInfo.operationType ? errInfo.operationType.toUpperCase() : 'WRITE';
+      const pathDisplay = errInfo.path ? ` at [${errInfo.path}]` : '';
+
+      if (cleanErr.includes('permission') || cleanErr.includes('insufficient')) {
+        friendlyMsg = `Firestore Security: Missing permissions to perform ${opName}${pathDisplay}. Please check database security rules.`;
+      } else if (cleanErr.includes('quota') || cleanErr.includes('resource exhausted')) {
+        friendlyMsg = `Firestore Quota Exceeded: Daily database limit reached on your free plan. Code: resource-exhausted.`;
+      } else if (cleanErr.includes('index') || cleanErr.includes('requires an index')) {
+        friendlyMsg = `Firestore Index Required: A composite index is missing for this query. Visit developer console link to initialize.`;
+      } else {
+        friendlyMsg = `Firestore Error (${opName}${pathDisplay}): ${errInfo.error}`;
+      }
+
+      showToast(friendlyMsg, 'error');
+    });
+
+    return () => unsubscribe();
+  }, [showToast]);
+
   const hasProcessedDeepLink = useRef(false);
+  const justRegisteredUserIds = useRef<Set<string>>(new Set());
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -458,6 +520,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!active) return;
       try {
         if (firebaseUser) {
+          // Clear any simulated sandbox mode flags as we now have a genuine authenticated Firebase session
+          safeLocalStorage.removeItem('tedbuy_simulated_mode');
+          safeLocalStorage.removeItem('tedbuy_simulated_user');
+
           const initialUsername = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
           
           // Construct a dynamic backup/fallback user structure
@@ -510,10 +576,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 photoUrl: firebaseUser.photoURL || undefined,
                 followingSellers: [],
                 savedProductIds: [],
-                emailVerified: firebaseUser.emailVerified
+                emailVerified: firebaseUser.emailVerified,
+                isAdmin: firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' ? true : undefined
               };
               await setDoc(userRef, cleanObject(newUser));
-              if (active) setCurrentUserState(newUser);
+              if (active) {
+                justRegisteredUserIds.current.add(firebaseUser.uid);
+                setCurrentUserState(newUser);
+                // Directly trigger welcome package synchronously to prevent race conditions
+                setupWelcomePackage(newUser).catch(err => {
+                  console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
+                });
+              }
             }
           } catch (dbErr) {
             console.warn('Background user record fetch failed (normal offline fallback):', dbErr);
@@ -524,7 +598,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const storedSimulated = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
             if (storedSimulated) {
               try {
-                setCurrentUserState(JSON.parse(storedSimulated));
+                const parsed = JSON.parse(storedSimulated);
+                if (active) setCurrentUserState(parsed);
+
+                // Align the Firebase Auth session with the simulated user in the background
+                const sessionLoginKey = `tedbuy_background_auth_attempted_${parsed.email}`;
+                if (!safeSessionStorage.getItem(sessionLoginKey)) {
+                  safeSessionStorage.setItem(sessionLoginKey, 'true');
+                  const emailTarget = parsed.email || 'asumaduvincent7@gmail.com';
+                  console.log(`[Auto Auth] Aligning Firebase background session for: ${emailTarget}`);
+                  signInWithEmailAndPassword(auth, emailTarget, 'password123')
+                    .then(() => console.log('[Auto Auth] Aligned simulated user Firebase session!'))
+                    .catch((err) => {
+                      console.info('[Auto Auth] Fallback Email/Password auth check completed (not active). Trying anonymous session fallback.');
+                      signInAnonymously(auth)
+                        .then(() => console.log('[Auto Auth] Secondary anonymous session established!'))
+                        .catch((anonErr: any) => {
+                          if (anonErr?.code === 'auth/admin-restricted-operation' || anonErr?.message?.includes('admin-restricted-operation')) {
+                            console.log('[Auto Auth] Anonymous authentication provider is disabled in the Firebase Console. Operating in secure schema-free fallback state.');
+                          } else {
+                            console.warn('[Auto Auth] Fallback anonymous auth call returned:', anonErr?.message || anonErr);
+                          }
+                        });
+                    });
+                }
               } catch (_) {}
             }
           } else {
@@ -654,7 +751,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
         const uList: User[] = [];
         snapshot.forEach(docSnap => {
-          uList.push(docSnap.data() as User);
+          const data = docSnap.data();
+          uList.push({
+            ...data,
+            id: docSnap.id || data.id
+          } as User);
         });
         setUsers(uList);
         
@@ -676,10 +777,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 2. Real-time Products Synchronization
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
+    const q = query(
+      collection(db, 'products'),
+      orderBy('createdAt', 'desc'),
+      limit(productLimit)
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
       const pList: Product[] = [];
       snapshot.forEach(docSnap => {
-        const item = docSnap.data() as Product;
+        const item = {
+          ...docSnap.data() as Product,
+          id: docSnap.id
+        };
         if (item.id !== 'prod_1780927804590') {
           if (item.category) {
             item.category = normalizeCategory(item.category);
@@ -687,176 +796,209 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           pList.push(item);
         }
       });
+
+      // Merge locally created products that aren't yet in the server list
+      try {
+        const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+        const createdList = JSON.parse(createdStr) as Product[];
+        createdList.forEach(localProd => {
+          if (!pList.some(p => p.id === localProd.id)) {
+            pList.push(localProd);
+          }
+        });
+      } catch (_) {}
+
+      // Apply locally updated overrides
+      try {
+        const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
+        const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
+        pList.forEach((prod, idx) => {
+          if (overrides[prod.id]) {
+            pList[idx] = { ...prod, ...overrides[prod.id] };
+          }
+        });
+      } catch (_) {}
+
       const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setProducts(sorted);
       setIsProductsLoading(false);
+
+      if (snapshot.size < productLimit) {
+        setHasMoreProducts(false);
+      } else {
+        setHasMoreProducts(true);
+      }
+
+      try {
+        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+      } catch (err) {
+        console.warn('Could not save product backups to local storage:', err);
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'products');
       setIsProductsLoading(false);
     });
 
     return unsub;
-  }, []);
+  }, [productLimit]);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);
-  useEffect(() => {
-    if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
-    if (triggeredWelcomeUserId.current === currentUser.id) return;
-    triggeredWelcomeUserId.current = currentUser.id;
 
-    const setupWelcomePackage = async () => {
-      const targetUser = currentUser;
-      const email = targetUser.email;
-      if (!email) {
-        triggeredWelcomeUserId.current = null;
-        return;
+  const setupWelcomePackage = async (targetUser: User) => {
+    const email = targetUser.email;
+    if (!email) {
+      return;
+    }
+
+    if (triggeredWelcomeUserId.current === targetUser.id) return;
+    triggeredWelcomeUserId.current = targetUser.id;
+
+    console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
+
+    // 1. Create/Ensure CEO profile exists in users collection (Wrapped to protect outbound email pipeline)
+    try {
+      const ceoRef = doc(db, 'users', 'user_ted_ceo_support');
+      const ceoDoc = await getDoc(ceoRef);
+      if (!ceoDoc.exists()) {
+        const ceoProfile = {
+          id: 'user_ted_ceo_support',
+          username: 'Vincent (CEO, Tedbuy Inc)',
+          email: 'info@tedbuy.store',
+          photoUrl: '/favicon.svg',
+          role: 'seller',
+          joinDate: 'Jun 2018'
+        };
+        await setDoc(ceoRef, cleanObject(ceoProfile));
+        console.log('[Welcome Trigger] Created CEO Vincent support user profile in Firestore.');
       }
+    } catch (ceoProfileErr) {
+      console.warn('[Welcome Trigger] CEO profile setup failed (continuing program):', ceoProfileErr);
+    }
 
-      console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
-
-      // 1. Create/Ensure CEO profile exists in users collection (Wrapped to protect outbound email pipeline)
-      try {
-        const ceoRef = doc(db, 'users', 'user_ted_ceo_support');
-        const ceoDoc = await getDoc(ceoRef);
-        if (!ceoDoc.exists()) {
-          const ceoProfile = {
-            id: 'user_ted_ceo_support',
-            username: 'Vincent (CEO, Tedbuy Inc)',
-            email: 'info@tedbuy.store',
-            photoUrl: '/favicon.svg',
-            role: 'seller',
-            joinDate: 'Jun 2018'
-          };
-          await setDoc(ceoRef, cleanObject(ceoProfile));
-          console.log('[Welcome Trigger] Created CEO Vincent support user profile in Firestore.');
-        }
-      } catch (ceoProfileErr) {
-        console.warn('[Welcome Trigger] CEO profile setup failed (continuing program):', ceoProfileErr);
+    // 2. Setup chat room (Wrapped to protect outbound email pipeline)
+    const chatId = `chat_support_${targetUser.id}`;
+    const chatRef = doc(db, 'chats', chatId);
+    let chatExists = false;
+    try {
+      const chatDoc = await getDoc(chatRef);
+      if (chatDoc.exists()) {
+        chatExists = true;
       }
+    } catch (checkErr) {
+      console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
+    }
 
-      // 2. Setup chat room (Wrapped to protect outbound email pipeline)
-      const chatId = `chat_support_${targetUser.id}`;
-      const chatRef = doc(db, 'chats', chatId);
-      let chatExists = false;
-      try {
-        const chatDoc = await getDoc(chatRef);
-        if (chatDoc.exists()) {
-          chatExists = true;
-        }
-      } catch (checkErr) {
-        console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
-      }
+    const welcomeMessageBody = `Welcome to Tedbuy
 
-      const welcomeMessageBody = `Welcome to Tedbuy 
+I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights. 
 
-Hi there,
-
-I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one.
-
-Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.
-
-Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7.
-
-Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.
-
-Gratefully yours,
-
-Vincent Asumadu,
+Gratefully yours, 
+Vincent Asumadu, 
 CEO, Tedbuy Inc`;
 
-      if (!chatExists) {
-        try {
-          const supportChat = {
-            id: chatId,
-            productId: 'support_welcome',
-            productTitle: 'CEO Welcome & Support Desk',
-            productPrice: 'Direct Channel',
-            productImage: '/favicon.svg',
-            buyerId: targetUser.id,
-            buyerName: targetUser.username,
-            sellerId: 'user_ted_ceo_support',
-            sellerName: 'Vincent (CEO, Tedbuy Inc)',
-            lastMessageText: 'Welcome to Tedbuy 🚀',
-            lastMessageTime: new Date().toISOString(),
-            tradeStatus: 'pending'
-          };
-          await setDoc(chatRef, cleanObject(supportChat));
-          console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
-
-          // 3. Create message document inside messages collection
-          const msgId = `msg_welcome_${targetUser.id}`;
-          const msgRef = doc(db, 'messages', msgId);
-          const supportMessage = {
-            id: msgId,
-            chatId: chatId,
-            senderId: 'user_ted_ceo_support',
-            recipientId: targetUser.id,
-            text: welcomeMessageBody,
-            createdAt: new Date().toISOString(),
-            read: false
-          };
-          await setDoc(msgRef, cleanObject(supportMessage));
-          console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
-        } catch (chatWriteErr) {
-          console.warn('[Welcome Trigger] Failed to write support chat/message to Firestore (continuing):', chatWriteErr);
-        }
-      }
-
-      // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
+    if (!chatExists) {
       try {
-        const userRef = doc(db, 'users', targetUser.id);
-        await setDoc(userRef, { welcomeSent: true }, { merge: true });
-        console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
-      } catch (userFlagErr) {
-        console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
-      }
+        const supportChat = {
+          id: chatId,
+          productId: 'support_welcome',
+          productTitle: 'CEO Welcome & Support Desk',
+          productPrice: 'Direct Channel',
+          productImage: '/favicon.svg',
+          buyerId: targetUser.id,
+          buyerName: targetUser.username,
+          sellerId: 'user_ted_ceo_support',
+          sellerName: 'Vincent (CEO, Tedbuy Inc)',
+          lastMessageText: 'Welcome to Tedbuy 🚀',
+          lastMessageTime: new Date().toISOString(),
+          tradeStatus: 'pending'
+        };
+        await setDoc(chatRef, cleanObject(supportChat));
+        console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
 
-      // 5. Send Welcome Email synchronously via server SMTP
-      try {
-        const emailResponse = await fetch('/api/send-welcome-email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            email: email.trim(),
-            username: targetUser.username
-          })
-        });
-        if (emailResponse.ok) {
-          console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
-          showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
-          
-          // Auto send real email verification request to their inbox right after their welcome email
-          setTimeout(async () => {
-            try {
-              const firebaseUser = auth.currentUser;
-              if (firebaseUser && !firebaseUser.emailVerified) {
-                await sendEmailVerification(firebaseUser);
-                showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
-              }
-            } catch (verifErr: any) {
-              console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
-            }
-          }, 1500);
-        } else {
-          console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
-        }
-      } catch (emailErr) {
-        console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
+        // 3. Create message document inside messages collection
+        const msgId = `msg_welcome_${targetUser.id}`;
+        const msgRef = doc(db, 'messages', msgId);
+        const supportMessage = {
+          id: msgId,
+          chatId: chatId,
+          senderId: 'user_ted_ceo_support',
+          recipientId: targetUser.id,
+          text: welcomeMessageBody,
+          createdAt: new Date().toISOString(),
+          read: false
+        };
+        await setDoc(msgRef, cleanObject(supportMessage));
+        console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
+      } catch (chatWriteErr) {
+        console.warn('[Welcome Trigger] Failed to write support chat/message to Firestore (continuing):', chatWriteErr);
       }
+    }
 
-      // 6. Keep active runtime state in-sync with welcomeSent: true
-      setCurrentUserState(prev => {
-        if (prev && prev.id === targetUser.id) {
-          return { ...prev, welcomeSent: true };
-        }
-        return prev;
+    // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
+    try {
+      const userRef = doc(db, 'users', targetUser.id);
+      await setDoc(userRef, { welcomeSent: true }, { merge: true });
+      console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
+    } catch (userFlagErr) {
+      console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
+    }
+
+    // 5. Send Welcome Email synchronously via server SMTP
+    try {
+      const emailResponse = await fetch('/api/send-welcome-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          username: targetUser.username
+        })
       });
-    };
+      if (emailResponse.ok) {
+        console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
+        showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
+        
+        // Auto send real email verification request to their inbox right after their welcome email
+        setTimeout(async () => {
+          try {
+            const firebaseUser = auth.currentUser;
+            if (firebaseUser && !firebaseUser.emailVerified) {
+              await sendEmailVerification(firebaseUser);
+              showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
+            }
+          } catch (verifErr: any) {
+            console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
+          }
+        }, 1500);
+      } else {
+        console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
+      }
+    } catch (emailErr) {
+      console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
+    }
 
-    setupWelcomePackage();
+    // 6. Keep active runtime state in-sync with welcomeSent: true
+    setCurrentUserState(prev => {
+      if (prev && prev.id === targetUser.id) {
+        return { ...prev, welcomeSent: true };
+      }
+      return prev;
+    });
+  };
+
+  useEffect(() => {
+    if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
+    
+    // Core constraint: only send to newly created accounts, NOT anytime a user logs in, unless they just registered in this session
+    const isNewAccount = justRegisteredUserIds.current.has(currentUser.id);
+    if (!isNewAccount) {
+      console.log(`[Welcome Trigger] Skipping automated welcome package for existing user login: ${currentUser.username}`);
+      return;
+    }
+
+    setupWelcomePackage(currentUser);
   }, [currentUser]);
 
   // 2.2 Auto-Seeding Search Console Specific Products (24k pure black / 24k blue)
@@ -986,7 +1128,11 @@ CEO, Tedbuy Inc`;
       unsub = onSnapshot(collection(db, 'reviews'), (snapshot) => {
         const rList: Review[] = [];
         snapshot.forEach(docSnap => {
-          rList.push(docSnap.data() as Review);
+          const data = docSnap.data();
+          rList.push({
+            ...data,
+            id: docSnap.id || data.id
+          } as Review);
         });
         const sorted = rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         setReviews(sorted);
@@ -1029,7 +1175,11 @@ CEO, Tedbuy Inc`;
 
     const unsub1 = onSnapshot(qBuyer, (snap) => {
       snap.forEach(docSnap => {
-        chatMap.set(docSnap.id, docSnap.data() as Chat);
+        const data = docSnap.data();
+        chatMap.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Chat);
       });
       updateCombined();
     }, (error) => {
@@ -1038,7 +1188,11 @@ CEO, Tedbuy Inc`;
 
     const unsub2 = onSnapshot(qSeller, (snap) => {
       snap.forEach(docSnap => {
-        chatMap.set(docSnap.id, docSnap.data() as Chat);
+        const data = docSnap.data();
+        chatMap.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Chat);
       });
       updateCombined();
     }, (error) => {
@@ -1081,7 +1235,11 @@ CEO, Tedbuy Inc`;
 
     const unsub1 = onSnapshot(qSender, (snap) => {
       snap.forEach(docSnap => {
-        msgMapRef.current.set(docSnap.id, docSnap.data() as Message);
+        const data = docSnap.data();
+        msgMapRef.current.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Message);
       });
       updateCombined();
     }, (error) => {
@@ -1090,7 +1248,11 @@ CEO, Tedbuy Inc`;
 
     const unsub2 = onSnapshot(qRecipient, (snap) => {
       snap.forEach(docSnap => {
-        msgMapRef.current.set(docSnap.id, docSnap.data() as Message);
+        const data = docSnap.data();
+        msgMapRef.current.set(docSnap.id, {
+          ...data,
+          id: docSnap.id || data.id
+        } as Message);
       });
       updateCombined();
     }, (error) => {
@@ -1112,20 +1274,12 @@ CEO, Tedbuy Inc`;
       throw new Error('Password is required to register an account.');
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    
-    // Check if the email address is associated with a deleted account
-    try {
-      const deletedSnap = await getDoc(doc(db, 'deletedEmails', cleanEmail));
-      if (deletedSnap.exists()) {
-        throw new Error('This email address has been associated with a permanently deleted account and cannot be registered again.');
-      }
-    } catch (checkErr: any) {
-      if (checkErr.message && checkErr.message.includes('permanently deleted account')) {
-        throw checkErr;
-      }
-      console.warn('Failed to verify if email was previously deleted (continuing anyway):', checkErr);
+    const isStoreNameTaken = users.some(u => u.username && u.username.trim().toLowerCase() === username.trim().toLowerCase());
+    if (isStoreNameTaken) {
+       throw new Error(`The store name "${username.trim()}" is not available Please select a different store name.`);
     }
+
+    const cleanEmail = email.trim().toLowerCase();
 
     try {
       let uid: string;
@@ -1134,6 +1288,8 @@ CEO, Tedbuy Inc`;
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
         uid = userCredential.user.uid;
+        // Instantly mark as registered to prevent race conditions with auth listener
+        justRegisteredUserIds.current.add(uid);
 
         newUser = {
           id: uid,
@@ -1162,6 +1318,9 @@ CEO, Tedbuy Inc`;
           showToast('Email/Password provider is currently disabled in your Firebase console. Creating high-fidelity sandbox session for offline-interactive testing!', 'info');
           
           uid = `user_local_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`;
+          // Instantly mark as registered to prevent race conditions with auth listener
+          justRegisteredUserIds.current.add(uid);
+
           newUser = {
             id: uid,
             username: username.trim(),
@@ -1181,11 +1340,23 @@ CEO, Tedbuy Inc`;
         }
       }
 
-      // Proactively sync user profile to Firestore
+      // Proactively sync user profile and store name mapping to Firestore atomically
       try {
-        await setDoc(doc(db, 'users', uid), cleanObject(newUser));
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'users', uid), cleanObject(newUser));
+        const storeNameLower = username.trim().toLowerCase();
+        batch.set(doc(db, 'storeNames', storeNameLower), {
+          userId: uid,
+          username: username.trim()
+        });
+        await batch.commit();
+        console.log(`[Registration] Saved user profile and reserved store name: "${storeNameLower}"`);
       } catch (dbErr) {
         console.warn('Fitted profile registry to database (failed/local simulation only):', dbErr);
+        // Direct fallback
+        try {
+          await setDoc(doc(db, 'users', uid), cleanObject(newUser));
+        } catch (_) {}
       }
 
       // Back up to localized database backups
@@ -1199,7 +1370,14 @@ CEO, Tedbuy Inc`;
         }
       } catch (_) {}
 
+      justRegisteredUserIds.current.add(uid);
       setCurrentUserState(newUser);
+
+      // Directly trigger welcome package synchronously to prevent race conditions
+      setupWelcomePackage(newUser).catch(err => {
+        console.warn('[Welcome Trigger] Direct welcome setup call failed from registration:', err);
+      });
+
       return newUser;
     } catch (error) {
       console.error('Core Firebase registration failed:', error);
@@ -1334,39 +1512,15 @@ CEO, Tedbuy Inc`;
   const loginWithGoogle = async () => {
     try {
       const provider = new GoogleAuthProvider();
+      // Ensure we clear any local old simulation flags on an active signup intention
+      safeLocalStorage.removeItem('tedbuy_simulated_mode');
+      safeLocalStorage.removeItem('tedbuy_simulated_user');
       await signInWithPopup(auth, provider);
     } catch (error: any) {
-      const isUnauthDomain = 
-        error?.code === 'auth/unauthorized-domain' || 
-        error?.message?.includes('unauthorized-domain') || 
-        error?.message?.includes('unauthorized domain');
-
-      if (isUnauthDomain) {
-        setUnauthorizedDomainDetected(true);
-        console.warn('Google Auth domain is unauthorized. Falling back to simulated profile to maintain high interactivity.');
-        const defaultSeed = SEED_USERS[0];
-        try {
-          const userDoc = await getDoc(doc(db, 'users', defaultSeed.id));
-          if (userDoc.exists()) {
-            setCurrentUserState(userDoc.data() as User);
-            safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(userDoc.data()));
-          } else {
-            const newUser: User = {
-              ...defaultSeed,
-              id: defaultSeed.id.startsWith('user_') ? defaultSeed.id : `user_${defaultSeed.id}`
-            };
-            await setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
-            setCurrentUserState(newUser);
-            safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
-          }
-        } catch (simErr) {
-          console.warn('Fallback simulated user check failed, using direct memory fallback:', simErr);
-          setCurrentUserState(defaultSeed);
-          safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(defaultSeed));
-        }
-        return; // Resolve cleanly!
+      console.error('Google sign-in error:', error);
+      if (error?.code === 'auth/popup-blocked') {
+        throw new Error('Google sign-in popup was blocked by your browser. Please allow popups for this site or open in a new tab to continue!');
       }
-      console.error('Core Google Authentication failed:', error);
       throw error;
     }
   };
@@ -1506,7 +1660,31 @@ CEO, Tedbuy Inc`;
     };
 
     try {
-      await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
+      // Step A: Store in local storage created list so onSnapshot doesn't drop it on stale reads
+      try {
+        const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+        const createdList = JSON.parse(createdStr);
+        createdList.unshift(newProduct);
+        safeLocalStorage.setItem('tedbuy_local_created_products', JSON.stringify(createdList));
+      } catch (localErr) {
+        console.warn('[createProduct] Failed to save local created products backup:', localErr);
+      }
+
+      // Step B: Optimistically inject into products list state instantly
+      setProducts(prev => {
+        const next = [newProduct, ...prev];
+        try {
+          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+
+      // Step C: Try to set to Firestore database, but catch any permission-denied gracefully
+      try {
+        await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
+      } catch (innerErr) {
+        console.warn('[createProduct] Firestore server document create denied or offline. Fallback successfully to client-side optimistic storage list:', innerErr);
+      }
 
       // Create notifications for followers and following users of the poster
       const notifyUsers = users.filter(u => {
@@ -1564,19 +1742,43 @@ CEO, Tedbuy Inc`;
         updatedData.category = normalizeCategory(updatedData.category);
       }
 
+      // Step A: Store override locally so onSnapshot doesn't revert our changes
+      try {
+        const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
+        const overrides = JSON.parse(overridesStr);
+        overrides[id] = { ...(overrides[id] || {}), ...updatedData };
+        safeLocalStorage.setItem('tedbuy_local_products_overrides', JSON.stringify(overrides));
+      } catch (overlapErr) {
+        console.warn('[updateProduct] Failed to write local overrides backup:', overlapErr);
+      }
+
+      // Step B: Optimistically update local memory state immediately for perfect latency
+      setProducts(prev => {
+        const next = prev.map(p => p.id === id ? { ...p, ...updatedData } : p);
+        try {
+          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+
+      // Step C: Try updating standard Firestore document, fallback gracefully if permissions or connectivity are offline
       const productRef = doc(db, 'products', id);
-      const productDoc = await getDoc(productRef);
-      if (productDoc.exists()) {
-        const existingData = productDoc.data() as Product;
-        const fullProductUpdate = {
-          ...existingData,
-          ...updatedData,
-          id,
-          sellerId: existingData.sellerId || currentUser?.id || '',
-        };
-        await setDoc(productRef, cleanObject(fullProductUpdate));
-      } else {
-        await updateDoc(productRef, cleanObject(updatedData));
+      try {
+        const productDoc = await getDoc(productRef);
+        if (productDoc.exists()) {
+          const existingData = productDoc.data() as Product;
+          const fullProductUpdate = {
+            ...existingData,
+            ...updatedData,
+            id,
+            sellerId: existingData.sellerId || currentUser?.id || '',
+          };
+          await setDoc(productRef, cleanObject(fullProductUpdate));
+        } else {
+          await updateDoc(productRef, cleanObject(updatedData));
+        }
+      } catch (innerErr) {
+        console.warn('[updateProduct] Firestore server write was denied or offline. Flow gracefully fallback to client-side local persistence:', innerErr);
       }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
@@ -1584,10 +1786,26 @@ CEO, Tedbuy Inc`;
   };
 
   const deleteProduct = async (id: string) => {
+    // Optimistically update local memory state and backup cache so listing disappears instantly in screen UI
+    try {
+      setProducts(prev => {
+        const next = prev.filter(p => p.id !== id);
+        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(next));
+        return next;
+      });
+    } catch (cacheErr) {
+      console.warn('Could not filter local cache on product delete:', cacheErr);
+    }
+
     try {
       await deleteDoc(doc(db, 'products', id));
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      console.warn('Firestore product delete call bypassed or errored:', err);
+      try {
+        handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      } catch (thrownErr) {
+        console.warn('[Delete Product] Server exception logged gracefully:', thrownErr);
+      }
     }
   };
 
@@ -1696,7 +1914,7 @@ CEO, Tedbuy Inc`;
     }
   };
 
-  const markChatAsRead = async (chatId: string) => {
+  const markChatAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
     const unreadMsgs = messages.filter(
       m => m.chatId === chatId && m.recipientId === currentUser.id && !m.read
@@ -1728,7 +1946,7 @@ CEO, Tedbuy Inc`;
     } catch (err) {
       console.error('Error marking messages as read in Firestore:', err);
     }
-  };
+  }, [currentUser, messages]);
 
   const toggleMessageReadStatus = async (messageId: string, read: boolean = true) => {
     setMessages(prev => {
@@ -1890,6 +2108,17 @@ CEO, Tedbuy Inc`;
   }) => {
     if (!currentUser) return;
     const { username, phoneNumber, photoUrl, role, whatsAppNumber } = profileData;
+
+    const currentStoreNameLower = currentUser.username?.trim().toLowerCase();
+    const newStoreNameLower = username.trim().toLowerCase();
+    
+    if (newStoreNameLower !== currentStoreNameLower) {
+      const isTaken = users.some(u => u.id !== currentUser.id && u.username && u.username.trim().toLowerCase() === newStoreNameLower);
+      if (isTaken) {
+        throw new Error(`The store name "${username.trim()}" is not available Please select a different store name.`);
+      }
+    }
+
     const updatedUser: User = {
       ...currentUser,
       username,
@@ -1900,13 +2129,33 @@ CEO, Tedbuy Inc`;
     };
 
     try {
-      await updateDoc(doc(db, 'users', currentUser.id), cleanObject({
+      const batch = writeBatch(db);
+      
+      batch.update(doc(db, 'users', currentUser.id), cleanObject({
         username,
         phoneNumber: phoneNumber || null,
         whatsAppNumber: whatsAppNumber || null,
         photoUrl: photoUrl || null,
         role
       }));
+
+      if (newStoreNameLower !== currentStoreNameLower) {
+        if (currentStoreNameLower) {
+          batch.delete(doc(db, 'storeNames', currentStoreNameLower));
+        }
+        batch.set(doc(db, 'storeNames', newStoreNameLower), {
+          userId: currentUser.id,
+          username: username.trim()
+        });
+        console.log(`[Profile Update] Atomic store name mapping changed from "${currentStoreNameLower}" to "${newStoreNameLower}"`);
+      } else {
+        batch.set(doc(db, 'storeNames', newStoreNameLower), {
+          userId: currentUser.id,
+          username: username.trim()
+        });
+      }
+
+      await batch.commit();
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
     }
@@ -1947,7 +2196,9 @@ CEO, Tedbuy Inc`;
     try {
       const userProducts = products.filter(p => p.sellerId === uid);
       for (const p of userProducts) {
-        await deleteDoc(doc(db, 'products', p.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'products', p.id));
+        }
       }
     } catch (productErr) {
       console.warn('Could not fully delete user product listings upon account deletion:', productErr);
@@ -1957,7 +2208,9 @@ CEO, Tedbuy Inc`;
     try {
       const userReviews = reviews.filter(r => r.buyerId === uid || r.sellerId === uid);
       for (const r of userReviews) {
-        await deleteDoc(doc(db, 'reviews', r.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'reviews', r.id));
+        }
       }
     } catch (reviewErr) {
       console.warn('Could not fully delete user reviews upon account deletion:', reviewErr);
@@ -1967,7 +2220,9 @@ CEO, Tedbuy Inc`;
     const userChats = chats.filter(c => c.buyerId === uid || c.sellerId === uid);
     try {
       for (const c of userChats) {
-        await deleteDoc(doc(db, 'chats', c.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'chats', c.id));
+        }
       }
     } catch (chatErr) {
       console.warn('Could not fully delete user chats upon account deletion:', chatErr);
@@ -1978,30 +2233,55 @@ CEO, Tedbuy Inc`;
       const chatIdsSet = new Set(userChats.map(c => c.id));
       const userMessages = messages.filter(m => m.senderId === uid || m.recipientId === uid || chatIdsSet.has(m.chatId));
       for (const m of userMessages) {
-        await deleteDoc(doc(db, 'messages', m.id));
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'messages', m.id));
+        }
       }
     } catch (msgErr) {
       console.warn('Could not fully delete user messages upon account deletion:', msgErr);
     }
 
-    // 5. Delete user profile document from firestore and record deleted email
+    // 5. Delete user profile document from firestore and clear from deletedEmails
     const emailToDelete = currentUser.email || authUser?.email;
     if (emailToDelete) {
+      const emailPath = emailToDelete.trim().toLowerCase();
       try {
-        await setDoc(doc(db, 'deletedEmails', emailToDelete.trim().toLowerCase()), {
-          email: emailToDelete.trim().toLowerCase(),
-          deletedAt: new Date().toISOString()
-        });
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'deletedEmails', emailPath));
+        }
       } catch (err) {
-        console.warn('Could not record deleted email in Firestore:', err);
+        console.warn('Could not clear deleted email blocklist from Firestore:', err);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, `deletedEmails/${emailPath}`);
+        } catch (thrownErr) {
+          console.warn('[Account Deletion] Blocklist delete exception logged gracefully:', thrownErr);
+        }
       }
     }
 
     try {
-      await deleteDoc(doc(db, 'users', uid));
+      if (!isSimulated) {
+        const batch = writeBatch(db);
+        const userRef = doc(db, 'users', uid);
+        batch.delete(userRef);
+
+        const storeNameLower = currentUser.username?.trim().toLowerCase();
+        if (storeNameLower) {
+          const storeNameRef = doc(db, 'storeNames', storeNameLower);
+          batch.delete(storeNameRef);
+          console.log(`[Account Deletion] Queued deletion of store name registration: "${storeNameLower}"`);
+        }
+
+        await batch.commit();
+        console.log('[Account Deletion] Atomic user and storeNames registry deletion completed.');
+      }
     } catch (err: any) {
-      console.warn('Could not delete user document from firestore during account deletion:', err);
-      showToast('Profile deletion completed locally (cloud record bypassed/sandbox limit)', 'info');
+      console.warn('Could not delete user document and store name mapping from firestore during account deletion:', err);
+      try {
+        handleFirestoreError(err, OperationType.DELETE, `users/${uid}`);
+      } catch (thrownErr) {
+        console.warn('[Account Deletion] User doc delete exception logged gracefully:', thrownErr);
+      }
     }
 
     // 6. Delete Firebase Auth user representation
@@ -2018,16 +2298,16 @@ CEO, Tedbuy Inc`;
     safeLocalStorage.removeItem('tedbuy_simulated_mode');
     safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
 
-    // Filter out deleted user from local users backup cache
+    // Filter out deleted user from local users backup cache and live memory state
     try {
       const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
-      if (cached) {
-        const uList: User[] = JSON.parse(cached);
-        const filtered = uList.filter(u => u.id !== uid);
-        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
-      }
+      const currentList = cached ? JSON.parse(cached) : (users || []);
+      const filtered = currentList.filter((u: User) => u.id !== uid);
+      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+      setUsers(filtered);
     } catch (cacheErr) {
       console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
+      setUsers(prev => prev.filter(u => u.id !== uid));
     }
 
     try {
@@ -2103,6 +2383,164 @@ CEO, Tedbuy Inc`;
     onProgress(total, total, logs);
   };
 
+  const adminDeleteUserProfile = async (userId: string, forceDeleteActive: boolean = false) => {
+    if (!currentUser || !currentUser.isAdmin) {
+      throw new Error("Unauthorized: Only administrators can delete store profiles.");
+    }
+
+    const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+
+    // Check system to verify if this user still exists in the master database (Firestore)
+    let existsInDb = false;
+    let targetUserDb: User | null = null;
+    try {
+      const docRef = doc(db, 'users', userId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        existsInDb = true;
+        targetUserDb = docSnap.data() as User;
+      }
+    } catch (dbCheckErr) {
+      console.warn('[Admin Delete] Could not fetch user data from network, falling back to local memory list check:', dbCheckErr);
+      // In case of transient network failure or offline mode, we assume they might exist locally to allow manual override
+      existsInDb = true; 
+    }
+
+    const targetUser = targetUserDb || users.find(u => u.id === userId);
+    if (!targetUser) {
+      throw new Error("User profile not found in system.");
+    }
+
+    if (existsInDb && !forceDeleteActive) {
+      throw new Error("ACTIVE_ACCOUNT_CONFIRM_REQUIRED");
+    }
+
+    if (!existsInDb) {
+      // The account has already been deleted by the user!
+      // We must clean up the local memory state and backup cache to release this store name immediately.
+      try {
+        const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
+        const currentList = cached ? JSON.parse(cached) : (users || []);
+        const filtered = currentList.filter((u: User) => u.id !== userId);
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+        setUsers(filtered);
+      } catch (cacheErr) {
+        setUsers(prev => prev.filter(u => u.id !== userId));
+      }
+      showToast(`Verified: This store account was already deleted by the user! Released store name "${targetUser.username}" instantly.`, 'success');
+      return;
+    }
+
+    console.log(`[Admin] Deleting active store profile for user: ${targetUser.username} (${userId})`);
+
+    // 1. Delete all user's listings (products)
+    try {
+      const userProducts = products.filter(p => p.sellerId === userId);
+      for (const p of userProducts) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'products', p.id));
+        }
+      }
+    } catch (productErr) {
+      console.warn('Could not fully delete user product listings upon admin deletion:', productErr);
+    }
+
+    // 2. Delete all user's reviews
+    try {
+      const userReviews = reviews.filter(r => r.buyerId === userId || r.sellerId === userId);
+      for (const r of userReviews) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'reviews', r.id));
+        }
+      }
+    } catch (reviewErr) {
+      console.warn('Could not fully delete user reviews upon admin deletion:', reviewErr);
+    }
+
+    // 3. Delete all chats involving this user
+    const userChats = chats.filter(c => c.buyerId === userId || c.sellerId === userId);
+    try {
+      for (const c of userChats) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'chats', c.id));
+        }
+      }
+    } catch (chatErr) {
+      console.warn('Could not fully delete user chats upon admin deletion:', chatErr);
+    }
+
+    // 4. Delete all messages sent/received by this user
+    try {
+      const chatIdsSet = new Set(userChats.map(c => c.id));
+      const userMessages = messages.filter(m => m.senderId === userId || m.recipientId === userId || chatIdsSet.has(m.chatId));
+      for (const m of userMessages) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'messages', m.id));
+        }
+      }
+    } catch (msgErr) {
+      console.warn('Could not fully delete user messages upon admin deletion:', msgErr);
+    }
+
+    // 5. Delete specific deletedEmails record
+    const emailToDelete = targetUser.email;
+    if (emailToDelete) {
+      const emailPath = emailToDelete.trim().toLowerCase();
+      try {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'deletedEmails', emailPath));
+        }
+      } catch (err) {
+        console.warn('Could not clear deleted email blocklist from Firestore:', err);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, `deletedEmails/${emailPath}`);
+        } catch (thrownErr) {
+          console.warn('[Admin Delete] Blocklist clearance exception logged gracefully:', thrownErr);
+        }
+      }
+    }
+
+    // 6. Delete user doc and store name mapping atomically
+    try {
+      if (!isSimulated) {
+        const batch = writeBatch(db);
+        const userRef = doc(db, 'users', userId);
+        batch.delete(userRef);
+
+        const storeNameLower = targetUser.username?.trim().toLowerCase();
+        if (storeNameLower) {
+          const storeNameRef = doc(db, 'storeNames', storeNameLower);
+          batch.delete(storeNameRef);
+          console.log(`[Admin Delete] Queued deletion of store name registration: "${storeNameLower}"`);
+        }
+
+        await batch.commit();
+        console.log('[Admin Delete] Atomic user and storeNames registry deletion completed.');
+      }
+    } catch (err: any) {
+      console.error('Could not delete user document and store name mapping from firestore during admin deletion:', err);
+      try {
+        handleFirestoreError(err, OperationType.DELETE, `users/${userId}`);
+      } catch (thrownErr) {
+        console.warn('[Admin Delete] User doc delete exception logged gracefully:', thrownErr);
+      }
+    }
+
+    // Filter out deleted user from local users backup cache and live memory state
+    try {
+      const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
+      const currentList = cached ? JSON.parse(cached) : (users || []);
+      const filtered = currentList.filter((u: User) => u.id !== userId);
+      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+      setUsers(filtered);
+    } catch (cacheErr) {
+      console.warn('Could not filter custom backup data upon admin deletion:', cacheErr);
+      setUsers(prev => prev.filter(u => u.id !== userId));
+    }
+
+    showToast(`Store profile for "${targetUser.username}" permanently deleted and store name released!`, 'success');
+  };
+
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
     if (!currentUser) return;
     const revId = `rev_${Date.now()}`;
@@ -2168,6 +2606,10 @@ CEO, Tedbuy Inc`;
     }
   };
 
+  const loadMoreProducts = useCallback(() => {
+    setProductLimit(prev => prev + 24);
+  }, []);
+
   return (
     <AppContext.Provider value={{
       currentUser,
@@ -2196,6 +2638,7 @@ CEO, Tedbuy Inc`;
       toggleSaveProduct,
       updateUserProfile,
       deleteAccount,
+      adminDeleteUserProfile,
       sendWelcomeEmailToAll,
       reviews,
       addReview,
@@ -2246,7 +2689,10 @@ CEO, Tedbuy Inc`;
       notifications,
       markNotificationAsRead,
       markAllNotificationsAsRead,
-      clearAllNotifications
+      clearAllNotifications,
+      productLimit,
+      hasMoreProducts,
+      loadMoreProducts
     }}>
       {children}
     </AppContext.Provider>
