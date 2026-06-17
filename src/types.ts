@@ -106,6 +106,7 @@ export interface Product {
   viewsCount: number;
   isSold?: boolean;
   likesCount?: number;
+  likedUserIds?: string[];
 }
 
 export interface Chat {

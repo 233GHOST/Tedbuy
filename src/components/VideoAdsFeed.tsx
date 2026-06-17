@@ -71,6 +71,36 @@ const base64ToBlobUrl = (base64Str: string, defaultMime = 'video/mp4'): string =
   }
 };
 
+// Global ultra-high performance cache for Decoded Blob URLs.
+// Avoids redundant, blocking, expensive Base64 reconversions on quick scrolls, creating seamless TikTok-like transitions.
+const decodedBlobUrlCache = new Map<string, string>();
+const MAX_DECODED_CACHE_SIZE = 32;
+
+const getProcessedUrl = (url: string): string => {
+  if (!url) return '';
+  if (!url.startsWith('data:')) return url;
+  
+  if (decodedBlobUrlCache.has(url)) {
+    return decodedBlobUrlCache.get(url)!;
+  }
+  
+  if (decodedBlobUrlCache.size >= MAX_DECODED_CACHE_SIZE) {
+    const oldestKey = decodedBlobUrlCache.keys().next().value;
+    if (oldestKey) {
+      try {
+        URL.revokeObjectURL(decodedBlobUrlCache.get(oldestKey)!);
+      } catch (err) {
+        console.warn("[VideoAdsFeed] Failed evicting and revoking cached object URL:", err);
+      }
+      decodedBlobUrlCache.delete(oldestKey);
+    }
+  }
+  
+  const bUrl = base64ToBlobUrl(url, 'video/mp4');
+  decodedBlobUrlCache.set(url, bUrl);
+  return bUrl;
+};
+
 export interface ReelItemProps {
   product: Product;
   isActive: boolean;
@@ -100,6 +130,16 @@ const ReelItem: React.FC<ReelItemProps> = ({
   onVolumeChange,
   isSellerVerified,
 }) => {
+  const { 
+    updateProduct, 
+    setCurrentView, 
+    setSelectedSellerId,
+    currentUser,
+    setAuthMode,
+    setShowAuthModal,
+    followSeller
+  } = useApp();
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -108,15 +148,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const [processedVideoUrl, setProcessedVideoUrl] = useState<string>('');
   const activeBlobUrlRef = useRef<string>('');
 
-  // States for user engagements
-  const [isLiked, setIsLiked] = useState<boolean>(() => {
-    try {
-      const likedList = JSON.parse(localStorage.getItem('user_video_likes') || '[]');
-      return likedList.includes(product?.id || '');
-    } catch {
-      return false;
-    }
-  });
+  // Floating heart burst and coordinates states
   const [showBigHeart, setShowBigHeart] = useState<boolean>(false);
   const [bigHeartCoords, setBigHeartCoords] = useState({ x: 0, y: 0 });
   const lastClickTimeRef = useRef<number>(0);
@@ -162,24 +194,19 @@ const ReelItem: React.FC<ReelItemProps> = ({
     };
   }, [isPlaying, isActive]);
 
-  useEffect(() => {
+  // Calculate isLiked dynamically based on Firestore product data and local storage fallback
+  const isLiked = useMemo(() => {
+    if (!currentUser) return false;
+    if (Array.isArray(product?.likedUserIds) && product.likedUserIds.includes(currentUser.id)) {
+      return true;
+    }
     try {
       const likedList = JSON.parse(localStorage.getItem('user_video_likes') || '[]');
-      setIsLiked(likedList.includes(product?.id || ''));
+      return likedList.includes(product?.id || '');
     } catch {
-      setIsLiked(false);
+      return false;
     }
-  }, [product?.id]);
-
-  const { 
-    updateProduct, 
-    setCurrentView, 
-    setSelectedSellerId,
-    currentUser,
-    setAuthMode,
-    setShowAuthModal,
-    followSeller
-  } = useApp();
+  }, [product?.likedUserIds, product?.id, currentUser]);
 
   const isOwnProfile = currentUser?.id === product?.sellerId;
   const isFollowing = currentUser?.followingSellers?.includes(product?.sellerId || '') || false;
@@ -213,44 +240,61 @@ const ReelItem: React.FC<ReelItemProps> = ({
       setShowAuthModal(true);
       return;
     }
-    const nextLiked = !isLiked;
-    setIsLiked(nextLiked);
 
+    const userId = currentUser.id;
+    const currentLikedUserIds = Array.isArray(product.likedUserIds) ? product.likedUserIds : [];
+    const isCurrentlyLiked = currentLikedUserIds.includes(userId);
+    
+    let nextLikedUserIds: string[];
+    let nextLikesCount: number;
+
+    if (isCurrentlyLiked) {
+      // Unlike
+      nextLikedUserIds = currentLikedUserIds.filter(id => id !== userId);
+      nextLikesCount = Math.max(0, nextLikedUserIds.length);
+    } else {
+      // Like
+      nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, userId]));
+      nextLikesCount = nextLikedUserIds.length;
+    }
+
+    // Support local storage status fallback
     try {
       const likedList = JSON.parse(localStorage.getItem('user_video_likes') || '[]');
-      let updated: string[];
-      if (nextLiked) {
-        updated = Array.from(new Set([...likedList, product.id]));
+      let updatedLocalStorage: string[];
+      if (!isCurrentlyLiked) {
+        updatedLocalStorage = Array.from(new Set([...likedList, product.id]));
       } else {
-        updated = likedList.filter((id: string) => id !== product.id);
+        updatedLocalStorage = likedList.filter((id: string) => id !== product.id);
       }
-      localStorage.setItem('user_video_likes', JSON.stringify(updated));
-
-      const currentLikes = product.likesCount || 0;
-      const nextLikesCount = nextLiked ? currentLikes + 1 : Math.max(0, currentLikes - 1);
-      await updateProduct(product.id, { likesCount: nextLikesCount });
+      localStorage.setItem('user_video_likes', JSON.stringify(updatedLocalStorage));
     } catch (err) {
-      console.warn("localStorage or likesCount update error", err);
+      console.warn("localStorage update error", err);
+    }
+
+    try {
+      await updateProduct(product.id, { 
+        likesCount: nextLikesCount, 
+        likedUserIds: nextLikedUserIds 
+      });
+    } catch (err) {
+      console.warn("likes update error", err);
     }
   };
 
-  const likesCount = product.likesCount || (isLiked ? 1 : 0);
+  const likesCount = useMemo(() => {
+    if (Array.isArray(product?.likedUserIds)) {
+      return product.likedUserIds.length;
+    }
+    return product?.likesCount || (isLiked ? 1 : 0);
+  }, [product?.likedUserIds, product?.likesCount, isLiked]);
 
   const currentVideoUrl = product?.videos?.[0] || '';
 
-  // Safe synchronous data-URI/base64-to-blob-url decoder with active-unload garbage collection
+  // Instant preloading & decoding using global memoized Blob cache to prevent freeze and enable buttery smooth TikTok swipe
   useEffect(() => {
     if (!shouldLoad) {
       setProcessedVideoUrl('');
-      const prevBlobUrl = activeBlobUrlRef.current;
-      if (prevBlobUrl && prevBlobUrl.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(prevBlobUrl);
-        } catch (e) {
-          console.warn("[ReelItem] Revoking blob failed on unload", e);
-        }
-        activeBlobUrlRef.current = '';
-      }
       return;
     }
 
@@ -259,35 +303,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
       return;
     }
 
-    if (!currentVideoUrl.startsWith('data:')) {
-      setProcessedVideoUrl(currentVideoUrl);
-      return;
-    }
-
-    // Reuse existing URL if registered to prevent duplicate builds
-    if (activeBlobUrlRef.current) {
-      setProcessedVideoUrl(activeBlobUrlRef.current);
-      return;
-    }
-
-    const bUrl = base64ToBlobUrl(currentVideoUrl, 'video/mp4');
-    activeBlobUrlRef.current = bUrl;
-    setProcessedVideoUrl(bUrl);
+    const cachedUrl = getProcessedUrl(currentVideoUrl);
+    setProcessedVideoUrl(cachedUrl);
   }, [currentVideoUrl, shouldLoad]);
-
-  // Clean up blob URL on final Component unmount
-  useEffect(() => {
-    return () => {
-      const finalBlob = activeBlobUrlRef.current;
-      if (finalBlob && finalBlob.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(finalBlob);
-        } catch (e) {
-          // Ignore
-        }
-      }
-    };
-  }, []);
 
   // Sync volume and mute changes dynamically without triggering video play re-initializations
   useEffect(() => {
@@ -456,26 +474,26 @@ const ReelItem: React.FC<ReelItemProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="flex items-center justify-center w-full px-2 py-3 select-none">
-      {/* Immersive Aspect locked video player container with Snapchat Reels proportions */}
+    <div ref={containerRef} className="flex items-center justify-center w-full h-full p-2 select-none">
+      {/* Immersive Aspect locked video player container mimicking TikTok/Snapchat feeds */}
       <div 
         onClick={handleVideoContainerClick}
         onMouseMove={resetControlsTimeout}
         onTouchStart={resetControlsTimeout}
         onMouseEnter={resetControlsTimeout}
-        className="relative aspect-[9/16] w-full max-w-[320px] sm:max-w-[340px] md:max-w-[360px] h-[550px] sm:h-[600px] md:h-[640px] bg-slate-950 rounded-[2.5rem] overflow-hidden shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] border border-white/10 group cursor-pointer flex items-center justify-center shrink-0 transition-transform duration-300 hover:scale-[1.01]"
+        className="relative aspect-[9/16] w-full max-w-[360px] sm:max-w-[380px] md:max-w-[400px] h-full max-h-[96%] bg-slate-950 rounded-[2rem] overflow-hidden shadow-[0_30px_70px_-10px_rgba(0,0,0,0.9)] border border-white/10 group cursor-pointer flex items-center justify-center shrink-0 transition-transform duration-300 hover:scale-[1.01]"
       >
         {!shouldLoad ? (
           <div className="text-center p-6 text-slate-500">
             <Video className="w-14 h-14 mx-auto stroke-[1] text-emerald-500/80 mb-3 animate-pulse" />
-            <p className="text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest">Tap to load showcase</p>
+            <p className="text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest">Loading Showcase...</p>
           </div>
         ) : !processedVideoUrl ? (
           <div className="text-center p-6 text-slate-500">
             {currentVideoUrl ? (
               <>
                 <Video className="w-14 h-14 mx-auto stroke-[1.2] text-emerald-400 mb-3 animate-spin" />
-                <p className="text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest">Initializing high-res stream...</p>
+                <p className="text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest text-emerald-400/80">Decoding stream...</p>
               </>
             ) : (
               <>
@@ -494,7 +512,13 @@ const ReelItem: React.FC<ReelItemProps> = ({
             playsInline
             webkit-playsinline="true"
             preload="auto"
-            className="w-full h-full object-cover animate-fade-in select-none"
+            crossOrigin="anonymous"
+            style={{ 
+              transform: 'translate3d(0, 0, 0)', 
+              backfaceVisibility: 'hidden',
+              willChange: 'transform' 
+            }}
+            className="w-full h-full object-cover select-none transition-opacity duration-300"
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onDurationChange={handleLoadedMetadata}
@@ -764,7 +788,7 @@ export const VideoAdsFeed: React.FC = () => {
       });
     }, {
       root: container,
-      threshold: 0.55, // 55% visible is the active reel in focus
+      threshold: 0.65, // Active video is centered and occupies at least 65% of the viewport height
     });
 
     videoProducts.forEach(p => {
@@ -840,7 +864,7 @@ export const VideoAdsFeed: React.FC = () => {
   }
 
   return (
-    <div className="min-h-[600px] lg:h-[680px] w-full border border-slate-200 bg-slate-950 rounded-3xl overflow-hidden shadow-xl flex flex-col lg:flex-row text-white mt-4">
+    <div className="h-[620px] lg:h-[680px] w-full border border-slate-200 bg-slate-950 rounded-3xl overflow-hidden shadow-xl flex flex-col lg:flex-row text-white mt-4">
       {/* 2. Left side navigation list of video showcases */}
       <div className="lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-800 bg-slate-900 p-4 flex flex-col h-full overflow-hidden shrink-0">
         <div className="mb-4 text-left">
@@ -894,7 +918,7 @@ export const VideoAdsFeed: React.FC = () => {
         {/* Scrollable scroll-snap container */}
         <div 
           ref={feedScrollContainerRef}
-          className="w-full h-full overflow-y-auto snap-y snap-mandatory scroll-smooth py-6 flex flex-col items-center gap-12 scrollbar-none"
+          className="w-full h-full overflow-y-auto snap-y snap-mandatory scroll-smooth flex flex-col items-center gap-0 scrollbar-none"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {videoProducts.map((product, idx) => {
@@ -905,7 +929,7 @@ export const VideoAdsFeed: React.FC = () => {
                 key={product.id}
                 ref={el => { productRefs.current[product.id] = el; }}
                 data-product-id={product.id}
-                className="w-full snap-center shrink-0 flex items-center justify-center"
+                className="w-full h-[620px] lg:h-[680px] snap-center shrink-0 flex items-center justify-center p-0"
               >
                 <ReelItem
                   product={product}

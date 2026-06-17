@@ -33,6 +33,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener } from '../firebase';
 import { slugify } from '../utils/slugify';
+import { useHashRouting } from '../hooks/useHashRouting';
 
 function cleanObject<T extends any>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
@@ -318,8 +319,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const parseUrlState = useCallback(() => {
     if (typeof window === 'undefined') return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: null };
-    const pathname = window.location.pathname;
     
+    // Support hash routing fallback natively
+    let pathname = window.location.pathname;
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#/')) {
+      pathname = hash.substring(1); // Converts "#/chats" -> "/chats"
+    } else if (hash && hash.startsWith('#')) {
+      pathname = '/' + hash.substring(1); // Converts "#chats" -> "/chats"
+    }
+
     // Check if the link is a registered category slug
     const cleanPath = pathname.replace(/^\//, '').toLowerCase();
     
@@ -373,8 +382,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: normalized };
     }
 
-    // Fallback: search parameters
-    const params = new URLSearchParams(window.location.search);
+    // Fallback: search parameters (also checking inside hash query string if any)
+    let search = window.location.search;
+    if (hash && hash.includes('?')) {
+      search = hash.substring(hash.indexOf('?'));
+    }
+    const params = new URLSearchParams(search);
     const qProductId = params.get('productId');
     if (qProductId) {
       const matchId = qProductId.match(/prod_[a-zA-Z0-9_]+/);
@@ -431,7 +444,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isVerificationBlockOpen, setIsVerificationBlockOpen] = useState(false);
   const [blockedActionType, setBlockedActionType] = useState<'post-ad' | 'chat' | 'whatsApp' | 'review' | null>(null);
 
-  // Popstate listener to update view and states on native back/forward buttons
+  // Popstate and Hashchange listener to update view and states on native back/forward buttons
   useEffect(() => {
     const handlePopState = () => {
       const parsed = parseUrlState();
@@ -442,7 +455,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
   }, [parseUrlState]);
 
   // Synchronize dynamic searches with localStorage
@@ -462,56 +479,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [selectedProductId]);
 
-  // Synchronize navigation view context to address bar URL
+  // Custom hook that listens to currentView and updates browser URL hash
+  useHashRouting({
+    currentView,
+    selectedProductId,
+    selectedSellerId,
+    selectedCategory,
+    products,
+    slugify,
+  });
+
+  // Synchronize activeChatId with sessionStorage
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    let targetPath = '/';
-    if (currentView === 'product-detail' && selectedProductId) {
-      const prod = products.find(p => p.id === selectedProductId);
-      if (prod) {
-        const slug = slugify(prod.title);
-        targetPath = `/product/${selectedProductId}-${slug}`;
-      } else {
-        // While products are loading, preserve the current address bar path if it matches the product ID
-        const currentPath = window.location.pathname;
-        if (currentPath.includes(`/product/${selectedProductId}`) || currentPath.includes(`/products/${selectedProductId}`)) {
-          targetPath = currentPath;
-        } else {
-          targetPath = `/product/${selectedProductId}`;
-        }
-      }
-    } else if (currentView === 'seller-profile' && selectedSellerId) {
-      const currentPath = window.location.pathname;
-      if (currentPath.includes(`/seller/${selectedSellerId}`) || currentPath.includes(`/sellers/${selectedSellerId}`)) {
-        targetPath = currentPath;
-      } else {
-        targetPath = `/seller/${selectedSellerId}`;
-      }
-    } else if (currentView === 'chats') {
-      targetPath = '/chats';
-    } else if (currentView === 'my-dashboard') {
-      targetPath = '/dashboard';
-    } else if (currentView === 'profile-settings') {
-      targetPath = '/settings';
-    } else if (currentView === 'browse' && selectedCategory) {
-      targetPath = `/${slugify(selectedCategory)}`;
-    }
-
-    if (window.location.pathname !== targetPath) {
-      window.history.pushState(
-        { currentView, selectedProductId, selectedSellerId, selectedCategory },
-        '',
-        targetPath
-      );
-    }
-
     if (activeChatId) {
       safeSessionStorage.setItem('tedbuy_active_chat_id', activeChatId);
     } else {
       safeSessionStorage.removeItem('tedbuy_active_chat_id');
     }
-  }, [currentView, selectedProductId, selectedSellerId, activeChatId, products]);
+  }, [activeChatId]);
 
   // Firebase Auth state listener
   useEffect(() => {
