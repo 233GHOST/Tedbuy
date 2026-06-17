@@ -624,7 +624,7 @@ export const Navbar: React.FC = () => {
             </p>
 
             {authError && (
-              <div id="auth-error-msg" className="bg-red-50 text-red-700 p-3 rounded-lg text-xs mb-4 border border-red-200 font-semibold">
+              <div id="auth-error-msg" className="bg-red-50 text-red-700 p-3 rounded-lg text-xs mb-4 border border-red-200 font-semibold whitespace-pre-line leading-relaxed">
                 {authError}
               </div>
             )}
@@ -929,8 +929,12 @@ export const Navbar: React.FC = () => {
                   setShowAuthModal(false);
                 } catch (err: any) {
                   console.error(err);
-                  if (err?.message?.includes('popup-blocked') || err?.code?.includes('popup-blocked')) {
-                    setAuthError('Google sign-in popup was blocked by your browser browser. Please allow popups for this site or open in a new tab to continue!');
+                  const errMsg = err?.message || '';
+                  const errCode = err?.code || '';
+                  if (errMsg.includes('popup-blocked') || errCode.includes('popup-blocked')) {
+                    setAuthError('Google sign-in popup was blocked by your browser. Please allow popups for this site or open in a new tab to continue!');
+                  } else if (errMsg.includes('unauthorized-domain') || errCode.includes('unauthorized-domain')) {
+                    setAuthError(`🔐 Unauthorized Domain Error!\n\nThis app runs on Firebase Auth which requires the current domain to be whitelisted.\n\n👉 Follow these simple steps to fix this:\n1. Open Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Go to the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.vercel.app\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce whitelisted, try logging in again!`);
                   } else {
                     setAuthError(err?.message || 'Google Sign-In failed. Please try again.');
                   }
