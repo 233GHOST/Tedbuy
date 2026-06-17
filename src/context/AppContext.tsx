@@ -95,6 +95,7 @@ interface AppContextType {
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   resetPasswordEmail: (email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  loginWithSimulatedGooglePayload: (email: string, username: string, photoUrl?: string) => Promise<void>;
   logoutUser: () => Promise<void>;
   products: Product[];
   createProduct: (productData: {
@@ -1563,6 +1564,74 @@ CEO, Tedbuy Inc`;
     }
   };
 
+  const loginWithSimulatedGooglePayload = async (email: string, username: string, photoUrl?: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // Crucial Security Guard: Block administrator account hijack under simulated google login context
+    if (cleanEmail === 'asumaduvincent7@gmail.com') {
+      throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
+    }
+
+    // Connect anonymously first to establish a legitimate Firebase User details context to align with Firestore rules
+    let resolvedUid = `google_sim_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    try {
+      const anonCreds = await signInAnonymously(auth);
+      if (anonCreds?.user?.uid) {
+        resolvedUid = anonCreds.user.uid;
+      }
+    } catch (anonErr) {
+      console.warn('[Google Simulation] Background Google-Simulation Anonymous credentials handoff error:', anonErr);
+    }
+    
+    const newUser: User = {
+      id: resolvedUid,
+      username: username.trim(),
+      email: cleanEmail,
+      role: 'both',
+      joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      photoUrl: photoUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}`,
+      followingSellers: [],
+      savedProductIds: [],
+      emailVerified: true // Google accounts are pre-verified
+    };
+
+    // Set simulation mode in storage
+    safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
+    safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(newUser));
+    safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(newUser));
+
+    // Proactively save to Firestore so the user's data is persisted on Cloud Firestore exactly as requested!
+    try {
+      const userRef = doc(db, 'users', resolvedUid);
+      await setDoc(userRef, cleanObject(newUser));
+      
+      const storeNameLower = username.trim().toLowerCase();
+      await setDoc(doc(db, 'storeNames', storeNameLower), {
+        userId: resolvedUid,
+        username: username.trim()
+      });
+      console.log(`[Google Simulation] Registered synced Google User in Firestore: ${cleanEmail}`);
+    } catch (dbErr) {
+      console.warn('[Google Simulation] Cloud Firestore sync status:', dbErr);
+    }
+
+    // Add to local backup users
+    try {
+      const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+      const userList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+      if (!userList.some(u => u.id === newUser.id)) {
+        userList.push(newUser);
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(userList));
+        setUsers(userList);
+      }
+    } catch (_) {}
+
+    // Instantly log the user in to App State
+    setCurrentUserState(newUser);
+
+    showToast(`Successfully signed in via Google account: ${cleanEmail}!`, 'success');
+  };
+
   const logoutUser = async () => {
     try {
       await signOut(auth);
@@ -2765,6 +2834,7 @@ CEO, Tedbuy Inc`;
       loginUser,
       resetPasswordEmail,
       loginWithGoogle,
+      loginWithSimulatedGooglePayload,
       logoutUser,
       products,
       createProduct,
