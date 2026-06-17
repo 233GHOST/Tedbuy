@@ -934,7 +934,17 @@ export const Navbar: React.FC = () => {
                   if (errMsg.includes('popup-blocked') || errCode.includes('popup-blocked')) {
                     setAuthError('Google sign-in popup was blocked by your browser. Please allow popups for this site or open in a new tab to continue!');
                   } else if (errMsg.includes('unauthorized-domain') || errCode.includes('unauthorized-domain')) {
-                    setAuthError(`🔐 Unauthorized Domain Error!\n\nThis app runs on Firebase Auth which requires the current domain to be whitelisted.\n\n👉 Follow these simple steps to fix this:\n1. Open Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Go to the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.vercel.app\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce whitelisted, try logging in again!`);
+                    // Decide if the current/cached user is the admin to show developer-oriented instructions
+                    const localBackup = localStorage.getItem('tedbuy_local_current_user_backup') || '';
+                    const isSystemAdmin = currentUser?.isAdmin || 
+                                          currentUser?.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' || 
+                                          localBackup.toLowerCase().includes('asumaduvincent7@gmail.com');
+                    
+                    if (isSystemAdmin) {
+                      setAuthError(`🔐 Unauthorized Domain Error!\n\nThis app runs on Firebase Auth which requires the current domain to be whitelisted.\n\n👉 Follow these simple steps to fix this:\n1. Open Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Go to the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.vercel.app\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce whitelisted, try logging in again!`);
+                    } else {
+                      setAuthError('Google Sign-In is temporarily unavailable on this web domain due to a security configuration domain update. Please register or sign in using your registered email and password to access your account instantly.');
+                    }
                   } else {
                     setAuthError(err?.message || 'Google Sign-In failed. Please try again.');
                   }
@@ -954,39 +964,7 @@ export const Navbar: React.FC = () => {
               <span>Sign in with Google</span>
             </button>
 
-            <div className="relative my-4 flex items-center justify-center">
-              <span className="absolute inset-x-0 h-px bg-slate-200"></span>
-              <span className="relative bg-white px-3 text-[11px] text-slate-500 font-semibold font-sans uppercase tracking-wider">Bypassing (For Testers / Custom Domains)</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={async () => {
-                setAuthError('');
-                try {
-                  const demoUser = {
-                    id: 'user_victory_demo',
-                    fullName: 'Vincent Asumadu (Admin Demo)',
-                    username: 'VincentAsumadu',
-                    email: 'asumaduvincent7@gmail.com',
-                    storeName: 'Vincent Classifieds Ghana',
-                    phoneNumber: '+233241113333',
-                    role: 'user',
-                    isAdmin: true,
-                    isVerified: true,
-                    emailVerified: true
-                  };
-                  localStorage.setItem('tedbuy_simulated_mode', 'true');
-                  localStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(demoUser));
-                  window.location.reload();
-                } catch (err: any) {
-                  setAuthError('Demo simulation activation failed.');
-                }
-              }}
-              className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition duration-200 text-sm shadow-xs flex items-center justify-center gap-2.5 cursor-pointer active:scale-99 font-sans"
-            >
-              🚀 Bypass and Enter with Admin Demo Account
-            </button>
+            {/* Bypassing block removed for production safety */}
 
             <div className="border-t border-slate-200 mt-5 pt-4 text-center">
               <button

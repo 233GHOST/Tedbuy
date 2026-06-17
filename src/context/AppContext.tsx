@@ -290,23 +290,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(() => {
-    try {
-      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const filtered = parsed.filter(isRealProduct);
-          if (filtered.length > 0) {
-            return false;
-          }
-        }
-      }
-      return true;
-    } catch {
-      return true;
-    }
-  });
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -1313,6 +1297,9 @@ CEO, Tedbuy Inc`;
     }
 
     const cleanEmail = email.trim().toLowerCase();
+    if (cleanEmail === 'asumaduvincent7@gmail.com') {
+      throw new Error('Registration Limit: The email address "asumaduvincent7@gmail.com" has been reserved for system security. Please use a different individual email address to register.');
+    }
 
     try {
       let uid: string;
@@ -1445,6 +1432,9 @@ CEO, Tedbuy Inc`;
             } catch (_) {}
           }
           if (matchedUser) {
+            if (matchedUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+              throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
+            }
             showToast('Email/Password credentials provider is disabled in Firebase console. Logged in safely via local sandbox account!', 'info');
             safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
             safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
@@ -1511,6 +1501,9 @@ CEO, Tedbuy Inc`;
               } catch (_) {}
             }
             if (matchedUser) {
+              if (matchedUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+                throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
+              }
               showToast('Email/Password provider is disabled. Accessing sandbox account on-the-fly!', 'info');
               safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
               safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
@@ -2200,6 +2193,13 @@ CEO, Tedbuy Inc`;
 
   const deleteAccount = async (password?: string) => {
     if (!currentUser) return;
+    
+    // Crucial Security Guard: Block administrator account deletion
+    const userEmail = currentUser.email?.trim().toLowerCase();
+    if (userEmail === 'asumaduvincent7@gmail.com') {
+      throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") is heavily protected and cannot be deleted under any circumstances.');
+    }
+
     const uid = currentUser.id;
     const authUser = auth.currentUser;
     const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
@@ -2233,6 +2233,14 @@ CEO, Tedbuy Inc`;
           await deleteDoc(doc(db, 'products', p.id));
         }
       }
+      if (!isSimulated) {
+        // Double-check with full network query to catch un-paginated/ghost listings
+        const pq = query(collection(db, 'products'), where('sellerId', '==', uid));
+        const pqSnap = await getDocs(pq);
+        for (const itemDoc of pqSnap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
     } catch (productErr) {
       console.warn('Could not fully delete user product listings upon account deletion:', productErr);
     }
@@ -2243,6 +2251,18 @@ CEO, Tedbuy Inc`;
       for (const r of userReviews) {
         if (!isSimulated) {
           await deleteDoc(doc(db, 'reviews', r.id));
+        }
+      }
+      if (!isSimulated) {
+        const rq1 = query(collection(db, 'reviews'), where('buyerId', '==', uid));
+        const rq1Snap = await getDocs(rq1);
+        for (const itemDoc of rq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const rq2 = query(collection(db, 'reviews'), where('sellerId', '==', uid));
+        const rq2Snap = await getDocs(rq2);
+        for (const itemDoc of rq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
         }
       }
     } catch (reviewErr) {
@@ -2257,6 +2277,18 @@ CEO, Tedbuy Inc`;
           await deleteDoc(doc(db, 'chats', c.id));
         }
       }
+      if (!isSimulated) {
+        const cq1 = query(collection(db, 'chats'), where('buyerId', '==', uid));
+        const cq1Snap = await getDocs(cq1);
+        for (const itemDoc of cq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const cq2 = query(collection(db, 'chats'), where('sellerId', '==', uid));
+        const cq2Snap = await getDocs(cq2);
+        for (const itemDoc of cq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
     } catch (chatErr) {
       console.warn('Could not fully delete user chats upon account deletion:', chatErr);
     }
@@ -2268,6 +2300,18 @@ CEO, Tedbuy Inc`;
       for (const m of userMessages) {
         if (!isSimulated) {
           await deleteDoc(doc(db, 'messages', m.id));
+        }
+      }
+      if (!isSimulated) {
+        const mq1 = query(collection(db, 'messages'), where('senderId', '==', uid));
+        const mq1Snap = await getDocs(mq1);
+        for (const itemDoc of mq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const mq2 = query(collection(db, 'messages'), where('recipientId', '==', uid));
+        const mq2Snap = await getDocs(mq2);
+        for (const itemDoc of mq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
         }
       }
     } catch (msgErr) {
@@ -2444,6 +2488,12 @@ CEO, Tedbuy Inc`;
       throw new Error("User profile not found in system.");
     }
 
+    // Crucial Security Guard: Block admin profile deletion from admin dashboard
+    const targetEmail = targetUser.email?.trim().toLowerCase();
+    if (targetEmail === 'asumaduvincent7@gmail.com') {
+      throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be deleted under any circumstances.');
+    }
+
     if (existsInDb && !forceDeleteActive) {
       throw new Error("ACTIVE_ACCOUNT_CONFIRM_REQUIRED");
     }
@@ -2474,6 +2524,13 @@ CEO, Tedbuy Inc`;
           await deleteDoc(doc(db, 'products', p.id));
         }
       }
+      if (!isSimulated) {
+        const pq = query(collection(db, 'products'), where('sellerId', '==', userId));
+        const pqSnap = await getDocs(pq);
+        for (const itemDoc of pqSnap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
     } catch (productErr) {
       console.warn('Could not fully delete user product listings upon admin deletion:', productErr);
     }
@@ -2484,6 +2541,18 @@ CEO, Tedbuy Inc`;
       for (const r of userReviews) {
         if (!isSimulated) {
           await deleteDoc(doc(db, 'reviews', r.id));
+        }
+      }
+      if (!isSimulated) {
+        const rq1 = query(collection(db, 'reviews'), where('buyerId', '==', userId));
+        const rq1Snap = await getDocs(rq1);
+        for (const itemDoc of rq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const rq2 = query(collection(db, 'reviews'), where('sellerId', '==', userId));
+        const rq2Snap = await getDocs(rq2);
+        for (const itemDoc of rq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
         }
       }
     } catch (reviewErr) {
@@ -2498,6 +2567,18 @@ CEO, Tedbuy Inc`;
           await deleteDoc(doc(db, 'chats', c.id));
         }
       }
+      if (!isSimulated) {
+        const cq1 = query(collection(db, 'chats'), where('buyerId', '==', userId));
+        const cq1Snap = await getDocs(cq1);
+        for (const itemDoc of cq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const cq2 = query(collection(db, 'chats'), where('sellerId', '==', userId));
+        const cq2Snap = await getDocs(cq2);
+        for (const itemDoc of cq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
     } catch (chatErr) {
       console.warn('Could not fully delete user chats upon admin deletion:', chatErr);
     }
@@ -2509,6 +2590,18 @@ CEO, Tedbuy Inc`;
       for (const m of userMessages) {
         if (!isSimulated) {
           await deleteDoc(doc(db, 'messages', m.id));
+        }
+      }
+      if (!isSimulated) {
+        const mq1 = query(collection(db, 'messages'), where('senderId', '==', userId));
+        const mq1Snap = await getDocs(mq1);
+        for (const itemDoc of mq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const mq2 = query(collection(db, 'messages'), where('recipientId', '==', userId));
+        const mq2Snap = await getDocs(mq2);
+        for (const itemDoc of mq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
         }
       }
     } catch (msgErr) {

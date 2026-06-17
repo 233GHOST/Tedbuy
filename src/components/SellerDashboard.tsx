@@ -15,7 +15,8 @@ export const SellerDashboard: React.FC = () => {
     setSelectedSellerId,
     dashboardTab: activeTab,
     setDashboardTab: setActiveTab,
-    updateProduct
+    updateProduct,
+    isAuthLoading
   } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -39,6 +40,24 @@ export const SellerDashboard: React.FC = () => {
     }, 1000);
     return () => clearInterval(timer);
   }, [timeLeft, showWhatsAppReminder, currentUser]);
+
+  if (isAuthLoading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-left space-y-6 animate-pulse">
+        <div className="h-8 bg-slate-200 rounded-lg w-1/4"></div>
+        <div className="h-4 bg-slate-200 rounded-lg w-2/3"></div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-24 bg-slate-200 rounded-2xl"></div>
+          ))}
+        </div>
+        <div className="h-40 bg-slate-100 border border-slate-200 rounded-3xl mt-8 flex flex-col items-center justify-center space-y-3 p-12">
+          <div className="h-10 w-10 border-4 border-slate-300 border-t-slate-800 rounded-full animate-spin"></div>
+          <span className="text-xs text-slate-400 font-medium">Verifying store identity...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
