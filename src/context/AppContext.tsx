@@ -643,16 +643,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sync currentUser backup to localStorage
   useEffect(() => {
+    if (isAuthLoading) return; // Wait until initial auth loop finishes!
     try {
       if (currentUser) {
         safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(currentUser));
       } else {
-        safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+        const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+        if (!isSimulated) {
+          safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+        }
       }
     } catch (err) {
       console.warn('Could not save current user backup:', err);
     }
-  }, [currentUser]);
+  }, [currentUser, isAuthLoading]);
 
   // Real-time Notifications Synchronization
   useEffect(() => {
