@@ -954,6 +954,40 @@ export const Navbar: React.FC = () => {
               <span>Sign in with Google</span>
             </button>
 
+            <div className="relative my-4 flex items-center justify-center">
+              <span className="absolute inset-x-0 h-px bg-slate-200"></span>
+              <span className="relative bg-white px-3 text-[11px] text-slate-500 font-semibold font-sans uppercase tracking-wider">Bypassing (For Testers / Custom Domains)</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                setAuthError('');
+                try {
+                  const demoUser = {
+                    id: 'user_victory_demo',
+                    fullName: 'Vincent Asumadu (Admin Demo)',
+                    username: 'VincentAsumadu',
+                    email: 'asumaduvincent7@gmail.com',
+                    storeName: 'Vincent Classifieds Ghana',
+                    phoneNumber: '+233241113333',
+                    role: 'user',
+                    isAdmin: true,
+                    isVerified: true,
+                    emailVerified: true
+                  };
+                  localStorage.setItem('tedbuy_simulated_mode', 'true');
+                  localStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(demoUser));
+                  window.location.reload();
+                } catch (err: any) {
+                  setAuthError('Demo simulation activation failed.');
+                }
+              }}
+              className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition duration-200 text-sm shadow-xs flex items-center justify-center gap-2.5 cursor-pointer active:scale-99 font-sans"
+            >
+              🚀 Bypass and Enter with Admin Demo Account
+            </button>
+
             <div className="border-t border-slate-200 mt-5 pt-4 text-center">
               <button
                 onClick={() => {
