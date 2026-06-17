@@ -628,21 +628,32 @@ export const Navbar: React.FC = () => {
             {authError && (
               <div 
                 id="auth-error-msg" 
-                onClick={() => {
-                  setAdminClickCount(prev => {
-                    const next = prev + 1;
-                    if (next >= 5) {
-                      setRevealAdminGuide(true);
-                      setAuthError(`🔐 Unauthorized Domain Error!\n\nThis app runs on Firebase Auth which requires the current domain to be whitelisted.\n\n👉 Follow these simple steps to fix this:\n1. Open Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Go to the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.vercel.app\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce whitelisted, try logging in again!`);
-                      return 0;
-                    }
-                    return next;
-                  });
-                }}
-                className="bg-red-50 text-red-700 p-3 rounded-lg text-xs mb-4 border border-red-200 font-semibold whitespace-pre-line leading-relaxed cursor-pointer select-none active:bg-red-100 transition duration-150"
-                title="Click 5 times for Admin Diagnostic options"
+                className="relative bg-red-50 text-red-700 p-4 rounded-xl text-xs mb-5 border border-red-200 font-medium whitespace-pre-line leading-relaxed select-text"
               >
-                {authError}
+                <button
+                  type="button"
+                  onClick={() => setAuthError('')}
+                  className="absolute right-3 top-3 text-red-400 hover:text-red-700 font-bold text-base cursor-pointer select-none leading-none w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-100"
+                  title="Dismiss Error"
+                >
+                  &times;
+                </button>
+                <div 
+                  onClick={() => {
+                    setAdminClickCount(prev => {
+                      const next = prev + 1;
+                      if (next >= 5) {
+                        setRevealAdminGuide(true);
+                        setAuthError(`🔐 Unauthorized Domain Error!\n\nThis app runs on Firebase Auth which requires the current domain to be whitelisted.\n\n👉 Follow these simple steps to fix this:\n1. Open Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Go to the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.vercel.app\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce whitelisted, try logging in again!`);
+                        return 0;
+                      }
+                      return next;
+                    });
+                  }}
+                  className="pr-5"
+                >
+                  {authError}
+                </div>
               </div>
             )}
 
@@ -951,7 +962,25 @@ export const Navbar: React.FC = () => {
                   if (errMsg.includes('popup-blocked') || errCode.includes('popup-blocked')) {
                     setAuthError('Google sign-in popup was blocked by your browser. Please allow popups for this site or open in a new tab to continue!');
                   } else if (errMsg.includes('unauthorized-domain') || errCode.includes('unauthorized-domain')) {
-                    setAuthError(`🔐 Google Sign-In Domain Setup Required!\n\nThis app is currently running on the domain "${window.location.hostname}", which needs to be whitelisted under "Authorized domains" inside the project's Firebase Console settings so that users can sign in with Google.\n\n👉 If you are the Administrator/Owner of this app:\n1. Open your Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Click the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce added, Google Sign-In will instantly start working perfectly for all buyers and sellers!`);
+                    setAuthError(`🔐 Google Sign-In Setup & Publishing Required!
+
+This app is running on domain "${window.location.hostname}". Google Sign-In requires TWO steps to be fully allowed for all users:
+
+1. OAuth Publishing Status (Why it currently only works for the Admin)
+If Google login works only for you (the admin) but fails for your visitors, your Google OAuth Consent screen is set to "Testing" mode.
+👉 TO FIX: Go to the Google Cloud Console:
+https://console.cloud.google.com/apis/credentials/consent (Select project "tedbuy-fb79a")
+Under "Publishing status", click the "PUBLISH APP" button to change it from "Testing" to "In Production" (Published). This instantly permits all public users to log in!
+
+2. Whitelist Authorized Domains
+Make sure "tedbuy.store" and "www.tedbuy.store" are added EXACTLY without any "https://" or "http://" prefix in your Firebase Auth center:
+https://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings
+
+3. Google Cloud API Credentials Origins
+Go to API Credentials screen, edit your "Web client" OAuth client key:
+https://console.cloud.google.com/apis/credentials
+Under "Authorized JavaScript origins", add "https://tedbuy.store" and "https://www.tedbuy.store".
+Under "Authorized redirect URIs", add "https://tedbuy-fb79a.firebaseapp.com/__/auth/handler".`);
                   } else {
                     setAuthError(err?.message || 'Google Sign-In failed. Please try again.');
                   }

@@ -551,11 +551,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const errCode = error?.code || '';
         
         if (errMsg.includes('unauthorized-domain') || errCode.includes('unauthorized-domain')) {
-          showToast(`🔐 Google Sign-In Domain whitelisting required.\n\nPlease whitelist the domain "${window.location.hostname}" inside your Firebase Authentication Console configuration under "Settings" -> "Authorized domains". Once added, Google Sign-In will instantly start working for everyone!`, 'error');
+          showToast(`🔐 Google Sign-In Setup Needed: Ensure "tedbuy.store" is whitelisted in Firebase Console (under Settings -> Authorized domains) and the Google OAuth Consent screen is clicked to "Publish App" inside Google Cloud Console so it works for all users!`, 'error');
         } else if (errMsg.includes('popup-blocked') || errCode.includes('popup-blocked')) {
-          showToast('Google Sign-In was blocked. Please try again or allow page redirections.', 'error');
+          showToast('Google Sign-In popup was blocked by your browser. Please try again or allow page redirections.', 'error');
         } else {
-          showToast(error.message || 'Google Redirect Sign-In failed or was cancelled.', 'info');
+          // Silent or graceful fallback for non-actionable redirect cancellations / initial loads
+          console.log('Google Redirect Auth mismatch on load/cancel:', error.message);
         }
       });
       
