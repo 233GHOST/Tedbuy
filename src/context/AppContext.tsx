@@ -53,6 +53,38 @@ function cleanObject<T extends any>(obj: T): T {
   return obj;
 }
 
+export function isRealProduct(item: any): boolean {
+  if (!item || typeof item !== 'object') return false;
+  
+  const title = (item.title || '').toLowerCase().trim();
+  const sellerName = (item.sellerName || '').toLowerCase().trim();
+  const sellerId = (item.sellerId || '').toLowerCase().trim();
+  
+  // Specific demo sellers / users
+  if (
+    sellerName.includes('gracejay') || 
+    sellerName.includes('grace amponsah') || 
+    sellerName.includes('patrick boateng') ||
+    sellerId === 'user_grace' ||
+    sellerId === 'user_patrick'
+  ) {
+    return false;
+  }
+  
+  // Specific demo product title/category fingerprints
+  if (title === 'cloth' && (item.price === 350 || item.price === '350')) {
+    return false;
+  }
+  if (title === 'iphone 13 128gb' && (item.price === 3400 || item.price === '3400' || item.price === 34000)) {
+    return false;
+  }
+  if (title === 'iphone 16 128gb' && (item.price === 7900 || item.price === '7900')) {
+    return false;
+  }
+  
+  return true;
+}
+
 interface AppContextType {
   reviews: Review[];
   addReview: (sellerId: string, rating: number, comment: string, productTitle?: string) => Promise<void>;
@@ -216,7 +248,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved) as Product[];
+        return parsed.filter(isRealProduct);
+      }
+      return [];
     } catch {
       return [];
     }
@@ -259,8 +295,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return false;
+        if (Array.isArray(parsed)) {
+          const filtered = parsed.filter(isRealProduct);
+          if (filtered.length > 0) {
+            return false;
+          }
         }
       }
       return true;
@@ -778,11 +817,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...docSnap.data() as Product,
           id: docSnap.id
         };
-        if (item.id !== 'prod_1780927804590') {
+        if (item.id !== 'prod_1780927804590' && isRealProduct(item)) {
           if (item.category) {
             item.category = normalizeCategory(item.category);
           }
           pList.push(item);
+        } else {
+          // Self-healing: clear demo listings from database if they are found
+          try {
+            deleteDoc(doc(db, 'products', item.id)).catch(() => {});
+          } catch (_) {}
         }
       });
 
@@ -2578,12 +2622,20 @@ CEO, Tedbuy Inc`;
       const snapshot = await getDocs(collection(db, 'products'));
       const pList: Product[] = [];
       snapshot.forEach(docSnap => {
-        const item = docSnap.data() as Product;
-        if (item.id !== 'prod_1780927804590') {
+        const item = {
+          ...docSnap.data() as Product,
+          id: docSnap.id
+        };
+        if (item.id !== 'prod_1780927804590' && isRealProduct(item)) {
           if (item.category) {
             item.category = normalizeCategory(item.category);
           }
           pList.push(item);
+        } else {
+          // Self-healing: clear demo listings from database if they are found
+          try {
+            deleteDoc(doc(db, 'products', item.id)).catch(() => {});
+          } catch (_) {}
         }
       });
       const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
