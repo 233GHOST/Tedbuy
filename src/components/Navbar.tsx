@@ -52,6 +52,8 @@ export const Navbar: React.FC = () => {
   const [passwordResetSuccess, setPasswordResetSuccess] = useState(false);
   const [agreeTermsInput, setAgreeTermsInput] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [adminClickCount, setAdminClickCount] = useState(0);
+  const [revealAdminGuide, setRevealAdminGuide] = useState(false);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isDesktopFocused, setIsDesktopFocused] = useState(false);
   const [isMobileFocused, setIsMobileFocused] = useState(false);
@@ -624,7 +626,22 @@ export const Navbar: React.FC = () => {
             </p>
 
             {authError && (
-              <div id="auth-error-msg" className="bg-red-50 text-red-700 p-3 rounded-lg text-xs mb-4 border border-red-200 font-semibold whitespace-pre-line leading-relaxed">
+              <div 
+                id="auth-error-msg" 
+                onClick={() => {
+                  setAdminClickCount(prev => {
+                    const next = prev + 1;
+                    if (next >= 5) {
+                      setRevealAdminGuide(true);
+                      setAuthError(`🔐 Unauthorized Domain Error!\n\nThis app runs on Firebase Auth which requires the current domain to be whitelisted.\n\n👉 Follow these simple steps to fix this:\n1. Open Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Go to the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.vercel.app\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce whitelisted, try logging in again!`);
+                      return 0;
+                    }
+                    return next;
+                  });
+                }}
+                className="bg-red-50 text-red-700 p-3 rounded-lg text-xs mb-4 border border-red-200 font-semibold whitespace-pre-line leading-relaxed cursor-pointer select-none active:bg-red-100 transition duration-150"
+                title="Click 5 times for Admin Diagnostic options"
+              >
                 {authError}
               </div>
             )}
@@ -938,7 +955,8 @@ export const Navbar: React.FC = () => {
                     const localBackup = localStorage.getItem('tedbuy_local_current_user_backup') || '';
                     const isSystemAdmin = currentUser?.isAdmin || 
                                           currentUser?.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' || 
-                                          localBackup.toLowerCase().includes('asumaduvincent7@gmail.com');
+                                          localBackup.toLowerCase().includes('asumaduvincent7@gmail.com') ||
+                                          revealAdminGuide;
                     
                     if (isSystemAdmin) {
                       setAuthError(`🔐 Unauthorized Domain Error!\n\nThis app runs on Firebase Auth which requires the current domain to be whitelisted.\n\n👉 Follow these simple steps to fix this:\n1. Open Firebase Console:\nhttps://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings\n2. Go to the "Settings" tab and select "Authorized domains"\n3. Click "Add domain" and add:\n   • ${window.location.hostname}\n   • tedbuy.vercel.app\n   • tedbuy.store\n   • www.tedbuy.store\n\nOnce whitelisted, try logging in again!`);

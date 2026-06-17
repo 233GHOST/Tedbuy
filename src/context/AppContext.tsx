@@ -269,8 +269,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
       if (stored) {
         const parsed = JSON.parse(stored) as User;
-        if (parsed.email === 'asumaduvincent7@gmail.com') {
+        if (parsed.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
           parsed.isAdmin = true;
+        } else {
+          // Prevent local storage manipulation from injecting admin permissions on the client
+          delete parsed.isAdmin;
         }
         return parsed;
       }
@@ -283,8 +286,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const setCurrentUserState = (val: User | null | ((prev: User | null) => User | null)) => {
     setCurrentUserStateRaw(prev => {
       let next = typeof val === 'function' ? val(prev) : val;
-      if (next && next.email === 'asumaduvincent7@gmail.com') {
-        next = { ...next, isAdmin: true };
+      if (next) {
+        if (next.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+          next = { ...next, isAdmin: true };
+        } else {
+          // Safeguard: Ensure no regular user can hold or receive an isAdmin property in state
+          const nextCopy = { ...next };
+          delete nextCopy.isAdmin;
+          next = nextCopy;
+        }
       }
       return next;
     });
@@ -1538,6 +1548,8 @@ CEO, Tedbuy Inc`;
   const loginWithGoogle = async () => {
     try {
       const provider = new GoogleAuthProvider();
+      // Force account selector chooser so users always log in using their own email address
+      provider.setCustomParameters({ prompt: 'select_account' });
       // Ensure we clear any local old simulation flags on an active signup intention
       safeLocalStorage.removeItem('tedbuy_simulated_mode');
       safeLocalStorage.removeItem('tedbuy_simulated_user');
