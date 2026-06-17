@@ -26,7 +26,7 @@ service cloud.firestore {
         userId == "phone_" + request.auth.uid
       ) && (
         // Standard users cannot make themselves admin, except the verified platform owner
-        (!("isAdmin" in request.resource.data) || request.resource.data.isAdmin != true || (request.auth.token.email.lower() == "asumaduvincent7@gmail.com" && request.auth.token.email_verified == true))
+        (request.resource.data.get('isAdmin', false) != true || (request.auth.token.get('email', '').lower() == "asumaduvincent7@gmail.com" && request.auth.token.get('email_verified', false) == true))
       );
       allow update: if isSignedIn() && (
         userId == request.auth.uid || 
@@ -34,11 +34,11 @@ service cloud.firestore {
         userId == "phone_" + request.auth.uid
       ) && (
         // Users cannot make themselves admin or change their admin status
-        (!("isAdmin" in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin)
+        (request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false))
       ) && (
         // Protect the admin profile from being maliciously modified or hijacked by non-admin emails
-        (resource.data.email != "asumaduvincent7@gmail.com") ||
-        (request.auth.token.email.lower() == "asumaduvincent7@gmail.com" && request.auth.token.email_verified == true)
+        !(resource.data.get('email', '') == "asumaduvincent7@gmail.com") ||
+        (request.auth.token.get('email', '').lower() == "asumaduvincent7@gmail.com" && request.auth.token.get('email_verified', false) == true)
       );
       allow delete: if false;
     }

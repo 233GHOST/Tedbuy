@@ -219,7 +219,19 @@ export const ProfileSettings: React.FC = () => {
       setTimeout(() => setSaveSuccess(false), 4500);
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err?.message || 'Failed to update profile details. Please try again.');
+      let msg = err?.message || 'Failed to update profile details. Please try again.';
+      if (msg.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(msg);
+          if (parsed.error) {
+            msg = parsed.error;
+          }
+        } catch (e) {}
+      }
+      if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient')) {
+        msg = 'Unable to update store settings. Please verify your connection status and ensure your account has sufficient privileges.';
+      }
+      setErrorMsg(msg);
     } finally {
       setIsSaving(false);
     }
