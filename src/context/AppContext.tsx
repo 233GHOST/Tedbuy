@@ -1628,27 +1628,32 @@ CEO, Tedbuy Inc`;
 
     // Check if the identifier is an email address
     if (cleanIdentifier.includes('@')) {
+      const isGmail = cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com');
+      
       // 1. Upfront Check: Check if this is registered as a Google account in Firebase Auth or Firestore
-      let isGoogleAccount = false;
-      try {
-        const methods = await fetchSignInMethodsForEmail(auth, cleanIdentifier);
-        if (methods.includes('google.com')) {
-          isGoogleAccount = true;
-        }
-      } catch (fetchErr) {
-        console.warn('Could not fetch sign in methods for email:', fetchErr);
-        // Fallback: check if they exist in Firestore and have a Google indicator
+      let isGoogleAccount = isGmail;
+
+      if (!isGoogleAccount) {
         try {
-          const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            const uDoc = snap.docs[0].data() as User;
-            if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com' || (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && cleanIdentifier.endsWith('@gmail.com'))) {
-              isGoogleAccount = true;
-            }
+          const methods = await fetchSignInMethodsForEmail(auth, cleanIdentifier);
+          if (methods.includes('google.com')) {
+            isGoogleAccount = true;
           }
-        } catch (dbErr) {
-          console.warn('Could not check user list in DB upfront:', dbErr);
+        } catch (fetchErr) {
+          console.warn('Could not fetch sign in methods for email:', fetchErr);
+          // Fallback: check if they exist in Firestore and have a Google indicator
+          try {
+            const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              const uDoc = snap.docs[0].data() as User;
+              if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com' || (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && (cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com')))) {
+                isGoogleAccount = true;
+              }
+            }
+          } catch (dbErr) {
+            console.warn('Could not check user list in DB upfront:', dbErr);
+          }
         }
       }
 
@@ -1680,12 +1685,16 @@ CEO, Tedbuy Inc`;
               const uDoc = snap.docs[0].data() as User;
               const looksLikeGoogle = uDoc.isGoogleAuth || 
                                       uDoc.authProvider === 'google.com' ||
-                                      (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && cleanIdentifier.includes('@gmail.com'));
+                                      (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && (cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com')));
               if (looksLikeGoogle) {
                 showToast('We detected that your account was originally created using Google. Authenticating securely with your Google account details...', 'info');
                 await loginWithGoogle(cleanIdentifier);
                 return true;
               }
+            } else if (cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com')) {
+              showToast('Google credentials detected. Authenticating securely with your Google account details...', 'info');
+              await loginWithGoogle(cleanIdentifier);
+              return true;
             }
           } catch (dbErr) {
             console.warn('Could not query users db in fallback:', dbErr);
@@ -2543,58 +2552,65 @@ CEO, Tedbuy Inc`;
   };
 
   const updateUserProfile = async (profileData: {
-    username: string;
+    username?: string;
     phoneNumber?: string;
     photoUrl?: string;
-    role: 'buyer' | 'seller' | 'both';
+    role?: 'buyer' | 'seller' | 'both';
     whatsAppNumber?: string;
   }) => {
     if (!currentUser) return;
-    const { username, phoneNumber, photoUrl, role, whatsAppNumber } = profileData;
+    
+    // Support partial updates and preserve existing fields if omitted or undefined
+    const finalUsername = profileData.username !== undefined ? profileData.username.trim() : (currentUser.username || '');
+    const finalPhoneNumber = profileData.phoneNumber !== undefined ? (profileData.phoneNumber.trim() || undefined) : currentUser.phoneNumber;
+    const finalWhatsAppNumber = profileData.whatsAppNumber !== undefined ? (profileData.whatsAppNumber.trim() || undefined) : currentUser.whatsAppNumber;
+    const finalPhotoUrl = profileData.photoUrl !== undefined ? (profileData.photoUrl || undefined) : currentUser.photoUrl;
+    const finalRole = profileData.role !== undefined ? profileData.role : (currentUser.role || 'both');
 
     const currentStoreNameLower = currentUser.username?.trim().toLowerCase();
-    const newStoreNameLower = username.trim().toLowerCase();
+    const newStoreNameLower = finalUsername.trim().toLowerCase();
     
-    if (newStoreNameLower !== currentStoreNameLower) {
+    if (finalUsername && newStoreNameLower !== currentStoreNameLower) {
       const isTaken = users.some(u => u.id !== currentUser.id && u.username && u.username.trim().toLowerCase() === newStoreNameLower);
       if (isTaken) {
-        throw new Error(`The store name "${username.trim()}" is not available Please select a different store name.`);
+        throw new Error(`The store name "${finalUsername.trim()}" is not available Please select a different store name.`);
       }
     }
 
     const updatedUser: User = {
       ...currentUser,
-      username,
-      phoneNumber: phoneNumber || undefined,
-      whatsAppNumber: whatsAppNumber || undefined,
-      photoUrl: photoUrl || undefined,
-      role
+      username: finalUsername,
+      phoneNumber: finalPhoneNumber,
+      whatsAppNumber: finalWhatsAppNumber,
+      photoUrl: finalPhotoUrl,
+      role: finalRole
     };
 
     try {
       const batch = writeBatch(db);
       
-      batch.update(doc(db, 'users', currentUser.id), cleanObject({
-        username,
-        phoneNumber: phoneNumber || null,
-        whatsAppNumber: whatsAppNumber || null,
-        photoUrl: photoUrl || null,
-        role
-      }));
+      const updatePayload: any = {};
+      if (profileData.username !== undefined) updatePayload.username = finalUsername;
+      if (profileData.phoneNumber !== undefined) updatePayload.phoneNumber = finalPhoneNumber || null;
+      if (profileData.whatsAppNumber !== undefined) updatePayload.whatsAppNumber = finalWhatsAppNumber || null;
+      if (profileData.photoUrl !== undefined) updatePayload.photoUrl = finalPhotoUrl || null;
+      if (profileData.role !== undefined) updatePayload.role = finalRole;
 
-      if (newStoreNameLower !== currentStoreNameLower) {
+      batch.update(doc(db, 'users', currentUser.id), cleanObject(updatePayload));
+
+      if (profileData.username !== undefined && newStoreNameLower !== currentStoreNameLower) {
         if (currentStoreNameLower) {
           batch.delete(doc(db, 'storeNames', currentStoreNameLower));
         }
         batch.set(doc(db, 'storeNames', newStoreNameLower), {
           userId: currentUser.id,
-          username: username.trim()
+          username: finalUsername.trim()
         });
         console.log(`[Profile Update] Atomic store name mapping changed from "${currentStoreNameLower}" to "${newStoreNameLower}"`);
-      } else {
+      } else if (profileData.username !== undefined) {
         batch.set(doc(db, 'storeNames', newStoreNameLower), {
           userId: currentUser.id,
-          username: username.trim()
+          username: finalUsername.trim()
         });
       }
 
@@ -2605,7 +2621,21 @@ CEO, Tedbuy Inc`;
 
     // Always update local status & localStorage
     setCurrentUserState(updatedUser);
-    safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
+    
+    // Sync with users list state
+    setUsers(prevUsers => {
+      const updatedList = prevUsers.map(u => u.id === currentUser.id ? updatedUser : u);
+      try {
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(updatedList));
+      } catch (_) {}
+      return updatedList;
+    });
+
+    // Match simulated user state
+    try {
+      safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
+      safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(updatedUser));
+    } catch (_) {}
   };
 
   const deleteAccount = async (password?: string) => {
