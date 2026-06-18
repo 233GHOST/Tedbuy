@@ -136,6 +136,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
 }) => {
   const { 
     updateProduct, 
+    toggleLikeProduct,
     setCurrentView, 
     setSelectedSellerId,
     currentUser,
@@ -228,7 +229,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
       return true;
     }
     try {
-      const likedList = JSON.parse(localStorage.getItem('user_video_likes') || '[]');
+      const likedList = JSON.parse(localStorage.getItem(`user_video_likes_${currentUser.id}`) || localStorage.getItem('user_video_likes') || '[]');
       return likedList.includes(product?.id || '');
     } catch {
       return false;
@@ -271,39 +272,25 @@ const ReelItem: React.FC<ReelItemProps> = ({
     const userId = currentUser.id;
     const currentLikedUserIds = Array.isArray(product.likedUserIds) ? product.likedUserIds : [];
     const isCurrentlyLiked = currentLikedUserIds.includes(userId);
-    
-    let nextLikedUserIds: string[];
-    let nextLikesCount: number;
-
-    if (isCurrentlyLiked) {
-      // Unlike
-      nextLikedUserIds = currentLikedUserIds.filter(id => id !== userId);
-      nextLikesCount = Math.max(0, nextLikedUserIds.length);
-    } else {
-      // Like
-      nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, userId]));
-      nextLikesCount = nextLikedUserIds.length;
-    }
 
     // Support local storage status fallback
     try {
-      const likedList = JSON.parse(localStorage.getItem('user_video_likes') || '[]');
+      const likedList = JSON.parse(localStorage.getItem(`user_video_likes_${userId}`) || localStorage.getItem('user_video_likes') || '[]');
       let updatedLocalStorage: string[];
       if (!isCurrentlyLiked) {
         updatedLocalStorage = Array.from(new Set([...likedList, product.id]));
       } else {
         updatedLocalStorage = likedList.filter((id: string) => id !== product.id);
       }
+      localStorage.setItem(`user_video_likes_${userId}`, JSON.stringify(updatedLocalStorage));
+      // Keep old key synced just as a backward compatibility measure
       localStorage.setItem('user_video_likes', JSON.stringify(updatedLocalStorage));
     } catch (err) {
       console.warn("localStorage update error", err);
     }
 
     try {
-      await updateProduct(product.id, { 
-        likesCount: nextLikesCount, 
-        likedUserIds: nextLikedUserIds 
-      });
+      await toggleLikeProduct(product.id, userId);
     } catch (err) {
       console.warn("likes update error", err);
     }

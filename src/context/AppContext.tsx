@@ -113,6 +113,7 @@ interface AppContextType {
   }) => Promise<void>;
   updateProduct: (id: string, productData: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
+  toggleLikeProduct: (productId: string, userId: string) => Promise<void>;
   chats: Chat[];
   messages: Message[];
   startChat: (productId: string, initialMessage?: string) => Promise<string>;
@@ -2014,6 +2015,17 @@ CEO, Tedbuy Inc`;
         return next;
       });
 
+      // Sync partial product updates (likes change, viewsCount, isSold) to local offline-only created products list
+      try {
+        const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+        const createdList = JSON.parse(createdStr) as Product[];
+        const hasCreated = createdList.some(p => p.id === id);
+        if (hasCreated) {
+          const updatedCreatedList = createdList.map(p => p.id === id ? { ...p, ...updatedData } : p);
+          safeLocalStorage.setItem('tedbuy_local_created_products', JSON.stringify(updatedCreatedList));
+        }
+      } catch (_) {}
+
       // Step C: Try updating standard Firestore document, fallback gracefully if permissions or connectivity are offline
       const productRef = doc(db, 'products', id);
       try {
@@ -2071,6 +2083,97 @@ CEO, Tedbuy Inc`;
       } catch (thrownErr) {
         console.warn('[Delete Product] Server exception logged gracefully:', thrownErr);
       }
+    }
+  };
+
+  const toggleLikeProduct = async (id: string, userId: string) => {
+    try {
+      const productRef = doc(db, 'products', id);
+      const productDoc = await getDoc(productRef);
+      
+      let nextLikedUserIds: string[] = [];
+      let nextLikesCount = 0;
+
+      if (productDoc.exists()) {
+        const existingData = productDoc.data() as Product;
+        const currentLikedUserIds = Array.isArray(existingData.likedUserIds) ? existingData.likedUserIds : [];
+        const hasLiked = currentLikedUserIds.includes(userId);
+        
+        if (hasLiked) {
+          nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== userId);
+        } else {
+          nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, userId]));
+        }
+        nextLikesCount = nextLikedUserIds.length;
+
+        // Atomically update standard Firestore document
+        await updateDoc(productRef, {
+          likedUserIds: nextLikedUserIds,
+          likesCount: nextLikesCount
+        });
+      } else {
+        // Fallback or self-healing for non-persisted local products
+        const localProduct = products.find(p => p.id === id);
+        if (localProduct) {
+          const currentLikedUserIds = Array.isArray(localProduct.likedUserIds) ? localProduct.likedUserIds : [];
+          const hasLiked = currentLikedUserIds.includes(userId);
+          if (hasLiked) {
+            nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== userId);
+          } else {
+            nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, userId]));
+          }
+          nextLikesCount = nextLikedUserIds.length;
+        }
+      }
+
+      // Optimistically/real-time update products list
+      setProducts(prev => {
+        const next = prev.map(p => {
+          if (p.id === id) {
+            return {
+              ...p,
+              likedUserIds: nextLikedUserIds,
+              likesCount: nextLikesCount
+            };
+          }
+          return p;
+        });
+        try {
+          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+
+      // Synchronize in local offline-only created products list as well
+      try {
+        const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+        const createdList = JSON.parse(createdStr) as Product[];
+        if (createdList.some(p => p.id === id)) {
+          const updatedCreatedList = createdList.map(p => p.id === id ? { ...p, likedUserIds: nextLikedUserIds, likesCount: nextLikesCount } : p);
+          safeLocalStorage.setItem('tedbuy_local_created_products', JSON.stringify(updatedCreatedList));
+        }
+      } catch (_) {}
+
+    } catch (err) {
+      console.warn('[toggleLikeProduct] Error updating product likes:', err);
+      // Fallback purely local update in case of firestore permission denial or network loss
+      setProducts(prev => {
+        const next = prev.map(p => {
+          if (p.id === id) {
+            const currentLikedUserIds = Array.isArray(p.likedUserIds) ? p.likedUserIds : [];
+            const hasLiked = currentLikedUserIds.includes(userId);
+            const nextLikedUserIds = hasLiked
+              ? currentLikedUserIds.filter(uid => uid !== userId)
+              : Array.from(new Set([...currentLikedUserIds, userId]));
+            return { ...p, likedUserIds: nextLikedUserIds, likesCount: nextLikedUserIds.length };
+          }
+          return p;
+        });
+        try {
+          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
     }
   };
 
@@ -2997,6 +3100,7 @@ CEO, Tedbuy Inc`;
       createProduct,
       updateProduct,
       deleteProduct,
+      toggleLikeProduct,
       chats,
       messages,
       startChat,
