@@ -123,6 +123,26 @@ const MarketplaceContent: React.FC = () => {
     }
   }, [currentView]);
 
+  // Dynamically lock the parent web page scrolling on mobile devices when watching video ads
+  React.useEffect(() => {
+    const isVideoFeed = currentView === 'browse' && homeViewMode === 'video-feed';
+    if (isVideoFeed) {
+      const isMobile = window.innerWidth < 768;
+      if (isMobile) {
+        document.body.style.overflow = 'hidden';
+        document.body.style.height = '100%';
+        document.documentElement.style.overflow = 'hidden';
+        document.documentElement.style.height = '100%';
+      }
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+    };
+  }, [currentView, homeViewMode]);
+
   // Dynamic Document Title and Meta Description for Client-Side SEO indexing
   React.useEffect(() => {
     let title = 'Tedbuy Ghana - Verified Classifieds Marketplace';
@@ -190,6 +210,7 @@ const MarketplaceContent: React.FC = () => {
   const pullTextRef = useRef<HTMLSpanElement>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (homeViewMode === 'video-feed') return;
     // Only detect pull when scrolled to the top of window
     if (window.scrollY === 0) {
       touchStartY.current = e.touches[0].clientY;
@@ -198,6 +219,7 @@ const MarketplaceContent: React.FC = () => {
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    if (homeViewMode === 'video-feed') return;
     if (!isPulling) return;
     const currentY = e.touches[0].clientY;
     const diff = currentY - touchStartY.current;
@@ -437,7 +459,11 @@ const MarketplaceContent: React.FC = () => {
   }, [messages, chats, currentUser]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans pb-16 md:pb-0 relative">
+    <div className={`bg-slate-50 flex flex-col font-sans relative ${
+      currentView === 'browse' && homeViewMode === 'video-feed'
+        ? 'h-[100dvh] overflow-hidden pb-[76px] sm:pb-0'
+        : 'min-h-screen pb-16 md:pb-0'
+    }`}>
       <Navbar />
 
       {currentUser && !currentUser.emailVerified && (
@@ -462,30 +488,37 @@ const MarketplaceContent: React.FC = () => {
         </div>
       )}
 
-      <main className="flex-1">
+      <main className={`flex-1 min-h-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full' : ''}`}>
         {currentView === 'browse' && (
           <div 
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
-            className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
+            className={`max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 ${
+              homeViewMode === 'video-feed'
+                ? 'px-0 sm:px-6 lg:px-8 py-0 sm:py-6 h-full overflow-hidden'
+                : 'px-4 sm:px-6 lg:px-8 py-6'
+            }`}
           >
             {/* Smooth Pull to Refresh indicator */}
-            <div 
-              ref={pullIndicatorRef}
-              className="hidden items-center justify-center gap-2 overflow-hidden transition-all duration-150 text-slate-550 font-sans font-bold text-xs bg-slate-50 border border-slate-200/50 py-2.5 rounded-2xl mb-4"
-              style={{ height: '0px', opacity: 0 }}
-            >
-              <span ref={pullIconRef} className="transition-transform duration-200 flex items-center justify-center">
-                <RefreshCw className="w-4 h-4 text-slate-400" />
-              </span>
-              <span ref={pullTextRef}>Pull down to refresh deals</span>
-            </div>
+            {homeViewMode !== 'video-feed' && (
+              <div 
+                ref={pullIndicatorRef}
+                className="hidden items-center justify-center gap-2 overflow-hidden transition-all duration-150 text-slate-550 font-sans font-bold text-xs bg-slate-50 border border-slate-200/50 py-2.5 rounded-2xl mb-4"
+                style={{ height: '0px', opacity: 0 }}
+              >
+                <span ref={pullIconRef} className="transition-transform duration-200 flex items-center justify-center">
+                  <RefreshCw className="w-4 h-4 text-slate-400" />
+                </span>
+                <span ref={pullTextRef}>Pull down to refresh deals</span>
+              </div>
+            )}
             
-            {/* Promotional Marketplace Hero Badge */}
-            <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
-              {/* Hidden programmatic click trigger so video empty-state CTA remains completely functional */}
-              <button id="hero-post-ad-btn" onClick={handlePostAdBtn} className="hidden" />
+            {homeViewMode !== 'video-feed' && (
+              /* Promotional Marketplace Hero Badge */
+              <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
+                {/* Hidden programmatic click trigger so video empty-state CTA remains completely functional */}
+                <button id="hero-post-ad-btn" onClick={handlePostAdBtn} className="hidden" />
 
               {/* Prominent Search bar integrated under the Title as requested */}
               <div className="relative z-30 max-w-xl text-left w-full">
@@ -645,9 +678,12 @@ const MarketplaceContent: React.FC = () => {
               <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-48 h-48 bg-slate-400/15 rounded-full blur-3xl pointer-events-none"></div>
               <div className="absolute -right-24 -top-24 w-60 h-60 bg-slate-400/10 rounded-full blur-3xl pointer-events-none"></div>
             </div>
+            )}
 
             {/* View Mode Switching Tabs (Standard Grid vs Live Video Ads Feed) */}
-            <div className="flex bg-slate-200/50 p-1 rounded-2xl mb-8 font-sans max-w-sm border border-slate-250/60">
+            <div className={`flex bg-slate-200/50 p-1 rounded-2xl font-sans max-w-sm border border-slate-250/60 ${
+              homeViewMode === 'video-feed' ? 'mb-2 mx-4 sm:mx-0 mt-2 sm:mt-0' : 'mb-8'
+            }`}>
               <button
                 id="tab-view-grid"
                 onClick={() => setHomeViewMode('grid')}
@@ -1096,14 +1132,16 @@ const MarketplaceContent: React.FC = () => {
       </main>
 
       {/* Persistent platform footer */}
-      <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-8 mt-12 mb-16 md:mb-0">
-        <div className="max-w-7xl mx-auto px-4 text-center space-y-2">
-          <p className="font-sans font-bold text-slate-800">Tedbuy Classifieds Marketplace &copy; 2026</p>
-          <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
-            Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
-          </p>
-        </div>
-      </footer>
+      {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
+        <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-8 mt-12 mb-16 md:mb-0">
+          <div className="max-w-7xl mx-auto px-4 text-center space-y-2">
+            <p className="font-sans font-bold text-slate-800">Tedbuy Classifieds Marketplace &copy; 2026</p>
+            <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
+              Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
+            </p>
+          </div>
+        </footer>
+      )}
 
       {/* Floating Create Listings form */}
       <ListingModal

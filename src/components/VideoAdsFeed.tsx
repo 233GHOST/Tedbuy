@@ -564,24 +564,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
           </div>
         </div>
 
-        {/* Floating Mute HUD Action */}
-        <div className="absolute top-5 right-4 z-30 pointer-events-none">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onMuteToggle(e);
-            }}
-            className="w-8 h-8 rounded-full bg-black/55 backdrop-blur-md border border-white/15 flex items-center justify-center text-white hover:bg-black/85 transition-all cursor-pointer pointer-events-auto shadow-md"
-            title={isMuted ? "Unmute" : "Mute"}
-          >
-            {isMuted ? (
-              <VolumeX className="w-3.5 h-3.5 text-rose-400 stroke-[2]" />
-            ) : (
-              <Volume2 className="w-3.5 h-3.5 text-[#FFFC00] animate-pulse stroke-[2]" />
-            )}
-          </button>
-        </div>
+
 
         {/* Double-Tap reactions (Flame, Star, Heart eruption) */}
         <AnimatePresence>
@@ -958,7 +941,7 @@ export const VideoAdsFeed: React.FC = () => {
   }
 
   return (
-    <div className="h-[620px] lg:h-[680px] w-full border border-slate-200 bg-slate-950 rounded-3xl overflow-hidden shadow-xl flex flex-col text-white mt-4 relative">
+    <div className="flex-1 min-h-0 h-full sm:h-[620px] lg:h-[680px] w-full border border-slate-200 bg-slate-950 sm:rounded-3xl rounded-none overflow-hidden shadow-xl flex flex-col text-white mt-2 sm:mt-4 relative animate-fade-in">
  
       {/* 1. Immersive vertical center-aligned Reels viewport container */}
       <div className="flex-1 relative bg-slate-950 flex flex-col justify-start overflow-hidden">

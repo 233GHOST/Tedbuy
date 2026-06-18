@@ -1023,7 +1023,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
         pList.forEach((prod, idx) => {
           if (overrides[prod.id]) {
-            pList[idx] = { ...prod, ...overrides[prod.id] };
+            // Filter out social and dynamic fields from local overrides so they don't block server synced value
+            const { likesCount, likedUserIds, viewsCount, ...fieldsToOverride } = overrides[prod.id];
+            pList[idx] = { ...prod, ...fieldsToOverride };
           }
         });
       } catch (_) {}
@@ -1988,8 +1990,17 @@ CEO, Tedbuy Inc`;
       try {
         const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
         const overrides = JSON.parse(overridesStr);
-        overrides[id] = { ...(overrides[id] || {}), ...updatedData };
-        safeLocalStorage.setItem('tedbuy_local_products_overrides', JSON.stringify(overrides));
+        
+        // Exclude social and dynamic fields from persisting as overrides so they stay real-time synchronized
+        const overrideData = { ...updatedData };
+        delete overrideData.likesCount;
+        delete overrideData.likedUserIds;
+        delete overrideData.viewsCount;
+        
+        if (Object.keys(overrideData).length > 0) {
+          overrides[id] = { ...(overrides[id] || {}), ...overrideData };
+          safeLocalStorage.setItem('tedbuy_local_products_overrides', JSON.stringify(overrides));
+        }
       } catch (overlapErr) {
         console.warn('[updateProduct] Failed to write local overrides backup:', overlapErr);
       }
@@ -2008,14 +2019,26 @@ CEO, Tedbuy Inc`;
       try {
         const productDoc = await getDoc(productRef);
         if (productDoc.exists()) {
-          const existingData = productDoc.data() as Product;
-          const fullProductUpdate = {
-            ...existingData,
-            ...updatedData,
-            id,
-            sellerId: existingData.sellerId || currentUser?.id || '',
-          };
-          await setDoc(productRef, cleanObject(fullProductUpdate));
+          // Fix: If updating any of these social/utility fields (likesCount, likedUserIds, viewsCount, isSold)
+          // we MUST only use updateDoc to send the changed fields rather than setDoc.
+          // Sending everything via setDoc fails modern ABAC limits in firestore.rules for non-owners.
+          // By using updateDoc, only the modified keys are sent, making affectedKeys() match security rules perfectly.
+          // In fact, we should always prefer updateDoc for partial updates on existing documents.
+          const keys = Object.keys(updatedData);
+          const isSocialOnly = keys.every(k => ['likesCount', 'likedUserIds', 'viewsCount', 'isSold'].includes(k));
+          
+          if (isSocialOnly) {
+            await updateDoc(productRef, cleanObject(updatedData));
+          } else {
+            const existingData = productDoc.data() as Product;
+            const fullProductUpdate = {
+              ...existingData,
+              ...updatedData,
+              id,
+              sellerId: existingData.sellerId || currentUser?.id || '',
+            };
+            await setDoc(productRef, cleanObject(fullProductUpdate));
+          }
         } else {
           await updateDoc(productRef, cleanObject(updatedData));
         }
