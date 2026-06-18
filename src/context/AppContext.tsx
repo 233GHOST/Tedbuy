@@ -1628,48 +1628,13 @@ CEO, Tedbuy Inc`;
 
     // Check if the identifier is an email address
     if (cleanIdentifier.includes('@')) {
-      const isGmail = cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com');
-      
-      // 1. Upfront Check: Check if this is registered as a Google account in Firebase Auth or Firestore
-      let isGoogleAccount = isGmail;
-
-      if (!isGoogleAccount) {
-        try {
-          const methods = await fetchSignInMethodsForEmail(auth, cleanIdentifier);
-          if (methods.includes('google.com')) {
-            isGoogleAccount = true;
-          }
-        } catch (fetchErr) {
-          console.warn('Could not fetch sign in methods for email:', fetchErr);
-          // Fallback: check if they exist in Firestore and have a Google indicator
-          try {
-            const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-              const uDoc = snap.docs[0].data() as User;
-              if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com' || (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && (cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com')))) {
-                isGoogleAccount = true;
-              }
-            }
-          } catch (dbErr) {
-            console.warn('Could not check user list in DB upfront:', dbErr);
-          }
-        }
-      }
-
-      if (isGoogleAccount) {
-        showToast('Google credentials detected. Authenticating securely via Google account details...', 'info');
-        await loginWithGoogle(cleanIdentifier);
-        return true;
-      }
-
       try {
         await signInWithEmailAndPassword(auth, cleanIdentifier, password);
         return true;
       } catch (authErrorDetail: any) {
         console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
         
-        // 2. Post-Auth failure Fallback Check:
+        // Post-Auth failure Fallback Check:
         // If signInWithEmailAndPassword throws wrong password or invalid credential,
         // it might be because they signed up with Google and don't have a password.
         const isAuthCredentialError = authErrorDetail?.code === 'auth/wrong-password' || 
@@ -1679,20 +1644,28 @@ CEO, Tedbuy Inc`;
                                       authErrorDetail?.code === 'auth/user-not-found';
         if (isAuthCredentialError) {
           try {
+            let redirectToGoog = false;
+            
+            // 1. Check Firestore user document indicators
             const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
             const snap = await getDocs(q);
             if (!snap.empty) {
               const uDoc = snap.docs[0].data() as User;
-              const looksLikeGoogle = uDoc.isGoogleAuth || 
-                                      uDoc.authProvider === 'google.com' ||
-                                      (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && (cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com')));
-              if (looksLikeGoogle) {
-                showToast('We detected that your account was originally created using Google. Authenticating securely with your Google account details...', 'info');
-                await loginWithGoogle(cleanIdentifier);
-                return true;
+              if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com') {
+                redirectToGoog = true;
               }
-            } else if (cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com')) {
-              showToast('Google credentials detected. Authenticating securely with your Google account details...', 'info');
+            } else {
+              // 2. Fetch auth providers from Firebase Auth if they aren't registered/cached in Firestore yet
+              try {
+                const methods = await fetchSignInMethodsForEmail(auth, cleanIdentifier);
+                if (methods.includes('google.com') && !methods.includes('password')) {
+                  redirectToGoog = true;
+                }
+              } catch (_) {}
+            }
+
+            if (redirectToGoog) {
+              showToast('We detected that your account was originally created using Google. Authenticating securely with your Google account details...', 'info');
               await loginWithGoogle(cleanIdentifier);
               return true;
             }
