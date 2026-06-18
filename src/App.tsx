@@ -458,11 +458,13 @@ const MarketplaceContent: React.FC = () => {
     }).length;
   }, [messages, chats, currentUser]);
 
+  const isVideoFeedMobile = currentView === 'browse' && homeViewMode === 'video-feed';
+
   return (
-    <div className={`bg-slate-50 flex flex-col font-sans relative ${
+    <div className={`flex flex-col font-sans relative ${
       currentView === 'browse' && homeViewMode === 'video-feed'
-        ? 'h-[100dvh] overflow-hidden pb-[76px] sm:pb-0'
-        : 'min-h-screen pb-16 md:pb-0'
+        ? 'bg-slate-50 max-sm:bg-slate-900 h-[100dvh] overflow-hidden pb-[76px] sm:pb-0'
+        : 'bg-slate-50 min-h-screen pb-16 md:pb-0'
     }`}>
       <Navbar />
 
@@ -681,8 +683,8 @@ const MarketplaceContent: React.FC = () => {
             )}
 
             {/* View Mode Switching Tabs (Standard Grid vs Live Video Ads Feed) */}
-            <div className={`flex bg-slate-200/50 p-1 rounded-2xl font-sans max-w-sm border border-slate-250/60 ${
-              homeViewMode === 'video-feed' ? 'mb-2 mx-4 sm:mx-0 mt-2 sm:mt-0' : 'mb-8'
+            <div className={`bg-slate-200/50 p-1 rounded-2xl font-sans max-w-sm border border-slate-250/60 ${
+              homeViewMode === 'video-feed' ? 'hidden sm:flex mb-2 sm:mx-0 mt-2 sm:mt-0' : 'flex mb-8'
             }`}>
               <button
                 id="tab-view-grid"
@@ -1197,7 +1199,11 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around">
+      <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around transition-colors duration-200 ${
+        isVideoFeedMobile
+          ? 'bg-slate-900/95 border-t border-slate-950/80 text-white'
+          : 'bg-white/95 border-t border-slate-200/80'
+      }`}>
         {/* Home Tab */}
         <button
           onClick={() => {
@@ -1209,16 +1215,18 @@ const MarketplaceContent: React.FC = () => {
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse'
-              ? 'text-slate-950 font-black'
-              : 'text-slate-400 hover:text-slate-600 font-medium'
+              ? isVideoFeedMobile ? 'text-white font-black' : 'text-slate-950 font-black'
+              : isVideoFeedMobile ? 'text-slate-400 hover:text-white font-medium' : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
           <div className="relative flex flex-col items-center">
             <Home className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
-              currentView === 'browse' ? 'scale-110 text-slate-950' : 'text-slate-400'
+              currentView === 'browse' 
+                ? isVideoFeedMobile ? 'scale-110 text-white' : 'scale-110 text-slate-950' 
+                : 'text-slate-400'
             }`} />
             {currentView === 'browse' && (
-              <span className="absolute -bottom-1 w-1 h-1 bg-slate-950 rounded-full" />
+              <span className={`absolute -bottom-1 w-1 h-1 rounded-full ${isVideoFeedMobile ? 'bg-white' : 'bg-slate-950'}`} />
             )}
           </div>
           <span className="text-[9px] tracking-tight uppercase font-extrabold">Home</span>
@@ -1240,16 +1248,18 @@ const MarketplaceContent: React.FC = () => {
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse' && searchQuery
-              ? 'text-slate-950 font-black'
-              : 'text-slate-400 hover:text-slate-600 font-medium'
+              ? isVideoFeedMobile ? 'text-white font-black' : 'text-slate-950 font-black'
+              : isVideoFeedMobile ? 'text-slate-400 hover:text-white font-medium' : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
           <div className="relative flex flex-col items-center">
             <Search className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
-              currentView === 'browse' && searchQuery ? 'scale-110 text-slate-950' : 'text-slate-400'
+              currentView === 'browse' && searchQuery 
+                ? isVideoFeedMobile ? 'scale-110 text-white' : 'scale-110 text-slate-950' 
+                : 'text-slate-400'
             }`} />
             {currentView === 'browse' && searchQuery && (
-              <span className="absolute -bottom-1 w-1 h-1 bg-slate-950 rounded-full" />
+              <span className={`absolute -bottom-1 w-1 h-1 rounded-full ${isVideoFeedMobile ? 'bg-white' : 'bg-slate-950'}`} />
             )}
           </div>
           <span className="text-[9px] tracking-tight uppercase font-extrabold">Search</span>
@@ -1260,10 +1270,16 @@ const MarketplaceContent: React.FC = () => {
           onClick={handlePostAdBtn}
           className="flex flex-col items-center justify-center flex-1 pb-1 relative z-50 cursor-pointer outline-none -translate-y-2.5"
         >
-          <div className="w-12 h-12 bg-slate-900 text-white rounded-full flex items-center justify-center shadow-lg transition duration-200 active:scale-90 border-4 border-white">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition duration-200 active:scale-90 border-4 ${
+            isVideoFeedMobile
+              ? 'bg-slate-900 text-white border-slate-900'
+              : 'bg-slate-900 text-white border-white'
+          }`}>
             <PlusCircle className="w-6 h-6 stroke-[2.5]" />
           </div>
-          <span className="text-[9px] tracking-tight uppercase font-black text-slate-900 mt-1">Sell</span>
+          <span className={`text-[9px] tracking-tight uppercase font-black mt-1 ${
+            isVideoFeedMobile ? 'text-slate-200' : 'text-slate-900'
+          }`}>Sell</span>
         </button>
 
         {/* Messages Tab */}
@@ -1278,13 +1294,15 @@ const MarketplaceContent: React.FC = () => {
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 relative cursor-pointer outline-none ${
             currentView === 'chats'
-              ? 'text-slate-950 font-black'
-              : 'text-slate-400 hover:text-slate-600 font-medium'
+              ? isVideoFeedMobile ? 'text-white font-black' : 'text-slate-950 font-black'
+              : isVideoFeedMobile ? 'text-slate-400 hover:text-white font-medium' : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
           <div className="relative flex flex-col items-center">
             <MessageSquare className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
-              currentView === 'chats' ? 'scale-110 text-slate-950' : 'text-slate-400'
+              currentView === 'chats' 
+                ? isVideoFeedMobile ? 'scale-110 text-white' : 'scale-110 text-slate-950' 
+                : 'text-slate-400'
             }`} />
             {unreadCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white font-extrabold text-[8px] min-w-[14px] h-[14px] px-1 rounded-full flex items-center justify-center shadow-xs border border-white animate-pulse">
@@ -1292,7 +1310,7 @@ const MarketplaceContent: React.FC = () => {
               </span>
             )}
             {currentView === 'chats' && (
-              <span className="absolute -bottom-1.5 w-1 h-1 bg-slate-950 rounded-full" />
+              <span className={`absolute -bottom-1.5 w-1 h-1 rounded-full ${isVideoFeedMobile ? 'bg-white' : 'bg-slate-950'}`} />
             )}
           </div>
           <span className="text-[9px] tracking-tight uppercase font-extrabold">Chats</span>
@@ -1310,8 +1328,8 @@ const MarketplaceContent: React.FC = () => {
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'profile-settings' || currentView === 'my-dashboard'
-              ? 'text-slate-950 font-black'
-              : 'text-slate-400 hover:text-slate-600 font-medium'
+              ? isVideoFeedMobile ? 'text-white font-black' : 'text-slate-950 font-black'
+              : isVideoFeedMobile ? 'text-slate-400 hover:text-white font-medium' : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
         >
           <div className="relative flex flex-col items-center">
@@ -1322,17 +1340,19 @@ const MarketplaceContent: React.FC = () => {
                 referrerPolicy="no-referrer"
                 className={`w-6 h-6 rounded-full object-cover border-2 transition-all duration-200 ${
                   currentView === 'profile-settings' || currentView === 'my-dashboard'
-                    ? 'border-slate-950 scale-110'
+                    ? isVideoFeedMobile ? 'border-white scale-110' : 'border-slate-950 scale-110'
                     : 'border-transparent'
                 }`}
               />
             ) : (
               <User className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
-                currentView === 'profile-settings' || currentView === 'my-dashboard' ? 'scale-110 text-slate-950' : 'text-slate-400'
+                currentView === 'profile-settings' || currentView === 'my-dashboard' 
+                  ? isVideoFeedMobile ? 'scale-110 text-white' : 'scale-110 text-slate-950' 
+                  : 'text-slate-400'
               }`} />
             )}
             {(currentView === 'profile-settings' || currentView === 'my-dashboard') && (
-              <span className="absolute -bottom-1.5 w-1 h-1 bg-slate-950 rounded-full" />
+              <span className={`absolute -bottom-1.5 w-1 h-1 rounded-full ${isVideoFeedMobile ? 'bg-white' : 'bg-slate-950'}`} />
             )}
           </div>
           <span className="text-[9px] tracking-tight uppercase font-extrabold">Profile</span>

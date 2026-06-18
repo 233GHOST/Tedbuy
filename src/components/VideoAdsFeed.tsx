@@ -941,7 +941,7 @@ export const VideoAdsFeed: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 min-h-0 h-full sm:h-[620px] lg:h-[680px] w-full border border-slate-200 bg-slate-950 sm:rounded-3xl rounded-none overflow-hidden shadow-xl flex flex-col text-white mt-2 sm:mt-4 relative animate-fade-in">
+    <div className="flex-1 min-h-0 h-full sm:h-[620px] lg:h-[680px] w-full sm:border border-slate-200 border-0 bg-slate-950 sm:rounded-3xl rounded-none overflow-hidden shadow-xl flex flex-col text-white mt-0 sm:mt-4 relative animate-fade-in">
  
       {/* 1. Immersive vertical center-aligned Reels viewport container */}
       <div className="flex-1 relative bg-slate-950 flex flex-col justify-start overflow-hidden">
