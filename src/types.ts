@@ -12,6 +12,8 @@ export interface User {
   isAdmin?: boolean;
   welcomeSent?: boolean;
   emailVerified?: boolean;
+  isGoogleAuth?: boolean;
+  authProvider?: string;
 }
 
 export const isUserVerified = (user?: User | null): boolean => {

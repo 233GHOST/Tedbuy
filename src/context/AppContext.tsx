@@ -15,7 +15,8 @@ import {
   sendEmailVerification,
   EmailAuthProvider,
   reauthenticateWithCredential,
-  signInAnonymously
+  signInAnonymously,
+  fetchSignInMethodsForEmail
 } from 'firebase/auth';
 import {
   collection,
@@ -593,6 +594,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             initialUsername = `${initialUsername}_${Math.floor(100 + Math.random() * 900)}`;
           }
 
+          const isGoogleUser = firebaseUser.providerData.some(p => p.providerId === 'google.com') || (firebaseUser.email ? firebaseUser.email.endsWith('@gmail.com') : false);
+
           // Construct a dynamic backup/fallback user structure
           const tempUser: User = {
             id: firebaseUser.uid,
@@ -603,7 +606,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             photoUrl: firebaseUser.photoURL || undefined,
             followingSellers: [],
             savedProductIds: [],
-            emailVerified: firebaseUser.emailVerified
+            emailVerified: firebaseUser.emailVerified,
+            isGoogleAuth: isGoogleUser || undefined,
+            authProvider: isGoogleUser ? 'google.com' : undefined
           };
           
           // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
@@ -626,11 +631,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
               const isEmailVerifiedNow = firebaseUser.emailVerified || false;
+              const isCurrentlyGoogle = firebaseUser.providerData.some(p => p.providerId === 'google.com') || (firebaseUser.email ? firebaseUser.email.endsWith('@gmail.com') : false);
+              
+              const updates: any = {};
               if (isEmailVerifiedNow !== dbData.emailVerified) {
-                await updateDoc(userRef, { emailVerified: isEmailVerifiedNow });
-                setCurrentUserState({ ...dbData, emailVerified: isEmailVerifiedNow });
+                updates.emailVerified = isEmailVerifiedNow;
+              }
+              if (isCurrentlyGoogle && !dbData.isGoogleAuth) {
+                updates.isGoogleAuth = true;
+                updates.authProvider = 'google.com';
+              }
+
+              if (Object.keys(updates).length > 0) {
+                await updateDoc(userRef, updates);
+                setCurrentUserState({ ...dbData, ...updates });
               } else {
-                setCurrentUserState({ ...dbData, emailVerified: isEmailVerifiedNow });
+                setCurrentUserState(dbData);
               }
             } else {
               // The user document does not exist for the new Google authenticating UID.
@@ -662,7 +678,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   ...existingUserWithEmail,
                   id: firebaseUser.uid,
                   emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
-                  photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined
+                  photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
+                  isGoogleAuth: true,
+                  authProvider: 'google.com'
                 };
 
                 const batch = writeBatch(db);
@@ -764,7 +782,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   followingSellers: [],
                   savedProductIds: [],
                   emailVerified: firebaseUser.emailVerified,
-                  isAdmin: firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' ? true : undefined
+                  isAdmin: firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' ? true : undefined,
+                  isGoogleAuth: true,
+                  authProvider: 'google.com'
                 };
                 
                 // Register storeName and user document atomically so standard signups and Google signups are identical
@@ -1608,11 +1628,69 @@ CEO, Tedbuy Inc`;
 
     // Check if the identifier is an email address
     if (cleanIdentifier.includes('@')) {
+      // 1. Upfront Check: Check if this is registered as a Google account in Firebase Auth or Firestore
+      let isGoogleAccount = false;
+      try {
+        const methods = await fetchSignInMethodsForEmail(auth, cleanIdentifier);
+        if (methods.includes('google.com')) {
+          isGoogleAccount = true;
+        }
+      } catch (fetchErr) {
+        console.warn('Could not fetch sign in methods for email:', fetchErr);
+        // Fallback: check if they exist in Firestore and have a Google indicator
+        try {
+          const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const uDoc = snap.docs[0].data() as User;
+            if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com' || (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && cleanIdentifier.endsWith('@gmail.com'))) {
+              isGoogleAccount = true;
+            }
+          }
+        } catch (dbErr) {
+          console.warn('Could not check user list in DB upfront:', dbErr);
+        }
+      }
+
+      if (isGoogleAccount) {
+        showToast('Google credentials detected. Authenticating securely via Google account details...', 'info');
+        await loginWithGoogle(cleanIdentifier);
+        return true;
+      }
+
       try {
         await signInWithEmailAndPassword(auth, cleanIdentifier, password);
         return true;
       } catch (authErrorDetail: any) {
         console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
+        
+        // 2. Post-Auth failure Fallback Check:
+        // If signInWithEmailAndPassword throws wrong password or invalid credential,
+        // it might be because they signed up with Google and don't have a password.
+        const isAuthCredentialError = authErrorDetail?.code === 'auth/wrong-password' || 
+                                      authErrorDetail?.code === 'auth/invalid-credential' ||
+                                      authErrorDetail?.message?.includes('invalid-credential') ||
+                                      authErrorDetail?.message?.includes('wrong-password') ||
+                                      authErrorDetail?.code === 'auth/user-not-found';
+        if (isAuthCredentialError) {
+          try {
+            const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              const uDoc = snap.docs[0].data() as User;
+              const looksLikeGoogle = uDoc.isGoogleAuth || 
+                                      uDoc.authProvider === 'google.com' ||
+                                      (!uDoc.id.startsWith('user_local_') && !uDoc.id.startsWith('phone_') && cleanIdentifier.includes('@gmail.com'));
+              if (looksLikeGoogle) {
+                showToast('We detected that your account was originally created using Google. Authenticating securely with your Google account details...', 'info');
+                await loginWithGoogle(cleanIdentifier);
+                return true;
+              }
+            }
+          } catch (dbErr) {
+            console.warn('Could not query users db in fallback:', dbErr);
+          }
+        }
         
         const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
                                    authErrorDetail?.message?.includes('operation-not-allowed');
@@ -1730,11 +1808,14 @@ CEO, Tedbuy Inc`;
     }
   };
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (hintEmail?: string) => {
     try {
       const provider = new GoogleAuthProvider();
-      // Force account selector chooser so users always log in using their own email address
-      provider.setCustomParameters({ prompt: 'select_account' });
+      const params: any = { prompt: 'select_account' };
+      if (hintEmail) {
+        params.login_hint = hintEmail;
+      }
+      provider.setCustomParameters(params);
       // Ensure we clear any local old simulation flags on an active signup intention
       safeLocalStorage.removeItem('tedbuy_simulated_mode');
       safeLocalStorage.removeItem('tedbuy_simulated_user');

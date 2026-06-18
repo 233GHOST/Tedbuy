@@ -942,66 +942,6 @@ export const Navbar: React.FC = () => {
               )}
             </form>
 
-            <div className="relative my-4.5 flex items-center justify-center">
-              <span className="absolute inset-x-0 h-px bg-slate-200"></span>
-              <span className="relative bg-white px-3 text-xs text-slate-500 font-medium font-sans">Or continue with</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={async () => {
-                setAuthError('');
-                setIsAuthSubmitting(true);
-                try {
-                  await loginWithGoogle();
-                  setShowAuthModal(false);
-                } catch (err: any) {
-                  console.error(err);
-                  const errMsg = err?.message || '';
-                  const errCode = err?.code || '';
-                  if (errMsg.includes('popup-blocked') || errCode.includes('popup-blocked')) {
-                    setAuthError('Google sign-in popup was blocked by your browser. Please allow popups for this site or open in a new tab to continue!');
-                  } else if (errMsg.includes('unauthorized-domain') || errCode.includes('unauthorized-domain')) {
-                    setAuthError(`🔐 Google Sign-In Setup & Publishing Required!
-
-This app is running on domain "${window.location.hostname}". Google Sign-In requires TWO steps to be fully allowed for all users:
-
-1. OAuth Publishing Status (Why it currently only works for the Admin)
-If Google login works only for you (the admin) but fails for your visitors, your Google OAuth Consent screen is set to "Testing" mode.
-👉 TO FIX: Go to the Google Cloud Console:
-https://console.cloud.google.com/apis/credentials/consent (Select project "tedbuy-fb79a")
-Under "Publishing status", click the "PUBLISH APP" button to change it from "Testing" to "In Production" (Published). This instantly permits all public users to log in!
-
-2. Whitelist Authorized Domains
-Make sure "tedbuy.store" and "www.tedbuy.store" are added EXACTLY without any "https://" or "http://" prefix in your Firebase Auth center:
-https://console.firebase.google.com/project/tedbuy-fb79a/authentication/settings
-
-3. Google Cloud API Credentials Origins
-Go to API Credentials screen, edit your "Web client" OAuth client key:
-https://console.cloud.google.com/apis/credentials
-Under "Authorized JavaScript origins", add "https://tedbuy.store" and "https://www.tedbuy.store".
-Under "Authorized redirect URIs", add "https://tedbuy-fb79a.firebaseapp.com/__/auth/handler".`);
-                  } else {
-                    setAuthError(err?.message || 'Google Sign-In failed. Please try again.');
-                  }
-                } finally {
-                  setIsAuthSubmitting(false);
-                }
-              }}
-              disabled={isAuthSubmitting}
-              className="w-full py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-bold rounded-xl transition duration-200 text-sm shadow-2xs flex items-center justify-center gap-2.5 cursor-pointer active:scale-99 hover:border-slate-400 font-sans"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
-              </svg>
-              <span>Sign in with Google</span>
-            </button>
-
-            {/* Bypassing block removed for production safety */}
-
             <div className="border-t border-slate-200 mt-5 pt-4 text-center">
               <button
                 onClick={() => {
@@ -1022,7 +962,7 @@ Under "Authorized redirect URIs", add "https://tedbuy-fb79a.firebaseapp.com/__/a
                   <span>Cancel and return to sign in</span>
                 ) : authMode === 'login' ? (
                   <span className="text-slate-650 font-medium text-sm">
-                    Don't have an account yet? <strong className="font-black text-slate-950 underline hover:text-slate-850 transition-all text-[15px] sm:text-base tracking-tight ml-1 block sm:inline mt-1 sm:mt-0">Create account now</strong>
+                    Don't have an account yet? <strong className="font-black text-blue-600 hover:text-blue-700 transition-all text-[15px] sm:text-base tracking-tight ml-1 block sm:inline mt-1 sm:mt-0 no-underline">Create account now</strong>
                   </span>
                 ) : (
                   <span className="text-sm">Already have an account? Sign in here</span>
