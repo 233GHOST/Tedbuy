@@ -702,7 +702,7 @@ export const ProductDetail: React.FC = () => {
                           ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
                           : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
                       }`}
-                      title={isSaved ? "Remove from Watchlist" : "Save to Watchlist"}
+                      title={isSaved ? "Remove from Saved" : "Save to Saved"}
                     >
                       <Bookmark className="w-5 h-5" fill={isSaved ? "currentColor" : "none"} />
                     </button>

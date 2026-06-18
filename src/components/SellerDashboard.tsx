@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
 import { Product, Category } from '../types';
-import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle } from 'lucide-react';
+import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play } from 'lucide-react';
 
 export const SellerDashboard: React.FC = () => {
   const {
@@ -218,7 +218,7 @@ export const SellerDashboard: React.FC = () => {
               : 'text-slate-400 hover:text-slate-600'
           }`}
         >
-          Saved & Watchlist ({savedProducts.length})
+          Saved ({savedProducts.length})
         </button>
       </div>
 
@@ -257,11 +257,31 @@ export const SellerDashboard: React.FC = () => {
                 >
                   {/* Info block */}
                   <div className="col-span-1 md:col-span-6 flex gap-4 text-left">
-                    <img
-                      src={prod.images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
-                      alt={prod.title}
-                      className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
-                    />
+                    {prod.images && prod.images.length > 0 ? (
+                      <img
+                        src={prod.images[0]}
+                        alt={prod.title}
+                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
+                      />
+                    ) : prod.videos && prod.videos.length > 0 ? (
+                      <div className="w-16 h-16 rounded-xl border border-slate-200 shrink-0 overflow-hidden relative bg-black flex items-center justify-center">
+                        <video
+                          src={prod.videos[0]}
+                          className="w-full h-full object-cover"
+                          muted
+                          playsInline
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <Play className="w-3.5 h-3.5 text-white fill-white/80" />
+                        </div>
+                      </div>
+                    ) : (
+                      <img
+                        src="https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80"
+                        alt={prod.title}
+                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
+                      />
+                    )}
                     <div className="flex flex-col justify-center min-w-0">
                       <span className="text-base font-bold text-slate-950 font-sans flex items-center gap-2">
                         GHS {prod.price.toLocaleString()}
@@ -352,7 +372,7 @@ export const SellerDashboard: React.FC = () => {
         savedProducts.length === 0 ? (
           <div className="bg-slate-100 border border-slate-200 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-xs">
             <Bookmark className="w-14 h-14 mx-auto stroke-[1.2] text-slate-350 mb-3" />
-            <h2 className="text-base font-bold text-slate-900 font-sans">Your Watchlist is Empty</h2>
+            <h2 className="text-base font-bold text-slate-900 font-sans">Your Saved Ads are Empty</h2>
             <p className="text-xs text-slate-500 mt-1 mb-5 font-sans">Click the bookmark icon on any item while browsing the marketplace to save products here for speedy access.</p>
             <button
               onClick={() => setCurrentView('browse')}
@@ -381,11 +401,31 @@ export const SellerDashboard: React.FC = () => {
                 >
                   {/* Info block */}
                   <div className="col-span-1 md:col-span-6 flex gap-4 text-left">
-                    <img
-                      src={prod.images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
-                      alt={prod.title}
-                      className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
-                    />
+                    {prod.images && prod.images.length > 0 ? (
+                      <img
+                        src={prod.images[0]}
+                        alt={prod.title}
+                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
+                      />
+                    ) : prod.videos && prod.videos.length > 0 ? (
+                      <div className="w-16 h-16 rounded-xl border border-slate-200 shrink-0 overflow-hidden relative bg-black flex items-center justify-center">
+                        <video
+                          src={prod.videos[0]}
+                          className="w-full h-full object-cover"
+                          muted
+                          playsInline
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <Play className="w-3.5 h-3.5 text-white fill-white/80" />
+                        </div>
+                      </div>
+                    ) : (
+                      <img
+                        src="https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80"
+                        alt={prod.title}
+                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
+                      />
+                    )}
                     <div className="flex flex-col justify-center min-w-0">
                       <span className="text-base font-bold text-slate-950 font-sans">
                         GHS {prod.price.toLocaleString()}

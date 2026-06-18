@@ -385,7 +385,7 @@ export const ProfileSettings: React.FC = () => {
                   setDashboardTab('saved');
                 }}
                 className="bg-slate-50/60 hover:bg-slate-100 hover:border-slate-300 rounded-xl p-2.5 border border-slate-200/40 cursor-pointer transition text-center group"
-                title="View your bookmarks/watchlist"
+                title="View your saved ads"
               >
                 <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-tight group-hover:text-slate-500 transition">Saved Ads</span>
                 <span className="text-xs font-sans font-extrabold text-slate-800 mt-0.5 block truncate">
@@ -646,7 +646,7 @@ export const ProfileSettings: React.FC = () => {
                   <ShoppingBag className="w-5 h-5 text-slate-700 mb-2" />
                   <h4 className="text-xs font-extrabold text-slate-900 leading-none">Buyer Focus</h4>
                   <p className="text-[10px] text-slate-500 mt-1.5 leading-normal">
-                    Focussed on exploring deals, watchlists, and secure purchasing.
+                    Focussed on exploring deals, saved ads, and secure purchasing.
                   </p>
                 </button>
 

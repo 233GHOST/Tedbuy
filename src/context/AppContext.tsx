@@ -2456,12 +2456,6 @@ CEO, Tedbuy Inc`;
         savedProductIds: updatedSaved
       });
       setCurrentUserState({ ...currentUser, savedProductIds: updatedSaved });
-      
-      // Automatically navigate to the watchlist/saved tab inside the dashboard when saving an ad
-      if (isAdding) {
-        setDashboardTab('saved');
-        setCurrentView('my-dashboard');
-      }
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
     }

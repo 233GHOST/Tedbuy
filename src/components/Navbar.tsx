@@ -245,11 +245,11 @@ export const Navbar: React.FC = () => {
                   onMouseDown={(e) => e.preventDefault()}
                   className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 text-left font-sans text-slate-900"
                 >
-                  {/* Watchlist shortcut in target area */}
+                  {/* Saved shortcut in target area */}
                   <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
                     <div className="flex items-center gap-2">
                       <Bookmark className="w-4 h-4 text-rose-500 fill-rose-100 animate-pulse" />
-                      <span className="text-xs font-bold text-slate-700">Quick Watchlist Access</span>
+                      <span className="text-xs font-bold text-slate-700">Quick Saved Access</span>
                     </div>
                     <button
                       onClick={() => {
@@ -265,7 +265,7 @@ export const Navbar: React.FC = () => {
                       }}
                       className="text-xs font-extrabold text-slate-900 hover:text-white hover:bg-slate-900 bg-slate-100 px-3 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
                     >
-                      <span>Watchlist Tab ({currentUser?.savedProductIds?.length || 0})</span>
+                      <span>Saved Tab ({currentUser?.savedProductIds?.length || 0})</span>
                     </button>
                   </div>
 
@@ -354,7 +354,7 @@ export const Navbar: React.FC = () => {
               }`}
             >
               <Bookmark className={`w-4 h-4 ${currentUser?.savedProductIds?.length ? 'text-rose-400 fill-rose-900/30' : ''}`} />
-              <span className="hidden sm:inline">Watchlist</span>
+              <span className="hidden sm:inline">Saved</span>
               {currentUser?.savedProductIds && currentUser.savedProductIds.length > 0 && (
                 <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-slate-900">
                   {currentUser.savedProductIds.length}

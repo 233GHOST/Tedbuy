@@ -270,7 +270,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
               ? 'bg-rose-500 border-rose-500 text-white hover:bg-rose-600 scale-105'
               : 'bg-white/90 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-white'
           }`}
-          title={isSaved ? "Remove from watchlist" : "Save to watchlist"}
+          title={isSaved ? "Remove from saved ads" : "Save to saved ads"}
         >
           <Bookmark className="w-3.5 h-3.5" fill={isSaved ? "currentColor" : "none"} />
         </button>

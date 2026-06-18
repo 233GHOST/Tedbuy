@@ -136,7 +136,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
 }) => {
   const { 
     updateProduct, 
-    toggleLikeProduct,
     setCurrentView, 
     setSelectedSellerId,
     currentUser,
@@ -153,11 +152,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const [processedVideoUrl, setProcessedVideoUrl] = useState<string>('');
   const activeBlobUrlRef = useRef<string>('');
   const [showShareToast, setShowShareToast] = useState(false);
-
-  // Floating heart burst and coordinates states
-  const [showBigHeart, setShowBigHeart] = useState<boolean>(false);
-  const [bigHeartCoords, setBigHeartCoords] = useState({ x: 0, y: 0 });
-  const lastClickTimeRef = useRef<number>(0);
 
   const handleShareClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -222,20 +216,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
     };
   }, [isPlaying, isActive]);
 
-  // Calculate isLiked dynamically based on Firestore product data and local storage fallback
-  const isLiked = useMemo(() => {
-    if (!currentUser) return false;
-    if (Array.isArray(product?.likedUserIds) && product.likedUserIds.includes(currentUser.id)) {
-      return true;
-    }
-    try {
-      const likedList = JSON.parse(localStorage.getItem(`user_video_likes_${currentUser.id}`) || localStorage.getItem('user_video_likes') || '[]');
-      return likedList.includes(product?.id || '');
-    } catch {
-      return false;
-    }
-  }, [product?.likedUserIds, product?.id, currentUser]);
-
   const isOwnProfile = currentUser?.id === product?.sellerId;
   const isFollowing = currentUser?.followingSellers?.includes(product?.sellerId || '') || false;
 
@@ -258,50 +238,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
       setCurrentView('seller-profile');
     }
   };
-
-  const handleToggleLike = async (e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
-    if (!currentUser) {
-      setAuthMode('login');
-      setShowAuthModal(true);
-      return;
-    }
-
-    const userId = currentUser.id;
-    const currentLikedUserIds = Array.isArray(product.likedUserIds) ? product.likedUserIds : [];
-    const isCurrentlyLiked = currentLikedUserIds.includes(userId);
-
-    // Support local storage status fallback
-    try {
-      const likedList = JSON.parse(localStorage.getItem(`user_video_likes_${userId}`) || localStorage.getItem('user_video_likes') || '[]');
-      let updatedLocalStorage: string[];
-      if (!isCurrentlyLiked) {
-        updatedLocalStorage = Array.from(new Set([...likedList, product.id]));
-      } else {
-        updatedLocalStorage = likedList.filter((id: string) => id !== product.id);
-      }
-      localStorage.setItem(`user_video_likes_${userId}`, JSON.stringify(updatedLocalStorage));
-      // Keep old key synced just as a backward compatibility measure
-      localStorage.setItem('user_video_likes', JSON.stringify(updatedLocalStorage));
-    } catch (err) {
-      console.warn("localStorage update error", err);
-    }
-
-    try {
-      await toggleLikeProduct(product.id, userId);
-    } catch (err) {
-      console.warn("likes update error", err);
-    }
-  };
-
-  const likesCount = useMemo(() => {
-    if (Array.isArray(product?.likedUserIds)) {
-      return product.likedUserIds.length;
-    }
-    return product?.likesCount || (isLiked ? 1 : 0);
-  }, [product?.likedUserIds, product?.likesCount, isLiked]);
 
   const currentVideoUrl = product?.videos?.[0] || '';
 
@@ -457,34 +393,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
     if (target.closest('.pointer-events-auto') || target.closest('input') || target.closest('button')) {
       return;
     }
-
-    const now = Date.now();
-    const prev = lastClickTimeRef.current;
-    lastClickTimeRef.current = now;
-
-    if (now - prev < 300) {
-      e.preventDefault();
-      if (!currentUser) {
-        setAuthMode('login');
-        setShowAuthModal(true);
-        return;
-      }
-      const rect = e.currentTarget.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
-
-      setBigHeartCoords({ x: clickX, y: clickY });
-      setShowBigHeart(false);
-      setTimeout(() => {
-        setShowBigHeart(true);
-      }, 5);
-
-      if (!isLiked) {
-        handleToggleLike();
-      }
-    } else {
-      handlePlayPause();
-    }
+    handlePlayPause();
   };
 
   return (
@@ -553,49 +462,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
 
 
-        {/* Double-Tap reactions (Flame, Star, Heart eruption) */}
-        <AnimatePresence>
-          {showBigHeart && (
-            <div 
-              style={{
-                position: 'absolute',
-                left: bigHeartCoords.x,
-                top: bigHeartCoords.y,
-                zIndex: 40,
-                pointerEvents: 'none',
-                transform: 'translate(-50%, -50%)'
-              }}
-            >
-              {/* Flame burst */}
-              <motion.div
-                initial={{ scale: 0, opacity: 0, y: 0, x: 0 }}
-                animate={{ scale: [0, 1.6, 1], opacity: [0, 1, 0], y: -85, x: -35, rotate: -15 }}
-                transition={{ duration: 0.65 }}
-                className="absolute text-[#FF9F00] drop-shadow-[0_0_12px_rgba(255,159,0,0.8)]"
-              >
-                <Flame className="w-12 h-12 fill-[#FF9F00]" />
-              </motion.div>
-              {/* Heart burst */}
-              <motion.div
-                initial={{ scale: 0, opacity: 0, y: 0, x: 0 }}
-                animate={{ scale: [0, 1.8, 1], opacity: [0, 1, 0], y: -105, x: 0, rotate: 0 }}
-                transition={{ duration: 0.7, delay: 0.05 }}
-                className="absolute text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.85)]"
-              >
-                <Heart className="w-16 h-16 fill-rose-500" />
-              </motion.div>
-              {/* Sparkles burst */}
-              <motion.div
-                initial={{ scale: 0, opacity: 0, y: 0, x: 0 }}
-                animate={{ scale: [0, 1.5, 1], opacity: [0, 1, 0], y: -90, x: 35, rotate: 20 }}
-                transition={{ duration: 0.65 }}
-                className="absolute text-amber-300 drop-shadow-[0_0_10px_rgba(252,211,77,0.8)]"
-              >
-                <Sparkles className="w-10 h-10 fill-amber-300" />
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+
 
         {/* Glassmorphic Copy Status Toast */}
         <AnimatePresence>
@@ -712,27 +579,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
             )}
           </div>
 
-          {/* Double Tap Heart / Likes Action with Snapchat yellow text */}
-          <div className="flex flex-col items-center">
-            <button
-              onClick={() => handleToggleLike()}
-              className={`w-8.5 h-8.5 sm:w-10.5 sm:h-10.5 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl ${
-                isLiked 
-                  ? 'bg-[#FFFC00] text-slate-950 scale-110 shadow-[#FFFC00]/40' 
-                  : 'bg-black/50 backdrop-blur-md text-white border border-white/10 hover:bg-black/75 hover:scale-110'
-              }`}
-            >
-              <motion.div
-                animate={isLiked ? { scale: [1, 1.4, 0.9, 1.15, 1], rotate: [0, -10, 10, 0] } : { scale: 1, rotate: 0 }}
-                transition={{ duration: 0.4 }}
-              >
-                <Heart className={`w-4 h-4 sm:w-5 sm:h-5 ${isLiked ? 'fill-slate-950 text-slate-950 stroke-[2]' : 'text-white'}`} />
-              </motion.div>
-            </button>
-            <span className="text-[9px] sm:text-[10px] font-extrabold text-white mt-1 sm:mt-1.5 drop-shadow-md select-none">
-              {likesCount}
-            </span>
-          </div>
+
 
           {/* Snapchat-style Bookmarks / Save Action */}
           <div className="flex flex-col items-center">

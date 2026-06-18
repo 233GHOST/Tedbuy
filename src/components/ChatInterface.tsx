@@ -27,6 +27,7 @@ export const ChatInterface: React.FC = () => {
   } = useApp();
 
   const [inputText, setInputText] = useState('');
+  const isVideo = (url?: string) => url ? (url.includes('.mp4') || url.includes('.mov') || url.includes('video') || url.startsWith('blob:')) : false;
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -178,11 +179,22 @@ export const ChatInterface: React.FC = () => {
                       active ? 'bg-slate-100 border-l-4 border-slate-905 font-bold' : 'bg-transparent hover:bg-slate-50'
                     }`}
                   >
-                    <img
-                      src={chat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
-                      alt={chat.productTitle}
-                      className="w-12 h-12 rounded-xl object-cover border border-slate-150 shrink-0"
-                    />
+                    {isVideo(chat.productImage) ? (
+                      <div className="w-12 h-12 rounded-xl border border-slate-150 shrink-0 overflow-hidden bg-black flex items-center justify-center">
+                        <video
+                          src={chat.productImage}
+                          className="w-full h-full object-cover"
+                          muted
+                          playsInline
+                        />
+                      </div>
+                    ) : (
+                      <img
+                        src={chat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
+                        alt={chat.productTitle}
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-150 shrink-0"
+                      />
+                    )}
                     <div className="flex-1 min-w-0 flex flex-col justify-between">
                       <div className="flex justify-between items-baseline gap-1">
                         <span className="text-xs font-bold text-slate-900 truncate">
@@ -254,12 +266,26 @@ export const ChatInterface: React.FC = () => {
                       <ArrowLeft className="w-5 h-5 text-slate-900" />
                     </button>
 
-                    <img
-                      src={activeChat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
-                      alt={activeChat.productTitle}
-                      onClick={viewProductDetails}
-                      className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
-                    />
+                    {isVideo(activeChat.productImage) ? (
+                      <div 
+                        onClick={viewProductDetails}
+                        className="w-10 h-10 rounded-xl border border-slate-200 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer hover:opacity-85"
+                      >
+                        <video
+                          src={activeChat.productImage}
+                          className="w-full h-full object-cover"
+                          muted
+                          playsInline
+                        />
+                      </div>
+                    ) : (
+                      <img
+                        src={activeChat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
+                        alt={activeChat.productTitle}
+                        onClick={viewProductDetails}
+                        className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
+                      />
+                    )}
                     <div className="min-w-0">
                       <h3 onClick={viewProductDetails} className="text-xs font-bold text-slate-900 cursor-pointer hover:text-slate-950 transition truncate">
                         {activeChat.productTitle}
