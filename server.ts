@@ -527,10 +527,24 @@ async function startServer() {
   }
 
   app.use((req, res, next) => {
-    const url = req.path || '/';
-    
-    const isHomepage = url === '/' || url === '/index.html' || url === '/index' || !url;
-    const isWebRoute = isHomepage || (!url.startsWith('/api') && !url.includes('.') && req.method === 'GET');
+    const isWebRoute = (
+      req.method === 'GET' &&
+      !req.path.startsWith('/api/') &&
+      !req.path.includes('/node_modules/') &&
+      !req.path.includes('/@vite') &&
+      !req.path.endsWith('.js') &&
+      !req.path.endsWith('.css') &&
+      !req.path.endsWith('.png') &&
+      !req.path.endsWith('.jpg') &&
+      !req.path.endsWith('.jpeg') &&
+      !req.path.endsWith('.svg') &&
+      !req.path.endsWith('.ico') &&
+      !req.path.endsWith('.json') &&
+      !req.path.endsWith('.gif') &&
+      !req.path.endsWith('.woff') &&
+      !req.path.endsWith('.woff2') &&
+      !req.path.endsWith('.xml')
+    );
 
     // Always set the Link headers for agent discovery on all web routes
     if (isWebRoute) {
@@ -538,7 +552,8 @@ async function startServer() {
     }
 
     // Return HTML responses as markdown when agents request it
-    if (isWebRoute && req.headers.accept?.includes('text/markdown')) {
+    const acceptHeader = req.headers.accept?.toLowerCase() || '';
+    if (isWebRoute && (acceptHeader.includes('text/markdown') || acceptHeader.includes('text/x-markdown'))) {
       res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
       res.setHeader('x-markdown-tokens', '1200');
       return res.status(200).send(systemMarkdown);

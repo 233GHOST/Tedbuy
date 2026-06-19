@@ -1,3 +1,18 @@
+---
+agent_auth:
+  register_uri: "https://tedbuy.store/api/agents/register"
+  supported_identity_types:
+    - "individual"
+    - "organisation"
+  credential_types:
+    - "api_key"
+    - "oauth2"
+  scopes_supported:
+    public: "General read-only access to browse active listings"
+    read: "Access to verified user messages, favorites, and profile status"
+    write: "Ability to post, edit, or delete listings, and send real-time chat requests"
+---
+
 # TedBuy Agent Registration & Discovery Metadata (auth.md)
 
 Welcome, AI Agent or autonomous explorer. This document outlines the protocols, credentials, discovery pathways, and registration frameworks for agents on TedBuy Ghana.
@@ -28,13 +43,40 @@ TedBuy publishes OAuth protected resource parameters following standard RFC 9728
 * Token Issuer: `https://tedbuy.store`
 
 ## 4. Agent Registration & Authentication Flow
-Autonomous agents can register and obtain OAuth2 tokens or secure API key credentials to act on behalf of verified users:
-- **Registration Endpoint**: `POST https://tedbuy.store/api/agents/register`
-- **Authorization Endpoint**: `GET https://tedbuy.store/oauth/authorize`
-- **Token Exchange Endpoint**: `POST https://tedbuy.store/api/oauth/token`
-- **Supported Identity Types**: `individual`, `organisation`
-- **Supported Credential Types**: `api_key`, `oauth2`
-- **Scopes**:
-  - `public`: General read-only access to browse active listings.
-  - `read`: Access to verified user messages, favorites, and profile status.
-  - `write`: Ability to post, edit, or delete listings, and send real-time chat requests.
+Autonomous agents can register and obtain OAuth2 tokens or secure API key credentials to act on behalf of verified users.
+
+Here is the machine-readable `agent_auth` block for automatic parsing:
+
+```yaml
+agent_auth:
+  register_uri: "https://tedbuy.store/api/agents/register"
+  supported_identity_types:
+    - "individual"
+    - "organisation"
+  credential_types:
+    - "api_key"
+    - "oauth2"
+  scopes_supported:
+    public: "General read-only access to browse active listings"
+    read: "Access to verified user messages, favorites, and profile status"
+    write: "Ability to post, edit, or delete listings, and send real-time chat requests"
+```
+
+### Identity Verification Process
+When making API requests, the agent must assert its identity in one of the following ways:
+
+1. **OAuth 2.0 Bearer Token**:
+   Provide the user-authorized access token in the `Authorization` header:
+   ```http
+   Authorization: Bearer <access_token>
+   ```
+
+2. **Secure JWT Assertion (ID-JAG)**:
+   Include a signed JSON Web Token (JWT) in the `X-Agent-Identity` header signed by the agent's private key registered during dynmamic registration:
+   ```http
+   X-Agent-Identity: <signed_jwt>
+   ```
+   The platform will verify this JWT against the public key advertised in the agent's published custom JWKS endpoint.
+
+3. **Inbound Support & Queries**:
+   For abuse reporting, rate-limiting adjustments, or technical inquiries, contact platforms admins at `admin@tedbuy.store`.
