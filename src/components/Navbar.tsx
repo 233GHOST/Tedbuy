@@ -106,13 +106,6 @@ export const Navbar: React.FC = () => {
           return;
         }
 
-        const isStoreNameTaken = users.some(u => u.username && u.username.trim().toLowerCase() === usernameInput.trim().toLowerCase());
-        if (isStoreNameTaken) {
-          setAuthError(`The store name "${usernameInput.trim()}" is not available Please select a different store name.`);
-          setIsAuthSubmitting(false);
-          return;
-        }
-
         const cleanRegEmail = cleanEmailString(registerEmailInput);
         if (!cleanRegEmail) {
           setAuthError('Email address is required to register an account.');
@@ -473,8 +466,12 @@ export const Navbar: React.FC = () => {
                                     if (!notif.read) {
                                       await markNotificationAsRead(notif.id);
                                     }
-                                    setSelectedProductId(notif.productId);
-                                    setCurrentView('product-detail');
+                                    if (notif.type === 'new_follower' || !notif.productId) {
+                                      setCurrentView('profile-settings');
+                                    } else {
+                                      setSelectedProductId(notif.productId);
+                                      setCurrentView('product-detail');
+                                    }
                                     setShowNotifications(false);
                                   } catch (err) {
                                     console.error(err);
@@ -509,19 +506,21 @@ export const Navbar: React.FC = () => {
                                     {notif.message}
                                   </p>
                                   {/* Attached Product Thumbnail info */}
-                                  <div className="mt-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between gap-2.5">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      {notif.productImage && (
-                                        <div className="w-6 h-6 rounded-md overflow-hidden bg-slate-105 border border-slate-200 shrink-0">
-                                          <img src={notif.productImage} className="w-full h-full object-cover" alt="product thumbnail" />
-                                        </div>
-                                      )}
-                                      <span className="text-[10px] font-bold text-slate-800 truncate">{notif.productTitle}</span>
+                                  {notif.type !== 'new_follower' && notif.productId && (
+                                    <div className="mt-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between gap-2.5">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        {notif.productImage && (
+                                          <div className="w-6 h-6 rounded-md overflow-hidden bg-slate-105 border border-slate-200 shrink-0">
+                                            <img src={notif.productImage} className="w-full h-full object-cover" alt="product thumbnail" />
+                                          </div>
+                                        )}
+                                        <span className="text-[10px] font-bold text-slate-800 truncate">{notif.productTitle}</span>
+                                      </div>
+                                      <span className="text-[10px] text-indigo-750 font-black bg-indigo-50/70 px-1 py-0.2 rounded shrink-0">
+                                        GH₵{notif.productPrice}
+                                      </span>
                                     </div>
-                                    <span className="text-[10px] text-indigo-750 font-black bg-indigo-50/70 px-1 py-0.2 rounded shrink-0">
-                                      GH₵{notif.productPrice}
-                                    </span>
-                                  </div>
+                                  )}
                                 </div>
                               </div>
                             ))

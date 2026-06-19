@@ -203,7 +203,7 @@ export function normalizeCategory(cat: string): Category {
 export interface AppNotification {
   id: string;
   userId: string; // The user who receives the notification
-  type: 'post_created';
+  type: 'post_created' | 'new_follower';
   title: string;
   message: string;
   triggerUserId: string; // The user who made the post

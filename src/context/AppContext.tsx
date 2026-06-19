@@ -270,6 +270,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [productLimit, setProductLimit] = useState(24);
   const [hasMoreProducts, setHasMoreProducts] = useState(true);
+  const [optimisticDeletedProductIds, setOptimisticDeletedProductIds] = useState<Set<string>>(() => new Set());
   const [chats, setChats] = useState<Chat[]>(() => {
     try {
       let uid = '';
@@ -1024,6 +1025,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
     const q = query(collection(db, 'notifications'), where('userId', '==', currentUser.id));
+    let isInitial = true;
     const unsub = onSnapshot(q, (snapshot) => {
       const list: AppNotification[] = [];
       snapshot.forEach(docSnap => {
@@ -1037,6 +1039,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (err) {}
       
       setNotifications(list);
+
+      // Real-time listener alerts for followers and new postings
+      if (!isInitial) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const notif = change.doc.data() as AppNotification;
+            if (!notif.read) {
+              if (notif.type === 'new_follower') {
+                showToast(`🎉 ${notif.message}`, 'success');
+              } else if (notif.type === 'post_created') {
+                showToast(`📢 ${notif.message}`, 'info');
+              }
+            }
+          }
+        });
+      }
+      isInitial = false;
     }, (error) => {
       // Re-route to resilient local database fallback when rules or network are offline
       console.warn('Real-time notifications backend query notice (using active local sandbox storage):', error.message);
@@ -1195,16 +1214,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...docSnap.data() as Product,
           id: docSnap.id
         };
-        if (item.id !== 'prod_1780927804590' && isRealProduct(item)) {
+        if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
           if (item.category) {
             item.category = normalizeCategory(item.category);
           }
           pList.push(item);
         } else {
-          // Self-healing: clear demo listings from database if they are found
-          try {
-            deleteDoc(doc(db, 'products', item.id)).catch(() => {});
-          } catch (_) {}
+          if (item.id === 'prod_1780927804590') {
+            // Self-healing: clear demo listings from database if they are found
+            try {
+              deleteDoc(doc(db, 'products', item.id)).catch(() => {});
+            } catch (_) {}
+          }
         }
       });
 
@@ -1213,7 +1234,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
         const createdList = JSON.parse(createdStr) as Product[];
         createdList.forEach(localProd => {
-          if (!pList.some(p => p.id === localProd.id)) {
+          if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
             pList.push(localProd);
           }
         });
@@ -1253,7 +1274,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return unsub;
-  }, [productLimit]);
+  }, [productLimit, optimisticDeletedProductIds]);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);
@@ -1687,11 +1708,6 @@ CEO, Tedbuy Inc`;
     }
     if (!password) {
       throw new Error('Password is required to register an account.');
-    }
-
-    const isStoreNameTaken = users.some(u => u.username && u.username.trim().toLowerCase() === username.trim().toLowerCase());
-    if (isStoreNameTaken) {
-       throw new Error(`The store name "${username.trim()}" is not available Please select a different store name.`);
     }
 
     const cleanEmail = email.trim().toLowerCase();
@@ -2369,6 +2385,13 @@ CEO, Tedbuy Inc`;
   };
 
   const deleteProduct = async (id: string) => {
+    // Add to optimistic deleted product IDs state instantly
+    setOptimisticDeletedProductIds(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+
     // Optimistically update local memory state and backup cache so listing disappears instantly in screen UI
     try {
       setProducts(prev => {
@@ -2384,6 +2407,12 @@ CEO, Tedbuy Inc`;
       await deleteDoc(doc(db, 'products', id));
     } catch (err) {
       console.warn('Firestore product delete call bypassed or errored:', err);
+      // Clean up optimistic state in case deletion completely failed so it doesn't get stuck
+      setOptimisticDeletedProductIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       try {
         handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
       } catch (thrownErr) {
@@ -2911,6 +2940,39 @@ CEO, Tedbuy Inc`;
           followingSellers: updatedFollowing
         });
         setCurrentUserState({ ...currentUser, followingSellers: updatedFollowing });
+
+        // Dispatch follow notification real-time trigger for target seller
+        const notifId = `notif_follow_${Date.now()}_${sellerId}_${Math.random().toString(36).substring(2, 6)}`;
+        const followNotification: AppNotification = {
+          id: notifId,
+          userId: sellerId,
+          type: 'new_follower',
+          title: 'New Follower!',
+          message: `${currentUser.username || 'Someone'} started following your shop!`,
+          triggerUserId: currentUser.id,
+          triggerUsername: currentUser.username || 'Someone',
+          triggerUserPhoto: currentUser.photoUrl || '',
+          productId: '',
+          productTitle: 'Shop Network',
+          productPrice: '0',
+          productImage: '',
+          createdAt: new Date().toISOString(),
+          read: false
+        };
+
+        try {
+          const key = `tedbuy_notifications_backup_${sellerId}`;
+          const currentListStr = safeLocalStorage.getItem(key);
+          const currentList = currentListStr ? JSON.parse(currentListStr) : [];
+          currentList.unshift(followNotification);
+          safeLocalStorage.setItem(key, JSON.stringify(currentList));
+        } catch (_) {}
+
+        try {
+          await setDoc(doc(db, 'notifications', notifId), cleanObject(followNotification));
+        } catch (dbErr) {
+          console.warn('[followSeller] Firestore follow notification skip:', dbErr);
+        }
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
       }
@@ -2970,13 +3032,6 @@ CEO, Tedbuy Inc`;
 
     const currentStoreNameLower = currentUser.username?.trim().toLowerCase();
     const newStoreNameLower = finalUsername.trim().toLowerCase();
-    
-    if (finalUsername && newStoreNameLower !== currentStoreNameLower) {
-      const isTaken = users.some(u => u.id !== currentUser.id && u.username && u.username.trim().toLowerCase() === newStoreNameLower);
-      if (isTaken) {
-        throw new Error(`The store name "${finalUsername.trim()}" is not available. Please select a different store name.`);
-      }
-    }
 
     const updatedUser: User = {
       ...currentUser,
