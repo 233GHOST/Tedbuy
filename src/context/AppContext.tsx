@@ -358,16 +358,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(() => {
-    try {
-      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
-      if (saved) {
-        const parsed = JSON.parse(saved) as Product[];
-        return parsed.filter(isRealProduct).length === 0;
-      }
-    } catch {}
-    return true;
-  });
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -651,6 +642,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       try {
         if (firebaseUser) {
+          // If the logged-in user changes, or it is a first-time login on this session,
+          // clear potential stale local backups of product list to force loading a fresh query.
+          try {
+            const individualBackupStr = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
+            let lastUid = '';
+            if (individualBackupStr) {
+              lastUid = (JSON.parse(individualBackupStr) as User).id;
+            }
+            if (!lastUid || lastUid !== firebaseUser.uid) {
+              safeLocalStorage.removeItem('tedbuy_local_products_backup');
+              safeLocalStorage.removeItem('tedbuy_local_created_products');
+              safeLocalStorage.removeItem('tedbuy_local_products_overrides');
+              setProducts([]);
+              setIsProductsLoading(true);
+            }
+          } catch (_) {}
+
           // Clear any simulated sandbox mode flags as we now have a genuine authenticated Firebase session
           safeLocalStorage.removeItem('tedbuy_simulated_mode');
           safeLocalStorage.removeItem('tedbuy_simulated_user');
@@ -1202,6 +1210,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 2. Real-time Products Synchronization
   useEffect(() => {
+    // Only clear products and show loading skeleton on initial load or reset (i.e. limit is 24/initial)
+    // to prevent pagination from flashing blank screens.
+    if (productLimit === 24) {
+      setIsProductsLoading(true);
+      setProducts([]);
+      try {
+        safeLocalStorage.removeItem('tedbuy_local_products_backup');
+      } catch {}
+    }
+
     const q = query(
       collection(db, 'products'),
       orderBy('createdAt', 'desc'),
@@ -2050,6 +2068,11 @@ CEO, Tedbuy Inc`;
       await signOut(auth);
       safeLocalStorage.removeItem('tedbuy_simulated_mode');
       safeLocalStorage.removeItem('tedbuy_simulated_user');
+      safeLocalStorage.removeItem('tedbuy_local_products_backup');
+      safeLocalStorage.removeItem('tedbuy_local_created_products');
+      safeLocalStorage.removeItem('tedbuy_local_products_overrides');
+      setProducts([]);
+      setIsProductsLoading(true);
       setCurrentUserState(null);
       setCurrentView('browse');
     } catch (err) {
@@ -3625,6 +3648,10 @@ CEO, Tedbuy Inc`;
 
   const refreshProducts = async () => {
     setIsProductsLoading(true);
+    setProducts([]);
+    try {
+      safeLocalStorage.removeItem('tedbuy_local_products_backup');
+    } catch {}
     await new Promise(resolve => setTimeout(resolve, 800));
     try {
       const snapshot = await getDocs(collection(db, 'products'));

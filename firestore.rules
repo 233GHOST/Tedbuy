@@ -28,6 +28,8 @@ service cloud.firestore {
     function isProductOwner(sellerId) {
       return isOwner(sellerId) || (
         isSignedIn() && 
+        sellerId is string && 
+        sellerId.size() > 0 &&
         request.auth.token != null && 
         "email" in request.auth.token && 
         exists(/databases/$(database)/documents/users/$(sellerId)) && 
@@ -87,11 +89,11 @@ service cloud.firestore {
       allow read: if true; // Listings are public
       allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
       allow update: if isValidId(productId) && isValidProduct(incoming()) && (
-                      isProductOwner(existing().get('sellerId', '')) ||
                       isAdmin() ||
+                      isProductOwner(existing().get('sellerId', '')) ||
                       incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount', 'isSold', 'likesCount', 'likedUserIds'])
                     );
-      allow delete: if isProductOwner(existing().get('sellerId', '')) || isAdmin();
+      allow delete: if isAdmin() || isProductOwner(existing().get('sellerId', ''));
     }
 
     // 3. Chats Collection rules
