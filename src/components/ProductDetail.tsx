@@ -438,16 +438,24 @@ export const ProductDetail: React.FC = () => {
                 muted
               />
             ) : (
-              <img
-                src={mediaGallery[activeMediaIdx]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80'}
-                alt={product.title}
-                referrerPolicy="no-referrer"
-                loading="lazy"
-                className="max-w-full max-h-full object-contain transition duration-500 group-hover/media:scale-[1.03]"
-                onError={(e) => {
-                  e.currentTarget.src = 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
-                }}
-              />
+              <div className="relative w-full h-full flex items-center justify-center">
+                <img
+                  src={mediaGallery[activeMediaIdx]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80'}
+                  alt={product.title}
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                  className="max-w-full max-h-full object-contain transition duration-500 group-hover/media:scale-[1.03]"
+                  onError={(e) => {
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
+                  }}
+                />
+                {/* Clean, centered Tedbuy Watermark Overlay */}
+                <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
+                  <span className="text-xl md:text-3xl font-black text-white/35 tracking-[0.22em] font-sans uppercase rotate-[-20deg] drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
+                    TEDBUY
+                  </span>
+                </div>
+              </div>
             )}
             
             {/* Hover overlay prompts */}
@@ -940,12 +948,20 @@ export const ProductDetail: React.FC = () => {
                   muted
                 />
               ) : (
-                <img
-                  src={mediaGallery[lightboxIndex]?.url}
-                  alt={product.title}
-                  referrerPolicy="no-referrer"
-                  className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up"
-                />
+                <div className="relative max-w-full max-h-[70vh] flex items-center justify-center select-none group/lightbox-img">
+                  <img
+                    src={mediaGallery[lightboxIndex]?.url}
+                    alt={product.title}
+                    referrerPolicy="no-referrer"
+                    className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up"
+                  />
+                  {/* Clean, centered Tedbuy Watermark Overlay in the middle of expanded image */}
+                  <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
+                    <span className="text-4xl sm:text-6xl md:text-8xl font-black text-white/45 tracking-[0.25em] font-sans uppercase rotate-[-25deg] drop-shadow-[0_4px_16px_rgba(0,0,0,0.6)]">
+                      TEDBUY
+                    </span>
+                  </div>
+                </div>
               )}
             </div>
 
