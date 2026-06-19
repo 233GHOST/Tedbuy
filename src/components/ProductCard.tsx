@@ -199,6 +199,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                     src={getLowResUrl(imgSrc)}
                     alt=""
                     aria-hidden="true"
+                    loading="lazy"
                     className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
                     style={{ filter: 'blur(10px)', transform: 'scale(1.1)' }}
                   />
@@ -276,7 +277,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         </button>
         
         {/* Dynamic bottom status bar on image hover */}
-        {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) && (
+        {(currentUser?.isAdmin || currentUser?.id === product.sellerId) && (
           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
             <span className="text-[10px] flex items-center gap-1 font-sans">
               <Eye className="w-3 h-3 text-slate-100" />
@@ -333,7 +334,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
         </div>
 
-        {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) && (
+        {(currentUser?.isAdmin || currentUser?.id === product.sellerId) && (
           <div className="pt-2.5 border-t border-dashed border-slate-200 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status Toggle</span>
             <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700">

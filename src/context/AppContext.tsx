@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { User, Product, Chat, Message, Category, Review, normalizeCategory, AppNotification } from '../types';
 import { SEED_USERS, SEED_PRODUCTS, SEED_REVIEWS } from '../data';
 import {
@@ -34,9 +34,10 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener } from '../firebase';
+import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener, requestFcmToken } from '../firebase';
 import { slugify } from '../utils/slugify';
 import { useHashRouting } from '../hooks/useHashRouting';
+import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 
 function cleanObject<T extends any>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
@@ -249,6 +250,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [];
     }
   });
+
+  const usersRef = useRef<User[]>([]);
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
@@ -263,11 +270,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [productLimit, setProductLimit] = useState(24);
   const [hasMoreProducts, setHasMoreProducts] = useState(true);
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [chats, setChats] = useState<Chat[]>(() => {
+    try {
+      let uid = '';
+      const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
+      if (stored) {
+        uid = (JSON.parse(stored) as User).id;
+      }
+      if (uid) {
+        const saved = safeLocalStorage.getItem(`tedbuy_local_chats_backup_${uid}`);
+        return saved ? JSON.parse(saved) : [];
+      }
+    } catch {}
+    return [];
+  });
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      let uid = '';
+      const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
+      if (stored) {
+        uid = (JSON.parse(stored) as User).id;
+      }
+      if (uid) {
+        const saved = safeLocalStorage.getItem(`tedbuy_local_messages_backup_${uid}`);
+        return saved ? JSON.parse(saved) : [];
+      }
+    } catch {}
+    return [];
+  });
   const msgMapRef = useRef<Map<string, Message>>(new Map());
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [reviews, setReviews] = useState<Review[]>(() => {
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_local_reviews_backup');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      let uid = '';
+      const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
+      if (stored) {
+        uid = (JSON.parse(stored) as User).id;
+      }
+      if (uid) {
+        const saved = safeLocalStorage.getItem(`tedbuy_notifications_backup_${uid}`);
+        return saved ? JSON.parse(saved) : [];
+      }
+    } catch {}
+    return [];
+  });
   const [currentUser, setCurrentUserStateRaw] = useState<User | null>(() => {
     try {
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
@@ -304,7 +357,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [isProductsLoading, setIsProductsLoading] = useState(() => {
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Product[];
+        return parsed.filter(isRealProduct).length === 0;
+      }
+    } catch {}
+    return true;
+  });
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -575,13 +637,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Firebase Auth state listener
   useEffect(() => {
     let active = true;
+    let userSubUnsub: (() => void) | undefined;
+
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!active) return;
+
+      // Clean up previous real-time subscriber if any
+      if (userSubUnsub) {
+        userSubUnsub();
+        userSubUnsub = undefined;
+      }
+
       try {
         if (firebaseUser) {
           // Clear any simulated sandbox mode flags as we now have a genuine authenticated Firebase session
           safeLocalStorage.removeItem('tedbuy_simulated_mode');
           safeLocalStorage.removeItem('tedbuy_simulated_user');
+
+          // Construct a dynamic backup/fallback user structure by checking caches first
+          let cachedUser: User | null = null;
+          
+          // 1. Search in react users state list
+          const foundInList = usersRef.current.find(u => u.id === firebaseUser.uid);
+          if (foundInList) {
+            cachedUser = foundInList;
+          } else {
+            // 2. Search in localStorage users backup list
+            try {
+              const localUsersBackup = safeLocalStorage.getItem('tedbuy_local_users_backup');
+              if (localUsersBackup) {
+                const parsedList = JSON.parse(localUsersBackup) as User[];
+                const foundInBackup = parsedList.find(u => u.id === firebaseUser.uid);
+                if (foundInBackup) {
+                  cachedUser = foundInBackup;
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to parse local users backup:', err);
+            }
+          }
+
+          // 3. Search in dedicated individual current user backup
+          if (!cachedUser) {
+            try {
+              const individualBackupStr = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
+              if (individualBackupStr) {
+                const parsed = JSON.parse(individualBackupStr) as User;
+                if (parsed.id === firebaseUser.uid) {
+                  cachedUser = parsed;
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to parse individual current user backup:', err);
+            }
+          }
+
+          // 4. Search in dedicated persistent user profiles cache (survives logouts)
+          if (!cachedUser) {
+            try {
+              const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache');
+              if (cacheStr) {
+                const cache = JSON.parse(cacheStr);
+                if (cache[firebaseUser.uid]) {
+                  cachedUser = cache[firebaseUser.uid];
+                }
+              }
+            } catch (_) {}
+          }
 
           // Generate and sanitize a pleasant, unique store name from Google profile or email
           const rawDisplayName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
@@ -589,7 +711,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           
           // Ensure username does not collide with existing user store names
           const finalUsernameLower = initialUsername.toLowerCase();
-          const isTaken = users.some(u => u.username && u.username.trim().toLowerCase() === finalUsernameLower);
+          const isTaken = usersRef.current.some(u => u.username && u.username.trim().toLowerCase() === finalUsernameLower);
           if (isTaken || finalUsernameLower === 'admin' || finalUsernameLower === 'tedbuy') {
             initialUsername = `${initialUsername}_${Math.floor(100 + Math.random() * 900)}`;
           }
@@ -599,16 +721,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Construct a dynamic backup/fallback user structure
           const tempUser: User = {
             id: firebaseUser.uid,
-            username: initialUsername,
-            email: firebaseUser.email || undefined,
-            role: 'both',
-            joinDate: 'Joined recently',
-            photoUrl: firebaseUser.photoURL || undefined,
-            followingSellers: [],
-            savedProductIds: [],
-            emailVerified: firebaseUser.emailVerified,
-            isGoogleAuth: isGoogleUser || undefined,
-            authProvider: isGoogleUser ? 'google.com' : undefined
+            username: cachedUser?.username || initialUsername,
+            email: firebaseUser.email || cachedUser?.email || undefined,
+            role: cachedUser?.role || 'both',
+            joinDate: cachedUser?.joinDate || 'Joined recently',
+            photoUrl: cachedUser?.photoUrl || firebaseUser.photoURL || undefined,
+            phoneNumber: cachedUser?.phoneNumber || undefined,
+            whatsAppNumber: cachedUser?.whatsAppNumber || undefined,
+            followingSellers: cachedUser?.followingSellers || [],
+            savedProductIds: cachedUser?.savedProductIds || [],
+            emailVerified: firebaseUser.emailVerified || cachedUser?.emailVerified,
+            isGoogleAuth: isGoogleUser || cachedUser?.isGoogleAuth || undefined,
+            authProvider: isGoogleUser ? 'google.com' : (cachedUser?.authProvider || undefined)
           };
           
           // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
@@ -622,10 +746,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Instantly hide any full screen loading blocking screen
           setIsAuthLoading(false);
 
-          // Now fetch the true DB record asynchronously in the background so it never blocks UI.
-          try {
-            const userRef = doc(db, 'users', firebaseUser.uid);
-            const userDoc = await getDoc(userRef);
+          // Now subscribe to real-time doc updates asynchronously so that changes are handled instantly
+          const userRef = doc(db, 'users', firebaseUser.uid);
+          userSubUnsub = onSnapshot(userRef, async (userDoc) => {
             if (!active) return;
             
             if (userDoc.exists()) {
@@ -643,7 +766,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
 
               if (Object.keys(updates).length > 0) {
-                await updateDoc(userRef, updates);
+                try {
+                  await updateDoc(userRef, updates);
+                } catch (err) {
+                  console.warn('Could not sync auth metadata to Firestore (offline/sandbox):', err);
+                }
                 setCurrentUserState({ ...dbData, ...updates });
               } else {
                 setCurrentUserState(dbData);
@@ -810,9 +937,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 }
               }
             }
-          } catch (dbErr) {
-            console.warn('Background user record fetch failed (normal offline fallback):', dbErr);
-          }
+          }, (error) => {
+            console.error('[User Doc Stream] Firebase onSnapshot error:', error);
+          });
         } else {
           const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
           if (isSimulated) {
@@ -859,15 +986,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       active = false;
       unsub();
+      if (userSubUnsub) {
+        userSubUnsub();
+      }
     };
   }, []);
 
-  // Sync currentUser backup to localStorage
+  // Sync currentUser backup to localStorage and multi-user cache
   useEffect(() => {
     if (isAuthLoading) return; // Wait until initial auth loop finishes!
     try {
       if (currentUser) {
         safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(currentUser));
+        
+        // Also keep long-lived multi-user profiles cache updated
+        try {
+          const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache') || '{}';
+          const cache = JSON.parse(cacheStr);
+          cache[currentUser.id] = currentUser;
+          safeLocalStorage.setItem('tedbuy_user_profiles_cache', JSON.stringify(cache));
+        } catch (_) {}
       } else {
         const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
         if (!isSimulated) {
@@ -913,6 +1051,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     return unsub;
   }, [currentUser]);
+
+  // --- FCM Real-time Device Token Registration ---
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    let isMounted = true;
+    const registerToken = async () => {
+      try {
+        const token = await requestFcmToken();
+        if (token && isMounted) {
+          console.log('[FCM] Successfully fetched cloud messaging device registration token:', token);
+          
+          const existingTokens = currentUser.fcmTokens || [];
+          if (!existingTokens.includes(token)) {
+            const updatedTokens = [...existingTokens, token].slice(-5);
+            
+            setCurrentUserState({
+              ...currentUser,
+              fcmTokens: updatedTokens
+            });
+
+            try {
+              await updateDoc(doc(db, 'users', currentUser.id), {
+                fcmTokens: updatedTokens
+              });
+              console.log('[FCM] Device token registered in Firestore user document.');
+            } catch (err) {
+              console.warn('[FCM] Could not write device token to firestore (running offline or permission restricted):', err);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[FCM] Setup failed or was blocked by modern browser security context:', err);
+      }
+    };
+
+    const timer = setTimeout(registerToken, 2500);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [currentUser?.id]);
 
   const markNotificationAsRead = async (id: string) => {
     // Optimistic UI and Local state sync
@@ -1400,6 +1581,7 @@ CEO, Tedbuy Inc`;
       setChats(combined);
       try {
         safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(combined));
+        safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUser.id}`, JSON.stringify(combined));
       } catch (err) {
         console.warn('Could not save chats backup:', err);
       }
@@ -1460,6 +1642,7 @@ CEO, Tedbuy Inc`;
       setMessages(sorted);
       try {
         safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(sorted));
+        safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(sorted));
       } catch (err) {
         console.warn('Could not save messages backup:', err);
       }
@@ -1645,27 +1828,40 @@ CEO, Tedbuy Inc`;
         if (isAuthCredentialError) {
           try {
             let redirectToGoog = false;
+            const isGmail = cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com');
             
-            // 1. Check Firestore user document indicators
-            const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-              const uDoc = snap.docs[0].data() as User;
-              if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com') {
+            // 1. Check if we have this email in our synced client-side users list
+            const matchedDbUser = users.find(u => u.email?.trim().toLowerCase() === cleanIdentifier.toLowerCase());
+            if (matchedDbUser) {
+              if (matchedDbUser.isGoogleAuth || matchedDbUser.authProvider === 'google.com' || isGmail) {
                 redirectToGoog = true;
               }
+            } else if (isGmail) {
+              // Any Gmail address failing credentials check can fallback to Google Auth safely
+              redirectToGoog = true;
             } else {
-              // 2. Fetch auth providers from Firebase Auth if they aren't registered/cached in Firestore yet
-              try {
-                const methods = await fetchSignInMethodsForEmail(auth, cleanIdentifier);
-                if (methods.includes('google.com') && !methods.includes('password')) {
+              // 2. Perform case-sensitive and case-insensitive queries in Firestore as backup
+              const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                const uDoc = snap.docs[0].data() as User;
+                if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com') {
                   redirectToGoog = true;
                 }
-              } catch (_) {}
+              } else {
+                const qLower = query(collection(db, 'users'), where('email', '==', cleanIdentifier.toLowerCase()));
+                const snapLower = await getDocs(qLower);
+                if (!snapLower.empty) {
+                  const uDoc = snapLower.docs[0].data() as User;
+                  if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com') {
+                    redirectToGoog = true;
+                  }
+                }
+              }
             }
 
             if (redirectToGoog) {
-              showToast('We detected that your account was originally created using Google. Authenticating securely with your Google account details...', 'info');
+              showToast('Google account detected. Authenticating securely via secure Google account details...', 'info');
               await loginWithGoogle(cleanIdentifier);
               return true;
             }
@@ -2113,6 +2309,53 @@ CEO, Tedbuy Inc`;
               sellerId: existingData.sellerId || currentUser?.id || '',
             };
             await setDoc(productRef, cleanObject(fullProductUpdate));
+
+            // Distribute notifications to users following this seller/ad
+            if (currentUser) {
+              const notifyTargetUsers = users.filter(u => {
+                if (u.id === currentUser.id) return false;
+                const matchesSavedId = u.savedProductIds?.includes(id);
+                const matchesSellerId = u.followingSellers?.includes(existingData.sellerId || '');
+                return matchesSavedId || matchesSellerId;
+              });
+
+              for (const targetUser of notifyTargetUsers) {
+                const isSaved = targetUser.savedProductIds?.includes(id);
+                const notifId = `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`;
+                const newNotification: AppNotification = {
+                  id: notifId,
+                  userId: targetUser.id,
+                  type: 'post_created',
+                  title: isSaved ? 'Followed Ad Updated!' : 'New Update from Seller',
+                  message: isSaved 
+                    ? `An ad you are following "${existingData.title}" was updated by the seller.`
+                    : `${currentUser.username} updated their listing: "${existingData.title}"`,
+                  triggerUserId: currentUser.id,
+                  triggerUsername: currentUser.username,
+                  triggerUserPhoto: currentUser.photoUrl || '',
+                  productId: id,
+                  productTitle: existingData.title,
+                  productPrice: updatedData.price !== undefined ? updatedData.price : existingData.price,
+                  productImage: (updatedData.images && updatedData.images[0]) || existingData.images?.[0] || '',
+                  createdAt: new Date().toISOString(),
+                  read: false
+                };
+
+                try {
+                  const key = `tedbuy_notifications_backup_${targetUser.id}`;
+                  const currentListStr = safeLocalStorage.getItem(key);
+                  const currentList = currentListStr ? JSON.parse(currentListStr) : [];
+                  currentList.unshift(newNotification);
+                  safeLocalStorage.setItem(key, JSON.stringify(currentList));
+                } catch (_) {}
+
+                try {
+                  await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
+                } catch (dbErr) {
+                  console.warn('Backend notification dispatch skipped in sandbox context:', dbErr);
+                }
+              }
+            }
           }
         } else {
           await updateDoc(productRef, cleanObject(updatedData));
@@ -2314,6 +2557,97 @@ CEO, Tedbuy Inc`;
     }
   };
 
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+
+  const processOfflineQueue = useCallback(async () => {
+    if (isProcessingQueue) return;
+    try {
+      const queueStr = safeLocalStorage.getItem('tedbuy_offline_message_queue');
+      if (!queueStr) return;
+      
+      const queue = JSON.parse(queueStr) as Message[];
+      if (queue.length === 0) return;
+
+      if (!navigator.onLine) {
+        console.log('[Offline Queue] Device is offline. Postponing retry.');
+        return;
+      }
+
+      setIsProcessingQueue(true);
+      console.log(`[Offline Queue] Processing ${queue.length} pending offline messages...`);
+
+      const remainingQueue: Message[] = [];
+
+      for (const msg of queue) {
+        try {
+          // Attempt sending to Firestore
+          await setDoc(doc(db, 'messages', msg.id), cleanObject(msg));
+          
+          await updateDoc(doc(db, 'chats', msg.chatId), cleanObject({
+            lastMessageText: msg.text,
+            lastMessageTime: msg.createdAt
+          }));
+
+          // Trigger chat notification
+          const notifId = `notif_chat_${Date.now()}_${msg.recipientId}_${Math.random().toString(36).substring(2, 6)}`;
+          const senderName = currentUser?.username || 'User';
+          const chatNotification: AppNotification = {
+            id: notifId,
+            userId: msg.recipientId,
+            type: 'post_created',
+            title: `Message from ${senderName}`,
+            message: msg.text.length > 55 ? `${msg.text.substring(0, 55)}...` : msg.text,
+            triggerUserId: msg.senderId,
+            triggerUsername: senderName,
+            triggerUserPhoto: currentUser?.photoUrl || '',
+            productId: '',
+            productTitle: 'Shared Listing Chat',
+            productPrice: 'Inquire',
+            productImage: '',
+            createdAt: new Date().toISOString(),
+            read: false
+          };
+
+          try {
+            await setDoc(doc(db, 'notifications', notifId), cleanObject(chatNotification));
+          } catch (_) {}
+
+          console.log(`[Offline Queue] Sent queued message ${msg.id} successfully.`);
+        } catch (err) {
+          console.warn(`[Offline Queue] Failed to sync message ${msg.id}. Keeping in queue:`, err);
+          remainingQueue.push(msg);
+        }
+      }
+
+      safeLocalStorage.setItem('tedbuy_offline_message_queue', JSON.stringify(remainingQueue));
+    } catch (err) {
+      console.warn('[Offline Queue] Error while processing queue:', err);
+    } finally {
+      setIsProcessingQueue(false);
+    }
+  }, [currentUser, isProcessingQueue]);
+
+  // Monitor network status & trigger background queue processing
+  useEffect(() => {
+    processOfflineQueue();
+
+    const handleOnlineStatus = () => {
+      console.log('[Background Sync] Network restored. Syncing offline messages...');
+      processOfflineQueue();
+    };
+
+    window.addEventListener('online', handleOnlineStatus);
+    
+    // Register Service Worker and bind its sync events to processOfflineQueue
+    registerServiceWorker(() => {
+      processOfflineQueue();
+    });
+
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+    };
+  }, [processOfflineQueue]);
+
   const sendMessage = async (chatId: string, text: string, optionalSenderId?: string) => {
     const sender = optionalSenderId ? users.find(u => u.id === optionalSenderId) : currentUser;
     if (!sender) return;
@@ -2334,14 +2668,102 @@ CEO, Tedbuy Inc`;
       read: false
     };
 
+    // Snappy Optimistic UI: update local messages state immediately
+    setMessages(prev => {
+      const updated = [...prev, newMsg];
+      try {
+        safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(updated));
+        if (currentUser) {
+          safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(updated));
+        }
+      } catch (_) {}
+      return updated;
+    });
+
+    // Snappy Optimistic UI: update chats status list immediately
+    setChats(prevChats => {
+      const updatedChats = prevChats.map(c => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            lastMessageText: text,
+            lastMessageTime: newMsg.createdAt
+          };
+        }
+        return c;
+      });
+      try {
+        safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(updatedChats));
+        if (currentUser) {
+          safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUser.id}`, JSON.stringify(updatedChats));
+        }
+      } catch (_) {}
+      return updatedChats;
+    });
+
+    const queueMessageOffline = (msg: Message) => {
+      try {
+        const queueStr = safeLocalStorage.getItem('tedbuy_offline_message_queue') || '[]';
+        const queue = JSON.parse(queueStr) as Message[];
+        if (!queue.some(m => m.id === msg.id)) {
+          queue.push(msg);
+          safeLocalStorage.setItem('tedbuy_offline_message_queue', JSON.stringify(queue));
+        }
+      } catch (err) {
+        console.warn('Could not cache message in offline queue:', err);
+      }
+    };
+
+    if (!navigator.onLine) {
+      console.log('[Offline Queue] Offline detected during send. Queueing message locally.');
+      queueMessageOffline(newMsg);
+      triggerBackgroundSync();
+      return;
+    }
+
     try {
       await setDoc(doc(db, 'messages', msgId), cleanObject(newMsg));
       await updateDoc(doc(db, 'chats', chatId), cleanObject({
         lastMessageText: text,
-        lastMessageTime: new Date().toISOString()
+        lastMessageTime: newMsg.createdAt
       }));
+
+      // In-app & Activity stream push notification trigger
+      const notifId = `notif_chat_${Date.now()}_${recId}_${Math.random().toString(36).substring(2, 6)}`;
+      const chatNotification: AppNotification = {
+        id: notifId,
+        userId: recId,
+        type: 'post_created', // Map to standard interface type
+        title: `Message from ${sender.username || 'User'}`,
+        message: text.length > 50 ? `${text.substring(0, 50)}...` : text,
+        triggerUserId: sender.id,
+        triggerUsername: sender.username || 'User',
+        triggerUserPhoto: sender.photoUrl || '',
+        productId: chat.productId || '',
+        productTitle: chat.productTitle || 'Shared Listing Chat',
+        productPrice: chat.productPrice || 'Inquire',
+        productImage: chat.productImage || '',
+        createdAt: new Date().toISOString(),
+        read: false
+      };
+
+      try {
+        const key = `tedbuy_notifications_backup_${recId}`;
+        const currentListStr = safeLocalStorage.getItem(key);
+        const currentList = currentListStr ? JSON.parse(currentListStr) : [];
+        currentList.unshift(chatNotification);
+        safeLocalStorage.setItem(key, JSON.stringify(currentList));
+      } catch (_) {}
+
+      try {
+        await setDoc(doc(db, 'notifications', notifId), cleanObject(chatNotification));
+      } catch (dbErr) {
+        console.warn('[sendMessage] Skip server notification log in sandbox context:', dbErr);
+      }
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `messages/${msgId}`);
+      console.warn('[sendMessage] Firestore transaction failed. Moving message to offline queue for background sync retry.', err);
+      queueMessageOffline(newMsg);
+      triggerBackgroundSync();
     }
   };
 
@@ -2365,6 +2787,9 @@ CEO, Tedbuy Inc`;
     setMessages(updated);
     try {
       safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(updated));
+      if (currentUser) {
+        safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(updated));
+      }
     } catch (err) {
       console.warn('Could not save messages backup:', err);
     }
@@ -2388,6 +2813,9 @@ CEO, Tedbuy Inc`;
       }
       try {
         safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(next));
+        if (currentUser) {
+          safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(next));
+        }
       } catch (err) {
         console.warn('Could not save messages backup:', err);
       }
@@ -2546,7 +2974,7 @@ CEO, Tedbuy Inc`;
     if (finalUsername && newStoreNameLower !== currentStoreNameLower) {
       const isTaken = users.some(u => u.id !== currentUser.id && u.username && u.username.trim().toLowerCase() === newStoreNameLower);
       if (isTaken) {
-        throw new Error(`The store name "${finalUsername.trim()}" is not available Please select a different store name.`);
+        throw new Error(`The store name "${finalUsername.trim()}" is not available. Please select a different store name.`);
       }
     }
 
@@ -2559,6 +2987,30 @@ CEO, Tedbuy Inc`;
       role: finalRole
     };
 
+    // --- INSTANT OPTIMISTIC STATE UPDATE (Saves are now 100% instantaneous) ---
+    setCurrentUserState(updatedUser);
+    
+    // Sync with users list state
+    setUsers(prevUsers => {
+      const updatedList = prevUsers.map(u => u.id === currentUser.id ? updatedUser : u);
+      try {
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(updatedList));
+      } catch (_) {}
+      return updatedList;
+    });
+
+    // Match simulated user state and persist inside dedicated caches
+    try {
+      safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
+      safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(updatedUser));
+      
+      const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache') || '{}';
+      const cache = JSON.parse(cacheStr);
+      cache[updatedUser.id] = updatedUser;
+      safeLocalStorage.setItem('tedbuy_user_profiles_cache', JSON.stringify(cache));
+    } catch (_) {}
+
+    // --- FIRE-AND-FORGET BACKGROUND FIRESTORE WRITE ---
     try {
       const batch = writeBatch(db);
       
@@ -2579,7 +3031,7 @@ CEO, Tedbuy Inc`;
           userId: currentUser.id,
           username: finalUsername.trim()
         });
-        console.log(`[Profile Update] Atomic store name mapping changed from "${currentStoreNameLower}" to "${newStoreNameLower}"`);
+        console.log(`[Profile Update] Atomic store name mapping queued from "${currentStoreNameLower}" to "${newStoreNameLower}"`);
       } else if (profileData.username !== undefined) {
         batch.set(doc(db, 'storeNames', newStoreNameLower), {
           userId: currentUser.id,
@@ -2587,28 +3039,16 @@ CEO, Tedbuy Inc`;
         });
       }
 
-      await batch.commit();
+      batch.commit()
+        .then(() => {
+          console.log('[Profile Update] Background Firestore batch write committed successfully.');
+        })
+        .catch(err => {
+          console.warn('[Profile Update] Background Firestore write queued for offline sync:', err);
+        });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.id}`);
+      console.warn('[Profile Update] Background Firestore batch build error:', err);
     }
-
-    // Always update local status & localStorage
-    setCurrentUserState(updatedUser);
-    
-    // Sync with users list state
-    setUsers(prevUsers => {
-      const updatedList = prevUsers.map(u => u.id === currentUser.id ? updatedUser : u);
-      try {
-        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(updatedList));
-      } catch (_) {}
-      return updatedList;
-    });
-
-    // Match simulated user state
-    try {
-      safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(updatedUser));
-      safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(updatedUser));
-    } catch (_) {}
   };
 
   const deleteAccount = async (password?: string) => {
@@ -3164,9 +3604,38 @@ CEO, Tedbuy Inc`;
     setProductLimit(prev => prev + 24);
   }, []);
 
+  // Memoized user profile state to resolve store-name flicking issue by prioritizing cached Firestore documents over Auth properties during handshake
+  const memoizedCurrentUser = useMemo(() => {
+    if (!currentUser) return null;
+
+    try {
+      // Prioritize the long-lived cache of Firestore user documents
+      const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache');
+      if (cacheStr) {
+        const cache = JSON.parse(cacheStr);
+        const cachedDoc = cache[currentUser.id];
+        if (cachedDoc) {
+          return {
+            ...currentUser,
+            username: currentUser.username || cachedDoc.username,
+            photoUrl: currentUser.photoUrl || cachedDoc.photoUrl,
+            phoneNumber: currentUser.phoneNumber || cachedDoc.phoneNumber,
+            whatsAppNumber: currentUser.whatsAppNumber || cachedDoc.whatsAppNumber,
+            role: currentUser.role || cachedDoc.role,
+            emailVerified: currentUser.emailVerified !== undefined ? currentUser.emailVerified : cachedDoc.emailVerified
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('[memoizedCurrentUser] Error resolving cache:', err);
+    }
+
+    return currentUser;
+  }, [currentUser]);
+
   return (
     <AppContext.Provider value={{
-      currentUser,
+      currentUser: memoizedCurrentUser,
       setCurrentUser: setCurrentUserState,
       users,
       registerUser,

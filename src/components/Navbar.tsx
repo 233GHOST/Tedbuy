@@ -226,7 +226,7 @@ export const Navbar: React.FC = () => {
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
-                  if (currentView !== 'browse') setCurrentView('browse');
+                  setCurrentView('browse');
                 }}
                 onFocus={() => setIsDesktopFocused(true)}
                 onBlur={() => setTimeout(() => setIsDesktopFocused(false), 200)}
@@ -298,7 +298,7 @@ export const Navbar: React.FC = () => {
                             onClick={() => {
                               setSearchQuery(term);
                               addRecentQuery(term);
-                              if (currentView !== 'browse') setCurrentView('browse');
+                              setCurrentView('browse');
                               setIsDesktopFocused(false);
                             }}
                             className="px-2.5 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200/60 rounded-lg text-xs font-medium transition flex items-center gap-1 cursor-pointer"

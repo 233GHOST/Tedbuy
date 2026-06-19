@@ -160,6 +160,7 @@ export const ProductDetail: React.FC = () => {
                 <img 
                   src={pImg} 
                   alt={pTitle || "Shared deal preview"} 
+                  loading="lazy"
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
                   onError={(e) => {
@@ -394,7 +395,7 @@ export const ProductDetail: React.FC = () => {
       "priceValidUntil": "2027-12-31",
       "seller": {
         "@type": "Person",
-        "name": sellerUser?.fullName || product.sellerName || "Verified Seller",
+        "name": sellerUser?.username || product.sellerName || "Verified Seller",
         "url": typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}/seller/${product.sellerId}` : `https://tedbuy.store/seller/${product.sellerId}`
       }
     }
@@ -441,6 +442,7 @@ export const ProductDetail: React.FC = () => {
                 src={mediaGallery[activeMediaIdx]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80'}
                 alt={product.title}
                 referrerPolicy="no-referrer"
+                loading="lazy"
                 className="max-w-full max-h-full object-contain transition duration-500 group-hover/media:scale-[1.03]"
                 onError={(e) => {
                   e.currentTarget.src = 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
@@ -503,7 +505,7 @@ export const ProductDetail: React.FC = () => {
                       </div>
                     </>
                   ) : (
-                    <img src={med.url} alt="Thumbnail preview" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                    <img src={med.url} alt="Thumbnail preview" referrerPolicy="no-referrer" loading="lazy" className="w-full h-full object-cover" />
                   )}
                 </button>
               ))}
@@ -543,7 +545,7 @@ export const ProductDetail: React.FC = () => {
                 <MapPin className="w-4 h-4 text-slate-400" />
                 {product.location}
               </span>
-              {(currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.id === product.sellerId) && (
+              {(currentUser?.isAdmin || currentUser?.id === product.sellerId) && (
                 <>
                   <span className="flex items-center gap-1.5">
                     <Eye className="w-4 h-4 text-slate-400" />
@@ -742,6 +744,7 @@ export const ProductDetail: React.FC = () => {
                 <img
                   src={product.sellerPhoto}
                   alt={product.sellerName}
+                  loading="lazy"
                   className="w-12 h-12 rounded-full border border-slate-100 object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-slate-350 transition-all"
                   title="Click to view profile picture"
                   onClick={() => setViewedPhoto({ url: product.sellerPhoto!, name: `${product.sellerName}'s Profile Picture` })}
@@ -750,6 +753,7 @@ export const ProductDetail: React.FC = () => {
                 <img
                   src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
                   alt={product.sellerName}
+                  loading="lazy"
                   className="w-12 h-12 rounded-full border border-slate-200/80 object-cover shrink-0"
                 />
               )}

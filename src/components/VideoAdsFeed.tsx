@@ -666,7 +666,10 @@ export const VideoAdsFeed: React.FC = () => {
     toggleSaveProduct,
     setShowAuthModal,
     setAuthMode,
-    startChat
+    startChat,
+    isProductsLoading,
+    hasMoreProducts,
+    loadMoreProducts
   } = useApp();
 
   const feedScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -675,6 +678,16 @@ export const VideoAdsFeed: React.FC = () => {
   const videoProducts = useMemo(() => {
     return products.filter(p => p.videos && p.videos.length > 0);
   }, [products]);
+
+  // Background filler effect: If the filtered video products count is small, proactively request more products in the background
+  useEffect(() => {
+    if (videoProducts.length < 10 && hasMoreProducts && !isProductsLoading) {
+      const timer = setTimeout(() => {
+        loadMoreProducts();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [videoProducts.length, hasMoreProducts, isProductsLoading, loadMoreProducts]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);

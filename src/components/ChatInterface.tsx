@@ -31,6 +31,49 @@ export const ChatInterface: React.FC = () => {
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Dynamic virtualized viewport tracking states
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [scrollState, setScrollState] = useState({ scrollTop: 0, clientHeight: 0 });
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      window.requestAnimationFrame(() => {
+        if (el) {
+          setScrollState({
+            scrollTop: el.scrollTop,
+            clientHeight: el.clientHeight
+          });
+        }
+      });
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    
+    // Set initial layout measurements
+    setScrollState({
+      scrollTop: el.scrollTop,
+      clientHeight: el.clientHeight
+    });
+
+    const observer = new ResizeObserver(() => {
+      if (el) {
+        setScrollState({
+          scrollTop: el.scrollTop,
+          clientHeight: el.clientHeight
+        });
+      }
+    });
+    observer.observe(el);
+
+    return () => {
+      el.removeEventListener('scroll', handleScroll);
+      observer.disconnect();
+    };
+  }, [activeChatId]);
+
   // Filter chats belonging to current user (either as buyer or seller)
   const myChats = useMemo(() => {
     return chats.filter(c => currentUser && (c.buyerId === currentUser.id || c.sellerId === currentUser.id));
@@ -93,6 +136,17 @@ export const ChatInterface: React.FC = () => {
 
   // Get active chat messages
   const activeMessages = messages.filter(m => m.chatId === activeChatId);
+
+  const estimatedRowHeight = 90;
+  const startIndex = Math.max(0, Math.floor(scrollState.scrollTop / estimatedRowHeight) - 4);
+  const endIndex = Math.min(activeMessages.length - 1, Math.floor((scrollState.scrollTop + scrollState.clientHeight) / estimatedRowHeight) + 4);
+
+  const visibleMessages = useMemo(() => {
+    return activeMessages.slice(startIndex, endIndex + 1);
+  }, [activeMessages, startIndex, endIndex]);
+
+  const paddingTop = startIndex * estimatedRowHeight;
+  const paddingBottom = Math.max(0, (activeMessages.length - 1 - endIndex) * estimatedRowHeight);
 
   // Find info about the peer (other person) in active chat
   const otherUserId = activeChat ? (activeChat.buyerId === currentUser.id ? activeChat.sellerId : activeChat.buyerId) : null;
@@ -478,53 +532,65 @@ export const ChatInterface: React.FC = () => {
               })()}
 
               {/* Chat messages viewport */}
-              <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-3.5 flex flex-col bg-slate-50/50 [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]">
-                {activeChat.productId !== 'support_welcome' && (
-                  <div className="mx-auto bg-slate-150/80 text-slate-650 border border-slate-200/80 px-4 py-2 rounded-2xl text-xs font-semibold flex items-center gap-2 max-w-xs sm:max-w-md mb-4 text-left">
-                    <ShieldAlert className="w-4 h-4 text-slate-800 shrink-0" />
-                    <span>Classified Safety: Verify item condition in person before releasing payment.</span>
-                  </div>
-                )}
+              <div 
+                ref={viewportRef}
+                className="flex-1 overflow-y-auto overscroll-contain p-4 bg-slate-50/50 [scrollbar-width:thin] [-webkit-overflow-scrolling:touch]"
+              >
+                <div className="flex flex-col space-y-3.5">
+                  {activeChat.productId !== 'support_welcome' && (
+                    <div className="mx-auto bg-slate-150/80 text-slate-650 border border-slate-200/80 px-4 py-2 rounded-2xl text-xs font-semibold flex items-center gap-2 max-w-xs sm:max-w-md mb-4 text-left">
+                      <ShieldAlert className="w-4 h-4 text-slate-800 shrink-0" />
+                      <span>Classified Safety: Verify item condition in person before releasing payment.</span>
+                    </div>
+                  )}
 
-                {activeMessages.map((msg, i) => {
-                  const mine = msg.senderId === currentUser?.id;
-                  const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                  const isSystemAlert = msg.id.startsWith('sys_') || msg.text.startsWith('📦') || msg.text.startsWith('🤝');
+                  {/* Top Virtual Spacer */}
+                  {paddingTop > 0 && <div style={{ height: `${paddingTop}px` }} className="w-full shrink-0" />}
 
-                  if (isSystemAlert) {
+                  {visibleMessages.map((msg, i) => {
+                    const mine = msg.senderId === currentUser?.id;
+                    const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const isSystemAlert = msg.id.startsWith('sys_') || msg.text.startsWith('📦') || msg.text.startsWith('🤝');
+
+                    if (isSystemAlert) {
+                      return (
+                        <div key={msg.id} className="flex justify-center my-3 select-none">
+                          <div className="bg-slate-100 text-slate-800 border border-slate-200 px-4 py-3 rounded-2xl flex items-center gap-2 max-w-sm sm:max-w-md font-sans text-xs text-left leading-relaxed shadow-3xs">
+                            <span className="text-sm shrink-0">💡</span>
+                            <span className="font-semibold">{msg.text}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
-                      <div key={msg.id} className="flex justify-center my-3 select-none">
-                        <div className="bg-slate-100 text-slate-800 border border-slate-200 px-4 py-3 rounded-2xl flex items-center gap-2 max-w-sm sm:max-w-md font-sans text-xs text-left leading-relaxed shadow-3xs">
-                          <span className="text-sm shrink-0">💡</span>
-                          <span className="font-semibold">{msg.text}</span>
+                      <div
+                        key={msg.id}
+                        className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div className={`max-w-[70%] text-left ${mine ? 'order-1' : 'order-2'}`}>
+                          <div
+                            className={`p-3.5 rounded-2xl text-sm font-sans leading-relaxed shadow-xs ${
+                              mine
+                                ? 'bg-slate-900 text-white font-medium rounded-tr-none'
+                                : 'bg-white text-slate-800 rounded-tl-none border border-slate-200'
+                            }`}
+                          >
+                            {msg.text}
+                          </div>
+                          <div className={`text-[9px] text-slate-400 font-mono mt-1 ${mine ? 'text-right' : 'text-left'}`}>
+                            {formattedTime} {mine && (msg.read ? '• Read' : '• Sent')}
+                          </div>
                         </div>
                       </div>
                     );
-                  }
+                  })}
 
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div className={`max-w-[70%] text-left ${mine ? 'order-1' : 'order-2'}`}>
-                        <div
-                          className={`p-3.5 rounded-2xl text-sm font-sans leading-relaxed shadow-xs ${
-                            mine
-                              ? 'bg-slate-900 text-white font-medium rounded-tr-none'
-                              : 'bg-white text-slate-800 rounded-tl-none border border-slate-200'
-                          }`}
-                        >
-                          {msg.text}
-                        </div>
-                        <div className={`text-[9px] text-slate-400 font-mono mt-1 ${mine ? 'text-right' : 'text-left'}`}>
-                          {formattedTime} {mine && (msg.read ? '• Read' : '• Sent')}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div ref={chatEndRef} />
+                  {/* Bottom Virtual Spacer */}
+                  {paddingBottom > 0 && <div style={{ height: `${paddingBottom}px` }} className="w-full shrink-0" />}
+
+                  <div ref={chatEndRef} />
+                </div>
               </div>
 
               {/* Message Typing Panel */}

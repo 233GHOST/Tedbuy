@@ -211,7 +211,7 @@ export const ProfileSettings: React.FC = () => {
         username: username.trim(),
         phoneNumber: phoneNumber.trim() || undefined,
         whatsAppNumber: whatsAppNumber.trim() || undefined,
-        photoUrl,
+        photoUrl: photoUrl || "",
         role
       });
       setSaveSuccess(true);
@@ -326,7 +326,7 @@ export const ProfileSettings: React.FC = () => {
             {/* Clickable Profile Avatar to upload */}
             <div 
               onClick={handleAvatarClick}
-              className="group relative w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200/60 mb-4 shadow-3xs cursor-pointer overflow-hidden transition-all hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 select-none"
+              className="group relative w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200/60 mb-1.5 shadow-3xs cursor-pointer overflow-hidden transition-all hover:ring-2 hover:ring-slate-400 hover:ring-offset-2 select-none"
               title="Click to change profile picture"
             >
               {photoUrl && !photoUrl.includes('1549399542-7e3f8b79c341') ? (
@@ -344,6 +344,22 @@ export const ProfileSettings: React.FC = () => {
                 <span className="text-[10px] font-bold mt-1 text-white/95">Add Photo</span>
               </div>
             </div>
+
+            {/* Remove Profile Photo button option */}
+            {photoUrl && !photoUrl.includes('1549399542-7e3f8b79c341') && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPhotoUrl(undefined);
+                }}
+                className="mb-4 text-[10px] font-bold text-rose-500 hover:text-rose-700 hover:underline cursor-pointer flex items-center gap-1"
+                title="Completely remove profile photo"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Remove Photo</span>
+              </button>
+            )}
 
             <h3 className="text-sm font-black text-slate-900">{username || 'Anonymous User'}</h3>
             <p className="text-[11px] text-slate-500 font-mono mt-0.5">

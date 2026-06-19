@@ -36,6 +36,61 @@ const getResilientDb = () => {
 export const db = getResilientDb();
 export const auth = getAuth();
 
+// --- Firebase Cloud Messaging (FCM) Support ---
+import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
+
+export const getFcmMessaging = async () => {
+  try {
+    const supported = await isSupported();
+    if (supported) {
+      return getMessaging(app);
+    }
+  } catch (err) {
+    console.warn('[FCM] Messaging is not supported or blocked in this browser environment:', err);
+  }
+  return null;
+};
+
+// Graceful FCM Token Retrieval (handles iframe restrictions cleanly)
+export const requestFcmToken = async (): Promise<string | null> => {
+  try {
+    const supported = await isSupported();
+    if (!supported) {
+      console.log('[FCM] Push messaging is not supported in this browser context.');
+      return null;
+    }
+
+    // Verify Notification API is present
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        if (Notification.permission === 'default') {
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') {
+            console.log('[FCM] Notification permission was denied by the user.');
+            return null;
+          }
+        } else if (Notification.permission === 'denied') {
+          console.log('[FCM] Notification permission is status: denied.');
+          return null;
+        }
+      } catch (permissionErr) {
+        console.warn('[FCM] Could not request notification permission in sandbox/iframe context:', permissionErr);
+        return null;
+      }
+    }
+
+    const messagingInstance = getMessaging(app);
+    // Generic public VAPID key to initialize
+    const vapidKey = 'BJHv5e_fO77N-1UunKsz_vG_X-W8Bv97Q4Q1bH_p16PZg72lX8y9nL0P3g5Nq1T1z-67O8276y-X8y7'; 
+    const token = await getToken(messagingInstance, { vapidKey });
+    console.log('[FCM] Token retrieved successfully:', token);
+    return token;
+  } catch (tokenErr) {
+    console.warn('[FCM] Gracefully handled token extraction exception (expected in iframe previews):', tokenErr);
+    return null;
+  }
+};
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',

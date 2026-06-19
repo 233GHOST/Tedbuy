@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetail } from './components/ProductDetail';
@@ -164,8 +165,8 @@ const MarketplaceContent: React.FC = () => {
     } else if (currentView === 'seller-profile' && selectedSellerId) {
       const seller = users?.find(u => u.id === selectedSellerId);
       if (seller) {
-        title = `${seller.fullName || 'Verified Seller'}'s Shop & Ads | Tedbuy Ghana`;
-        description = `Browse listing offers, ratings, and verified products posted by ${seller.fullName || 'Verified Seller'} in Ghana. Trade directly on Tedbuy.`;
+        title = `${seller.username || 'Verified Seller'}'s Shop & Ads | Tedbuy Ghana`;
+        description = `Browse listing offers, ratings, and verified products posted by ${seller.username || 'Verified Seller'} in Ghana. Trade directly on Tedbuy.`;
       }
     } else if (currentView === 'chats') {
       title = 'My Messages & Active Chats | Tedbuy Ghana';
@@ -206,7 +207,7 @@ const MarketplaceContent: React.FC = () => {
   const [isPulling, setIsPulling] = useState(false);
   const touchStartY = useRef(0);
   const pullIndicatorRef = useRef<HTMLDivElement>(null);
-  const pullIconRef = useRef<SVGSVGElement>(null);
+  const pullIconRef = useRef<any>(null);
   const pullTextRef = useRef<HTMLSpanElement>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -1368,7 +1369,9 @@ const MarketplaceContent: React.FC = () => {
 export default function App() {
   return (
     <AppProvider>
-      <MarketplaceContent />
+      <ErrorBoundary>
+        <MarketplaceContent />
+      </ErrorBoundary>
     </AppProvider>
   );
 }

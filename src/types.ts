@@ -14,6 +14,7 @@ export interface User {
   emailVerified?: boolean;
   isGoogleAuth?: boolean;
   authProvider?: string;
+  fcmTokens?: string[];
 }
 
 export const isUserVerified = (user?: User | null): boolean => {
