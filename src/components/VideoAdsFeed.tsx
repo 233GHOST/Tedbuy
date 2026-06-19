@@ -26,7 +26,8 @@ import {
   Share2,
   Music,
   Flame,
-  Eye
+  Eye,
+  X
 } from 'lucide-react';
 
 // Helper to convert base64 data URIs securely into highly compatible, sandboxing-safe Blob URLs.
@@ -669,7 +670,10 @@ export const VideoAdsFeed: React.FC = () => {
     startChat,
     isProductsLoading,
     hasMoreProducts,
-    loadMoreProducts
+    loadMoreProducts,
+    setIsVerificationBlockOpen,
+    setBlockedActionType,
+    showToast
   } = useApp();
 
   const feedScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -692,6 +696,7 @@ export const VideoAdsFeed: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [volume, setVolume] = useState(1);
+  const [contactingProduct, setContactingProduct] = useState<Product | null>(null);
 
   // Sync scroll positioning with Intersection Observer
   useEffect(() => {
@@ -844,12 +849,7 @@ export const VideoAdsFeed: React.FC = () => {
                       setShowAuthModal(true);
                       return;
                     }
-                    try {
-                      startChat(product.id, "Hi, I saw your video ad! Is this item still available?");
-                      setCurrentView('chats');
-                    } catch (err) {
-                      console.error("Failed to start chat:", err);
-                    }
+                    setContactingProduct(product);
                   }}
                   onViewFullAd={handleViewFullAd}
                   volume={volume}
@@ -868,6 +868,142 @@ export const VideoAdsFeed: React.FC = () => {
           })}
         </div>
       </div>
+
+      {/* WhatsApp or In-App Chat Contact Options modal overlay */}
+      <AnimatePresence>
+        {contactingProduct && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[99]" onClick={() => setContactingProduct(null)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl relative text-left"
+            >
+              {/* Close button */}
+              <button
+                onClick={() => setContactingProduct(null)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white transition cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Header section with brand yellow highlights */}
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#FFFC00]/20 to-amber-500/10 border border-[#FFFC00]/30 text-[#FFFC00] flex items-center justify-center mb-5 shadow-inner">
+                <MessageSquare className="w-5.5 h-5.5 stroke-[2.2]" />
+              </div>
+
+              <h4 className="text-base font-black uppercase text-slate-100 tracking-wider mb-1 flex items-center gap-1.5 leading-snug">
+                Contact Seller
+              </h4>
+              <p className="text-xs text-slate-400 font-medium leading-relaxed mb-6">
+                How would you like to negotiate or chat with <span className="font-extrabold text-[#FFFC00]">@{contactingProduct.sellerName}</span> regarding this video ad?
+              </p>
+
+              {/* Action buttons */}
+              <div className="space-y-3.5">
+                {/* 1. Direct WhatsApp Option */}
+                <button
+                  onClick={() => {
+                    const sellerUser = users?.find(u => u.id === contactingProduct.sellerId);
+                    const hasWhatsApp = !!sellerUser?.whatsAppNumber;
+
+                    if (!currentUser) {
+                      setContactingProduct(null);
+                      setAuthMode('login');
+                      setShowAuthModal(true);
+                      return;
+                    }
+
+                    if (!currentUser.emailVerified) {
+                      // Trigger email verification workflow natively
+                      setBlockedActionType('whatsApp');
+                      setIsVerificationBlockOpen(true);
+                      setContactingProduct(null);
+                      return;
+                    }
+
+                    if (!hasWhatsApp) {
+                      // Custom graceful automatic fallback to SECURE IN-APP CHAT
+                      showToast(`@${contactingProduct.sellerName} hasn't listed a WhatsApp link yet. Let's message them in-app instead!`, 'info');
+                      try {
+                        startChat(contactingProduct.id, "Hi, I saw your video ad! Is this item still available?");
+                        setCurrentView('chats');
+                      } catch (err) {
+                        showToast("Failed to initiate in-app chat", "error");
+                        console.error(err);
+                      }
+                      setContactingProduct(null);
+                      return;
+                    }
+
+                    // Format and open official WhatsApp link securely
+                    let cleanNumber = sellerUser.whatsAppNumber!.replace(/\D/g, '');
+                    if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
+                      cleanNumber = '233' + cleanNumber.substring(1);
+                    } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
+                      cleanNumber = '233' + cleanNumber;
+                    }
+
+                    const prefilledText = `Hello! I'm interested in your listed item "${contactingProduct.title}" on Tedbuy marketplace. Let's chat!`;
+                    const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
+                    window.open(finalUrl, '_blank', 'noopener,noreferrer');
+                    setContactingProduct(null);
+                  }}
+                  className="w-full flex items-center justify-between p-4 rounded-2xl bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/20 hover:border-emerald-500/45 text-left transition duration-200 group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-emerald-600 flex items-center justify-center text-white shrink-0 shadow-lg shadow-emerald-500/20">
+                      <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                        <path d="M12.004 2.012c-5.511 0-9.996 4.487-9.996 9.998 0 2.083.639 4.02 1.738 5.626L2.33 21.84l4.331-1.42a9.932 9.932 0 005.343 1.545c5.511 0 9.997-4.487 9.997-9.999s-4.486-9.954-9.997-9.954zm5.823 13.1c-.244.385-1.196 1.155-1.579 1.258-.385.103-.784.148-2.148-.385a8.775 8.775 0 01-3.692-3.15c-.414-.62-.738-1.344-.738-2.1 0-1.257.636-1.892.857-2.144.22-.25.592-.354.887-.354.103 0 .192.006.265.006.223 0 .428-.016.621.43.243.568.827 1.996.899 2.143.074.147.123.324.025.515-.1.19-.147.31-.294.485-.147.172-.31.383-.442.511-.147.147-.301.31-.129.62.172.294.764 1.257 1.636 2.031.734.654 1.348 1.018 1.722 1.205.385.184.606.147.828-.103.22-.25.96-1.12 1.221-1.503.25-.386.516-.31.874-.184.354.123 2.251 1.06 2.637 1.25.385.183.635.28.723.427.09.148.09 1.154-.153 1.54z"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-100 text-xs block group-hover:text-emerald-400 transition-colors font-sans">WhatsApp Messager</span>
+                      <p className="text-[10px] text-slate-400 mt-0.5 font-medium leading-normal">Message direct via WhatsApp link</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-1.5 transition-all" />
+                </button>
+
+                {/* 2. Direct In-App Chat Option */}
+                <button
+                  onClick={() => {
+                    if (!currentUser) {
+                      setContactingProduct(null);
+                      setAuthMode('login');
+                      setShowAuthModal(true);
+                      return;
+                    }
+                    try {
+                      startChat(contactingProduct.id, "Hi, I saw your video ad! Is this item still available?");
+                      setCurrentView('chats');
+                      setContactingProduct(null);
+                    } catch (err) {
+                      showToast("Failed to initiate secure in-app chat", "error");
+                      console.error("Failed to start chat:", err);
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-4 rounded-2xl bg-[#FFFC00]/5 hover:bg-[#FFFC00]/10 border border-[#FFFC00]/10 hover:border-[#FFFC00]/25 text-left transition duration-200 group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-[#FFFC00] flex items-center justify-center text-slate-950 shrink-0 shadow-lg shadow-[#FFFC00]/10">
+                      <MessageSquare className="w-5 h-5 text-slate-950 fill-slate-950" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-100 text-xs block group-hover:text-[#FFFC00] transition-colors font-sans">In-App Secure Chat</span>
+                      <p className="text-[10px] text-slate-400 mt-0.5 font-medium leading-normal">Safe native peer-to-peer messaging</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-[#FFFC00] group-hover:translate-x-1.5 transition-all" />
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

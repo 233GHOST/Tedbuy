@@ -412,6 +412,34 @@ const MarketplaceContent: React.FC = () => {
     );
   }, [products, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
 
+  // Prefetch cover images of the first few products dynamically to make browsing feel instant
+  const prefetchedImagesRef = React.useRef<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (!sortedProducts || sortedProducts.length === 0) return;
+
+    // Prefetch the cover images of the first 8 products in the current filtered/sorted list
+    const itemsToPrefetch = sortedProducts.slice(0, 8);
+    let prefetchedCount = 0;
+
+    itemsToPrefetch.forEach((product) => {
+      if (product.images && product.images.length > 0) {
+        const coverImage = product.images[0];
+        // Only trigger prefetch if we haven't already prefetched this image URL/base64 string
+        if (coverImage && !prefetchedImagesRef.current.has(coverImage)) {
+          prefetchedImagesRef.current.add(coverImage);
+          const img = new Image();
+          img.src = coverImage;
+          prefetchedCount++;
+        }
+      }
+    });
+
+    if (prefetchedCount > 0) {
+      console.log(`[Prefetch] Dynamically preloaded ${prefetchedCount} cover images for instant view rendering.`);
+    }
+  }, [sortedProducts, selectedCategory, debouncedSearchQuery]);
+
   React.useEffect(() => {
     const sentinel = scrollSentinelRef.current;
     if (!sentinel) return;
