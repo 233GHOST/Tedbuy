@@ -30,7 +30,6 @@ export const Navbar: React.FC = () => {
     registerUser,
     loginUser,
     resetPasswordEmail,
-    loginWithGoogle,
     notifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,

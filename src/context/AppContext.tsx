@@ -594,38 +594,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [activeChatId]);
 
-  // Listen to Google Redirect Sign-In results on application load
-  useEffect(() => {
-    let active = true;
-    getRedirectResult(auth)
-      .then((result) => {
-        if (!active) return;
-        if (result?.user) {
-          console.log('Successfully completed Google sign-in redirect:', result.user);
-          showToast(`Welcome back, ${result.user.displayName || 'User'}! signed in successfully.`, 'success');
-        }
-      })
-      .catch((error: any) => {
-        if (!active) return;
-        console.error('Google Redirect Auth error on load:', error);
-        const errMsg = error?.message || '';
-        const errCode = error?.code || '';
-        
-        if (errMsg.includes('unauthorized-domain') || errCode.includes('unauthorized-domain')) {
-          showToast(`🔐 Google Sign-In Setup Needed: Ensure "tedbuy.store" is whitelisted in Firebase Console (under Settings -> Authorized domains) and the Google OAuth Consent screen is clicked to "Publish App" inside Google Cloud Console so it works for all users!`, 'error');
-        } else if (errMsg.includes('popup-blocked') || errCode.includes('popup-blocked')) {
-          showToast('Google Sign-In popup was blocked by your browser. Please try again or allow page redirections.', 'error');
-        } else {
-          // Silent or graceful fallback for non-actionable redirect cancellations / initial loads
-          console.log('Google Redirect Auth mismatch on load/cancel:', error.message);
-        }
-      });
-      
-    return () => {
-      active = false;
-    };
-  }, [showToast]);
-
   // Firebase Auth state listener
   useEffect(() => {
     let active = true;
@@ -1833,59 +1801,6 @@ CEO, Tedbuy Inc`;
       } catch (authErrorDetail: any) {
         console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
         
-        // Post-Auth failure Fallback Check:
-        // If signInWithEmailAndPassword throws wrong password or invalid credential,
-        // it might be because they signed up with Google and don't have a password.
-        const isAuthCredentialError = authErrorDetail?.code === 'auth/wrong-password' || 
-                                      authErrorDetail?.code === 'auth/invalid-credential' ||
-                                      authErrorDetail?.message?.includes('invalid-credential') ||
-                                      authErrorDetail?.message?.includes('wrong-password') ||
-                                      authErrorDetail?.code === 'auth/user-not-found';
-        if (isAuthCredentialError) {
-          try {
-            let redirectToGoog = false;
-            const isGmail = cleanIdentifier.toLowerCase().endsWith('@gmail.com') || cleanIdentifier.toLowerCase().endsWith('@googlemail.com');
-            
-            // 1. Check if we have this email in our synced client-side users list
-            const matchedDbUser = users.find(u => u.email?.trim().toLowerCase() === cleanIdentifier.toLowerCase());
-            if (matchedDbUser) {
-              if (matchedDbUser.isGoogleAuth || matchedDbUser.authProvider === 'google.com' || isGmail) {
-                redirectToGoog = true;
-              }
-            } else if (isGmail) {
-              // Any Gmail address failing credentials check can fallback to Google Auth safely
-              redirectToGoog = true;
-            } else {
-              // 2. Perform case-sensitive and case-insensitive queries in Firestore as backup
-              const q = query(collection(db, 'users'), where('email', '==', cleanIdentifier));
-              const snap = await getDocs(q);
-              if (!snap.empty) {
-                const uDoc = snap.docs[0].data() as User;
-                if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com') {
-                  redirectToGoog = true;
-                }
-              } else {
-                const qLower = query(collection(db, 'users'), where('email', '==', cleanIdentifier.toLowerCase()));
-                const snapLower = await getDocs(qLower);
-                if (!snapLower.empty) {
-                  const uDoc = snapLower.docs[0].data() as User;
-                  if (uDoc.isGoogleAuth || uDoc.authProvider === 'google.com') {
-                    redirectToGoog = true;
-                  }
-                }
-              }
-            }
-
-            if (redirectToGoog) {
-              showToast('Google account detected. Authenticating securely via secure Google account details...', 'info');
-              await loginWithGoogle(cleanIdentifier);
-              return true;
-            }
-          } catch (dbErr) {
-            console.warn('Could not query users db in fallback:', dbErr);
-          }
-        }
-        
         const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
                                    authErrorDetail?.message?.includes('operation-not-allowed');
         if (isAuthErrorDisabled) {
@@ -2216,42 +2131,46 @@ CEO, Tedbuy Inc`;
         return isFollowerOfPoster || isFollowedByPoster;
       });
 
-      for (const targetUser of notifyUsers) {
-        const notifId = `notif_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 7)}`;
-        const newNotification: AppNotification = {
-          id: notifId,
-          userId: targetUser.id,
-          type: 'post_created',
-          title: 'New Ad Posted!',
-          message: `${currentUser.username} posted a new offer: ${newProduct.title}`,
-          triggerUserId: currentUser.id,
-          triggerUsername: currentUser.username,
-          triggerUserPhoto: currentUser.photoUrl || '',
-          productId: prodId,
-          productTitle: newProduct.title,
-          productPrice: newProduct.price,
-          productImage: newProduct.images?.[0] || '',
-          createdAt: new Date().toISOString(),
-          read: false
-        };
+      // Dispatch notifications concurrently in a non-blocking asynchronous scope
+      (async () => {
+        const notifPromises = notifyUsers.map(async (targetUser) => {
+          const notifId = `notif_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 7)}`;
+          const newNotification: AppNotification = {
+            id: notifId,
+            userId: targetUser.id,
+            type: 'post_created',
+            title: 'New Ad Posted!',
+            message: `${currentUser.username} posted a new offer: ${newProduct.title}`,
+            triggerUserId: currentUser.id,
+            triggerUsername: currentUser.username,
+            triggerUserPhoto: currentUser.photoUrl || '',
+            productId: prodId,
+            productTitle: newProduct.title,
+            productPrice: newProduct.price,
+            productImage: newProduct.images?.[0] || '',
+            createdAt: new Date().toISOString(),
+            read: false
+          };
 
-        // Injects notification directly into local storage buffer for target user
-        try {
-          const key = `tedbuy_notifications_backup_${targetUser.id}`;
-          const currentListStr = safeLocalStorage.getItem(key);
-          const currentList = currentListStr ? JSON.parse(currentListStr) : [];
-          currentList.unshift(newNotification);
-          safeLocalStorage.setItem(key, JSON.stringify(currentList));
-        } catch (localErr) {
-          console.warn('Could not inject local fallback recipient notification:', localErr);
-        }
+          // Injects notification directly into local storage buffer for target user
+          try {
+            const key = `tedbuy_notifications_backup_${targetUser.id}`;
+            const currentListStr = safeLocalStorage.getItem(key);
+            const currentList = currentListStr ? JSON.parse(currentListStr) : [];
+            currentList.unshift(newNotification);
+            safeLocalStorage.setItem(key, JSON.stringify(currentList));
+          } catch (localErr) {
+            console.warn('Could not inject local fallback recipient notification:', localErr);
+          }
 
-        try {
-          await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
-        } catch (dbErr) {
-          console.warn('Could not dispatch backend notification (local inbox synced only):', dbErr);
-        }
-      }
+          try {
+            await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
+          } catch (dbErr) {
+            console.warn('Could not dispatch backend notification (local inbox synced only):', dbErr);
+          }
+        });
+        await Promise.allSettled(notifPromises);
+      })().catch(err => console.warn('Non-blocking notification dispatch error:', err));
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `products/${prodId}`);
     }
@@ -2337,42 +2256,46 @@ CEO, Tedbuy Inc`;
                 return matchesSavedId || matchesSellerId;
               });
 
-              for (const targetUser of notifyTargetUsers) {
-                const isSaved = targetUser.savedProductIds?.includes(id);
-                const notifId = `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`;
-                const newNotification: AppNotification = {
-                  id: notifId,
-                  userId: targetUser.id,
-                  type: 'post_created',
-                  title: isSaved ? 'Followed Ad Updated!' : 'New Update from Seller',
-                  message: isSaved 
-                    ? `An ad you are following "${existingData.title}" was updated by the seller.`
-                    : `${currentUser.username} updated their listing: "${existingData.title}"`,
-                  triggerUserId: currentUser.id,
-                  triggerUsername: currentUser.username,
-                  triggerUserPhoto: currentUser.photoUrl || '',
-                  productId: id,
-                  productTitle: existingData.title,
-                  productPrice: updatedData.price !== undefined ? updatedData.price : existingData.price,
-                  productImage: (updatedData.images && updatedData.images[0]) || existingData.images?.[0] || '',
-                  createdAt: new Date().toISOString(),
-                  read: false
-                };
+              // Dispatch notifications concurrently in a non-blocking asynchronous scope
+              (async () => {
+                const notifPromises = notifyTargetUsers.map(async (targetUser) => {
+                  const isSaved = targetUser.savedProductIds?.includes(id);
+                  const notifId = `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`;
+                  const newNotification: AppNotification = {
+                    id: notifId,
+                    userId: targetUser.id,
+                    type: 'post_created',
+                    title: isSaved ? 'Followed Ad Updated!' : 'New Update from Seller',
+                    message: isSaved 
+                      ? `An ad you are following "${existingData.title}" was updated by the seller.`
+                      : `${currentUser.username} updated their listing: "${existingData.title}"`,
+                    triggerUserId: currentUser.id,
+                    triggerUsername: currentUser.username,
+                    triggerUserPhoto: currentUser.photoUrl || '',
+                    productId: id,
+                    productTitle: existingData.title,
+                    productPrice: updatedData.price !== undefined ? updatedData.price : existingData.price,
+                    productImage: (updatedData.images && updatedData.images[0]) || existingData.images?.[0] || '',
+                    createdAt: new Date().toISOString(),
+                    read: false
+                  };
 
-                try {
-                  const key = `tedbuy_notifications_backup_${targetUser.id}`;
-                  const currentListStr = safeLocalStorage.getItem(key);
-                  const currentList = currentListStr ? JSON.parse(currentListStr) : [];
-                  currentList.unshift(newNotification);
-                  safeLocalStorage.setItem(key, JSON.stringify(currentList));
-                } catch (_) {}
+                  try {
+                    const key = `tedbuy_notifications_backup_${targetUser.id}`;
+                    const currentListStr = safeLocalStorage.getItem(key);
+                    const currentList = currentListStr ? JSON.parse(currentListStr) : [];
+                    currentList.unshift(newNotification);
+                    safeLocalStorage.setItem(key, JSON.stringify(currentList));
+                  } catch (_) {}
 
-                try {
-                  await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
-                } catch (dbErr) {
-                  console.warn('Backend notification dispatch skipped in sandbox context:', dbErr);
-                }
-              }
+                  try {
+                    await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
+                  } catch (dbErr) {
+                    console.warn('Backend notification dispatch skipped in sandbox context:', dbErr);
+                  }
+                });
+                await Promise.allSettled(notifPromises);
+              })().catch(err => console.warn('Non-blocking update notification dispatch error:', err));
             }
           }
         } else {
