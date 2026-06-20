@@ -13,8 +13,12 @@ function parseNumericPrice(p: string | number): number {
  * Calculates a dynamic priority score for a seller.
  * Considers visit count, stay time (activeSeconds), and rapid posting frequency.
  */
-export function getSellerPriorityScore(sellerId: string, users: User[], allProducts: Product[]): number {
-  const seller = users.find(u => u.id === sellerId);
+export function getSellerPriorityScore(sellerId: string, users: User[] = [], allProducts: Product[] = []): number {
+  if (!sellerId) return 0;
+  const safeUsers = Array.isArray(users) ? users : [];
+  const safeProducts = Array.isArray(allProducts) ? allProducts : [];
+
+  const seller = safeUsers.find(u => u && u.id === sellerId);
   if (!seller) return 0;
 
   const visitCount = seller.visitCount || 0;
@@ -30,7 +34,7 @@ export function getSellerPriorityScore(sellerId: string, users: User[], allProdu
   // Count how many products they posted in the last 48 hours
   const now = Date.now();
   const fortyEightHoursAgo = now - 48 * 60 * 60 * 1000;
-  const sellerProds = allProducts.filter(p => p.sellerId === sellerId);
+  const sellerProds = safeProducts.filter(p => p && p.sellerId === sellerId);
   
   // Sort timestamps of their products (newest first)
   const sortedTimes = sellerProds
