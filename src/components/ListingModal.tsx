@@ -38,7 +38,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [condition, setCondition] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [videos, setVideos] = useState<string[]>([]);
-  const [rawImageFiles, setRawImageFiles] = useState<{ [blobUrl: string]: File }>({});
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
 
   const convertBase64ToBlobUrl = (base64Str: string): string => {
@@ -308,7 +307,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return;
     }
 
-    (Array.from(files) as File[]).forEach(file => {
+    (Array.from(files) as File[]).forEach(async file => {
       // Relaxed type validation supporting empty mime-types with recognized image extensions or any startsWith image/
       const fileNameLower = file.name.toLowerCase();
       const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg|heics|avif)$/i.test(fileNameLower);
@@ -318,29 +317,30 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         console.warn('Broadly accepting custom file type as an image to allow visibility:', file.name);
       }
       
-      // Allow up to 16MB image uploads
+      // Allow up to 16MB image uploads (since we compress them client-side)
       if (file.size > 16 * 1024 * 1024) {
         setErrorMsg('Some images were skipped because they exceed 16MB in size.');
         return;
       }
 
-      // Generate localized blob URL for instant visual response
-      const blobUrl = URL.createObjectURL(file);
-      setImages(prev => [...prev, blobUrl]);
-      setRawImageFiles(prev => ({ ...prev, [blobUrl]: file }));
+      try {
+        const compressed = await compressImage(file);
+        setImages(prev => [...prev, compressed]);
+      } catch (err) {
+        console.error('Failed to compress image:', err);
+        // Fallback to standard reader
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setImages(prev => [...prev, reader.result as string]);
+          }
+        };
+        reader.readAsDataURL(file);
+      }
     });
   };
 
   const removeImage = (indexToRemove: number) => {
-    const targetUrl = images[indexToRemove];
-    if (targetUrl && targetUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(targetUrl);
-      setRawImageFiles(prev => {
-        const next = { ...prev };
-        delete next[targetUrl];
-        return next;
-      });
-    }
     setImages(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
@@ -793,8 +793,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           condition: finalCondition,
           images: finalImages,
           videos: finalVideos,
-          negotiable,
-          rawImageFiles
+          negotiable
         });
       } else {
         // Create flow
@@ -808,8 +807,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           condition: finalCondition,
           images: finalImages,
           videos: finalVideos,
-          negotiable,
-          rawImageFiles
+          negotiable
         });
       }
 
