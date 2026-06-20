@@ -15,7 +15,10 @@
         "role": { "type": "string", "enum": ["buyer", "seller", "both"], "description": "User persona role" },
         "followingSellers": { "type": "array", "description": "List of seller IDs followed by this user" },
         "savedProductIds": { "type": "array", "description": "List of bookmarked product IDs" },
-        "isVerified": { "type": "boolean", "description": "Completed profile setup or phone/email verification" }
+        "isVerified": { "type": "boolean", "description": "Completed profile setup or phone/email verification" },
+        "visitCount": { "type": "integer", "description": "Total count of visits or sessions in the app" },
+        "activeSeconds": { "type": "number", "description": "Total accumulated active time (seconds) spent in the app" },
+        "lastActiveTime": { "type": "string", "description": "ISO timestamp of the user's last activity" }
       },
       "required": ["id", "username", "role", "joinDate"]
     },

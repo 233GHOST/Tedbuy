@@ -36,6 +36,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener, requestFcmToken } from '../firebase';
 import { slugify } from '../utils/slugify';
+import { compressImage } from '../utils/imageOptimizer';
 import { useHashRouting } from '../hooks/useHashRouting';
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 
@@ -112,6 +113,7 @@ interface AppContextType {
     brand?: string;
     condition?: string;
     negotiable?: boolean;
+    imageFiles?: File[];
   }) => Promise<void>;
   updateProduct: (id: string, productData: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -252,6 +254,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const usersRef = useRef<User[]>([]);
+  const userSubUnsubRef = useRef<(() => void) | undefined>(undefined);
+  const isDeletingAccountRef = useRef<boolean>(false);
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
@@ -601,26 +605,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!active) return;
+      if (isDeletingAccountRef.current) {
+        console.log('Bypassing auth state changes during active account deletion process.');
+        setCurrentUserState(null);
+        setIsAuthLoading(false);
+        return;
+      }
 
       // Clean up previous real-time subscriber if any
       if (userSubUnsub) {
         userSubUnsub();
         userSubUnsub = undefined;
       }
+      if (userSubUnsubRef.current) {
+        try { userSubUnsubRef.current(); } catch (_) {}
+        userSubUnsubRef.current = undefined;
+      }
 
       try {
         if (firebaseUser) {
-
-
           // Clear any simulated sandbox mode flags as we now have a genuine authenticated Firebase session
           safeLocalStorage.removeItem('tedbuy_simulated_mode');
           safeLocalStorage.removeItem('tedbuy_simulated_user');
+
+          // Primary email mapping for users: email or fallback raw UID
+          const cleanEmail = firebaseUser.email ? firebaseUser.email.trim().toLowerCase() : firebaseUser.uid;
 
           // Construct a dynamic backup/fallback user structure by checking caches first
           let cachedUser: User | null = null;
           
           // 1. Search in react users state list
-          const foundInList = usersRef.current.find(u => u.id === firebaseUser.uid);
+          const foundInList = usersRef.current.find(u => u.id === cleanEmail || u.email?.trim().toLowerCase() === cleanEmail);
           if (foundInList) {
             cachedUser = foundInList;
           } else {
@@ -629,7 +644,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const localUsersBackup = safeLocalStorage.getItem('tedbuy_local_users_backup');
               if (localUsersBackup) {
                 const parsedList = JSON.parse(localUsersBackup) as User[];
-                const foundInBackup = parsedList.find(u => u.id === firebaseUser.uid);
+                const foundInBackup = parsedList.find(u => u.id === cleanEmail || u.email?.trim().toLowerCase() === cleanEmail);
                 if (foundInBackup) {
                   cachedUser = foundInBackup;
                 }
@@ -645,7 +660,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const individualBackupStr = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
               if (individualBackupStr) {
                 const parsed = JSON.parse(individualBackupStr) as User;
-                if (parsed.id === firebaseUser.uid) {
+                if (parsed.id === cleanEmail || parsed.email?.trim().toLowerCase() === cleanEmail) {
                   cachedUser = parsed;
                 }
               }
@@ -660,7 +675,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache');
               if (cacheStr) {
                 const cache = JSON.parse(cacheStr);
-                if (cache[firebaseUser.uid]) {
+                if (cache[cleanEmail]) {
+                  cachedUser = cache[cleanEmail];
+                } else if (cache[firebaseUser.uid]) {
                   cachedUser = cache[firebaseUser.uid];
                 }
               }
@@ -682,7 +699,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           // Construct a dynamic backup/fallback user structure
           const tempUser: User = {
-            id: firebaseUser.uid,
+            id: cleanEmail,
             username: cachedUser?.username || initialUsername,
             email: firebaseUser.email || cachedUser?.email || undefined,
             role: cachedUser?.role || 'both',
@@ -699,7 +716,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           
           // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
           setCurrentUserState(prev => {
-            if (prev && prev.id === firebaseUser.uid) {
+            if (prev && prev.id === cleanEmail) {
               return prev; // Use cache
             }
             return tempUser; // Use template
@@ -709,9 +726,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setIsAuthLoading(false);
 
           // Now subscribe to real-time doc updates asynchronously so that changes are handled instantly
-          const userRef = doc(db, 'users', firebaseUser.uid);
+          const userRef = doc(db, 'users', cleanEmail);
           userSubUnsub = onSnapshot(userRef, async (userDoc) => {
             if (!active) return;
+            if (isDeletingAccountRef.current) {
+              console.log('Skipping Firestore real-time snapshot update during active account deletion process.');
+              return;
+            }
             
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
@@ -727,6 +748,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 updates.authProvider = 'google.com';
               }
 
+              // Increment visitCount once per browser session
+              const sessionVisitedKey = `tedbuy_session_visit_counted_${cleanEmail}`;
+              if (!safeSessionStorage.getItem(sessionVisitedKey)) {
+                safeSessionStorage.setItem(sessionVisitedKey, 'true');
+                updates.visitCount = increment(1);
+                updates.lastActiveTime = new Date().toISOString();
+              }
+
               if (Object.keys(updates).length > 0) {
                 try {
                   await updateDoc(userRef, updates);
@@ -738,170 +767,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setCurrentUserState(dbData);
               }
             } else {
-              // The user document does not exist for the new Google authenticating UID.
-              // Check if they already have an existing user document under a DIFFERENT UID (with same email address).
-              let existingUserWithEmail: User | null = null;
-              let existingUserId: string | null = null;
+              // Create the user document in Firestore asynchronously if first time
+              const newUser: User = {
+                id: cleanEmail,
+                username: initialUsername,
+                email: firebaseUser.email || undefined,
+                role: 'both',
+                joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                photoUrl: firebaseUser.photoURL || undefined,
+                followingSellers: [],
+                savedProductIds: [],
+                emailVerified: firebaseUser.emailVerified,
+                isAdmin: firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' ? true : undefined,
+                isGoogleAuth: isGoogleUser || undefined,
+                authProvider: isGoogleUser ? 'google.com' : undefined,
+                visitCount: 1,
+                activeSeconds: 0,
+                lastActiveTime: new Date().toISOString()
+              };
+              
+              const batch = writeBatch(db);
+              batch.set(userRef, cleanObject(newUser));
+              
+              const storeNameLower = initialUsername.trim().toLowerCase();
+              batch.set(doc(db, 'storeNames', storeNameLower), {
+                userId: cleanEmail,
+                username: initialUsername.trim()
+              });
+              
+              await batch.commit();
+              safeSessionStorage.setItem(`tedbuy_session_visit_counted_${cleanEmail}`, 'true');
+              console.log(`[Google/Auth Provisioning] Atomically created user profile and reserved store name: "${storeNameLower}"`);
 
-              if (firebaseUser.email) {
-                try {
-                  const targetEmail = firebaseUser.email.trim().toLowerCase();
-                  const qEmail = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
-                  const emailSnap = await getDocs(qEmail);
-                  
-                  const foundDoc = emailSnap.docs.find(d => d.id !== firebaseUser.uid);
-                  if (foundDoc) {
-                    existingUserWithEmail = foundDoc.data() as User;
-                    existingUserId = foundDoc.id;
-                  }
-                } catch (emailQueryErr) {
-                  console.warn('Could not query users by email in background:', emailQueryErr);
-                }
-              }
-
-              if (existingUserWithEmail && existingUserId) {
-                console.log(`[Google Sign-In Account Merge] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Merging profile data into new Google UID: "${firebaseUser.uid}" so that user keeps their old store account flawlessly...`);
-                
-                // Keep the existing user profile details, but assign the new UID!
-                const mergedUser: User = {
-                  ...existingUserWithEmail,
-                  id: firebaseUser.uid,
-                  emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
-                  photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
-                  isGoogleAuth: true,
-                  authProvider: 'google.com'
-                };
-
-                const batch = writeBatch(db);
-                
-                // 1. Create the new user document
-                batch.set(doc(db, 'users', firebaseUser.uid), cleanObject(mergedUser));
-                
-                // 2. Delete the old user document
-                batch.delete(doc(db, 'users', existingUserId));
-                
-                // 3. Update the storeName mapping pointing to the new UID if a username is in use
-                if (mergedUser.username) {
-                  const storeNameLower = mergedUser.username.trim().toLowerCase();
-                  batch.set(doc(db, 'storeNames', storeNameLower), {
-                    userId: firebaseUser.uid,
-                    username: mergedUser.username.trim()
-                  });
-                }
-
-                await batch.commit();
-                console.log('[Google Sign-In Account Merge] Profile base data and storeName successfully migrated.');
-
-                // 4. Asynchronously cascade the ID change to all other collections (products, reviews, chats, etc.) 
-                // in the background to ensure consistency without slowing down the initial auth flow!
-                const cascadeUpdates = async () => {
-                  try {
-                    const cascadeBatch = writeBatch(db);
-                    let cascadeCount = 0;
-
-                    // Products migration
-                    const prodsSnap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', existingUserId)));
-                    prodsSnap.forEach(pDoc => {
-                      cascadeBatch.update(doc(db, 'products', pDoc.id), { sellerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    // Reviews from or to this user
-                    const reviewsFromSnap = await getDocs(query(collection(db, 'reviews'), where('buyerId', '==', existingUserId)));
-                    reviewsFromSnap.forEach(rDoc => {
-                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { buyerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    const reviewsToSnap = await getDocs(query(collection(db, 'reviews'), where('sellerId', '==', existingUserId)));
-                    reviewsToSnap.forEach(rDoc => {
-                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { sellerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    // Chats where this user is buyer or seller
-                    const chatsBuyerSnap = await getDocs(query(collection(db, 'chats'), where('buyerId', '==', existingUserId)));
-                    chatsBuyerSnap.forEach(cDoc => {
-                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { buyerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    const chatsSellerSnap = await getDocs(query(collection(db, 'chats'), where('sellerId', '==', existingUserId)));
-                    chatsSellerSnap.forEach(cDoc => {
-                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { sellerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    // Messages where this user is sender or recipient
-                    const msgsSenderSnap = await getDocs(query(collection(db, 'messages'), where('senderId', '==', existingUserId)));
-                    msgsSenderSnap.forEach(mDoc => {
-                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { senderId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    const msgsRecipientSnap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', existingUserId)));
-                    msgsRecipientSnap.forEach(mDoc => {
-                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    if (cascadeCount > 0) {
-                      await cascadeBatch.commit();
-                      console.log(`[Google Sign-In Account Merge] Cascaded ID update to ${cascadeCount} related documents.`);
-                    }
-                  } catch (cascadeErr) {
-                    console.warn('[Google Sign-In Account Merge] Error performing background cascade ID update:', cascadeErr);
-                  }
-                };
-
-                cascadeUpdates();
-
-                if (active) {
-                  setCurrentUserState(mergedUser);
-                }
-              } else {
-                // Create the user document in Firestore asynchronously if first time
-                const newUser: User = {
-                  id: firebaseUser.uid,
-                  username: initialUsername,
-                  email: firebaseUser.email || undefined,
-                  role: 'both',
-                  joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                  photoUrl: firebaseUser.photoURL || undefined,
-                  followingSellers: [],
-                  savedProductIds: [],
-                  emailVerified: firebaseUser.emailVerified,
-                  isAdmin: firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' ? true : undefined,
-                  isGoogleAuth: true,
-                  authProvider: 'google.com'
-                };
-                
-                // Register storeName and user document atomically so standard signups and Google signups are identical
-                const batch = writeBatch(db);
-                batch.set(userRef, cleanObject(newUser));
-                
-                const storeNameLower = initialUsername.trim().toLowerCase();
-                batch.set(doc(db, 'storeNames', storeNameLower), {
-                  userId: firebaseUser.uid,
-                  username: initialUsername.trim()
+              if (active) {
+                justRegisteredUserIds.current.add(cleanEmail);
+                setCurrentUserState(newUser);
+                // Directly trigger welcome package synchronously to prevent race conditions
+                setupWelcomePackage(newUser).catch(err => {
+                  console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
                 });
-                
-                await batch.commit();
-                console.log(`[Google Signup] Atomically created user profile and reserved store name: "${storeNameLower}"`);
-
-                if (active) {
-                  justRegisteredUserIds.current.add(firebaseUser.uid);
-                  setCurrentUserState(newUser);
-                  // Directly trigger welcome package synchronously to prevent race conditions
-                  setupWelcomePackage(newUser).catch(err => {
-                    console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
-                  });
-                }
               }
             }
           }, (error) => {
             console.error('[User Doc Stream] Firebase onSnapshot error:', error);
           });
+          userSubUnsubRef.current = userSubUnsub;
         } else {
           const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
           if (isSimulated) {
@@ -951,8 +861,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (userSubUnsub) {
         userSubUnsub();
       }
+      if (userSubUnsubRef.current) {
+        try { userSubUnsubRef.current(); } catch (_) {}
+      }
     };
-  }, []);
+  }, [showToast]);
 
   // Sync currentUser backup to localStorage and multi-user cache
   useEffect(() => {
@@ -1160,6 +1073,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (unsub) unsub();
     };
   }, []);
+
+  // Stay-time (activeSeconds) and lastActiveTime tracking
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    const intervalTime = 15; // update database every 15 seconds to stay fresh but not abuse writes
+    
+    const interval = setInterval(() => {
+      // Only increment if document/window is focused/active to ensure real "stay duration"
+      if (document.visibilityState === 'visible') {
+        const userRef = doc(db, 'users', currentUser.id);
+        updateDoc(userRef, {
+          activeSeconds: increment(intervalTime),
+          lastActiveTime: new Date().toISOString()
+        }).catch(err => {
+          console.warn('[Stay Tracking] Failed to update activeSeconds:', err);
+        });
+      }
+    }, intervalTime * 1000);
+    
+    return () => {
+      clearInterval(interval);
+    };
+  }, [currentUser?.id]);
 
   // 2. Real-time Products Synchronization
   useEffect(() => {
@@ -1689,7 +1626,7 @@ CEO, Tedbuy Inc`;
 
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        uid = userCredential.user.uid;
+        uid = cleanEmail;
         // Instantly mark as registered to prevent race conditions with auth listener
         justRegisteredUserIds.current.add(uid);
 
@@ -1719,7 +1656,7 @@ CEO, Tedbuy Inc`;
           console.warn('Firebase Email/Password Auth is disabled. Engaging local high-fidelity sandbox fallback.');
           showToast('Email/Password provider is currently disabled in your Firebase console. Creating high-fidelity sandbox session for offline-interactive testing!', 'info');
           
-          uid = `user_local_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`;
+          uid = cleanEmail;
           // Instantly mark as registered to prevent race conditions with auth listener
           justRegisteredUserIds.current.add(uid);
 
@@ -2081,8 +2018,10 @@ CEO, Tedbuy Inc`;
     brand?: string;
     condition?: string;
     negotiable?: boolean;
+    imageFiles?: File[];
   }) => {
     if (!currentUser) return;
+    const { imageFiles, ...cleanProductData } = productData;
     const prodId = `prod_${Date.now()}`;
     const newProduct: Product = {
       id: prodId,
@@ -2090,7 +2029,7 @@ CEO, Tedbuy Inc`;
       sellerName: currentUser.username,
       sellerPhoto: currentUser.photoUrl || '',
       sellerJoinDate: currentUser.joinDate,
-      ...productData,
+      ...cleanProductData,
       category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
       viewsCount: 0
@@ -2117,10 +2056,67 @@ CEO, Tedbuy Inc`;
       });
 
       // Step C: Try to set to Firestore database, but catch any permission-denied gracefully
-      try {
-        await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
-      } catch (innerErr) {
-        console.warn('[createProduct] Firestore server document create denied or offline. Fallback successfully to client-side optimistic storage list:', innerErr);
+      if (imageFiles && imageFiles.length > 0) {
+        // Run background image compression asynchronously
+        (async () => {
+          try {
+            console.log('[Background Processing] Starting background compression for ad:', prodId);
+
+            // Compress all files
+            const compressionPromises = imageFiles.map(async (file) => {
+              try {
+                return await compressImage(file);
+              } catch (err) {
+                console.warn('[Background Processing] compressImage failed, falling back to raw reader:', err);
+                return await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Format error'));
+                  reader.onerror = () => reject(reader.error);
+                  reader.readAsDataURL(file);
+                });
+              }
+            });
+
+            const base64Results = await Promise.all(compressionPromises);
+            const cleanBase64s = base64Results.filter(Boolean);
+
+            console.log('[Background Processing] Finished background compression for ad:', prodId);
+
+            const finalProduct = {
+              ...newProduct,
+              images: cleanBase64s
+            };
+
+            // 1. Swap optimistic blob URLs with real Base64 in local state
+            setProducts(prev => {
+              const updated = prev.map(p => p.id === prodId ? finalProduct : p);
+              try {
+                safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(updated));
+              } catch (_) {}
+              return updated;
+            });
+
+            // 2. Update created backup
+            try {
+              const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+              const createdList = JSON.parse(createdStr) as Product[];
+              const updatedCreated = createdList.map(p => p.id === prodId ? finalProduct : p);
+              safeLocalStorage.setItem('tedbuy_local_created_products', JSON.stringify(updatedCreated));
+            } catch (_) {}
+
+            // 3. Update Firestore with base64 images
+            await setDoc(doc(db, 'products', prodId), cleanObject(finalProduct));
+            console.log('[Background Processing] Successfully saved product with compressed images to Firestore:', prodId);
+          } catch (bgError) {
+            console.error('[Background Processing] Critical background processing error:', bgError);
+          }
+        })();
+      } else {
+        try {
+          await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
+        } catch (innerErr) {
+          console.warn('[createProduct] Firestore server document create denied or offline. Fallback successfully to client-side optimistic storage list:', innerErr);
+        }
       }
 
       // Create notifications for followers and following users of the poster
@@ -3034,9 +3030,23 @@ CEO, Tedbuy Inc`;
   const deleteAccount = async (password?: string) => {
     if (!currentUser) return;
     
+    // Set active deletion flag to prevent snapshot auto-regeneration
+    isDeletingAccountRef.current = true;
+    
+    // Immediately unsubscribe snapshot listener to prevent automatic user doc recreation
+    if (userSubUnsubRef.current) {
+      try {
+        userSubUnsubRef.current();
+        userSubUnsubRef.current = undefined;
+      } catch (err) {
+        console.warn('[Account Deletion] Error unsubscribing snapshot listener:', err);
+      }
+    }
+    
     // Crucial Security Guard: Block administrator account deletion
     const userEmail = currentUser.email?.trim().toLowerCase();
     if (userEmail === 'asumaduvincent7@gmail.com') {
+      isDeletingAccountRef.current = false;
       throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") is heavily protected and cannot be deleted under any circumstances.');
     }
 
@@ -3044,7 +3054,7 @@ CEO, Tedbuy Inc`;
     const authUser = auth.currentUser;
     const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
-    if (!isSimulated && authUser && authUser.uid === uid) {
+    if (!isSimulated && authUser && (authUser.uid === uid || authUser.email?.trim().toLowerCase() === uid.trim().toLowerCase())) {
       const isPasswordUser = authUser.providerData.some(p => p.providerId === 'password');
       if (isPasswordUser) {
         if (!password) {
@@ -3202,7 +3212,7 @@ CEO, Tedbuy Inc`;
     }
 
     // 6. Delete Firebase Auth user representation
-    if (!isSimulated && authUser && authUser.uid === uid) {
+    if (!isSimulated && authUser && (authUser.uid === uid || authUser.email?.trim().toLowerCase() === uid.trim().toLowerCase())) {
       try {
         await authUser.delete();
       } catch (err: any) {
@@ -3214,6 +3224,15 @@ CEO, Tedbuy Inc`;
     safeLocalStorage.removeItem('tedbuy_simulated_user');
     safeLocalStorage.removeItem('tedbuy_simulated_mode');
     safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+    safeLocalStorage.removeItem('tedbuy_local_created_products');
+    safeLocalStorage.removeItem('tedbuy_local_products_overrides');
+    safeLocalStorage.removeItem('tedbuy_welcome_package_triggered');
+
+    // Cascade live local states to match database deletions
+    setProducts(prev => prev.filter(p => p.sellerId !== uid));
+    setReviews(prev => prev.filter(r => r.buyerId !== uid && r.sellerId !== uid));
+    setChats(prev => prev.filter(c => c.buyerId !== uid && c.sellerId !== uid));
+    setMessages(prev => prev.filter(m => m.senderId !== uid && m.recipientId !== uid));
 
     // Filter out deleted user from local users backup cache and live memory state
     try {
@@ -3234,6 +3253,7 @@ CEO, Tedbuy Inc`;
     }
     
     setCurrentUserState(null);
+    isDeletingAccountRef.current = false;
     showToast('Account Permanently deleted', 'success');
     setCurrentView('browse');
   };

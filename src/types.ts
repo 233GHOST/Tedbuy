@@ -15,6 +15,9 @@ export interface User {
   isGoogleAuth?: boolean;
   authProvider?: string;
   fcmTokens?: string[];
+  visitCount?: number;
+  activeSeconds?: number;
+  lastActiveTime?: string;
 }
 
 export const isUserVerified = (user?: User | null): boolean => {

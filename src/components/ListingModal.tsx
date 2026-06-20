@@ -37,6 +37,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [brand, setBrand] = useState('');
   const [condition, setCondition] = useState('');
   const [images, setImages] = useState<string[]>([]);
+  const [imageFiles, setImageFiles] = useState<(File | null)[]>([]);
   const [videos, setVideos] = useState<string[]>([]);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
 
@@ -173,6 +174,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setCategory(normalizedCat);
       setLocation(productToEdit.location);
       setImages(productToEdit.images);
+      setImageFiles((productToEdit.images || []).map(() => null));
       const editVids = productToEdit.videos || [];
       setVideos(editVids);
       if (editVids.length > 0) {
@@ -256,6 +258,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setBrand('');
       setCondition('');
       setImages([]);
+      setImageFiles([]);
       setVideos([]);
       setVideoPreviewUrl('');
       setOversizedVideoFile(null);
@@ -307,7 +310,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return;
     }
 
-    (Array.from(files) as File[]).forEach(async file => {
+    (Array.from(files) as File[]).forEach(file => {
       // Relaxed type validation supporting empty mime-types with recognized image extensions or any startsWith image/
       const fileNameLower = file.name.toLowerCase();
       const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg|heics|avif)$/i.test(fileNameLower);
@@ -323,25 +326,28 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         return;
       }
 
+      // Optimistic instant visual update: create a local object URL
       try {
-        const compressed = await compressImage(file);
-        setImages(prev => [...prev, compressed]);
+        const previewUrl = URL.createObjectURL(file);
+        setImages(prev => [...prev, previewUrl]);
+        setImageFiles(prev => [...prev, file]);
       } catch (err) {
-        console.error('Failed to compress image:', err);
-        // Fallback to standard reader
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            setImages(prev => [...prev, reader.result as string]);
-          }
-        };
-        reader.readAsDataURL(file);
+        console.error('Failed to register optimistic preview URL:', err);
       }
     });
   };
 
   const removeImage = (indexToRemove: number) => {
-    setImages(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    setImages(prev => {
+      const targetUrl = prev[indexToRemove];
+      if (targetUrl && targetUrl.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(targetUrl);
+        } catch (_) {}
+      }
+      return prev.filter((_, idx) => idx !== indexToRemove);
+    });
+    setImageFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
   const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -807,7 +813,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           condition: finalCondition,
           images: finalImages,
           videos: finalVideos,
-          negotiable
+          negotiable,
+          imageFiles: imageFiles.filter(Boolean) as File[]
         });
       }
 
