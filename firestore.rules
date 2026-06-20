@@ -13,7 +13,7 @@ service cloud.firestore {
         uid == request.auth.uid ||
         uid == "user_" + request.auth.uid ||
         uid == "phone_" + request.auth.uid ||
-        (uid is string && request.auth.token != null && "email" in request.auth.token && (uid == request.auth.token.get('email', '') || uid.lower() == request.auth.token.get('email', '').lower()))
+        (uid is string && request.auth.token != null && "email" in request.auth.token && (uid == request.auth.token.email || uid.lower() == request.auth.token.email.lower()))
       );
     }
 
@@ -22,7 +22,7 @@ service cloud.firestore {
       return isSignedIn() && 
              request.auth.token != null && 
              "email" in request.auth.token && 
-             request.auth.token.get('email', '').lower() == 'asumaduvincent7@gmail.com';
+             request.auth.token.email.lower() == 'asumaduvincent7@gmail.com';
     }
 
     // Helper to check robust ownership of a product (via direct UID or via email verification of Firestore user document)
@@ -65,14 +65,14 @@ service cloud.firestore {
                     isValidId(userId) && 
                     userId.matches('^[a-zA-Z0-9_@.-]+$') && 
                     isValidUser(incoming());
-      allow update: if (isOwner(userId) || isAdmin() || (request.auth.token != null && "email" in request.auth.token && request.auth.token.get('email', '').lower() == existing().get('email', '').lower())) &&
+      allow update: if (isOwner(userId) || isAdmin() || (request.auth.token != null && "email" in request.auth.token && request.auth.token.email.lower() == existing().get('email', '').lower())) &&
                     isValidId(userId) &&
                     isValidUser(incoming()) &&
                     incoming().get('id', userId) == existing().get('id', userId);
       allow delete: if isSignedIn() && (
         isOwner(userId) || 
         isAdmin() ||
-        (request.auth.token != null && "email" in request.auth.token && request.auth.token.get('email', '').lower() == resource.data.get('email', '').lower())
+        (request.auth.token != null && "email" in request.auth.token && request.auth.token.email.lower() == resource.data.get('email', '').lower())
       );
     }
 
@@ -111,7 +111,12 @@ service cloud.firestore {
       allow read: if isSignedIn() && 
                      (resource.data.buyerId == request.auth.uid || 
                       resource.data.sellerId == request.auth.uid ||
-                      (request.auth.token != null && "email" in request.auth.token && (resource.data.buyerId == request.auth.token.get('email', '') || resource.data.sellerId == request.auth.token.get('email', ''))) ||
+                      (request.auth.token != null && "email" in request.auth.token && (
+                        resource.data.buyerId == request.auth.token.email ||
+                        resource.data.buyerId == request.auth.token.email.lower() ||
+                        resource.data.sellerId == request.auth.token.email ||
+                        resource.data.sellerId == request.auth.token.email.lower()
+                      )) ||
                       isAdmin());
       allow create: if (isOwner(incoming().get('buyerId', '')) || incoming().get('buyerId', '').matches('^user_.*') || isAdmin()) && isValidId(chatId) && isValidChat(incoming());
       allow update: if (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', '')) || isAdmin()) && isValidId(chatId) && 
@@ -136,7 +141,12 @@ service cloud.firestore {
       allow read: if isSignedIn() && 
                      (resource.data.senderId == request.auth.uid || 
                       resource.data.recipientId == request.auth.uid ||
-                      (request.auth.token != null && "email" in request.auth.token && (resource.data.senderId == request.auth.token.get('email', '') || resource.data.recipientId == request.auth.token.get('email', ''))) ||
+                      (request.auth.token != null && "email" in request.auth.token && (
+                        resource.data.senderId == request.auth.token.email ||
+                        resource.data.senderId == request.auth.token.email.lower() ||
+                        resource.data.recipientId == request.auth.token.email ||
+                        resource.data.recipientId == request.auth.token.email.lower()
+                      )) ||
                       isAdmin());
       allow create: if (isOwner(incoming().get('senderId', '')) || incoming().get('senderId', '').matches('^user_.*') || isAdmin()) && isValidId(messageId) && isValidMessage(incoming());
       allow update: if (isOwner(existing().get('recipientId', '')) || isAdmin()) &&
@@ -171,7 +181,10 @@ service cloud.firestore {
     // 7. Notifications Collection rules
     match /notifications/{notificationId} {
       allow read: if resource.data.userId == request.auth.uid ||
-                     (request.auth.token != null && "email" in request.auth.token && resource.data.userId == request.auth.token.get('email', '')) ||
+                     (request.auth.token != null && "email" in request.auth.token && (
+                       resource.data.userId == request.auth.token.email ||
+                       resource.data.userId == request.auth.token.email.lower()
+                     )) ||
                      isAdmin();
       allow create, update, delete: if isSignedIn();
     }
