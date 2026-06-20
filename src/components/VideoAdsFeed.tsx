@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product, isUserVerified } from '../types';
-import { getSellerPriorityScore } from '../utils/productSelector';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Video, 
@@ -681,20 +680,8 @@ export const VideoAdsFeed: React.FC = () => {
   const productRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const videoProducts = useMemo(() => {
-    const rawFiltered = products.filter(p => p.videos && p.videos.length > 0);
-    return [...rawFiltered].sort((a, b) => {
-      let scoreA = getSellerPriorityScore(a.sellerId, users, products);
-      let scoreB = getSellerPriorityScore(b.sellerId, users, products);
-      if (!Number.isFinite(scoreA)) scoreA = 0;
-      if (!Number.isFinite(scoreB)) scoreB = 0;
-      if (scoreA !== scoreB) {
-        return scoreB - scoreA;
-      }
-      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return dateB - dateA;
-    });
-  }, [products, users]);
+    return products.filter(p => p.videos && p.videos.length > 0);
+  }, [products]);
 
   // Background filler effect: If the filtered video products count is small, proactively request more products in the background
   useEffect(() => {

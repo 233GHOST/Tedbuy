@@ -408,10 +408,9 @@ const MarketplaceContent: React.FC = () => {
       minPrice,
       maxPrice,
       sortByPrice,
-      sortByAds,
-      users
+      sortByAds
     );
-  }, [products, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, users]);
+  }, [products, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
 
   // Prefetch cover images of the first few products dynamically to make browsing feel instant
   const prefetchedImagesRef = React.useRef<Set<string>>(new Set());

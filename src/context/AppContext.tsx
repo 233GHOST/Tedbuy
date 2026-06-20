@@ -36,7 +36,6 @@ import {
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener, requestFcmToken } from '../firebase';
 import { slugify } from '../utils/slugify';
-import { compressImage } from '../utils/imageOptimizer';
 import { useHashRouting } from '../hooks/useHashRouting';
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 
@@ -113,7 +112,6 @@ interface AppContextType {
     brand?: string;
     condition?: string;
     negotiable?: boolean;
-    imageFiles?: File[];
   }) => Promise<void>;
   updateProduct: (id: string, productData: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -605,12 +603,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!active) return;
-      if (isDeletingAccountRef.current) {
-        console.log('Bypassing auth state changes during active account deletion process.');
-        setCurrentUserState(null);
-        setIsAuthLoading(false);
-        return;
-      }
 
       // Clean up previous real-time subscriber if any
       if (userSubUnsub) {
@@ -748,26 +740,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 updates.authProvider = 'google.com';
               }
 
-              // Increment visitCount once per browser session
-              const sessionVisitedKey = `tedbuy_session_visit_counted_${cleanEmail}`;
-              if (!safeSessionStorage.getItem(sessionVisitedKey)) {
-                safeSessionStorage.setItem(sessionVisitedKey, 'true');
-                updates.visitCount = increment(1);
-                updates.lastActiveTime = new Date().toISOString();
-              }
-
               if (Object.keys(updates).length > 0) {
                 try {
                   await updateDoc(userRef, updates);
                 } catch (err) {
                   console.warn('Could not sync auth metadata to Firestore (offline/sandbox):', err);
                 }
-                const localUpdates = { ...updates };
-                if (localUpdates.visitCount) {
-                  const currentCount = typeof dbData.visitCount === 'number' ? dbData.visitCount : 0;
-                  localUpdates.visitCount = currentCount + 1;
-                }
-                setCurrentUserState({ ...dbData, ...localUpdates });
+                setCurrentUserState({ ...dbData, ...updates });
               } else {
                 setCurrentUserState(dbData);
               }
@@ -785,10 +764,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 emailVerified: firebaseUser.emailVerified,
                 isAdmin: firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' ? true : undefined,
                 isGoogleAuth: isGoogleUser || undefined,
-                authProvider: isGoogleUser ? 'google.com' : undefined,
-                visitCount: 1,
-                activeSeconds: 0,
-                lastActiveTime: new Date().toISOString()
+                authProvider: isGoogleUser ? 'google.com' : undefined
               };
               
               const batch = writeBatch(db);
@@ -801,7 +777,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               });
               
               await batch.commit();
-              safeSessionStorage.setItem(`tedbuy_session_visit_counted_${cleanEmail}`, 'true');
               console.log(`[Google/Auth Provisioning] Atomically created user profile and reserved store name: "${storeNameLower}"`);
 
               if (active) {
@@ -1078,30 +1053,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (unsub) unsub();
     };
   }, []);
-
-  // Stay-time (activeSeconds) and lastActiveTime tracking
-  useEffect(() => {
-    if (!currentUser?.id) return;
-    
-    const intervalTime = 15; // update database every 15 seconds to stay fresh but not abuse writes
-    
-    const interval = setInterval(() => {
-      // Only increment if document/window is focused/active to ensure real "stay duration"
-      if (document.visibilityState === 'visible') {
-        const userRef = doc(db, 'users', currentUser.id);
-        updateDoc(userRef, {
-          activeSeconds: increment(intervalTime),
-          lastActiveTime: new Date().toISOString()
-        }).catch(err => {
-          console.warn('[Stay Tracking] Failed to update activeSeconds:', err);
-        });
-      }
-    }, intervalTime * 1000);
-    
-    return () => {
-      clearInterval(interval);
-    };
-  }, [currentUser?.id]);
 
   // 2. Real-time Products Synchronization
   useEffect(() => {
@@ -2023,10 +1974,8 @@ CEO, Tedbuy Inc`;
     brand?: string;
     condition?: string;
     negotiable?: boolean;
-    imageFiles?: File[];
   }) => {
     if (!currentUser) return;
-    const { imageFiles, ...cleanProductData } = productData;
     const prodId = `prod_${Date.now()}`;
     const newProduct: Product = {
       id: prodId,
@@ -2034,7 +1983,7 @@ CEO, Tedbuy Inc`;
       sellerName: currentUser.username,
       sellerPhoto: currentUser.photoUrl || '',
       sellerJoinDate: currentUser.joinDate,
-      ...cleanProductData,
+      ...productData,
       category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
       viewsCount: 0
@@ -2061,67 +2010,10 @@ CEO, Tedbuy Inc`;
       });
 
       // Step C: Try to set to Firestore database, but catch any permission-denied gracefully
-      if (imageFiles && imageFiles.length > 0) {
-        // Run background image compression asynchronously
-        (async () => {
-          try {
-            console.log('[Background Processing] Starting background compression for ad:', prodId);
-
-            // Compress all files
-            const compressionPromises = imageFiles.map(async (file) => {
-              try {
-                return await compressImage(file);
-              } catch (err) {
-                console.warn('[Background Processing] compressImage failed, falling back to raw reader:', err);
-                return await new Promise<string>((resolve, reject) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Format error'));
-                  reader.onerror = () => reject(reader.error);
-                  reader.readAsDataURL(file);
-                });
-              }
-            });
-
-            const base64Results = await Promise.all(compressionPromises);
-            const cleanBase64s = base64Results.filter(Boolean);
-
-            console.log('[Background Processing] Finished background compression for ad:', prodId);
-
-            const finalProduct = {
-              ...newProduct,
-              images: cleanBase64s
-            };
-
-            // 1. Swap optimistic blob URLs with real Base64 in local state
-            setProducts(prev => {
-              const updated = prev.map(p => p.id === prodId ? finalProduct : p);
-              try {
-                safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(updated));
-              } catch (_) {}
-              return updated;
-            });
-
-            // 2. Update created backup
-            try {
-              const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
-              const createdList = JSON.parse(createdStr) as Product[];
-              const updatedCreated = createdList.map(p => p.id === prodId ? finalProduct : p);
-              safeLocalStorage.setItem('tedbuy_local_created_products', JSON.stringify(updatedCreated));
-            } catch (_) {}
-
-            // 3. Update Firestore with base64 images
-            await setDoc(doc(db, 'products', prodId), cleanObject(finalProduct));
-            console.log('[Background Processing] Successfully saved product with compressed images to Firestore:', prodId);
-          } catch (bgError) {
-            console.error('[Background Processing] Critical background processing error:', bgError);
-          }
-        })();
-      } else {
-        try {
-          await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
-        } catch (innerErr) {
-          console.warn('[createProduct] Firestore server document create denied or offline. Fallback successfully to client-side optimistic storage list:', innerErr);
-        }
+      try {
+        await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
+      } catch (innerErr) {
+        console.warn('[createProduct] Firestore server document create denied or offline. Fallback successfully to client-side optimistic storage list:', innerErr);
       }
 
       // Create notifications for followers and following users of the poster
@@ -3229,15 +3121,6 @@ CEO, Tedbuy Inc`;
     safeLocalStorage.removeItem('tedbuy_simulated_user');
     safeLocalStorage.removeItem('tedbuy_simulated_mode');
     safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
-    safeLocalStorage.removeItem('tedbuy_local_created_products');
-    safeLocalStorage.removeItem('tedbuy_local_products_overrides');
-    safeLocalStorage.removeItem('tedbuy_welcome_package_triggered');
-
-    // Cascade live local states to match database deletions
-    setProducts(prev => prev.filter(p => p.sellerId !== uid));
-    setReviews(prev => prev.filter(r => r.buyerId !== uid && r.sellerId !== uid));
-    setChats(prev => prev.filter(c => c.buyerId !== uid && c.sellerId !== uid));
-    setMessages(prev => prev.filter(m => m.senderId !== uid && m.recipientId !== uid));
 
     // Filter out deleted user from local users backup cache and live memory state
     try {
