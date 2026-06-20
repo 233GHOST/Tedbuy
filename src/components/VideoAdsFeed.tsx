@@ -683,8 +683,10 @@ export const VideoAdsFeed: React.FC = () => {
   const videoProducts = useMemo(() => {
     const rawFiltered = products.filter(p => p.videos && p.videos.length > 0);
     return [...rawFiltered].sort((a, b) => {
-      const scoreA = getSellerPriorityScore(a.sellerId, users, products);
-      const scoreB = getSellerPriorityScore(b.sellerId, users, products);
+      let scoreA = getSellerPriorityScore(a.sellerId, users, products);
+      let scoreB = getSellerPriorityScore(b.sellerId, users, products);
+      if (!Number.isFinite(scoreA)) scoreA = 0;
+      if (!Number.isFinite(scoreB)) scoreB = 0;
       if (scoreA !== scoreB) {
         return scoreB - scoreA;
       }

@@ -762,7 +762,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 } catch (err) {
                   console.warn('Could not sync auth metadata to Firestore (offline/sandbox):', err);
                 }
-                setCurrentUserState({ ...dbData, ...updates });
+                const localUpdates = { ...updates };
+                if (localUpdates.visitCount) {
+                  const currentCount = typeof dbData.visitCount === 'number' ? dbData.visitCount : 0;
+                  localUpdates.visitCount = currentCount + 1;
+                }
+                setCurrentUserState({ ...dbData, ...localUpdates });
               } else {
                 setCurrentUserState(dbData);
               }

@@ -21,8 +21,11 @@ export function getSellerPriorityScore(sellerId: string, users: User[] = [], all
   const seller = safeUsers.find(u => u && u.id === sellerId);
   if (!seller) return 0;
 
-  const visitCount = seller.visitCount || 0;
-  const activeSeconds = seller.activeSeconds || 0;
+  const rawVisit = typeof seller.visitCount === 'number' ? seller.visitCount : 0;
+  const visitCount = Number.isFinite(rawVisit) ? rawVisit : 0;
+
+  const rawActive = typeof seller.activeSeconds === 'number' ? seller.activeSeconds : 0;
+  const activeSeconds = Number.isFinite(rawActive) ? rawActive : 0;
 
   // 1. Visit Count Score: 15 points per visit (cap at 300)
   const visitScore = Math.min(300, visitCount * 15);
@@ -184,8 +187,11 @@ export function createProductSelector() {
 
     const sorted = [...filtered].sort((a, b) => {
       // Prioritize sellers who often visit, stay in the app, or post rapidly
-      const scoreA = getSellerPriorityScore(a.sellerId, users, products);
-      const scoreB = getSellerPriorityScore(b.sellerId, users, products);
+      let scoreA = getSellerPriorityScore(a.sellerId, users, products);
+      let scoreB = getSellerPriorityScore(b.sellerId, users, products);
+
+      if (!Number.isFinite(scoreA)) scoreA = 0;
+      if (!Number.isFinite(scoreB)) scoreB = 0;
 
       if (scoreA !== scoreB) {
         return scoreB - scoreA; // Highest score goes first!
