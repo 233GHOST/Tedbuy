@@ -12,7 +12,8 @@ service cloud.firestore {
       return isSignedIn() && (
         uid == request.auth.uid ||
         uid == "user_" + request.auth.uid ||
-        uid == "phone_" + request.auth.uid
+        uid == "phone_" + request.auth.uid ||
+        (uid is string && request.auth.token != null && "email" in request.auth.token && (uid == request.auth.token.get('email', '') || uid.lower() == request.auth.token.get('email', '').lower()))
       );
     }
 
@@ -21,26 +22,20 @@ service cloud.firestore {
       return isSignedIn() && 
              request.auth.token != null && 
              "email" in request.auth.token && 
-             request.auth.token.email.lower() == 'asumaduvincent7@gmail.com';
+             request.auth.token.get('email', '').lower() == 'asumaduvincent7@gmail.com';
     }
 
     // Helper to check robust ownership of a product (via direct UID or via email verification of Firestore user document)
     function isProductOwner(sellerId) {
-      return isOwner(sellerId) || (
-        isSignedIn() && 
-        sellerId is string && 
-        sellerId.size() > 0 &&
-        request.auth.token != null && 
-        "email" in request.auth.token && 
-        exists(/databases/$(database)/documents/users/$(sellerId)) && 
-        request.auth.token.email.lower() == get(/databases/$(database)/documents/users/$(sellerId)).data.get('email', '').lower()
-      );
+      return isOwner(sellerId);
     }
 
+    // Helper to return incoming document payload
     function incoming() {
       return request.resource.data;
     }
 
+    // Helper to return existing document payload
     function existing() {
       return resource.data;
     }
@@ -61,19 +56,23 @@ service cloud.firestore {
         return data.get('username', '') is string && data.get('username', '').size() <= 100 &&
                data.get('role', 'both') in ['buyer', 'seller', 'both'] &&
                (data.get('email', null) == null || (data.get('email', '') is string && data.get('email', '').size() <= 150)) &&
-               (data.get('phoneNumber', null) == null || (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 30));
+               (data.get('phoneNumber', null) == null || (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 30)) &&
+               (!('isAdmin' in data) || data.get('isAdmin', false) == false || isAdmin());
       }
 
       allow read: if true; // Public marketplace profiles are viewable by everyone
-      allow create: if (isOwner(userId) || (isSignedIn() && (userId.matches('^user_.*') || userId.matches('^phone_.*')))) && isValidId(userId) && isValidUser(incoming());
-      allow update: if (isOwner(userId) || isAdmin() || (request.auth.token != null && "email" in request.auth.token && request.auth.token.email.lower() == existing().get('email', '').lower())) &&
+      allow create: if (isOwner(userId) || (isSignedIn() && (userId.matches('^user_.*') || userId.matches('^phone_.*')))) && 
+                    isValidId(userId) && 
+                    userId.matches('^[a-zA-Z0-9_@.-]+$') && 
+                    isValidUser(incoming());
+      allow update: if (isOwner(userId) || isAdmin() || (request.auth.token != null && "email" in request.auth.token && request.auth.token.get('email', '').lower() == existing().get('email', '').lower())) &&
                     isValidId(userId) &&
                     isValidUser(incoming()) &&
                     incoming().get('id', userId) == existing().get('id', userId);
       allow delete: if isSignedIn() && (
         isOwner(userId) || 
         isAdmin() ||
-        (request.auth.token != null && "email" in request.auth.token && request.auth.token.email.lower() == resource.data.get('email', '').lower())
+        (request.auth.token != null && "email" in request.auth.token && request.auth.token.get('email', '').lower() == resource.data.get('email', '').lower())
       );
     }
 
@@ -83,14 +82,17 @@ service cloud.firestore {
         return data.get('id', productId) is string && data.get('id', productId).size() <= 128 &&
                data.get('sellerId', '') is string && data.get('sellerId', '').size() <= 128 &&
                data.get('title', '') is string && data.get('title', '').size() <= 1000 &&
-               data.get('category', '') is string && data.get('category', '').size() <= 100;
+               data.get('category', '') is string && data.get('category', '').size() <= 500 &&
+               (data.get('price', 0) is int || data.get('price', 0) is float) && 
+               data.get('price', 0) > 0 && data.get('price', 0) < 1000000000 &&
+               data.get('location', '') is string && data.get('location', '').size() > 0 && data.get('location', '').size() <= 500;
       }
 
       allow read: if true; // Listings are public
-      allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
+      allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming()) && (isProductOwner(incoming().sellerId) || isAdmin());
       allow update: if isValidId(productId) && isValidProduct(incoming()) && (
                       isAdmin() ||
-                      isProductOwner(existing().get('sellerId', '')) ||
+                      (isProductOwner(existing().get('sellerId', '')) && incoming().get('sellerId', '') == existing().get('sellerId', '')) ||
                       incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount', 'isSold', 'likesCount', 'likedUserIds'])
                     );
       allow delete: if isAdmin() || isProductOwner(existing().get('sellerId', ''));
@@ -106,14 +108,18 @@ service cloud.firestore {
                (data.get('tradeStatus', null) == null || data.get('tradeStatus', '') in ['pending', 'delivered', 'completed']);
       }
 
-      allow read: if !isSignedIn() || 
-                     (isOwner(resource.data.get('buyerId', '')) || isOwner(resource.data.get('sellerId', '')) || isAdmin());
+      allow read: if isSignedIn() && 
+                     (resource.data.buyerId == request.auth.uid || 
+                      resource.data.sellerId == request.auth.uid ||
+                      (request.auth.token != null && "email" in request.auth.token && (resource.data.buyerId == request.auth.token.get('email', '') || resource.data.sellerId == request.auth.token.get('email', ''))) ||
+                      isAdmin());
       allow create: if (isOwner(incoming().get('buyerId', '')) || incoming().get('buyerId', '').matches('^user_.*') || isAdmin()) && isValidId(chatId) && isValidChat(incoming());
       allow update: if (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', '')) || isAdmin()) && isValidId(chatId) && 
                     isValidChat(incoming()) &&
                     incoming().get('id', chatId) == existing().get('id', chatId) &&
                     incoming().get('buyerId', '') == existing().get('buyerId', '') &&
-                    incoming().get('sellerId', '') == existing().get('sellerId', '');
+                    incoming().get('sellerId', '') == existing().get('sellerId', '') &&
+                    (incoming().get('tradeStatus', 'pending') != 'completed' || existing().get('tradeStatus', 'pending') == 'delivered' || isAdmin());
       allow delete: if isAdmin();
     }
 
@@ -127,8 +133,11 @@ service cloud.firestore {
                data.get('text', '') is string && data.get('text', '').size() <= 5000;
       }
 
-      allow read: if !isSignedIn() || 
-                     (isOwner(resource.data.get('senderId', '')) || isOwner(resource.data.get('recipientId', '')) || isAdmin());
+      allow read: if isSignedIn() && 
+                     (resource.data.senderId == request.auth.uid || 
+                      resource.data.recipientId == request.auth.uid ||
+                      (request.auth.token != null && "email" in request.auth.token && (resource.data.senderId == request.auth.token.get('email', '') || resource.data.recipientId == request.auth.token.get('email', ''))) ||
+                      isAdmin());
       allow create: if (isOwner(incoming().get('senderId', '')) || incoming().get('senderId', '').matches('^user_.*') || isAdmin()) && isValidId(messageId) && isValidMessage(incoming());
       allow update: if (isOwner(existing().get('recipientId', '')) || isAdmin()) &&
                        incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
@@ -161,7 +170,9 @@ service cloud.firestore {
 
     // 7. Notifications Collection rules
     match /notifications/{notificationId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow read: if resource.data.userId == request.auth.uid ||
+                     (request.auth.token != null && "email" in request.auth.token && resource.data.userId == request.auth.token.get('email', '')) ||
+                     isAdmin();
       allow create, update, delete: if isSignedIn();
     }
 
