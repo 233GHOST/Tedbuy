@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
@@ -401,6 +402,7 @@ const MarketplaceContent: React.FC = () => {
   const sortedProducts = useMemo(() => {
     return selectProducts(
       products,
+      users,
       selectedCategory,
       debouncedSearchQuery,
       selectedRegion,
@@ -410,7 +412,7 @@ const MarketplaceContent: React.FC = () => {
       sortByPrice,
       sortByAds
     );
-  }, [products, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
+  }, [products, users, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
 
   // Prefetch cover images of the first few products dynamically to make browsing feel instant
   const prefetchedImagesRef = React.useRef<Set<string>>(new Set());
@@ -744,10 +746,27 @@ const MarketplaceContent: React.FC = () => {
               </button>
             </div>
 
-            {homeViewMode === 'video-feed' ? (
-              <VideoAdsFeed />
-            ) : (
-              <>
+            <AnimatePresence mode="wait">
+              {homeViewMode === 'video-feed' ? (
+                <motion.div
+                  key="video-feed-section"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-full flex-1"
+                >
+                  <VideoAdsFeed />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="grid-section"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-full"
+                >
                 {/* Category selection ribbon */}
                 <section className="space-y-4 mb-8 text-left">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1149,8 +1168,9 @@ const MarketplaceContent: React.FC = () => {
                 </section>
               </div>
             </div>
-              </>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
@@ -1236,6 +1256,7 @@ const MarketplaceContent: React.FC = () => {
         {/* Home Tab */}
         <button
           onClick={() => {
+            try { if ('vibrate' in navigator) navigator.vibrate(10); } catch (_) {}
             sessionStorage.setItem('tedbuy_browse_scroll_pos', '0');
             setCurrentView('browse');
             setHomeViewMode('grid');
@@ -1264,6 +1285,7 @@ const MarketplaceContent: React.FC = () => {
         {/* Search Tab */}
         <button
           onClick={() => {
+            try { if ('vibrate' in navigator) navigator.vibrate(10); } catch (_) {}
             if (currentView !== 'browse') {
               setCurrentView('browse');
             }
@@ -1294,26 +1316,38 @@ const MarketplaceContent: React.FC = () => {
           <span className="text-[9px] tracking-tight uppercase font-extrabold">Search</span>
         </button>
 
-        {/* Enhanced Central Raised Sell Tab */}
+        {/* Enhanced Central Raised Sell Tab with Active State State Animations */}
         <button
-          onClick={handlePostAdBtn}
+          onClick={() => {
+            try { if ('vibrate' in navigator) navigator.vibrate(20); } catch (_) {}
+            handlePostAdBtn();
+          }}
           className="flex flex-col items-center justify-center flex-1 pb-1 relative z-50 cursor-pointer outline-none -translate-y-2.5"
         >
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition duration-200 active:scale-90 border-4 ${
-            isVideoFeedMobile
-              ? 'bg-slate-900 text-white border-slate-900'
-              : 'bg-slate-900 text-white border-white'
-          }`}>
+          <motion.div
+            animate={isPostAdOpen ? { scale: 1.15, rotate: 135 } : { scale: [1, 1.05, 1] }}
+            transition={isPostAdOpen ? { type: 'spring', stiffness: 220, damping: 15 } : { repeat: Infinity, duration: 2.2, ease: "easeInOut" }}
+            className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg border-4 transition-all duration-300 ${
+              isPostAdOpen
+                ? 'bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/50 scale-110'
+                : isVideoFeedMobile
+                  ? 'bg-slate-900 text-white border-slate-900 shadow-black/40'
+                  : 'bg-slate-900 text-white border-white shadow-slate-905/20'
+            }`}
+          >
             <PlusCircle className="w-6 h-6 stroke-[2.5]" />
-          </div>
-          <span className={`text-[9px] tracking-tight uppercase font-black mt-1 ${
-            isVideoFeedMobile ? 'text-slate-200' : 'text-slate-900'
+          </motion.div>
+          <span className={`text-[9px] tracking-tight uppercase font-black mt-1 transition-colors duration-200 ${
+            isPostAdOpen
+              ? 'text-emerald-500 font-extrabold'
+              : isVideoFeedMobile ? 'text-slate-200' : 'text-slate-900'
           }`}>Sell</span>
         </button>
 
         {/* Messages Tab */}
         <button
           onClick={() => {
+            try { if ('vibrate' in navigator) navigator.vibrate(10); } catch (_) {}
             if (!currentUser) {
               setAuthMode('login');
               setShowAuthModal(true);
@@ -1348,6 +1382,7 @@ const MarketplaceContent: React.FC = () => {
         {/* Profile Tab */}
         <button
           onClick={() => {
+            try { if ('vibrate' in navigator) navigator.vibrate(10); } catch (_) {}
             if (!currentUser) {
               setAuthMode('login');
               setShowAuthModal(true);

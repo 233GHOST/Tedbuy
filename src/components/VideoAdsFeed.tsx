@@ -142,8 +142,16 @@ const ReelItem: React.FC<ReelItemProps> = ({
     currentUser,
     setAuthMode,
     setShowAuthModal,
-    followSeller
+    followSeller,
+    users
   } = useApp();
+
+  const seller = users?.find(u => u.id === product.sellerId);
+  const isPrioSeller = seller && (
+    (seller.visitCount && seller.visitCount >= 2) ||
+    (seller.totalStayTime && seller.totalStayTime >= 40) ||
+    (seller.rapidPostScore && seller.rapidPostScore >= 2)
+  );
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -492,10 +500,18 @@ const ReelItem: React.FC<ReelItemProps> = ({
         {/* Immersive bottom text details overlay */}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/100 via-black/65 to-transparent p-4 pb-7 text-left z-20 flex flex-col justify-end pointer-events-none">
           <div className="space-y-2 pointer-events-auto max-w-[72%]">
-            <span className="px-2.5 py-0.5 bg-[#FFFC00] text-slate-950 text-[9px] font-black rounded-md tracking-wider uppercase inline-flex items-center gap-1 shadow-md">
-              <Tag className="w-2.5 h-2.5" />
-              {product?.category}
-            </span>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="px-2.5 py-0.5 bg-[#FFFC00] text-slate-950 text-[9px] font-black rounded-md tracking-wider uppercase inline-flex items-center gap-1 shadow-md">
+                <Tag className="w-2.5 h-2.5" />
+                {product?.category}
+              </span>
+              {isPrioSeller && (
+                <span className="px-2.5 py-0.5 bg-gradient-to-r from-[#FFFC00] to-yellow-400 text-slate-950 text-[9px] font-black rounded-md tracking-wider uppercase inline-flex items-center gap-1.5 shadow-md">
+                  <Flame className="w-2.5 h-2.5 text-slate-900 fill-slate-900 animate-pulse" />
+                  <span>Featured Seller</span>
+                </span>
+              )}
+            </div>
             
             <h3 className="text-sm sm:text-base font-black text-white leading-tight truncate drop-shadow-md">{product?.title}</h3>
             
@@ -676,22 +692,59 @@ export const VideoAdsFeed: React.FC = () => {
     showToast
   } = useApp();
 
+  const [feedLoading, setFeedLoading] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFeedLoading(false);
+    }, 450);
+    return () => clearTimeout(timer);
+  }, []);
+
   const feedScrollContainerRef = useRef<HTMLDivElement>(null);
   const productRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const videoProducts = useMemo(() => {
-    return products.filter(p => p.videos && p.videos.length > 0);
-  }, [products]);
+    const filtered = products.filter(p => p.videos && p.videos.length > 0);
+    
+    const getSellerScore = (sellerId: string): number => {
+      const seller = users?.find(u => u.id === sellerId);
+      if (!seller) return 0;
+      const visitCount = seller.visitCount || 0;
+      const totalStayTime = seller.totalStayTime || 0;
+      const rapidPostScore = seller.rapidPostScore || 0;
+
+      const visitScore = visitCount * 50;
+      const stayScore = Math.floor(totalStayTime / 10) * 12;
+      const postScore = rapidPostScore * 200;
+
+      return visitScore + stayScore + postScore;
+    };
+
+    return [...filtered].sort((a, b) => {
+      const scoreA = getSellerScore(a.sellerId);
+      const scoreB = getSellerScore(b.sellerId);
+
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA; // Highly active/frequent posters always first!
+      }
+
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA;
+    });
+  }, [products, users]);
 
   // Background filler effect: If the filtered video products count is small, proactively request more products in the background
   useEffect(() => {
+    if (feedLoading) return;
     if (videoProducts.length < 10 && hasMoreProducts && !isProductsLoading) {
       const timer = setTimeout(() => {
         loadMoreProducts();
       }, 800);
       return () => clearTimeout(timer);
     }
-  }, [videoProducts.length, hasMoreProducts, isProductsLoading, loadMoreProducts]);
+  }, [videoProducts.length, hasMoreProducts, isProductsLoading, loadMoreProducts, feedLoading]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
@@ -700,6 +753,7 @@ export const VideoAdsFeed: React.FC = () => {
 
   // Sync scroll positioning with Intersection Observer
   useEffect(() => {
+    if (feedLoading) return;
     const container = feedScrollContainerRef.current;
     if (!container) return;
 
@@ -766,6 +820,67 @@ export const VideoAdsFeed: React.FC = () => {
     if (isNaN(num) || num <= 0) return 'Inquire';
     return `GH₵${num.toLocaleString()}`;
   };
+
+  if (feedLoading) {
+    return (
+      <div className="flex-1 min-h-0 h-full sm:h-[620px] lg:h-[680px] w-full sm:border border-slate-800 bg-slate-950 sm:rounded-3xl rounded-none overflow-hidden shadow-xl flex flex-col text-white mt-0 sm:mt-4 relative items-center justify-center">
+        {/* Shimmer background animation */}
+        <div className="absolute inset-0 bg-linear-to-r from-slate-950 via-slate-900 to-slate-950 animate-pulse" />
+        
+        {/* Simulated Reel Layout */}
+        <div className="relative w-full h-full flex flex-col justify-between p-4 z-10 pointer-events-none">
+          {/* Top banner shimmer */}
+          <div className="flex justify-between items-center w-full">
+            <div className="h-7 w-36 bg-slate-800/80 rounded-full animate-pulse flex items-center px-3 gap-2">
+              <div className="w-2.5 h-2.5 bg-[#FFFC00] rounded-full animate-ping" />
+              <div className="h-2 w-20 bg-slate-700 rounded-full animate-pulse" />
+            </div>
+            <div className="h-8 w-8 bg-slate-800/80 rounded-full animate-pulse" />
+          </div>
+
+          {/* Central loading indicator */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <div className="relative flex items-center justify-center">
+              <div className="w-12 h-12 border-4 border-slate-800 border-t-[#FFFC00] rounded-full animate-spin" />
+              <Video className="w-5 h-5 text-[#FFFC00] absolute animate-pulse" />
+            </div>
+            <span className="text-[10.5px] font-black text-slate-400 uppercase tracking-widest animate-pulse font-sans">
+              Initializing Live Feed...
+            </span>
+          </div>
+
+          {/* Bottom & Side Interface simulation */}
+          <div className="flex justify-between items-end w-full mt-auto">
+            {/* User metadata outline */}
+            <div className="space-y-3 max-w-sm w-2/3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-slate-800 rounded-full animate-pulse" />
+                <div className="space-y-1.5 flex-1 pagination">
+                  <div className="h-3 w-28 bg-slate-800 rounded-full animate-pulse" />
+                  <div className="h-2 w-16 bg-slate-705 rounded-full animate-pulse" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="h-2.5 w-full bg-slate-800 rounded-full animate-pulse" />
+                <div className="h-2 w-5/6 bg-slate-800 rounded-full animate-pulse" />
+              </div>
+              <div className="h-6 w-24 bg-slate-800/85 rounded-lg animate-pulse" />
+            </div>
+
+            {/* Right-side dynamic circles list */}
+            <div className="flex flex-col gap-4 items-center">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <div className="w-10 h-10 bg-slate-800 rounded-full animate-pulse" />
+                  <div className="h-1.5 w-6 bg-slate-850 rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (videoProducts.length === 0) {
     return (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, isUserVerified } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Eye, Calendar, Tag, Bookmark, Video } from 'lucide-react';
+import { MapPin, Eye, Calendar, Tag, Bookmark, Video, Flame } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 
 interface ProductCardProps {
@@ -25,6 +25,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
   const seller = users?.find(u => u.id === product.sellerId);
   const isSellerVerified = isUserVerified(seller);
+  const isPrioSeller = seller && (
+    (seller.visitCount && seller.visitCount >= 2) ||
+    (seller.totalStayTime && seller.totalStayTime >= 40) ||
+    (seller.rapidPostScore && seller.rapidPostScore >= 2)
+  );
 
   const handleDetailsClick = () => {
     setSelectedProductId(product.id);
@@ -240,6 +245,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             <Tag className="w-2.5 h-2.5" />
             {product.category}
           </span>
+          {isPrioSeller && (
+            <span className="px-2 py-0.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-md flex items-center gap-1 uppercase tracking-wider shadow-md animate-pulse">
+              <Flame className="w-2.5 h-2.5 text-slate-950 fill-slate-950 animate-bounce" />
+              Active Seller
+            </span>
+          )}
           {product.isSold && (
             <span className="px-2 py-0.5 bg-rose-600 border border-rose-500 text-white text-[10px] font-extrabold rounded-md uppercase tracking-widest shadow-md animate-pulse">
               SOLD
