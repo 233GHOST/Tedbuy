@@ -111,6 +111,11 @@ export const Navbar: React.FC = () => {
           setIsAuthSubmitting(false);
           return;
         }
+        if (!registerPhoneInput || !registerPhoneInput.trim()) {
+          setAuthError('Phone number is required.');
+          setIsAuthSubmitting(false);
+          return;
+        }
         if (!registerPasswordInput || registerPasswordInput.length < 6) {
           setAuthError('Password must be at least 6 characters long.');
           setIsAuthSubmitting(false);
@@ -120,7 +125,7 @@ export const Navbar: React.FC = () => {
         await registerUser(
           usernameInput.trim(),
           cleanRegEmail,
-          registerPhoneInput.trim() || undefined,
+          registerPhoneInput.trim(),
           registerPasswordInput,
           registerPhotoUrlInput || undefined
         );
@@ -683,13 +688,14 @@ export const Navbar: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number <span className="text-slate-500 text-[10px] font-normal">(Optional)</span></label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number *</label>
                     <input
                       type="text"
                       id="auth-phone-input"
+                      required
                       value={registerPhoneInput}
                       onChange={(e) => setRegisterPhoneInput(e.target.value)}
-                      placeholder=""
+                      placeholder="e.g. 0241234567 or +233..."
                       className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 inline-block mb-1"
                     />
                   </div>

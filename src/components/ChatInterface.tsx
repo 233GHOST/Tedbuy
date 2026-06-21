@@ -7,7 +7,7 @@ import { ReviewModal } from './ReviewModal';
 export const ChatInterface: React.FC = () => {
   const {
     currentUser,
-    users,
+    usersMap,
     chats,
     messages,
     sendMessage,
@@ -150,7 +150,7 @@ export const ChatInterface: React.FC = () => {
 
   // Find info about the peer (other person) in active chat
   const otherUserId = activeChat ? (activeChat.buyerId === currentUser.id ? activeChat.sellerId : activeChat.buyerId) : null;
-  const otherUser = users.find(u => u.id === otherUserId);
+  const otherUser = otherUserId ? usersMap[otherUserId] : undefined;
   const otherUserName = activeChat ? (activeChat.buyerId === currentUser.id ? activeChat.sellerName : activeChat.buyerName) : 'Other Party';
 
   // Check if currentUser already left a review for this seller on this product

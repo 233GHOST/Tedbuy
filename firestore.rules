@@ -12,7 +12,8 @@ service cloud.firestore {
       return isSignedIn() && (
         uid == request.auth.uid ||
         uid == "user_" + request.auth.uid ||
-        uid == "phone_" + request.auth.uid
+        uid == "phone_" + request.auth.uid ||
+        (request.auth.token != null && "email" in request.auth.token && (uid == request.auth.token.email || uid.lower() == request.auth.token.email.lower()))
       );
     }
 
@@ -107,7 +108,10 @@ service cloud.firestore {
       }
 
       allow read: if !isSignedIn() || 
-                     (isOwner(resource.data.get('buyerId', '')) || isOwner(resource.data.get('sellerId', '')) || isAdmin());
+                     resource.data.buyerId == request.auth.uid ||
+                     resource.data.sellerId == request.auth.uid ||
+                     (request.auth.token != null && "email" in request.auth.token && (resource.data.buyerId == request.auth.token.email || resource.data.sellerId == request.auth.token.email)) ||
+                     isAdmin();
       allow create: if (isOwner(incoming().get('buyerId', '')) || incoming().get('buyerId', '').matches('^user_.*') || isAdmin()) && isValidId(chatId) && isValidChat(incoming());
       allow update: if (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', '')) || isAdmin()) && isValidId(chatId) && 
                     isValidChat(incoming()) &&
@@ -128,7 +132,10 @@ service cloud.firestore {
       }
 
       allow read: if !isSignedIn() || 
-                     (isOwner(resource.data.get('senderId', '')) || isOwner(resource.data.get('recipientId', '')) || isAdmin());
+                     resource.data.senderId == request.auth.uid ||
+                     resource.data.recipientId == request.auth.uid ||
+                     (request.auth.token != null && "email" in request.auth.token && (resource.data.senderId == request.auth.token.email || resource.data.recipientId == request.auth.token.email)) ||
+                     isAdmin();
       allow create: if (isOwner(incoming().get('senderId', '')) || incoming().get('senderId', '').matches('^user_.*') || isAdmin()) && isValidId(messageId) && isValidMessage(incoming());
       allow update: if (isOwner(existing().get('recipientId', '')) || isAdmin()) &&
                        incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
@@ -161,7 +168,9 @@ service cloud.firestore {
 
     // 7. Notifications Collection rules
     match /notifications/{notificationId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow read: if resource.data.userId == request.auth.uid || 
+                     (request.auth.token != null && "email" in request.auth.token && resource.data.userId == request.auth.token.email) ||
+                     isAdmin();
       allow create, update, delete: if isSignedIn();
     }
 

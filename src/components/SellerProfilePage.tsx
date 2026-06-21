@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
 import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus } from 'lucide-react';
-import { isUserVerified, calculateTrustScore } from '../types';
+import { Product, User, isUserVerified, calculateTrustScore } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { motion, AnimatePresence } from 'motion/react';
+import { db } from '../firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export const SellerProfilePage: React.FC = () => {
   const {
     users,
+    usersMap,
     products,
     chats,
     messages,
@@ -28,12 +31,12 @@ export const SellerProfilePage: React.FC = () => {
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [activeFollowTab, setActiveFollowTab] = useState<'following' | 'followers'>('following');
 
-  const seller = users.find(u => u.id === selectedSellerId);
+  const seller = selectedSellerId ? usersMap[selectedSellerId] : undefined;
   const isSellerVerified = isUserVerified(seller);
 
   // Derive followers and following lists for this seller
   const sellerFollowers = seller ? users.filter(u => u.followingSellers?.includes(seller.id)) : [];
-  const sellerFollowing = seller ? users.filter(u => seller.followingSellers?.includes(u.id)) : [];
+  const sellerFollowing = seller ? (seller.followingSellers || []).map(id => usersMap[id]).filter(Boolean) as User[] : [];
 
   // If no seller ID or seller not found, render fallback
   if (!seller) {
@@ -50,10 +53,64 @@ export const SellerProfilePage: React.FC = () => {
     );
   }
 
-  // Filter listings belonging strictly to this seller
-  const sellerProducts = products.filter(p => p.sellerId === seller.id);
+  const [liveSellerProducts, setLiveSellerProducts] = useState<Product[]>([]);
+  const [isLoadingLiveProducts, setIsLoadingLiveProducts] = useState(true);
 
-  const isOwner = currentUser?.id === seller.id;
+  useEffect(() => {
+    if (!seller) {
+      setLiveSellerProducts([]);
+      setIsLoadingLiveProducts(false);
+      return;
+    }
+
+    setIsLoadingLiveProducts(true);
+
+    const ids = [];
+    if (seller.id) ids.push(seller.id.trim().toLowerCase());
+    if (seller.email) ids.push(seller.email.trim().toLowerCase());
+
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+
+    if (uniqueIds.length === 0) {
+      setLiveSellerProducts([]);
+      setIsLoadingLiveProducts(false);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'products'),
+      where('sellerId', 'in', uniqueIds)
+    );
+
+    const unsub = onSnapshot(q, (snapshot) => {
+      const pList: Product[] = [];
+      snapshot.forEach(docSnap => {
+        pList.push({
+          ...docSnap.data() as Product,
+          id: docSnap.id
+        });
+      });
+      const sorted = pList.sort((a, b) => {
+        const dateA = a.createdAt || '';
+        const dateB = b.createdAt || '';
+        return dateB.localeCompare(dateA);
+      });
+      setLiveSellerProducts(sorted);
+      setIsLoadingLiveProducts(false);
+    }, (error) => {
+      console.warn('[Profile Seller Products Stream]', error);
+      setIsLoadingLiveProducts(false);
+    });
+
+    return unsub;
+  }, [seller]);
+
+  const sellerProducts = liveSellerProducts;
+
+  const isOwner = currentUser && (
+    currentUser.id === seller.id ||
+    (currentUser.email && seller.email && currentUser.email.toLowerCase() === seller.email.toLowerCase())
+  );
   const isFollowing = currentUser?.followingSellers?.includes(seller.id) || false;
 
   const handleToggleFollow = () => {

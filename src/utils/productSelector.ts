@@ -1,4 +1,4 @@
-import { Product, Category } from '../types';
+import { Product, Category, User } from '../types';
 import { getRegionForLocation } from '../regions';
 
 function parseNumericPrice(p: string | number): number {
@@ -15,6 +15,7 @@ function parseNumericPrice(p: string | number): number {
  */
 export function createProductSelector() {
   let lastProducts: Product[] = [];
+  let lastUsers: User[] = [];
   let lastCategory: Category | null = null;
   let lastQuery = '';
   let lastRegion = 'All';
@@ -28,6 +29,7 @@ export function createProductSelector() {
 
   return (
     products: Product[],
+    users: User[],
     category: Category | null,
     queryText: string,
     region: string,
@@ -39,6 +41,7 @@ export function createProductSelector() {
   ): Product[] => {
     if (
       lastProducts === products &&
+      lastUsers === users &&
       lastCategory === category &&
       lastQuery === queryText &&
       lastRegion === region &&
@@ -52,6 +55,7 @@ export function createProductSelector() {
     }
 
     lastProducts = products;
+    lastUsers = users;
     lastCategory = category;
     lastQuery = queryText;
     lastRegion = region;
@@ -104,7 +108,29 @@ export function createProductSelector() {
       return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice;
     });
 
+    const getSellerScore = (sellerId: string): number => {
+      const seller = users?.find(u => u.id === sellerId);
+      if (!seller) return 0;
+      const visitCount = seller.visitCount || 0;
+      const totalStayTime = seller.totalStayTime || 0; // in seconds
+      const rapidPostScore = seller.rapidPostScore || 0;
+
+      // Compound Score Formula: 50 points per visit, 12 points per 10s of stay time, 200 points per rapidPostScore
+      const visitScore = visitCount * 50;
+      const stayScore = Math.floor(totalStayTime / 10) * 12;
+      const postScore = rapidPostScore * 200;
+
+      return visitScore + stayScore + postScore;
+    };
+
     const sorted = [...filtered].sort((a, b) => {
+      const scoreA = getSellerScore(a.sellerId);
+      const scoreB = getSellerScore(b.sellerId);
+
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA; // Higher seller activity score always ranks first!
+      }
+
       if (sortByPrice === 'asc') {
         const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
         if (diff !== 0) return diff;

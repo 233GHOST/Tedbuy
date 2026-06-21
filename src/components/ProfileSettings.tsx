@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
 import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
@@ -48,6 +48,34 @@ export const ProfileSettings: React.FC = () => {
   const [whatsAppNumber, setWhatsAppNumber] = useState(currentUser.whatsAppNumber || '');
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(currentUser.photoUrl);
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser.role || 'both');
+
+  const lastUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (lastUserIdRef.current !== currentUser.id) {
+      lastUserIdRef.current = currentUser.id;
+      setUsername(currentUser.username || '');
+      setPhoneNumber(currentUser.phoneNumber || '');
+      setWhatsAppNumber(currentUser.whatsAppNumber || '');
+      setPhotoUrl(currentUser.photoUrl);
+      setRole(currentUser.role || 'both');
+    } else {
+      // Background loaded data sync for photo or other fields when they transition from empty to loaded
+      if (currentUser.photoUrl !== photoUrl && !photoUrl) {
+        setPhotoUrl(currentUser.photoUrl);
+      }
+      if (currentUser.username && !username) {
+        setUsername(currentUser.username);
+      }
+      if (currentUser.phoneNumber && !phoneNumber) {
+        setPhoneNumber(currentUser.phoneNumber);
+      }
+      if (currentUser.whatsAppNumber && !whatsAppNumber) {
+        setWhatsAppNumber(currentUser.whatsAppNumber);
+      }
+    }
+  }, [currentUser]);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -200,7 +228,7 @@ export const ProfileSettings: React.FC = () => {
         username: username.trim(),
         phoneNumber: phoneNumber.trim() || undefined,
         whatsAppNumber: whatsAppNumber.trim() || undefined,
-        photoUrl: photoUrl || "",
+        photoUrl: photoUrl,
         role
       });
       setSaveSuccess(true);

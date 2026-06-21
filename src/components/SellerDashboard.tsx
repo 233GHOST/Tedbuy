@@ -3,6 +3,8 @@ import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
 import { Product, Category } from '../types';
 import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play } from 'lucide-react';
+import { auth, db } from '../firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export const SellerDashboard: React.FC = () => {
   const {
@@ -69,8 +71,61 @@ export const SellerDashboard: React.FC = () => {
     );
   }
 
-  // Filter products owned by the active user
-  const myProducts = products.filter(p => p.sellerId === currentUser.id);
+  const [liveSellerProducts, setLiveSellerProducts] = useState<Product[]>([]);
+  const [isLoadingLiveProducts, setIsLoadingLiveProducts] = useState(true);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setLiveSellerProducts([]);
+      setIsLoadingLiveProducts(false);
+      return;
+    }
+
+    setIsLoadingLiveProducts(true);
+
+    const ids = [];
+    if (currentUser.id) ids.push(currentUser.id.trim().toLowerCase());
+    if (currentUser.email) ids.push(currentUser.email.trim().toLowerCase());
+    if (auth.currentUser?.uid) ids.push(auth.currentUser.uid.trim().toLowerCase());
+    if (auth.currentUser?.email) ids.push(auth.currentUser.email.trim().toLowerCase());
+
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+
+    if (uniqueIds.length === 0) {
+      setLiveSellerProducts([]);
+      setIsLoadingLiveProducts(false);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'products'),
+      where('sellerId', 'in', uniqueIds)
+    );
+
+    const unsub = onSnapshot(q, (snapshot) => {
+      const pList: Product[] = [];
+      snapshot.forEach(docSnap => {
+        pList.push({
+          ...docSnap.data() as Product,
+          id: docSnap.id
+        });
+      });
+      const sorted = pList.sort((a, b) => {
+        const dateA = a.createdAt || '';
+        const dateB = b.createdAt || '';
+        return dateB.localeCompare(dateA);
+      });
+      setLiveSellerProducts(sorted);
+      setIsLoadingLiveProducts(false);
+    }, (error) => {
+      console.warn('[Dashboard Seller Products Stream]', error);
+      setIsLoadingLiveProducts(false);
+    });
+
+    return unsub;
+  }, [currentUser]);
+
+  const myProducts = liveSellerProducts;
   const savedProducts = products.filter(p => currentUser.savedProductIds?.includes(p.id) || false);
 
   const handleEdit = (product: Product, e: React.MouseEvent) => {
@@ -186,15 +241,19 @@ export const SellerDashboard: React.FC = () => {
           </span>
         </div>
         <div className="bg-slate-100 border border-slate-200 rounded-2xl p-4 shadow-3xs">
-          <span className="text-xs text-slate-500 block font-semibold uppercase tracking-wider">Account Status</span>
+          <span className="text-xs text-slate-500 block font-semibold uppercase tracking-wider">App Stay Time</span>
           <span className="text-sm font-bold text-slate-800 flex items-center gap-1 mt-1">
-            <span className="h-2 w-2 rounded-full bg-slate-800 animate-pulse"></span>
-            Active Retailer
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
+            {currentUser.totalStayTime ? `${Math.floor(currentUser.totalStayTime / 60)}m ${currentUser.totalStayTime % 60}s` : 'Recording...'}
           </span>
+          <span className="text-[10px] text-slate-400 block mt-0.5">({currentUser.visitCount || 1} App visits logged)</span>
         </div>
         <div className="bg-slate-100 border border-slate-200 rounded-2xl p-4 shadow-3xs">
-          <span className="text-xs text-slate-500 block font-semibold uppercase tracking-wider">Pricing Unit</span>
-          <span className="text-2xl font-extrabold text-slate-900 font-sans">GHS (₵)</span>
+          <span className="text-xs text-slate-500 block font-semibold uppercase tracking-wider">Posting Speed Rank</span>
+          <span className="text-sm font-extrabold text-[#d97706] flex items-center gap-1 mt-1">
+            ⚡ {currentUser.rapidPostScore || 0} recent posts
+          </span>
+          <span className="text-[10px] text-slate-400 block mt-0.5">High frequency boosts ads first!</span>
         </div>
       </div>
 
