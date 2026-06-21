@@ -8,10 +8,10 @@ interface ProductCardProps {
   product: Product;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const {
     currentUser,
-    usersMap,
+    users,
     toggleSaveProduct,
     setSelectedProductId,
     setCurrentView,
@@ -23,7 +23,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
   const [cardRef, isVisible] = useIntersectionObserver({ rootMargin: '200px' });
 
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
-  const seller = usersMap?.[product.sellerId];
+  const seller = users?.find(u => u.id === product.sellerId);
   const isSellerVerified = isUserVerified(seller);
   const isPrioSeller = seller && (
     (seller.visitCount && seller.visitCount >= 2) ||
@@ -368,6 +368,4 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product }) 
       </div>
     </article>
   );
-});
-
-ProductCard.displayName = 'ProductCard';
+};

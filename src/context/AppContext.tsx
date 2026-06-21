@@ -95,7 +95,6 @@ interface AppContextType {
   currentUser: User | null;
   setCurrentUser: (user: User | null) => void;
   users: User[];
-  usersMap: Record<string, User>;
   registerUser: (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => Promise<User>;
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   resetPasswordEmail: (email: string) => Promise<void>;
@@ -255,16 +254,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const usersRef = useRef<User[]>([]);
   useEffect(() => {
     usersRef.current = users;
-  }, [users]);
-
-  const usersMap = useMemo(() => {
-    const map: Record<string, User> = {};
-    users.forEach(u => {
-      if (u.id) {
-        map[u.id] = u;
-      }
-    });
-    return map;
   }, [users]);
 
   const [products, setProducts] = useState<Product[]>(() => {
@@ -792,7 +781,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   ...existingUserWithEmail,
                   id: userDocId,
                   emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
-                  photoUrl: existingUserWithEmail.photoUrl || firebaseUser.photoURL || undefined,
+                  photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
                   isGoogleAuth: true,
                   authProvider: 'google.com'
                 };
@@ -1488,22 +1477,11 @@ CEO, Tedbuy Inc`;
   }, [currentUser]);
 
   // 2.2 Auto-Seeding Search Console Specific Products (24k pure black / 24k blue)
-  const hasSeededProducts = useRef(false);
   useEffect(() => {
     if (isProductsLoading) return;
-    if (hasSeededProducts.current) return;
-
-    // Check if both products already exist in state, if so, skip seeding
-    const hasPureBlack = products.some(p => p.id === 'prod_24k_pure_black');
-    const hasBlue = products.some(p => p.id === 'prod_24k_blue');
-    if (hasPureBlack && hasBlue) {
-      hasSeededProducts.current = true;
-      return;
-    }
     
     const seedSelfHealingData = async () => {
       try {
-        hasSeededProducts.current = true; // prevent duplicate parallel runs
         // Enforce verified seller is in the database for optimal profile views
         const sellerRef = doc(db, 'users', 'user_ted_verified');
         const sellerSnap = await getDoc(sellerRef);
@@ -1523,7 +1501,7 @@ CEO, Tedbuy Inc`;
         }
 
         // Seed 24k Pure Black
-        if (!hasPureBlack) {
+        if (!products.some(p => p.id === 'prod_24k_pure_black')) {
           const prodPureBlack: Product = {
             id: 'prod_24k_pure_black',
             sellerId: 'user_ted_verified',
@@ -1547,7 +1525,7 @@ CEO, Tedbuy Inc`;
         }
 
         // Seed 24k Blue
-        if (!hasBlue) {
+        if (!products.some(p => p.id === 'prod_24k_blue')) {
           const prodBlueIntense: Product = {
             id: 'prod_24k_blue',
             sellerId: 'user_ted_verified',
@@ -2893,7 +2871,7 @@ CEO, Tedbuy Inc`;
   }, [processOfflineQueue]);
 
   const sendMessage = async (chatId: string, text: string, optionalSenderId?: string) => {
-    const sender = optionalSenderId ? usersMap[optionalSenderId] : currentUser;
+    const sender = optionalSenderId ? users.find(u => u.id === optionalSenderId) : currentUser;
     if (!sender) return;
 
     const chat = chats.find(c => c.id === chatId);
@@ -3618,7 +3596,7 @@ CEO, Tedbuy Inc`;
       existsInDb = true; 
     }
 
-    const targetUser = targetUserDb || usersMap[userId];
+    const targetUser = targetUserDb || users.find(u => u.id === userId);
     if (!targetUser) {
       throw new Error("User profile not found in system.");
     }
@@ -3914,7 +3892,6 @@ CEO, Tedbuy Inc`;
       currentUser: memoizedCurrentUser,
       setCurrentUser: setCurrentUserState,
       users,
-      usersMap,
       registerUser,
       loginUser,
       resetPasswordEmail,

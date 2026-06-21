@@ -3,8 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
 import { Product, Category } from '../types';
 import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play } from 'lucide-react';
-import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { auth } from '../firebase';
 
 export const SellerDashboard: React.FC = () => {
   const {
@@ -71,61 +70,17 @@ export const SellerDashboard: React.FC = () => {
     );
   }
 
-  const [liveSellerProducts, setLiveSellerProducts] = useState<Product[]>([]);
-  const [isLoadingLiveProducts, setIsLoadingLiveProducts] = useState(true);
-
-  useEffect(() => {
-    if (!currentUser) {
-      setLiveSellerProducts([]);
-      setIsLoadingLiveProducts(false);
-      return;
-    }
-
-    setIsLoadingLiveProducts(true);
-
-    const ids = [];
-    if (currentUser.id) ids.push(currentUser.id.trim().toLowerCase());
-    if (currentUser.email) ids.push(currentUser.email.trim().toLowerCase());
-    if (auth.currentUser?.uid) ids.push(auth.currentUser.uid.trim().toLowerCase());
-    if (auth.currentUser?.email) ids.push(auth.currentUser.email.trim().toLowerCase());
-
-    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
-
-    if (uniqueIds.length === 0) {
-      setLiveSellerProducts([]);
-      setIsLoadingLiveProducts(false);
-      return;
-    }
-
-    const q = query(
-      collection(db, 'products'),
-      where('sellerId', 'in', uniqueIds)
-    );
-
-    const unsub = onSnapshot(q, (snapshot) => {
-      const pList: Product[] = [];
-      snapshot.forEach(docSnap => {
-        pList.push({
-          ...docSnap.data() as Product,
-          id: docSnap.id
-        });
-      });
-      const sorted = pList.sort((a, b) => {
-        const dateA = a.createdAt || '';
-        const dateB = b.createdAt || '';
-        return dateB.localeCompare(dateA);
-      });
-      setLiveSellerProducts(sorted);
-      setIsLoadingLiveProducts(false);
-    }, (error) => {
-      console.warn('[Dashboard Seller Products Stream]', error);
-      setIsLoadingLiveProducts(false);
-    });
-
-    return unsub;
-  }, [currentUser]);
-
-  const myProducts = liveSellerProducts;
+  // Filter products owned by the active user (matching Firestore user ID, email, or raw Firebase Auth UID)
+  const myProducts = products.filter(p => {
+    if (!p || !p.sellerId) return false;
+    const sId = p.sellerId.toLowerCase().trim();
+    
+    const isIdMatch = sId === currentUser.id.toLowerCase().trim();
+    const isEmailMatch = currentUser.email && sId === currentUser.email.toLowerCase().trim();
+    const isAuthUidMatch = auth.currentUser?.uid && sId === auth.currentUser.uid.toLowerCase().trim();
+    
+    return isIdMatch || isEmailMatch || isAuthUidMatch;
+  });
   const savedProducts = products.filter(p => currentUser.savedProductIds?.includes(p.id) || false);
 
   const handleEdit = (product: Product, e: React.MouseEvent) => {
