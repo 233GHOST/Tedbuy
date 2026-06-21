@@ -406,14 +406,14 @@ const ReelItem: React.FC<ReelItemProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="flex items-center justify-center w-full h-full p-2 select-none">
-      {/* Immersive Aspect locked video player container mimicking Snapchat feeds with brand yellow highlights */}
+    <div ref={containerRef} className="flex items-center justify-center w-full h-full p-0 sm:p-2 select-none">
+      {/* Immersive Snapchat-style full screen feed on mobile, aspect locked frame on desktop */}
       <div 
         onClick={handleVideoContainerClick}
         onMouseMove={resetControlsTimeout}
         onTouchStart={resetControlsTimeout}
         onMouseEnter={resetControlsTimeout}
-        className="relative aspect-[9/16] w-full max-w-[360px] sm:max-w-[380px] md:max-w-[400px] h-full max-h-[96%] bg-slate-950 rounded-[2rem] overflow-hidden shadow-[0_30px_70px_-10px_rgba(0,0,0,0.95)] border border-white/10 group cursor-pointer flex items-center justify-center shrink-0 transition-all duration-300 hover:scale-[1.01] hover:border-yellow-400/30"
+        className="relative w-full h-full sm:aspect-[9/16] sm:w-full sm:max-w-[380px] md:max-w-[400px] sm:h-full sm:max-h-[96%] bg-slate-950 rounded-none sm:rounded-[2rem] overflow-hidden shadow-none sm:shadow-[0_30px_70px_-10px_rgba(0,0,0,0.95)] border-0 sm:border sm:border-white/10 group cursor-pointer flex items-center justify-center shrink-0 transition-all duration-300 sm:hover:scale-[1.01] sm:hover:border-yellow-400/30"
       >
         {!shouldLoad ? (
           <div className="text-center p-6 text-slate-500">
