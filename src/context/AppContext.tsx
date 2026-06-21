@@ -401,8 +401,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const hasProcessedDeepLink = useRef(false);
   const justRegisteredUserIds = useRef<Set<string>>(new Set());
-  const activeUserListenerRef = useRef<(() => void) | null>(null);
-  const isDeletingAccountRef = useRef<boolean>(false);
 
   // Navigation and Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -608,22 +606,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (userSubUnsub) {
         userSubUnsub();
         userSubUnsub = undefined;
-        activeUserListenerRef.current = null;
       }
 
       try {
         if (firebaseUser) {
+
+
           // Clear any simulated sandbox mode flags as we now have a genuine authenticated Firebase session
           safeLocalStorage.removeItem('tedbuy_simulated_mode');
           safeLocalStorage.removeItem('tedbuy_simulated_user');
-
-          const userDocId = firebaseUser.email?.trim().toLowerCase() || firebaseUser.uid;
 
           // Construct a dynamic backup/fallback user structure by checking caches first
           let cachedUser: User | null = null;
           
           // 1. Search in react users state list
-          const foundInList = usersRef.current.find(u => u.id === userDocId || u.id === firebaseUser.uid);
+          const foundInList = usersRef.current.find(u => u.id === firebaseUser.uid);
           if (foundInList) {
             cachedUser = foundInList;
           } else {
@@ -632,7 +629,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const localUsersBackup = safeLocalStorage.getItem('tedbuy_local_users_backup');
               if (localUsersBackup) {
                 const parsedList = JSON.parse(localUsersBackup) as User[];
-                const foundInBackup = parsedList.find(u => u.id === userDocId || u.id === firebaseUser.uid);
+                const foundInBackup = parsedList.find(u => u.id === firebaseUser.uid);
                 if (foundInBackup) {
                   cachedUser = foundInBackup;
                 }
@@ -648,7 +645,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const individualBackupStr = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
               if (individualBackupStr) {
                 const parsed = JSON.parse(individualBackupStr) as User;
-                if (parsed.id === userDocId || parsed.id === firebaseUser.uid) {
+                if (parsed.id === firebaseUser.uid) {
                   cachedUser = parsed;
                 }
               }
@@ -663,9 +660,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache');
               if (cacheStr) {
                 const cache = JSON.parse(cacheStr);
-                if (cache[userDocId]) {
-                  cachedUser = cache[userDocId];
-                } else if (cache[firebaseUser.uid]) {
+                if (cache[firebaseUser.uid]) {
                   cachedUser = cache[firebaseUser.uid];
                 }
               }
@@ -687,7 +682,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           // Construct a dynamic backup/fallback user structure
           const tempUser: User = {
-            id: userDocId,
+            id: firebaseUser.uid,
             username: cachedUser?.username || initialUsername,
             email: firebaseUser.email || cachedUser?.email || undefined,
             role: cachedUser?.role || 'both',
@@ -704,7 +699,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           
           // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
           setCurrentUserState(prev => {
-            if (prev && prev.id === userDocId) {
+            if (prev && prev.id === firebaseUser.uid) {
               return prev; // Use cache
             }
             return tempUser; // Use template
@@ -714,13 +709,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setIsAuthLoading(false);
 
           // Now subscribe to real-time doc updates asynchronously so that changes are handled instantly
-          const userRef = doc(db, 'users', userDocId);
+          const userRef = doc(db, 'users', firebaseUser.uid);
           userSubUnsub = onSnapshot(userRef, async (userDoc) => {
             if (!active) return;
-            if (isDeletingAccountRef.current) {
-              console.log('[Snapshot] Skipping listener trigger because account deletion is in progress.');
-              return;
-            }
             
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
@@ -747,13 +738,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setCurrentUserState(dbData);
               }
             } else {
-              if (isDeletingAccountRef.current) {
-                console.log('[Snapshot] Skipping user document auto-creation because account deletion is in progress.');
-                return;
-              }
-
-              // The user document does not exist for the email / userDocId.
-              // Check if they already have an existing user document under a DIFFERENT ID (e.g., historical UID).
+              // The user document does not exist for the new Google authenticating UID.
+              // Check if they already have an existing user document under a DIFFERENT UID (with same email address).
               let existingUserWithEmail: User | null = null;
               let existingUserId: string | null = null;
 
@@ -763,7 +749,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   const qEmail = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
                   const emailSnap = await getDocs(qEmail);
                   
-                  const foundDoc = emailSnap.docs.find(d => d.id !== userDocId);
+                  const foundDoc = emailSnap.docs.find(d => d.id !== firebaseUser.uid);
                   if (foundDoc) {
                     existingUserWithEmail = foundDoc.data() as User;
                     existingUserId = foundDoc.id;
@@ -774,12 +760,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
 
               if (existingUserWithEmail && existingUserId) {
-                console.log(`[Google Sign-In Account Merge] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Merging profile data into new email primary key: "${userDocId}"...`);
+                console.log(`[Google Sign-In Account Merge] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Merging profile data into new Google UID: "${firebaseUser.uid}" so that user keeps their old store account flawlessly...`);
                 
-                // Keep the existing user profile details, but assign the new email ID!
+                // Keep the existing user profile details, but assign the new UID!
                 const mergedUser: User = {
                   ...existingUserWithEmail,
-                  id: userDocId,
+                  id: firebaseUser.uid,
                   emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
                   photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
                   isGoogleAuth: true,
@@ -788,17 +774,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
                 const batch = writeBatch(db);
                 
-                // 1. Create the new user document linked to the email primary key
-                batch.set(doc(db, 'users', userDocId), cleanObject(mergedUser));
+                // 1. Create the new user document
+                batch.set(doc(db, 'users', firebaseUser.uid), cleanObject(mergedUser));
                 
-                // 2. Delete the old user document (with the historical UID)
+                // 2. Delete the old user document
                 batch.delete(doc(db, 'users', existingUserId));
                 
-                // 3. Update the storeName mapping pointing to the new email ID
+                // 3. Update the storeName mapping pointing to the new UID if a username is in use
                 if (mergedUser.username) {
                   const storeNameLower = mergedUser.username.trim().toLowerCase();
                   batch.set(doc(db, 'storeNames', storeNameLower), {
-                    userId: userDocId,
+                    userId: firebaseUser.uid,
                     username: mergedUser.username.trim()
                   });
                 }
@@ -806,51 +792,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 await batch.commit();
                 console.log('[Google Sign-In Account Merge] Profile base data and storeName successfully migrated.');
 
-                // Cascade updates in the background
+                // 4. Asynchronously cascade the ID change to all other collections (products, reviews, chats, etc.) 
+                // in the background to ensure consistency without slowing down the initial auth flow!
                 const cascadeUpdates = async () => {
                   try {
                     const cascadeBatch = writeBatch(db);
                     let cascadeCount = 0;
 
+                    // Products migration
                     const prodsSnap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', existingUserId)));
                     prodsSnap.forEach(pDoc => {
-                      cascadeBatch.update(doc(db, 'products', pDoc.id), { sellerId: userDocId });
+                      cascadeBatch.update(doc(db, 'products', pDoc.id), { sellerId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
+                    // Reviews from or to this user
                     const reviewsFromSnap = await getDocs(query(collection(db, 'reviews'), where('buyerId', '==', existingUserId)));
                     reviewsFromSnap.forEach(rDoc => {
-                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { buyerId: userDocId });
+                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { buyerId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
                     const reviewsToSnap = await getDocs(query(collection(db, 'reviews'), where('sellerId', '==', existingUserId)));
                     reviewsToSnap.forEach(rDoc => {
-                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { sellerId: userDocId });
+                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { sellerId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
+                    // Chats where this user is buyer or seller
                     const chatsBuyerSnap = await getDocs(query(collection(db, 'chats'), where('buyerId', '==', existingUserId)));
                     chatsBuyerSnap.forEach(cDoc => {
-                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { buyerId: userDocId });
+                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { buyerId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
                     const chatsSellerSnap = await getDocs(query(collection(db, 'chats'), where('sellerId', '==', existingUserId)));
                     chatsSellerSnap.forEach(cDoc => {
-                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { sellerId: userDocId });
+                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { sellerId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
+                    // Messages where this user is sender or recipient
                     const msgsSenderSnap = await getDocs(query(collection(db, 'messages'), where('senderId', '==', existingUserId)));
                     msgsSenderSnap.forEach(mDoc => {
-                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { senderId: userDocId });
+                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { senderId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
                     const msgsRecipientSnap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', existingUserId)));
                     msgsRecipientSnap.forEach(mDoc => {
-                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: userDocId });
+                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
@@ -871,7 +862,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               } else {
                 // Create the user document in Firestore asynchronously if first time
                 const newUser: User = {
-                  id: userDocId,
+                  id: firebaseUser.uid,
                   username: initialUsername,
                   email: firebaseUser.email || undefined,
                   role: 'both',
@@ -891,7 +882,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 
                 const storeNameLower = initialUsername.trim().toLowerCase();
                 batch.set(doc(db, 'storeNames', storeNameLower), {
-                  userId: userDocId,
+                  userId: firebaseUser.uid,
                   username: initialUsername.trim()
                 });
                 
@@ -899,7 +890,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 console.log(`[Google Signup] Atomically created user profile and reserved store name: "${storeNameLower}"`);
 
                 if (active) {
-                  justRegisteredUserIds.current.add(userDocId);
+                  justRegisteredUserIds.current.add(firebaseUser.uid);
                   setCurrentUserState(newUser);
                   // Directly trigger welcome package synchronously to prevent race conditions
                   setupWelcomePackage(newUser).catch(err => {
@@ -911,7 +902,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }, (error) => {
             console.error('[User Doc Stream] Firebase onSnapshot error:', error);
           });
-          activeUserListenerRef.current = userSubUnsub;
         } else {
           const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
           if (isSimulated) {
@@ -1082,69 +1072,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       isMounted = false;
       clearTimeout(timer);
-    };
-  }, [currentUser?.id]);
-
-  // --- Dynamic Seller Activity & Stay Time Trackers ---
-  const hasCountedSessionVisit = useRef(false);
-  useEffect(() => {
-    if (currentUser && !hasCountedSessionVisit.current) {
-      hasCountedSessionVisit.current = true;
-      const sessionKey = `tedbuy_visit_counted_${currentUser.id}`;
-      if (!safeSessionStorage.getItem(sessionKey)) {
-        safeSessionStorage.setItem(sessionKey, 'true');
-        
-        // Dynamically increment visitCount in Firestore and state
-        const originalVisits = currentUser.visitCount || 0;
-        const newVisits = originalVisits + 1;
-        
-        updateDoc(doc(db, 'users', currentUser.id), {
-          visitCount: increment(1)
-        }).catch(err => {
-          console.warn('[Tracking] Failed to increment visitCount on Firestore:', err);
-        });
-
-        setCurrentUserState(prev => prev ? { ...prev, visitCount: newVisits } : null);
-      }
-    }
-  }, [currentUser]);
-
-  const localStayAccumulator = useRef(0);
-  useEffect(() => {
-    if (!currentUser) return;
-    const interval = setInterval(() => {
-      localStayAccumulator.current += 10;
-      
-      // Update local state copy every 10s so ranking updates live
-      setCurrentUserState(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          totalStayTime: (prev.totalStayTime || 0) + 10
-        };
-      });
-
-      // Commit to Firestore every 30 seconds to minimize write overhead
-      if (localStayAccumulator.current >= 30) {
-        const incrementSec = localStayAccumulator.current;
-        localStayAccumulator.current = 0;
-        updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(incrementSec)
-        }).catch(err => {
-          console.warn('[Tracking] Failed to write stay time to Firestore:', err);
-        });
-      }
-    }, 10000);
-
-    return () => {
-      clearInterval(interval);
-      if (localStayAccumulator.current > 0) {
-        const remainingSec = localStayAccumulator.current;
-        localStayAccumulator.current = 0;
-        updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(remainingSec)
-        }).catch(() => {});
-      }
     };
   }, [currentUser?.id]);
 
@@ -1747,9 +1674,6 @@ CEO, Tedbuy Inc`;
     if (!email) {
       throw new Error('Email address is required to register an account.');
     }
-    if (!phoneNumber || !phoneNumber.trim()) {
-      throw new Error('Phone number is required to register an account.');
-    }
     if (!password) {
       throw new Error('Password is required to register an account.');
     }
@@ -1759,46 +1683,15 @@ CEO, Tedbuy Inc`;
       throw new Error('Registration Limit: The email address "asumaduvincent7@gmail.com" has been reserved for system security. Please use a different individual email address to register.');
     }
 
-    const cleanPhone = phoneNumber.trim();
-    const normalizePhone = (num: string): string => {
-      if (!num) return '';
-      const digits = num.replace(/\D/g, '');
-      // If the number corresponds to typical Ghana formats (9 to 14 digits),
-      // we extract the last 9 digits and standardize it with prefix '233'
-      if (digits.length >= 9 && digits.length <= 14) {
-        return '233' + digits.slice(-9);
-      }
-      return digits;
-    };
-    const normPhone = normalizePhone(cleanPhone);
-
-    const duplicatePhone = users.find(u => u.phoneNumber && normalizePhone(u.phoneNumber) === normPhone);
-    if (duplicatePhone) {
-      throw new Error('This phone number is already registered to another account.');
-    }
-
-    try {
-      const qPhone = query(collection(db, 'users'), where('phoneNumber', '==', cleanPhone));
-      const qPhoneSnap = await getDocs(qPhone);
-      if (!qPhoneSnap.empty) {
-        throw new Error('This phone number is already registered to another account.');
-      }
-    } catch (e: any) {
-      if (e.message?.includes('already registered')) {
-        throw e;
-      }
-    }
-
     try {
       let uid: string;
       let newUser: User;
 
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        uid = cleanEmail;
+        uid = userCredential.user.uid;
         // Instantly mark as registered to prevent race conditions with auth listener
         justRegisteredUserIds.current.add(uid);
-        justRegisteredUserIds.current.add(userCredential.user.uid);
 
         newUser = {
           id: uid,
@@ -1826,7 +1719,7 @@ CEO, Tedbuy Inc`;
           console.warn('Firebase Email/Password Auth is disabled. Engaging local high-fidelity sandbox fallback.');
           showToast('Email/Password provider is currently disabled in your Firebase console. Creating high-fidelity sandbox session for offline-interactive testing!', 'info');
           
-          uid = cleanEmail;
+          uid = `user_local_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`;
           // Instantly mark as registered to prevent race conditions with auth listener
           justRegisteredUserIds.current.add(uid);
 
@@ -1900,225 +1793,26 @@ CEO, Tedbuy Inc`;
     }
     const cleanIdentifier = identifier.trim();
 
-    const getDigitsOnly = (num: string): string => {
-      if (!num) return '';
-      return num.replace(/\D/g, '');
-    };
-
-    const normalizePhone = (num: string): string => {
-      if (!num) return '';
-      const digits = getDigitsOnly(num);
-      // If the number corresponds to typical Ghana formats (9 to 14 digits),
-      // we extract the last 9 digits and standardize it with prefix '233'
-      if (digits.length >= 9 && digits.length <= 14) {
-        return '233' + digits.slice(-9);
-      }
-      return digits;
-    };
-
-    const normalizedInput = normalizePhone(cleanIdentifier);
-    const inputDigits = getDigitsOnly(cleanIdentifier);
-    const inputLast9 = inputDigits.length >= 9 ? inputDigits.slice(-9) : null;
-
-    // We search the user in cached list or Firestore database first using isEmail, isPhoneNumber, or isUsername
-    let matchedUser: User | null = null;
-
-    // 1. Search in local state and offline backup first (extremely fast & robust)
-    const cachedUsersToSearch = [...users];
-    try {
-      const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
-      if (storedUsers) {
-        const backupList: User[] = JSON.parse(storedUsers);
-        backupList.forEach(bu => {
-          if (!cachedUsersToSearch.some(u => u.id === bu.id)) {
-            cachedUsersToSearch.push(bu);
-          }
-        });
-      }
-    } catch (_) {}
-
-    for (const u of cachedUsersToSearch) {
-      const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
-      const matchEmail = u.email?.toLowerCase() === cleanIdentifier.toLowerCase();
-      
-      // Phone Match
-      const dbPhoneRaw = u.phoneNumber || '';
-      const dbPhoneDigits = getDigitsOnly(dbPhoneRaw);
-      const dbPhoneNormalized = dbPhoneRaw ? normalizePhone(dbPhoneRaw) : '';
-      const dbPhoneLast9 = dbPhoneDigits.length >= 9 ? dbPhoneDigits.slice(-9) : null;
-      
-      const matchPhoneNormalized = normalizedInput && dbPhoneNormalized && dbPhoneNormalized === normalizedInput;
-      const matchPhoneLast9 = inputLast9 && dbPhoneLast9 && dbPhoneLast9 === inputLast9;
-      const matchPhoneExact = inputDigits && dbPhoneDigits && dbPhoneDigits === inputDigits;
-      const matchPhone = matchPhoneNormalized || matchPhoneLast9 || matchPhoneExact;
-
-      // WhatsApp Match
-      const dbWhatsAppRaw = u.whatsAppNumber || '';
-      const dbWhatsAppDigits = getDigitsOnly(dbWhatsAppRaw);
-      const dbWhatsAppNormalized = dbWhatsAppRaw ? normalizePhone(dbWhatsAppRaw) : '';
-      const dbWhatsAppLast9 = dbWhatsAppDigits.length >= 9 ? dbWhatsAppDigits.slice(-9) : null;
-
-      const matchWhatsAppNormalized = normalizedInput && dbWhatsAppNormalized && dbWhatsAppNormalized === normalizedInput;
-      const matchWhatsAppLast9 = inputLast9 && dbWhatsAppLast9 && dbWhatsAppLast9 === inputLast9;
-      const matchWhatsAppExact = inputDigits && dbWhatsAppDigits && dbWhatsAppDigits === inputDigits;
-      const matchWhatsApp = matchWhatsAppNormalized || matchWhatsAppLast9 || matchWhatsAppExact;
-      
-      if (matchUsername || matchEmail || matchPhone || matchWhatsApp) {
-        matchedUser = u;
-        break;
-      }
-    }
-
-    // 2. Query Firestore Database to find live user
-    if (!matchedUser) {
-      const usersRef = collection(db, 'users');
-      const queriesToRun: any[] = [];
-
-      // Always check by email (string format)
-      if (cleanIdentifier.includes('@')) {
-        queriesToRun.push(query(usersRef, where('email', '==', cleanIdentifier.toLowerCase())));
-      } else {
-        // Check by username as well
-        queriesToRun.push(query(usersRef, where('username', '==', cleanIdentifier)));
-      }
-
-      // Helper to generate multiple common phone number formatted variations
-      const getFormattedPhoneQueries = (phoneInput: string): string[] => {
-        const digits = phoneInput.replace(/\D/g, '');
-        if (!digits) return [];
-        
-        const formats = new Set<string>();
-        formats.add(digits);
-        formats.add('+' + digits);
-        
-        // Typical Ghana formats (e.g. starting with 0, 10 digits)
-        if (digits.length === 10 && digits.startsWith('0')) {
-          const last9 = digits.slice(1);
-          formats.add(last9);
-          formats.add('+233' + last9);
-          formats.add('233' + last9);
-          formats.add(`0${last9.slice(0, 2)} ${last9.slice(2, 5)} ${last9.slice(5)}`);
-          formats.add(`+233 ${last9.slice(0, 2)} ${last9.slice(2, 5)} ${last9.slice(5)}`);
-          formats.add(`233 ${last9.slice(0, 2)} ${last9.slice(2, 5)} ${last9.slice(5)}`);
-          formats.add(`0${last9.slice(0, 2)}-${last9.slice(2, 5)}-${last9.slice(5)}`);
-          formats.add(`+233-${last9.slice(0, 2)}-${last9.slice(2, 5)}-${last9.slice(5)}`);
-        }
-        
-        // Typical Ghana formats starting with country code 233 (12 digits)
-        if (digits.length === 12 && digits.startsWith('233')) {
-          const last9 = digits.slice(3);
-          formats.add('0' + last9);
-          formats.add(last9);
-          formats.add(`0${last9.slice(0, 2)} ${last9.slice(2, 5)} ${last9.slice(5)}`);
-          formats.add(`+233 ${last9.slice(0, 2)} ${last9.slice(2, 5)} ${last9.slice(5)}`);
-          formats.add(`233 ${last9.slice(0, 2)} ${last9.slice(2, 5)} ${last9.slice(5)}`);
-          formats.add(`0${last9.slice(0, 2)}-${last9.slice(2, 5)}-${last9.slice(5)}`);
-          formats.add(`+233-${last9.slice(0, 2)}-${last9.slice(2, 5)}-${last9.slice(5)}`);
-        }
-
-        // Standard 9 digit format
-        if (digits.length === 9) {
-          formats.add('0' + digits);
-          formats.add('+233' + digits);
-          formats.add('233' + digits);
-          formats.add(`0${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`);
-          formats.add(`+233 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`);
-          formats.add(`233 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`);
-        }
-        
-        return Array.from(formats);
-      };
-
-      if (inputDigits) {
-        const phoneVariations = getFormattedPhoneQueries(cleanIdentifier);
-        phoneVariations.forEach(v => {
-          queriesToRun.push(query(usersRef, where('phoneNumber', '==', v)));
-          queriesToRun.push(query(usersRef, where('whatsAppNumber', '==', v)));
-        });
-      }
-
+    // Check if the identifier is an email address
+    if (cleanIdentifier.includes('@')) {
       try {
-        console.log(`[Authenticating User Lookup] Querying Firestore by 'email', 'username', 'phoneNumber', and 'whatsAppNumber' permutations concurrently...`);
-        const querySnapshots = await Promise.all(
-          queriesToRun.map(q => getDocs(q).catch(err => {
-            console.warn('[User Lookup] Individual query failed:', err);
-            return null;
-          }))
-        );
-
-        for (const snap of querySnapshots) {
-          if (snap && !snap.empty) {
-            matchedUser = snap.docs[0].data() as User;
-            break; // Found the user!
-          }
-        }
-      } catch (e) {
-        console.error('[User Lookup] Parallel Firestore queries failed:', e);
-      }
-
-      // 3. Fallback: full collection scan with deep normalization
-      if (!matchedUser) {
-        try {
-          const usersSnap = await getDocs(usersRef);
-          for (const docSnap of usersSnap.docs) {
-            const u = docSnap.data() as User;
-            const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
-            const matchEmail = u.email?.toLowerCase() === cleanIdentifier.toLowerCase();
-
-            // Phone Match
-            const dbPhoneRaw = u.phoneNumber || '';
-            const dbPhoneDigits = getDigitsOnly(dbPhoneRaw);
-            const dbPhoneNormalized = dbPhoneRaw ? normalizePhone(dbPhoneRaw) : '';
-            const dbPhoneLast9 = dbPhoneDigits.length >= 9 ? dbPhoneDigits.slice(-9) : null;
-            
-            const matchPhoneNormalized = normalizedInput && dbPhoneNormalized && dbPhoneNormalized === normalizedInput;
-            const matchPhoneLast9 = inputLast9 && dbPhoneLast9 && dbPhoneLast9 === inputLast9;
-            const matchPhoneExact = inputDigits && dbPhoneDigits && dbPhoneDigits === inputDigits;
-            const matchPhone = matchPhoneNormalized || matchPhoneLast9 || matchPhoneExact;
-
-            // WhatsApp Match
-            const dbWhatsAppRaw = u.whatsAppNumber || '';
-            const dbWhatsAppDigits = getDigitsOnly(dbWhatsAppRaw);
-            const dbWhatsAppNormalized = dbWhatsAppRaw ? normalizePhone(dbWhatsAppRaw) : '';
-            const dbWhatsAppLast9 = dbWhatsAppDigits.length >= 9 ? dbWhatsAppDigits.slice(-9) : null;
-
-            const matchWhatsAppNormalized = normalizedInput && dbWhatsAppNormalized && dbWhatsAppNormalized === normalizedInput;
-            const matchWhatsAppLast9 = inputLast9 && dbWhatsAppLast9 && dbWhatsAppLast9 === inputLast9;
-            const matchWhatsAppExact = inputDigits && dbWhatsAppDigits && dbWhatsAppDigits === inputDigits;
-            const matchWhatsApp = matchWhatsAppNormalized || matchWhatsAppLast9 || matchWhatsAppExact;
-
-            if (matchUsername || matchEmail || matchPhone || matchWhatsApp) {
-              matchedUser = u;
-              break;
-            }
-          }
-        } catch (err) {
-          console.error('Fallback scan failed:', err);
-        }
-      }
-    }
-
-    // Now attempt actual authentication
-    let targetEmail = matchedUser ? matchedUser.email : null;
-    
-    // If we could not resolve a targetEmail/matchedUser from Firestore, but the input is an email itself,
-    // we use the input as the targetEmail to support users who might not have a Firestore record yet.
-    if (!targetEmail && cleanIdentifier.includes('@')) {
-      targetEmail = cleanIdentifier;
-    }
-
-    if (targetEmail) {
-      try {
-        await signInWithEmailAndPassword(auth, targetEmail, password);
+        await signInWithEmailAndPassword(auth, cleanIdentifier, password);
         return true;
       } catch (authErrorDetail: any) {
-        console.error('Firebase Auth failed for resolved email:', targetEmail, authErrorDetail);
+        console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
         
         const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
                                    authErrorDetail?.message?.includes('operation-not-allowed');
         if (isAuthErrorDisabled) {
           console.warn('Firebase Email/Password provider disabled. Engaging local high-fidelity sandbox login match.');
-          
+          let matchedUser = users.find(u => u.email?.toLowerCase() === cleanIdentifier.toLowerCase());
+          if (!matchedUser) {
+            try {
+              const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+              const backupList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+              matchedUser = backupList.find(u => u.email?.toLowerCase() === cleanIdentifier.toLowerCase());
+            } catch (_) {}
+          }
           if (matchedUser) {
             if (matchedUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
               throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
@@ -2135,7 +1829,75 @@ CEO, Tedbuy Inc`;
         throw authErrorDetail;
       }
     } else {
-      throw new Error('No registered account was found matching this username or phone number.');
+      // Identifier is a username, phone number, or WhatsApp number (e.g. Ama, +233...)
+      let targetEmail: string | null = null;
+
+      const normalizePhone = (num: string): string => {
+        if (!num) return '';
+        const digits = num.replace(/\D/g, '');
+        // If it starts with '0' and followed by 9 digits (standard local Ghana format), convert '0' to '233'
+        if (digits.startsWith('0') && digits.length === 10) {
+          return '233' + digits.substring(1);
+        }
+        return digits;
+      };
+
+      const normalizedInput = normalizePhone(cleanIdentifier);
+
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        usersSnap.forEach((docSnap) => {
+          const u = docSnap.data() as User;
+          const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
+          
+          const userPhoneNormalized = u.phoneNumber ? normalizePhone(u.phoneNumber) : '';
+          const userWhatsAppNormalized = u.whatsAppNumber ? normalizePhone(u.whatsAppNumber) : '';
+          
+          const matchPhone = normalizedInput && userPhoneNormalized && userPhoneNormalized === normalizedInput;
+          const matchWhatsApp = normalizedInput && userWhatsAppNormalized && userWhatsAppNormalized === normalizedInput;
+          
+          if (matchUsername || matchPhone || matchWhatsApp) {
+            targetEmail = u.email || null;
+          }
+        });
+      } catch (dbErr) {
+        console.error('Could not query users list from database for username/phone match:', dbErr);
+      }
+
+      if (targetEmail) {
+        const finalEmail = targetEmail;
+        try {
+          await signInWithEmailAndPassword(auth, finalEmail, password);
+          return true;
+        } catch (authErrorDetail: any) {
+          console.error('Firebase Auth failed for user email resolved from username/phone:', finalEmail, authErrorDetail);
+          const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
+                                     authErrorDetail?.message?.includes('operation-not-allowed');
+          if (isAuthErrorDisabled) {
+            let matchedUser = users.find(u => u.email?.toLowerCase() === finalEmail.toLowerCase());
+            if (!matchedUser) {
+              try {
+                const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+                const backupList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+                matchedUser = backupList.find(u => u.email?.toLowerCase() === finalEmail.toLowerCase());
+              } catch (_) {}
+            }
+            if (matchedUser) {
+              if (matchedUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+                throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
+              }
+              showToast('Email/Password provider is disabled. Accessing sandbox account on-the-fly!', 'info');
+              safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
+              safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
+              setCurrentUserState(matchedUser);
+              return true;
+            }
+          }
+          throw authErrorDetail;
+        }
+      } else {
+        throw new Error('No registered account was found matching this username or phone number.');
+      }
     }
   };
 
@@ -2292,7 +2054,7 @@ CEO, Tedbuy Inc`;
           error?.message?.includes('invalid-credential')
         ) {
           try {
-            await registerUser(seed.username, seed.email, seed.phoneNumber || '+233000000000', 'password123');
+            await registerUser(seed.username, seed.email, seed.phoneNumber, 'password123');
           } catch (regErr) {
             console.error('Seamless simulator register auto-hook failed:', regErr);
             await fallbackToSimulatedUser();
@@ -2359,30 +2121,6 @@ CEO, Tedbuy Inc`;
         await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
       } catch (innerErr) {
         console.warn('[createProduct] Firestore server document create denied or offline. Fallback successfully to client-side optimistic storage list:', innerErr);
-      }
-
-      // Update current user's rapid post score dynamically
-      try {
-        const sellerProds = products.filter(p => p.sellerId === currentUser.id);
-        const nowMs = Date.now();
-        const postsLast3Days = sellerProds.filter(p => {
-          const createdMs = p.createdAt ? new Date(p.createdAt).getTime() : 0;
-          return (nowMs - createdMs) < 3 * 24 * 60 * 60 * 1000; // 3 days
-        }).length + 1; // + 1 for the newly posted one
-
-        updateDoc(doc(db, 'users', currentUser.id), {
-          rapidPostScore: postsLast3Days
-        }).catch(() => {});
-
-        setCurrentUserState(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            rapidPostScore: postsLast3Days
-          };
-        });
-      } catch (err) {
-        console.warn('Failed to calculate and update rapidPostScore:', err);
       }
 
       // Create notifications for followers and following users of the poster
@@ -3296,15 +3034,6 @@ CEO, Tedbuy Inc`;
   const deleteAccount = async (password?: string) => {
     if (!currentUser) return;
     
-    // Set deletes in-progress flag to bypass snap re-creation & welcome triggers
-    isDeletingAccountRef.current = true;
-    
-    // Unsubscribe from active user snapshot listener instantly
-    if (activeUserListenerRef.current) {
-      activeUserListenerRef.current();
-      activeUserListenerRef.current = null;
-    }
-
     // Crucial Security Guard: Block administrator account deletion
     const userEmail = currentUser.email?.trim().toLowerCase();
     if (userEmail === 'asumaduvincent7@gmail.com') {
@@ -3312,13 +3041,10 @@ CEO, Tedbuy Inc`;
     }
 
     const uid = currentUser.id;
-    const username = currentUser.username;
-    const emailToDelete = currentUser.email || auth.currentUser?.email;
     const authUser = auth.currentUser;
     const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
-    // Verify authentication first if not simulated
-    if (!isSimulated && authUser) {
+    if (!isSimulated && authUser && authUser.uid === uid) {
       const isPasswordUser = authUser.providerData.some(p => p.providerId === 'password');
       if (isPasswordUser) {
         if (!password) {
@@ -3333,16 +3059,163 @@ CEO, Tedbuy Inc`;
           await reauthenticateWithCredential(authUser, credential);
         } catch (reauthErr: any) {
           console.warn('[Account Deletion] Re-authentication failed or bypassed in development sandbox environment:', reauthErr);
+          // Allow deleting the account smoothly during development/sandbox test runs
           showToast('Verification passed (Sandbox bypass) - Irreversibly deleting profile database record...', 'info');
         }
       }
     }
 
-    // CRITICAL IMPROVEMENT: IMMEDIATELY clear user sessions & memory to prevent race conditions or unexpected "welcome back" triggers
+    // 1. Delete all user's listings (products)
+    try {
+      const userProducts = products.filter(p => p.sellerId === uid);
+      for (const p of userProducts) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'products', p.id));
+        }
+      }
+      if (!isSimulated) {
+        // Double-check with full network query to catch un-paginated/ghost listings
+        const pq = query(collection(db, 'products'), where('sellerId', '==', uid));
+        const pqSnap = await getDocs(pq);
+        for (const itemDoc of pqSnap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
+    } catch (productErr) {
+      console.warn('Could not fully delete user product listings upon account deletion:', productErr);
+    }
+
+    // 2. Delete all user's reviews (authored or received)
+    try {
+      const userReviews = reviews.filter(r => r.buyerId === uid || r.sellerId === uid);
+      for (const r of userReviews) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'reviews', r.id));
+        }
+      }
+      if (!isSimulated) {
+        const rq1 = query(collection(db, 'reviews'), where('buyerId', '==', uid));
+        const rq1Snap = await getDocs(rq1);
+        for (const itemDoc of rq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const rq2 = query(collection(db, 'reviews'), where('sellerId', '==', uid));
+        const rq2Snap = await getDocs(rq2);
+        for (const itemDoc of rq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
+    } catch (reviewErr) {
+      console.warn('Could not fully delete user reviews upon account deletion:', reviewErr);
+    }
+
+    // 3. Delete all chats involving this user
+    const userChats = chats.filter(c => c.buyerId === uid || c.sellerId === uid);
+    try {
+      for (const c of userChats) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'chats', c.id));
+        }
+      }
+      if (!isSimulated) {
+        const cq1 = query(collection(db, 'chats'), where('buyerId', '==', uid));
+        const cq1Snap = await getDocs(cq1);
+        for (const itemDoc of cq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const cq2 = query(collection(db, 'chats'), where('sellerId', '==', uid));
+        const cq2Snap = await getDocs(cq2);
+        for (const itemDoc of cq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
+    } catch (chatErr) {
+      console.warn('Could not fully delete user chats upon account deletion:', chatErr);
+    }
+
+    // 4. Delete all messages sent/received by this user, or belonging to those deleted chats
+    try {
+      const chatIdsSet = new Set(userChats.map(c => c.id));
+      const userMessages = messages.filter(m => m.senderId === uid || m.recipientId === uid || chatIdsSet.has(m.chatId));
+      for (const m of userMessages) {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'messages', m.id));
+        }
+      }
+      if (!isSimulated) {
+        const mq1 = query(collection(db, 'messages'), where('senderId', '==', uid));
+        const mq1Snap = await getDocs(mq1);
+        for (const itemDoc of mq1Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+        const mq2 = query(collection(db, 'messages'), where('recipientId', '==', uid));
+        const mq2Snap = await getDocs(mq2);
+        for (const itemDoc of mq2Snap.docs) {
+          await deleteDoc(itemDoc.ref);
+        }
+      }
+    } catch (msgErr) {
+      console.warn('Could not fully delete user messages upon account deletion:', msgErr);
+    }
+
+    // 5. Delete user profile document from firestore and clear from deletedEmails
+    const emailToDelete = currentUser.email || authUser?.email;
+    if (emailToDelete) {
+      const emailPath = emailToDelete.trim().toLowerCase();
+      try {
+        if (!isSimulated) {
+          await deleteDoc(doc(db, 'deletedEmails', emailPath));
+        }
+      } catch (err) {
+        console.warn('Could not clear deleted email blocklist from Firestore:', err);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, `deletedEmails/${emailPath}`);
+        } catch (thrownErr) {
+          console.warn('[Account Deletion] Blocklist delete exception logged gracefully:', thrownErr);
+        }
+      }
+    }
+
+    try {
+      if (!isSimulated) {
+        const batch = writeBatch(db);
+        const userRef = doc(db, 'users', uid);
+        batch.delete(userRef);
+
+        const storeNameLower = currentUser.username?.trim().toLowerCase();
+        if (storeNameLower) {
+          const storeNameRef = doc(db, 'storeNames', storeNameLower);
+          batch.delete(storeNameRef);
+          console.log(`[Account Deletion] Queued deletion of store name registration: "${storeNameLower}"`);
+        }
+
+        await batch.commit();
+        console.log('[Account Deletion] Atomic user and storeNames registry deletion completed.');
+      }
+    } catch (err: any) {
+      console.warn('Could not delete user document and store name mapping from firestore during account deletion:', err);
+      try {
+        handleFirestoreError(err, OperationType.DELETE, `users/${uid}`);
+      } catch (thrownErr) {
+        console.warn('[Account Deletion] User doc delete exception logged gracefully:', thrownErr);
+      }
+    }
+
+    // 6. Delete Firebase Auth user representation
+    if (!isSimulated && authUser && authUser.uid === uid) {
+      try {
+        await authUser.delete();
+      } catch (err: any) {
+        console.warn('Could not delete secure account auth record, skipping but proceeding with Firestore deletion:', err);
+        // Do not throw to let the user be signed out and logged out smoothly in the dev preview
+      }
+    }
+
     safeLocalStorage.removeItem('tedbuy_simulated_user');
     safeLocalStorage.removeItem('tedbuy_simulated_mode');
     safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
 
+    // Filter out deleted user from local users backup cache and live memory state
     try {
       const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
       const currentList = cached ? JSON.parse(cached) : (users || []);
@@ -3354,155 +3227,15 @@ CEO, Tedbuy Inc`;
       setUsers(prev => prev.filter(u => u.id !== uid));
     }
 
-    // Set null states and return to home view instantly, showing a nice "Processing..." info toast
-    setCurrentUserState(null);
-    setCurrentView('browse');
-    showToast('Deleting profile. Please wait while we process cascade deletions...', 'info');
-
-    // Perform cascade background operations and atomic commits
-    try {
-      const deletionsToExecute: { path: string; id: string }[] = [];
-
-      // 1. Gather products (listings) to delete
-      try {
-        const pqSnap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', uid))).catch(() => null);
-        if (pqSnap) {
-          pqSnap.forEach(d => {
-            deletionsToExecute.push({ path: 'products', id: d.id });
-          });
-        }
-      } catch (e) {
-        console.warn('[Account Deletion] Error querying products:', e);
-      }
-
-      // 2. Gather reviews to delete
-      try {
-        const rq1Snap = await getDocs(query(collection(db, 'reviews'), where('buyerId', '==', uid))).catch(() => null);
-        if (rq1Snap) {
-          rq1Snap.forEach(d => {
-            deletionsToExecute.push({ path: 'reviews', id: d.id });
-          });
-        }
-        const rq2Snap = await getDocs(query(collection(db, 'reviews'), where('sellerId', '==', uid))).catch(() => null);
-        if (rq2Snap) {
-          rq2Snap.forEach(d => {
-            deletionsToExecute.push({ path: 'reviews', id: d.id });
-          });
-        }
-      } catch (e) {
-        console.warn('[Account Deletion] Error querying reviews:', e);
-      }
-
-      // 3. Gather chats to delete
-      const chatsToDelete = new Set<string>();
-      try {
-        const cq1Snap = await getDocs(query(collection(db, 'chats'), where('buyerId', '==', uid))).catch(() => null);
-        if (cq1Snap) {
-          cq1Snap.forEach(d => {
-            deletionsToExecute.push({ path: 'chats', id: d.id });
-            chatsToDelete.add(d.id);
-          });
-        }
-        const cq2Snap = await getDocs(query(collection(db, 'chats'), where('sellerId', '==', uid))).catch(() => null);
-        if (cq2Snap) {
-          cq2Snap.forEach(d => {
-            deletionsToExecute.push({ path: 'chats', id: d.id });
-            chatsToDelete.add(d.id);
-          });
-        }
-      } catch (e) {
-        console.warn('[Account Deletion] Error querying chats:', e);
-      }
-
-      // 4. Gather messages to delete
-      try {
-        const mq1Snap = await getDocs(query(collection(db, 'messages'), where('senderId', '==', uid))).catch(() => null);
-        if (mq1Snap) {
-          mq1Snap.forEach(d => {
-            deletionsToExecute.push({ path: 'messages', id: d.id });
-          });
-        }
-        const mq2Snap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', uid))).catch(() => null);
-        if (mq2Snap) {
-          mq2Snap.forEach(d => {
-            deletionsToExecute.push({ path: 'messages', id: d.id });
-          });
-        }
-
-        // Also query lingering messages that match any of the deleted chats to make sure no junk data remains
-        if (chatsToDelete.size > 0) {
-          const chatsList = Array.from(chatsToDelete);
-          // Split chat queries in batches of 10 for Firestore 'in' limitation
-          for (let i = 0; i < chatsList.length; i += 10) {
-            const chunk = chatsList.slice(i, i + 10);
-            const mq3Snap = await getDocs(query(collection(db, 'messages'), where('chatId', 'in', chunk))).catch(() => null);
-            if (mq3Snap) {
-              mq3Snap.forEach(d => {
-                deletionsToExecute.push({ path: 'messages', id: d.id });
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Account Deletion] Error querying messages:', e);
-      }
-
-      // 5. Gather deletedEmail registry path
-      if (emailToDelete) {
-        const emailPath = emailToDelete.trim().toLowerCase();
-        deletionsToExecute.push({ path: 'deletedEmails', id: emailPath });
-      }
-
-      // 6. Gather primary storeName mapping registry and users profile
-      deletionsToExecute.push({ path: 'users', id: uid });
-      const storeNameLower = username?.trim().toLowerCase();
-      if (storeNameLower) {
-        deletionsToExecute.push({ path: 'storeNames', id: storeNameLower });
-      }
-
-      // PRECISE TRANSACTING BATCH CASCADE EXECUTION
-      const uniqueKeys = new Set<string>();
-      const deduplicatedDeletes: { path: string; id: string }[] = [];
-      for (const item of deletionsToExecute) {
-        const key = `${item.path}/${item.id}`;
-        if (!uniqueKeys.has(key)) {
-          uniqueKeys.add(key);
-          deduplicatedDeletes.push(item);
-        }
-      }
-
-      const BATCH_LIMIT = 450;
-      for (let i = 0; i < deduplicatedDeletes.length; i += BATCH_LIMIT) {
-        const chunk = deduplicatedDeletes.slice(i, i + BATCH_LIMIT);
-        const batch = writeBatch(db);
-        for (const item of chunk) {
-          batch.delete(doc(db, item.path, item.id));
-        }
-        await batch.commit();
-        console.log(`[Account Deletion Cascade] Transaction committed ${chunk.length} items successfully.`);
-      }
-
-    } catch (dbErr) {
-      console.error('[Account Deletion Cascade] Database transaction error:', dbErr);
-    }
-
-    // 7. Delete Secure Firebase Auth user representation
-    if (authUser && (authUser.uid === uid || authUser.email?.trim().toLowerCase() === userEmail)) {
-      try {
-        await authUser.delete();
-      } catch (err: any) {
-        console.warn('Could not delete secure account auth record, proceeding with manual sign out:', err);
-      }
-    }
-
     try {
       await signOut(auth);
     } catch (signOutErr) {
       console.warn('Could not complete signOut on Firebase Auth:', signOutErr);
     }
-
-    isDeletingAccountRef.current = false;
-    showToast('Account permanently deleted & associations purged successfully', 'success');
+    
+    setCurrentUserState(null);
+    showToast('Account Permanently deleted', 'success');
+    setCurrentView('browse');
   };
 
   const sendWelcomeEmailToAll = async (
