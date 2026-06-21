@@ -12,8 +12,7 @@ service cloud.firestore {
       return isSignedIn() && (
         uid == request.auth.uid ||
         uid == "user_" + request.auth.uid ||
-        uid == "phone_" + request.auth.uid ||
-        (request.auth.token != null && "email" in request.auth.token && uid.lower() == request.auth.token.email.lower())
+        uid == "phone_" + request.auth.uid
       );
     }
 

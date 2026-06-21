@@ -3,7 +3,6 @@ import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
 import { Product, Category } from '../types';
 import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play } from 'lucide-react';
-import { auth } from '../firebase';
 
 export const SellerDashboard: React.FC = () => {
   const {
@@ -70,17 +69,8 @@ export const SellerDashboard: React.FC = () => {
     );
   }
 
-  // Filter products owned by the active user (matching Firestore user ID, email, or raw Firebase Auth UID)
-  const myProducts = products.filter(p => {
-    if (!p || !p.sellerId) return false;
-    const sId = p.sellerId.toLowerCase().trim();
-    
-    const isIdMatch = sId === currentUser.id.toLowerCase().trim();
-    const isEmailMatch = currentUser.email && sId === currentUser.email.toLowerCase().trim();
-    const isAuthUidMatch = auth.currentUser?.uid && sId === auth.currentUser.uid.toLowerCase().trim();
-    
-    return isIdMatch || isEmailMatch || isAuthUidMatch;
-  });
+  // Filter products owned by the active user
+  const myProducts = products.filter(p => p.sellerId === currentUser.id);
   const savedProducts = products.filter(p => currentUser.savedProductIds?.includes(p.id) || false);
 
   const handleEdit = (product: Product, e: React.MouseEvent) => {

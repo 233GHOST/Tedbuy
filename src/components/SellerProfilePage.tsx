@@ -50,19 +50,10 @@ export const SellerProfilePage: React.FC = () => {
     );
   }
 
-  // Filter listings belonging strictly to this seller (matching seller ID or their email)
-  const sellerProducts = products.filter(p => {
-    if (!p || !p.sellerId) return false;
-    const sId = p.sellerId.toLowerCase().trim();
-    const isIdMatch = sId === seller.id.toLowerCase().trim();
-    const isEmailMatch = seller.email && sId === seller.email.toLowerCase().trim();
-    return isIdMatch || isEmailMatch;
-  });
+  // Filter listings belonging strictly to this seller
+  const sellerProducts = products.filter(p => p.sellerId === seller.id);
 
-  const isOwner = currentUser && (
-    currentUser.id === seller.id ||
-    (currentUser.email && seller.email && currentUser.email.toLowerCase() === seller.email.toLowerCase())
-  );
+  const isOwner = currentUser?.id === seller.id;
   const isFollowing = currentUser?.followingSellers?.includes(seller.id) || false;
 
   const handleToggleFollow = () => {
