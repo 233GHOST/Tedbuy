@@ -397,6 +397,26 @@ Welcome to **TedBuy**, Ghana's #1 Social Classifieds & Video Commerce platform.
 - Verification badge metrics representing transaction completions`;
 
 async function startServer() {
+  // Ensure favicon.ico exists at the web root dynamically
+  try {
+    const src = path.resolve(process.cwd(), "public", "favicon-48.png");
+    const destPublic = path.resolve(process.cwd(), "public", "favicon.ico");
+    const destDist = path.resolve(process.cwd(), "dist", "favicon.ico");
+    
+    if (fs.existsSync(src)) {
+      if (!fs.existsSync(destPublic)) {
+        fs.copyFileSync(src, destPublic);
+        console.log("[Favicon Sync] Copied favicon-48.png to public/favicon.ico");
+      }
+      if (fs.existsSync(path.resolve(process.cwd(), "dist")) && !fs.existsSync(destDist)) {
+        fs.copyFileSync(src, destDist);
+        console.log("[Favicon Sync] Copied favicon-48.png to dist/favicon.ico");
+      }
+    }
+  } catch (err) {
+    console.error("[Favicon Sync] Failed to align favicon.ico dynamically", err);
+  }
+
   const getMailTransporter = () => {
     const host = process.env.SMTP_HOST;
     const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
