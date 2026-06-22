@@ -1226,17 +1226,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 2. Real-time Products Synchronization
   useEffect(() => {
-    // Only clear products and show loading skeleton on initial load or reset (i.e. limit is 24/initial)
-    // to prevent pagination from flashing blank screens.
-    if (productLimit === 24) {
+    // Rely on local storage backup values inside `products` state for instant initial paint
+    // and only set loading state to true if we don't have any cached listings.
+    if (products.length === 0) {
       setIsProductsLoading(true);
-      setProducts([]);
     }
 
     const q = query(
       collection(db, 'products'),
-      orderBy('createdAt', 'desc'),
-      limit(productLimit)
+      orderBy('createdAt', 'desc')
     );
     const unsub = onSnapshot(q, (snapshot) => {
       const pList: Product[] = [];
@@ -1287,12 +1285,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setProducts(sorted);
       setIsProductsLoading(false);
-
-      if (snapshot.size < productLimit) {
-        setHasMoreProducts(false);
-      } else {
-        setHasMoreProducts(true);
-      }
+      setHasMoreProducts(false); // Since we have fully synchronized all products, there are no more to fetch from the server!
 
       try {
         safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
@@ -1305,7 +1298,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return unsub;
-  }, [productLimit, optimisticDeletedProductIds]);
+  }, [optimisticDeletedProductIds]);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);

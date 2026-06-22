@@ -215,6 +215,7 @@ export const Navbar: React.FC = () => {
               <input
                 type="text"
                 id="header-search-bar"
+                autoComplete="off"
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
@@ -828,6 +829,7 @@ export const Navbar: React.FC = () => {
                     <input
                       type="text"
                       id="auth-login-identifier-input"
+                      autoComplete="username"
                       required
                       value={loginIdentifierInput}
                       onChange={(e) => setLoginIdentifierInput(e.target.value)}
@@ -855,6 +857,7 @@ export const Navbar: React.FC = () => {
                       <input
                         type={showLoginPassword ? 'text' : 'password'}
                         id="auth-login-password-input"
+                        autoComplete="current-password"
                         required
                         value={loginPasswordInput}
                         onChange={(e) => setLoginPasswordInput(e.target.value)}

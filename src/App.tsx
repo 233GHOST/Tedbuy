@@ -564,6 +564,7 @@ const MarketplaceContent: React.FC = () => {
                   <input
                     type="text"
                     id="hero-search-input"
+                    autoComplete="off"
                     value={searchQuery}
                     onFocus={() => setIsSearchFocused(true)}
                     onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
