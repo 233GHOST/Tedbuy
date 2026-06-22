@@ -837,8 +837,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         setAdNeighborhood('');
         setNegotiable(true);
 
-        if (newProd) {
-          setSelectedProductId(newProd);
+        if (newProd && newProd.id) {
+          setSelectedProductId(newProd.id);
           setCurrentView('product-detail');
         } else {
           setCurrentView('my-dashboard');

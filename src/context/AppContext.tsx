@@ -112,7 +112,7 @@ interface AppContextType {
     brand?: string;
     condition?: string;
     negotiable?: boolean;
-  }) => Promise<string | undefined>;
+  }) => Promise<Product | undefined>;
   updateProduct: (id: string, productData: Partial<Product>) => Promise<string | undefined>;
   deleteProduct: (id: string) => Promise<void>;
   toggleLikeProduct: (productId: string, userId: string) => Promise<void>;
@@ -979,13 +979,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentUser, isAuthLoading]);
 
+  const currentUserId = currentUser?.id;
+
   // Real-time Notifications Synchronization
   useEffect(() => {
-    if (!currentUser) {
+    if (!currentUserId) {
       setNotifications([]);
       return;
     }
-    const q = query(collection(db, 'notifications'), where('userId', '==', currentUser.id));
+    const q = query(collection(db, 'notifications'), where('userId', '==', currentUserId));
     let isInitial = true;
     const unsub = onSnapshot(q, (snapshot) => {
       const list: AppNotification[] = [];
@@ -996,7 +998,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       // Save backup of live notifications
       try {
-        safeLocalStorage.setItem(`tedbuy_notifications_backup_${currentUser.id}`, JSON.stringify(list));
+        safeLocalStorage.setItem(`tedbuy_notifications_backup_${currentUserId}`, JSON.stringify(list));
       } catch (err) {}
       
       setNotifications(list);
@@ -1021,7 +1023,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Re-route to resilient local database fallback when rules or network are offline
       console.warn('Real-time notifications backend query notice (using active local sandbox storage):', error.message);
       try {
-        const localBackupKey = `tedbuy_notifications_backup_${currentUser.id}`;
+        const localBackupKey = `tedbuy_notifications_backup_${currentUserId}`;
         const stored = safeLocalStorage.getItem(localBackupKey);
         const list: AppNotification[] = stored ? JSON.parse(stored) : [];
         setNotifications(list);
@@ -1030,7 +1032,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
     return unsub;
-  }, [currentUser]);
+  }, [currentUserId]);
 
   // --- FCM Real-time Device Token Registration ---
   useEffect(() => {
@@ -1097,7 +1099,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUserState(prev => prev ? { ...prev, visitCount: newVisits } : null);
       }
     }
-  }, [currentUser]);
+  }, [currentUserId]);
 
   const localStayAccumulator = useRef(0);
   useEffect(() => {
@@ -1369,7 +1371,12 @@ CEO, Tedbuy Inc`;
           sellerName: 'Vincent (CEO, Tedbuy Inc)',
           lastMessageText: 'Welcome to Tedbuy 🚀',
           lastMessageTime: new Date().toISOString(),
-          tradeStatus: 'pending'
+          tradeStatus: 'pending',
+          adId: 'support_welcome',
+          adTitle: 'CEO Welcome & Support Desk',
+          adImage: '/favicon.svg',
+          adThumbnail: '/favicon.svg',
+          adType: 'image'
         };
         await setDoc(chatRef, cleanObject(supportChat));
         console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
@@ -1611,13 +1618,16 @@ CEO, Tedbuy Inc`;
 
   // 4. Real-time Chats Synchronization (Secure Participant Filtering)
   useEffect(() => {
-    if (!currentUser) {
+    if (!currentUserId) {
+      console.log('[Chats Sync] No current user found. Clearing chats state.');
       setChats([]);
       return;
     }
 
-    const qBuyer = query(collection(db, 'chats'), where('buyerId', '==', currentUser.id));
-    const qSeller = query(collection(db, 'chats'), where('sellerId', '==', currentUser.id));
+    console.log(`[Chats Sync] Initializing real-time listeners for user: ${currentUserId}`);
+
+    const qBuyer = query(collection(db, 'chats'), where('buyerId', '==', currentUserId));
+    const qSeller = query(collection(db, 'chats'), where('sellerId', '==', currentUserId));
 
     const chatMap = new Map<string, Chat>();
 
@@ -1626,13 +1636,14 @@ CEO, Tedbuy Inc`;
       setChats(combined);
       try {
         safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(combined));
-        safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUser.id}`, JSON.stringify(combined));
+        safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUserId}`, JSON.stringify(combined));
       } catch (err) {
         console.warn('Could not save chats backup:', err);
       }
     };
 
     const unsub1 = onSnapshot(qBuyer, (snap) => {
+      console.log(`[Chats Sync] Received buyer chats update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
       snap.forEach(docSnap => {
         const data = docSnap.data();
         chatMap.set(docSnap.id, {
@@ -1646,6 +1657,7 @@ CEO, Tedbuy Inc`;
     });
 
     const unsub2 = onSnapshot(qSeller, (snap) => {
+      console.log(`[Chats Sync] Received seller chats update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
       snap.forEach(docSnap => {
         const data = docSnap.data();
         chatMap.set(docSnap.id, {
@@ -1659,41 +1671,46 @@ CEO, Tedbuy Inc`;
     });
 
     return () => {
+      console.log(`[Chats Sync] Tearing down real-time chat listeners for user: ${currentUserId}`);
       unsub1();
       unsub2();
     };
-  }, [currentUser]);
+  }, [currentUserId]);
 
   // 5. Real-time Messages Synchronization (Secure Participant Querying)
   useEffect(() => {
     msgMapRef.current.clear();
-    if (!currentUser) {
+    if (!currentUserId) {
+      console.log('[Messages Sync] No current user found. Clearing messages state.');
       setMessages([]);
       return;
     }
 
+    console.log(`[Messages Sync] Initializing real-time message listeners for user: ${currentUserId}`);
+
     // Pre-populate with currently loaded messages from previous session backup to prevent flicker
     messages.forEach(m => {
-      if (m.senderId === currentUser.id || m.recipientId === currentUser.id) {
+      if (m.senderId === currentUserId || m.recipientId === currentUserId) {
         msgMapRef.current.set(m.id, m);
       }
     });
 
-    const qSender = query(collection(db, 'messages'), where('senderId', '==', currentUser.id));
-    const qRecipient = query(collection(db, 'messages'), where('recipientId', '==', currentUser.id));
+    const qSender = query(collection(db, 'messages'), where('senderId', '==', currentUserId));
+    const qRecipient = query(collection(db, 'messages'), where('recipientId', '==', currentUserId));
 
     const updateCombined = () => {
       const sorted = (Array.from(msgMapRef.current.values()) as Message[]).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       setMessages(sorted);
       try {
         safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(sorted));
-        safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(sorted));
+        safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUserId}`, JSON.stringify(sorted));
       } catch (err) {
         console.warn('Could not save messages backup:', err);
       }
     };
 
     const unsub1 = onSnapshot(qSender, (snap) => {
+      console.log(`[Messages Sync] Received sender messages update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
       snap.forEach(docSnap => {
         const data = docSnap.data();
         msgMapRef.current.set(docSnap.id, {
@@ -1707,6 +1724,7 @@ CEO, Tedbuy Inc`;
     });
 
     const unsub2 = onSnapshot(qRecipient, (snap) => {
+      console.log(`[Messages Sync] Received recipient messages update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
       snap.forEach(docSnap => {
         const data = docSnap.data();
         msgMapRef.current.set(docSnap.id, {
@@ -1720,10 +1738,11 @@ CEO, Tedbuy Inc`;
     });
 
     return () => {
+      console.log(`[Messages Sync] Tearing down real-time message listeners for user: ${currentUserId}`);
       unsub1();
       unsub2();
     };
-  }, [currentUser]);
+  }, [currentUserId]);
 
   // User Authentication Action APIs
   const registerUser = async (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => {
@@ -2137,7 +2156,7 @@ CEO, Tedbuy Inc`;
     brand?: string;
     condition?: string;
     negotiable?: boolean;
-  }): Promise<string | undefined> => {
+  }): Promise<Product | undefined> => {
     if (!currentUser) return;
     const prodId = `prod_${Date.now()}`;
     const newProduct: Product = {
@@ -2254,7 +2273,7 @@ CEO, Tedbuy Inc`;
         await Promise.allSettled(notifPromises);
       })().catch(err => console.warn('Non-blocking notification dispatch error:', err));
 
-      return prodId;
+      return newProduct;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `products/${prodId}`);
     }
@@ -2564,12 +2583,15 @@ CEO, Tedbuy Inc`;
     }
 
     const chatId = `chat_${currentUser.id}_${product.sellerId}_${product.id}_${Date.now()}`;
+    const initialAdType: 'image' | 'video' = (product.videos && product.videos.length > 0) ? 'video' : 'image';
+    const initialProductImage = product.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80';
+
     const newChat: Chat = {
       id: chatId,
       productId: product.id,
       productTitle: product.title,
       productPrice: product.price,
-      productImage: product.images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80',
+      productImage: initialAdType === 'video' ? (product.videos?.[0] || '') : initialProductImage,
       buyerId: currentUser.id,
       sellerId: product.sellerId,
       buyerName: currentUser.username,
@@ -2578,7 +2600,13 @@ CEO, Tedbuy Inc`;
       lastMessageTime: new Date().toISOString(),
       deliveredBySeller: false,
       pickedUpByBuyer: false,
-      tradeStatus: 'pending'
+      tradeStatus: 'pending',
+      adId: product.id,
+      adTitle: product.title,
+      adImage: initialProductImage,
+      adThumbnail: initialAdType === 'video' ? (product.videos?.[0] || '') : initialProductImage,
+      adType: initialAdType,
+      videoPoster: initialAdType === 'video' ? (product.videos?.[0] || '') : ''
     };
 
     try {

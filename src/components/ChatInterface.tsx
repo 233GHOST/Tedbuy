@@ -4,6 +4,113 @@ import { Chat, Message, User } from '../types';
 import { ArrowLeft, Send, ShoppingBag, Eye, MessageSquare, ShieldAlert, Star, CheckCircle } from 'lucide-react';
 import { ReviewModal } from './ReviewModal';
 
+interface VideoThumbnailProps {
+  videoUrl: string;
+  alt: string;
+  className?: string;
+  onClick?: () => void;
+}
+
+export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ videoUrl, alt, className = '', onClick }) => {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string>('');
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!videoUrl) return;
+    
+    // If it's already an image (base64 or image url), use it directly
+    if (
+      videoUrl.startsWith('data:image/') ||
+      videoUrl.includes('.jpg') ||
+      videoUrl.includes('.jpeg') ||
+      videoUrl.includes('.png') ||
+      videoUrl.includes('.webp')
+    ) {
+      setThumbnailUrl(videoUrl);
+      return;
+    }
+
+    let isMounted = true;
+    const video = document.createElement('video');
+    video.src = videoUrl;
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    
+    // Seek to 0.1s to get first frame
+    video.currentTime = 0.1;
+
+    const handleSeeked = () => {
+      if (!isMounted) return;
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 120;
+        canvas.height = video.videoHeight || 120;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          setThumbnailUrl(dataUrl);
+        } else {
+          setFailed(true);
+        }
+      } catch (err) {
+        console.warn('Failed to draw video frame onto canvas:', err);
+        setFailed(true);
+      }
+    };
+
+    const handleError = () => {
+      if (isMounted) setFailed(true);
+    };
+
+    video.addEventListener('seeked', handleSeeked);
+    video.addEventListener('error', handleError);
+    video.load();
+
+    return () => {
+      isMounted = false;
+      video.removeEventListener('seeked', handleSeeked);
+      video.removeEventListener('error', handleError);
+    };
+  }, [videoUrl]);
+
+  if (thumbnailUrl) {
+    return (
+      <img
+        src={thumbnailUrl}
+        alt={alt}
+        className={className}
+        onClick={onClick}
+      />
+    );
+  }
+
+  // Fallback to playing muted video to show first frame natively if canvas generation fails or is in progress
+  return (
+    <div className={`relative bg-black flex items-center justify-center ${className}`} onClick={onClick}>
+      <video
+        src={videoUrl}
+        className="w-full h-full object-cover"
+        muted
+        playsInline
+        preload="metadata"
+      />
+    </div>
+  );
+};
+
+interface DeletedPlaceholderProps {
+  className?: string;
+}
+
+export const DeletedPlaceholder: React.FC<DeletedPlaceholderProps> = ({ className = 'w-12 h-12' }) => (
+  <div className={`${className} rounded-xl bg-slate-100 border border-slate-200 shrink-0 flex flex-col items-center justify-center text-slate-400 font-sans p-1`}>
+    <ShieldAlert className="w-5 h-5 mb-0.5 text-slate-400" />
+    <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Deleted</span>
+  </div>
+);
+
 export const ChatInterface: React.FC = () => {
   const {
     currentUser,
@@ -23,7 +130,8 @@ export const ChatInterface: React.FC = () => {
     viewingChatOnMobile,
     setViewingChatOnMobile,
     setIsVerificationBlockOpen,
-    setBlockedActionType
+    setBlockedActionType,
+    products
   } = useApp();
 
   const [inputText, setInputText] = useState('');
@@ -233,22 +341,72 @@ export const ChatInterface: React.FC = () => {
                       active ? 'bg-slate-100 border-l-4 border-slate-905 font-bold' : 'bg-transparent hover:bg-slate-50'
                     }`}
                   >
-                    {isVideo(chat.productImage) ? (
-                      <div className="w-12 h-12 rounded-xl border border-slate-150 shrink-0 overflow-hidden bg-black flex items-center justify-center">
-                        <video
-                          src={chat.productImage}
-                          className="w-full h-full object-cover"
-                          muted
-                          playsInline
+                    {(() => {
+                      const currentAdId = chat.adId || chat.productId;
+                      const associatedProduct = products.find(p => p.id === currentAdId);
+                      
+                      const isAdDeleted = !associatedProduct && currentAdId !== 'support_welcome';
+
+                      // Determine source of truth fields with high priority to conversation attributes
+                      const adType = chat.adType || (associatedProduct ? (associatedProduct.videos && associatedProduct.videos.length > 0 ? 'video' : 'image') : (chat.productImage && isVideo(chat.productImage) ? 'video' : 'image'));
+                      const videoPoster = chat.videoPoster || (associatedProduct ? (associatedProduct.videos?.[0] || '') : (adType === 'video' ? chat.productImage : ''));
+                      const adImage = chat.adImage || (associatedProduct ? (associatedProduct.images?.[0] || '') : (adType === 'image' ? chat.productImage : ''));
+                      const adThumbnail = chat.adThumbnail || videoPoster || adImage;
+
+                      const conversation = {
+                        ...chat,
+                        adType,
+                        videoPoster,
+                        adImage,
+                        adThumbnail
+                      };
+
+                      let thumbnail = "";
+                      if (isAdDeleted) {
+                        thumbnail = "DELETED_PLACEHOLDER";
+                      } else if (conversation.productId === "support_welcome") {
+                        thumbnail = "/favicon.svg";
+                      } else {
+                        // Strict validation requirement
+                        if (conversation.adType === "video") {
+                          thumbnail = conversation.adThumbnail || conversation.videoPoster;
+                        } else {
+                          thumbnail = conversation.adImage;
+                        }
+                      }
+
+                      // Temporary forensic logging
+                      console.log({
+                        conversationId: chat.id,
+                        adId: currentAdId,
+                        adThumbnail: thumbnail,
+                        adType: conversation.adType
+                      });
+
+                      if (thumbnail === "DELETED_PLACEHOLDER") {
+                        return <DeletedPlaceholder className="w-12 h-12" />;
+                      }
+
+                      if (conversation.adType === "video") {
+                        return (
+                          <div className="w-12 h-12 rounded-xl border border-slate-150 shrink-0 overflow-hidden bg-black flex items-center justify-center">
+                            <VideoThumbnail
+                              videoUrl={thumbnail}
+                              alt={chat.productTitle}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <img
+                          src={thumbnail || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
+                          alt={chat.productTitle}
+                          className="w-12 h-12 rounded-xl object-cover border border-slate-150 shrink-0"
                         />
-                      </div>
-                    ) : (
-                      <img
-                        src={chat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
-                        alt={chat.productTitle}
-                        className="w-12 h-12 rounded-xl object-cover border border-slate-150 shrink-0"
-                      />
-                    )}
+                      );
+                    })()}
                     <div className="flex-1 min-w-0 flex flex-col justify-between">
                       <div className="flex justify-between items-baseline gap-1">
                         <span className="text-xs font-bold text-slate-900 truncate">
@@ -320,26 +478,67 @@ export const ChatInterface: React.FC = () => {
                       <ArrowLeft className="w-5 h-5 text-slate-900" />
                     </button>
 
-                    {isVideo(activeChat.productImage) ? (
-                      <div 
-                        onClick={viewProductDetails}
-                        className="w-10 h-10 rounded-xl border border-slate-200 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer hover:opacity-85"
-                      >
-                        <video
-                          src={activeChat.productImage}
-                          className="w-full h-full object-cover"
-                          muted
-                          playsInline
+                    {(() => {
+                      const activeAdId = activeChat.adId || activeChat.productId;
+                      const associatedProduct = products.find(p => p.id === activeAdId);
+                      
+                      const isActiveAdDeleted = !associatedProduct && activeAdId !== 'support_welcome';
+
+                      let activeThumbnail = "";
+                      const activeAdType = activeChat.adType || (associatedProduct ? (associatedProduct.videos && associatedProduct.videos.length > 0 ? 'video' : 'image') : (activeChat.productImage && isVideo(activeChat.productImage) ? 'video' : 'image'));
+                      const activeVideoPoster = activeChat.videoPoster || (associatedProduct ? (associatedProduct.videos?.[0] || '') : (activeAdType === 'video' ? activeChat.productImage : ''));
+                      const activeAdImage = activeChat.adImage || (associatedProduct ? (associatedProduct.images?.[0] || '') : (activeAdType === 'image' ? activeChat.productImage : ''));
+                      const activeAdThumbnail = activeChat.adThumbnail || activeVideoPoster || activeAdImage;
+
+                      const activeConversation = {
+                        ...activeChat,
+                        adType: activeAdType,
+                        videoPoster: activeVideoPoster,
+                        adImage: activeAdImage,
+                        adThumbnail: activeAdThumbnail
+                      };
+
+                      if (isActiveAdDeleted) {
+                        activeThumbnail = "DELETED_PLACEHOLDER";
+                      } else if (activeConversation.productId === "support_welcome") {
+                        activeThumbnail = "/favicon.svg";
+                      } else {
+                        // Strict validation requirement
+                        if (activeConversation.adType === "video") {
+                          activeThumbnail = activeConversation.adThumbnail || activeConversation.videoPoster;
+                        } else {
+                          activeThumbnail = activeConversation.adImage;
+                        }
+                      }
+
+                      if (activeThumbnail === "DELETED_PLACEHOLDER") {
+                        return <DeletedPlaceholder className="w-10 h-10 cursor-pointer" />;
+                      }
+
+                      if (activeConversation.adType === "video") {
+                        return (
+                          <div 
+                            onClick={viewProductDetails}
+                            className="w-10 h-10 rounded-xl border border-slate-200 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer hover:opacity-85"
+                          >
+                            <VideoThumbnail
+                              videoUrl={activeThumbnail}
+                              alt={activeChat.productTitle}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <img
+                          src={activeThumbnail || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
+                          alt={activeChat.productTitle}
+                          onClick={viewProductDetails}
+                          className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
                         />
-                      </div>
-                    ) : (
-                      <img
-                        src={activeChat.productImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80'}
-                        alt={activeChat.productTitle}
-                        onClick={viewProductDetails}
-                        className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
-                      />
-                    )}
+                      );
+                    })()}
                     <div className="min-w-0">
                       <h3 onClick={viewProductDetails} className="text-xs font-bold text-slate-900 cursor-pointer hover:text-slate-950 transition truncate">
                         {activeChat.productTitle}

@@ -130,6 +130,12 @@ export interface Chat {
   deliveredBySeller?: boolean;
   pickedUpByBuyer?: boolean;
   tradeStatus?: 'pending' | 'delivered' | 'completed';
+  adId?: string;
+  adTitle?: string;
+  adImage?: string;
+  adThumbnail?: string;
+  adType?: 'image' | 'video';
+  videoPoster?: string;
 }
 
 export interface Message {
