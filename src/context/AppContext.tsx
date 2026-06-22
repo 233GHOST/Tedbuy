@@ -112,8 +112,8 @@ interface AppContextType {
     brand?: string;
     condition?: string;
     negotiable?: boolean;
-  }) => Promise<void>;
-  updateProduct: (id: string, productData: Partial<Product>) => Promise<void>;
+  }) => Promise<string | undefined>;
+  updateProduct: (id: string, productData: Partial<Product>) => Promise<string | undefined>;
   deleteProduct: (id: string) => Promise<void>;
   toggleLikeProduct: (productId: string, userId: string) => Promise<void>;
   chats: Chat[];
@@ -2137,7 +2137,7 @@ CEO, Tedbuy Inc`;
     brand?: string;
     condition?: string;
     negotiable?: boolean;
-  }) => {
+  }): Promise<string | undefined> => {
     if (!currentUser) return;
     const prodId = `prod_${Date.now()}`;
     const newProduct: Product = {
@@ -2172,12 +2172,14 @@ CEO, Tedbuy Inc`;
         return next;
       });
 
-      // Step C: Try to set to Firestore database, but catch any permission-denied gracefully
-      try {
-        await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
-      } catch (innerErr) {
-        console.warn('[createProduct] Firestore server document create denied or offline. Fallback successfully to client-side optimistic storage list:', innerErr);
-      }
+      // Step C: Try to set to Firestore database in a non-blocking asynchronous way so poor network or offline queues never freeze the user interface
+      setDoc(doc(db, 'products', prodId), cleanObject(newProduct))
+        .then(() => {
+          console.log('[createProduct] Firestore document created successfully');
+        })
+        .catch(innerErr => {
+          console.warn('[createProduct] Firestore server document create returned background error (using local fallback list):', innerErr);
+        });
 
       // Update current user's rapid post score dynamically
       try {
@@ -2251,12 +2253,14 @@ CEO, Tedbuy Inc`;
         });
         await Promise.allSettled(notifPromises);
       })().catch(err => console.warn('Non-blocking notification dispatch error:', err));
+
+      return prodId;
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `products/${prodId}`);
     }
   };
 
-  const updateProduct = async (id: string, productData: Partial<Product>) => {
+  const updateProduct = async (id: string, productData: Partial<Product>): Promise<string | undefined> => {
     try {
       const updatedData = { ...productData };
       if (updatedData.category) {
@@ -2302,88 +2306,89 @@ CEO, Tedbuy Inc`;
         }
       } catch (_) {}
 
-      // Step C: Try updating standard Firestore document, fallback gracefully if permissions or connectivity are offline
+      // Step C: Try updating standard Firestore document, but in a completely non-blocking asynchronous way
       const productRef = doc(db, 'products', id);
-      try {
-        const productDoc = await getDoc(productRef);
-        if (productDoc.exists()) {
-          // Fix: If updating any of these social/utility fields (likesCount, likedUserIds, viewsCount, isSold)
-          // we MUST only use updateDoc to send the changed fields rather than setDoc.
-          // Sending everything via setDoc fails modern ABAC limits in firestore.rules for non-owners.
-          // By using updateDoc, only the modified keys are sent, making affectedKeys() match security rules perfectly.
-          // In fact, we should always prefer updateDoc for partial updates on existing documents.
-          const keys = Object.keys(updatedData);
-          const isSocialOnly = keys.every(k => ['likesCount', 'likedUserIds', 'viewsCount', 'isSold'].includes(k));
-          
-          if (isSocialOnly) {
-            await updateDoc(productRef, cleanObject(updatedData));
-          } else {
-            const existingData = productDoc.data() as Product;
-            const fullProductUpdate = {
-              ...existingData,
-              ...updatedData,
-              id,
-              sellerId: existingData.sellerId || currentUser?.id || '',
-            };
-            await setDoc(productRef, cleanObject(fullProductUpdate));
+      const localProduct = products.find(p => p.id === id);
 
-            // Distribute notifications to users following this seller/ad
-            if (currentUser) {
-              const notifyTargetUsers = users.filter(u => {
-                if (u.id === currentUser.id) return false;
-                const matchesSavedId = u.savedProductIds?.includes(id);
-                const matchesSellerId = u.followingSellers?.includes(existingData.sellerId || '');
-                return matchesSavedId || matchesSellerId;
-              });
+      if (localProduct) {
+        const keys = Object.keys(updatedData);
+        const isSocialOnly = keys.every(k => ['likesCount', 'likedUserIds', 'viewsCount', 'isSold'].includes(k));
 
-              // Dispatch notifications concurrently in a non-blocking asynchronous scope
-              (async () => {
-                const notifPromises = notifyTargetUsers.map(async (targetUser) => {
-                  const isSaved = targetUser.savedProductIds?.includes(id);
-                  const notifId = `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`;
-                  const newNotification: AppNotification = {
-                    id: notifId,
-                    userId: targetUser.id,
-                    type: 'post_created',
-                    title: isSaved ? 'Followed Ad Updated!' : 'New Update from Seller',
-                    message: isSaved 
-                      ? `An ad you are following "${existingData.title}" was updated by the seller.`
-                      : `${currentUser.username} updated their listing: "${existingData.title}"`,
-                    triggerUserId: currentUser.id,
-                    triggerUsername: currentUser.username,
-                    triggerUserPhoto: currentUser.photoUrl || '',
-                    productId: id,
-                    productTitle: existingData.title,
-                    productPrice: updatedData.price !== undefined ? updatedData.price : existingData.price,
-                    productImage: (updatedData.images && updatedData.images[0]) || existingData.images?.[0] || '',
-                    createdAt: new Date().toISOString(),
-                    read: false
-                  };
-
-                  try {
-                    const key = `tedbuy_notifications_backup_${targetUser.id}`;
-                    const currentListStr = safeLocalStorage.getItem(key);
-                    const currentList = currentListStr ? JSON.parse(currentListStr) : [];
-                    currentList.unshift(newNotification);
-                    safeLocalStorage.setItem(key, JSON.stringify(currentList));
-                  } catch (_) {}
-
-                  try {
-                    await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
-                  } catch (dbErr) {
-                    console.warn('Backend notification dispatch skipped in sandbox context:', dbErr);
-                  }
-                });
-                await Promise.allSettled(notifPromises);
-              })().catch(err => console.warn('Non-blocking update notification dispatch error:', err));
-            }
-          }
+        if (isSocialOnly) {
+          updateDoc(productRef, cleanObject(updatedData))
+            .then(() => console.log('[updateProduct] Firestore document updated successfully (social-only)'))
+            .catch(innerErr => console.warn('[updateProduct] Firestore server Write warning (using local fallback state):', innerErr));
         } else {
-          await updateDoc(productRef, cleanObject(updatedData));
+          const fullProductUpdate = {
+            ...localProduct,
+            ...updatedData,
+            id,
+            sellerId: localProduct.sellerId || currentUser?.id || '',
+          };
+          setDoc(productRef, cleanObject(fullProductUpdate))
+            .then(() => console.log('[updateProduct] Firestore document updated successfully (full)'))
+            .catch(innerErr => console.warn('[updateProduct] Firestore server Write warning (using local fallback state):', innerErr));
+
+          // Distribute notifications to users following this seller/ad in a non-blocking way
+          if (currentUser) {
+            const notifyTargetUsers = users.filter(u => {
+              if (u.id === currentUser.id) return false;
+              const matchesSavedId = u.savedProductIds?.includes(id);
+              const matchesSellerId = u.followingSellers?.includes(localProduct.sellerId || '');
+              return matchesSavedId || matchesSellerId;
+            });
+
+            // Dispatch notifications concurrently in a non-blocking asynchronous scope
+            (async () => {
+              const notifPromises = notifyTargetUsers.map(async (targetUser) => {
+                const isSaved = targetUser.savedProductIds?.includes(id);
+                const notifId = `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`;
+                const newNotification: AppNotification = {
+                  id: notifId,
+                  userId: targetUser.id,
+                  type: 'post_created',
+                  title: isSaved ? 'Followed Ad Updated!' : 'New Update from Seller',
+                  message: isSaved 
+                    ? `An ad you are following "${localProduct.title}" was updated by the seller.`
+                    : `${currentUser.username} updated their listing: "${localProduct.title}"`,
+                  triggerUserId: currentUser.id,
+                  triggerUsername: currentUser.username,
+                  triggerUserPhoto: currentUser.photoUrl || '',
+                  productId: id,
+                  productTitle: localProduct.title,
+                  productPrice: updatedData.price !== undefined ? updatedData.price : localProduct.price,
+                  productImage: (updatedData.images && updatedData.images[0]) || localProduct.images?.[0] || '',
+                  createdAt: new Date().toISOString(),
+                  read: false
+                };
+
+                try {
+                  const key = `tedbuy_notifications_backup_${targetUser.id}`;
+                  const currentListStr = safeLocalStorage.getItem(key);
+                  const currentList = currentListStr ? JSON.parse(currentListStr) : [];
+                  currentList.unshift(newNotification);
+                  safeLocalStorage.setItem(key, JSON.stringify(currentList));
+                } catch (_) {}
+
+                try {
+                  await setDoc(doc(db, 'notifications', notifId), cleanObject(newNotification));
+                } catch (dbErr) {
+                  console.warn('Backend notification dispatch skipped in sandbox context:', dbErr);
+                }
+              });
+              await Promise.allSettled(notifPromises);
+            })().catch(err => console.warn('Non-blocking update notification dispatch error:', err));
+          }
         }
-      } catch (innerErr) {
-        console.warn('[updateProduct] Firestore server write was denied or offline. Flow gracefully fallback to client-side local persistence:', innerErr);
+      } else {
+        // Local product wasn't found - perform background update/set directly
+        updateDoc(productRef, cleanObject(updatedData))
+          .catch(() => {
+            setDoc(productRef, cleanObject(updatedData)).catch(() => {});
+          });
       }
+
+      return id;
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
     }

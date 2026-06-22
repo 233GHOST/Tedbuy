@@ -25,7 +25,7 @@ const CATEGORIES: Category[] = [
 ];
 
 export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, productToEdit }) => {
-  const { createProduct, updateProduct, currentUser, setCurrentView } = useApp();
+  const { createProduct, updateProduct, currentUser, setCurrentView, showToast, setSelectedProductId } = useApp();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -778,6 +778,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return setErrorMsg(`The total media size is too large (${(payloadBytes / 1024).toFixed(0)}KB). Our database has a strict 1MB size limit. Please remove some images or upload a smaller, highly-compressed video under 730KB.`);
     }
 
+    if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
@@ -795,9 +796,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           videos: finalVideos,
           negotiable
         });
+
+        showToast("Ad updated successfully!", "success");
+        setSelectedProductId(productToEdit.id);
+        setCurrentView('product-detail');
       } else {
         // Create flow
-        await createProduct({
+        const newProd = await createProduct({
           title: finalTitle,
           description,
           price: parsedPrice,
@@ -809,11 +814,38 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           videos: finalVideos,
           negotiable
         });
+
+        showToast("Ad posted successfully!", "success");
+
+        // Explicitly reset the form states
+        setTitle('');
+        setDescription('');
+        setPrice('');
+        setCategory('Phones');
+        setServiceSubCategory('Photography and Video Services');
+        setCustomServiceType('');
+        setLocation('');
+        setBrand('');
+        setCondition('');
+        setImages([]);
+        setVideos([]);
+        setVideoPreviewUrl('');
+        setOversizedVideoFile(null);
+        setMediaType('image');
+        setAdRegion('Greater Accra');
+        setAdCity('Accra');
+        setAdNeighborhood('');
+        setNegotiable(true);
+
+        if (newProd) {
+          setSelectedProductId(newProd);
+          setCurrentView('product-detail');
+        } else {
+          setCurrentView('my-dashboard');
+        }
       }
 
       onClose();
-      // Redirect to listing dashboard
-      setCurrentView('my-dashboard');
     } catch (e: any) {
       let errStr = e?.message || String(e);
       let isPermissionDenied = false;
@@ -847,6 +879,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         finalMsg += ' (Hint: High-resolution photos/videos might exceed standard firestore sizes; try smaller images/compressing).';
       }
       setErrorMsg(finalMsg);
+      showToast(finalMsg, "error");
     } finally {
       setIsSubmitting(false);
     }
