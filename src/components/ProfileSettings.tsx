@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
+import { getAuthErrorMessage } from '../utils/authErrorHelper';
 import { auth } from '../firebase';
 
 export const ProfileSettings: React.FC = () => {
@@ -236,8 +237,10 @@ export const ProfileSettings: React.FC = () => {
     try {
       await deleteAccount(deletePasswordText);
     } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err?.message || 'Failed to completely delete account. Please try again.');
+      if (process.env.NODE_ENV === "development") {
+        console.error(err);
+      }
+      setErrorMsg(getAuthErrorMessage(err));
       setIsDeleting(false);
     }
   };
@@ -1341,6 +1344,9 @@ export const ProfileSettings: React.FC = () => {
                   try {
                     await adminDeleteUserProfile(targetId, true);
                   } catch (err: any) {
+                    if (process.env.NODE_ENV === "development") {
+                      console.error(err);
+                    }
                     showToast(err?.message || 'Deletion failed', 'error');
                   } finally {
                     setAdminDeletingId(null);

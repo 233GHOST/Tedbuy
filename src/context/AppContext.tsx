@@ -36,6 +36,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener, requestFcmToken } from '../firebase';
 import { slugify } from '../utils/slugify';
+import { getAuthErrorMessage } from '../utils/authErrorHelper';
 import { useHashRouting } from '../hooks/useHashRouting';
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 
@@ -1857,7 +1858,9 @@ CEO, Tedbuy Inc`;
 
       return newUser;
     } catch (error) {
-      console.error('Core Firebase registration failed:', error);
+      if (process.env.NODE_ENV === "development") {
+        console.error('Core Firebase registration failed:', error);
+      }
       throw error;
     }
   };
@@ -1874,7 +1877,9 @@ CEO, Tedbuy Inc`;
         await signInWithEmailAndPassword(auth, cleanIdentifier, password);
         return true;
       } catch (authErrorDetail: any) {
-        console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
+        if (process.env.NODE_ENV === "development") {
+          console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
+        }
         
         const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
                                    authErrorDetail?.message?.includes('operation-not-allowed');
@@ -1936,7 +1941,9 @@ CEO, Tedbuy Inc`;
           }
         });
       } catch (dbErr) {
-        console.error('Could not query users list from database for username/phone match:', dbErr);
+        if (process.env.NODE_ENV === "development") {
+          console.error('Could not query users list from database for username/phone match:', dbErr);
+        }
       }
 
       if (targetEmail) {
@@ -1945,7 +1952,9 @@ CEO, Tedbuy Inc`;
           await signInWithEmailAndPassword(auth, finalEmail, password);
           return true;
         } catch (authErrorDetail: any) {
-          console.error('Firebase Auth failed for user email resolved from username/phone:', finalEmail, authErrorDetail);
+          if (process.env.NODE_ENV === "development") {
+            console.error('Firebase Auth failed for user email resolved from username/phone:', finalEmail, authErrorDetail);
+          }
           const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
                                      authErrorDetail?.message?.includes('operation-not-allowed');
           if (isAuthErrorDisabled) {
@@ -1987,7 +1996,9 @@ CEO, Tedbuy Inc`;
     try {
       await sendPasswordResetEmail(auth, emailTarget);
     } catch (error) {
-      console.error('Firebase password reset failed:', error);
+      if (process.env.NODE_ENV === "development") {
+        console.error('Firebase password reset failed:', error);
+      }
       throw error;
     }
   };
@@ -2027,7 +2038,9 @@ CEO, Tedbuy Inc`;
         }
       }
     } catch (error: any) {
-      console.error('Google sign-in error:', error);
+      if (process.env.NODE_ENV === "development") {
+        console.error('Google sign-in error:', error);
+      }
       if (error?.code === 'auth/popup-blocked') {
         throw new Error('Google sign-in popup was blocked by your browser. Please allow popups for this site or open in a new tab to continue!');
       }
@@ -2059,8 +2072,10 @@ CEO, Tedbuy Inc`;
       await sendEmailVerification(firebaseUser);
       showToast("A new verification link was dispatched to " + firebaseUser.email + "!", "success");
     } catch (err: any) {
-      console.error("Error sending verification email:", err);
-      showToast(err.message || "Failed to dispatch verification email.", "error");
+      if (process.env.NODE_ENV === "development") {
+        console.error("Error sending verification email:", err);
+      }
+      showToast(getAuthErrorMessage(err) || "Failed to dispatch verification email.", "error");
     }
   };
 
@@ -2081,8 +2096,10 @@ CEO, Tedbuy Inc`;
       }
       return isVerified;
     } catch (err: any) {
-      console.error("Error reloading user status:", err);
-      showToast("Unable to fetch status. Try again shortly.", "error");
+      if (process.env.NODE_ENV === "development") {
+        console.error("Error reloading user status:", err);
+      }
+      showToast(getAuthErrorMessage(err) || "Unable to fetch status. Try again shortly.", "error");
       return false;
     }
   };

@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff, Bell, CheckCheck, Trash2, ExternalLink } from 'lucide-react';
 import { compressImage } from '../utils/imageOptimizer';
 import { motion, AnimatePresence } from 'motion/react';
+import { getAuthErrorMessage } from '../utils/authErrorHelper';
 
 export const Navbar: React.FC = () => {
   const {
@@ -152,15 +153,13 @@ export const Navbar: React.FC = () => {
         }
       }
     } catch (err: any) {
-      console.error(err);
+      if (process.env.NODE_ENV === "development") {
+        console.error(err);
+      }
       if (err?.code === 'auth/operation-not-allowed' || err?.message?.includes('operation-not-allowed')) {
         setAuthError('Authentication via Email/Password is not enabled in Firebase Console for your project. Please go to Authentication -> Sign-in method and enable "Email/Password".');
-      } else if (err?.code === 'auth/email-already-in-use') {
-        setAuthError('This email or phone number is already registered.');
-      } else if (err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential' || err?.message?.includes('invalid-credential') || err?.message?.includes('wrong-password')) {
-        setAuthError('Invalid credentials. Please verify your details and try again.');
       } else {
-        setAuthError(err?.message || 'An authentication error occurred. Please try again.');
+        setAuthError(getAuthErrorMessage(err));
       }
     } finally {
       setIsAuthSubmitting(false);
