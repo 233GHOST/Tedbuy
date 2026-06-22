@@ -299,10 +299,21 @@ export const CATEGORY_FILTERS: Record<Category, FilterField[]> = {
 export const BRAND_MODELS_DATA: Record<string, string[]> = {
   // Phone Brands
   Apple: [
-    'iPhone 16 Pro Max', 'iPhone 16 Pro', 'iPhone 16', 'iPhone 15 Pro Max', 
-    'iPhone 15 Pro', 'iPhone 15', 'iPhone 14 Pro Max', 'iPhone 14 Pro', 
-    'iPhone 14', 'iPhone 13 Pro Max', 'iPhone 13 Pro', 'iPhone 13', 'iPhone 12 Pro Max', 
-    'iPhone 12', 'iPhone 11'
+    'iPhone 17 Pro Max', 'iPhone 17 Pro', 'iPhone 17 Plus', 'iPhone 17', 'iPhone SE 4',
+    'iPhone 16 Pro Max', 'iPhone 16 Pro', 'iPhone 16 Plus', 'iPhone 16',
+    'iPhone 15 Pro Max', 'iPhone 15 Pro', 'iPhone 15 Plus', 'iPhone 15',
+    'iPhone 14 Pro Max', 'iPhone 14 Pro', 'iPhone 14 Plus', 'iPhone 14',
+    'iPhone 13 Pro Max', 'iPhone 13 Pro', 'iPhone 13 mini', 'iPhone 13',
+    'iPhone SE (3rd Gen)',
+    'iPhone 12 Pro Max', 'iPhone 12 Pro', 'iPhone 12 mini', 'iPhone 12',
+    'iPhone 11 Pro Max', 'iPhone 11 Pro', 'iPhone 11',
+    'iPhone SE (2nd Gen)',
+    'iPhone XS Max', 'iPhone XS', 'iPhone XR', 'iPhone X',
+    'iPhone 8 Plus', 'iPhone 8',
+    'iPhone 7 Plus', 'iPhone 7',
+    'iPhone SE (1st Gen)',
+    'iPhone 6s Plus', 'iPhone 6s', 'iPhone 6 Plus', 'iPhone 6',
+    'iPhone 5s'
   ],
   Samsung: [
     'Galaxy S24 Ultra', 'Galaxy S24+', 'Galaxy S24', 'Galaxy S23 Ultra', 
@@ -331,13 +342,38 @@ export const BRAND_MODELS_DATA: Record<string, string[]> = {
   Mazda: ['Mazda 3', 'Mazda 6', 'CX-5', 'CX-9', 'Demio'],
 
   // Laptop Brands
-  'Apple (Laptops)': ['MacBook Pro 16" (M3)', 'MacBook Pro 14" (M3)', 'MacBook Air 15" (M3)', 'MacBook Air 13" (M2)', 'MacBook Pro 13" (M1)', 'MacBook Air (M1)'],
-  Dell: ['XPS 13', 'XPS 15', 'Inspiron 15', 'Latitude 5420', 'Precision Workstation', 'G15 Gaming'],
-  HP: ['Spectre x360', 'Envy 15', 'Pavilion 15', 'ProBook 450', 'EliteBook 840', 'Omen 16'],
-  Lenovo: ['ThinkPad X1 Carbon', 'ThinkPad T14', 'IdeaPad 3', 'Yoga 7i', 'Legion 5 Pro'],
-  Asus: ['ROG Zephyrus G14', 'Zenbook 14', 'Vivobook 15', 'TUF Gaming F15'],
-  Acer: ['Aspire 5', 'Nitro 5', 'Swift Go', 'Predator Helios 300'],
-  Microsoft: ['Surface Laptop 5', 'Surface Pro 9', 'Surface Go 3']
+  'Apple (Laptops)': [
+    'MacBook Pro 16" (M3/Pro/Max, 2023)',
+    'MacBook Pro 14" (M3/Pro/Max, 2023)',
+    'MacBook Pro 16" (M2/Pro/Max, 2023)',
+    'MacBook Pro 14" (M2/Pro/Max, 2023)',
+    'MacBook Pro 16" (M1/Pro/Max, 2021)',
+    'MacBook Pro 14" (M1/Pro/Max, 2021)',
+    'MacBook Pro 13" (M2, 2022)',
+    'MacBook Pro 13" (M1, 2020)',
+    'MacBook Pro 16" (Intel, 2019)',
+    'MacBook Pro 15" (Touch Bar, 2016-2019)',
+    'MacBook Pro 13" (Touch Bar, 2016-2020)',
+    'MacBook Pro 15" Retina (Mid 2012-2015)',
+    'MacBook Pro 13" Retina (Late 2012-2015)',
+    'MacBook Pro 15" Unibody (Mid 2012)',
+    'MacBook Pro 13" Unibody (Mid 2012)',
+    'MacBook Air 15" (M3, 2024)',
+    'MacBook Air 13" (M3, 2024)',
+    'MacBook Air 15" (M2, 2023)',
+    'MacBook Air 13" (M2, 2022)',
+    'MacBook Air 13" (M1, 2020)',
+    'MacBook Air 13" (Retina, 2018-2020)',
+    'MacBook Air 13" (Classic, 2012-2017)',
+    'MacBook Air 11" (Classic, 2012-2015)',
+    'MacBook 12" Retina (2015-2017)'
+  ],
+  Dell: ['Inspiron', 'Latitude', 'XPS', 'Precision', 'Vostro', 'Alienware', 'G Series'],
+  HP: ['EliteBook', 'ProBook', 'Spectre', 'Envy', 'Pavilion', 'Omen', 'Victus'],
+  Lenovo: ['ThinkPad', 'IdeaPad', 'Yoga', 'Legion', 'ThinkBook', 'Flex'],
+  Asus: ['ZenBook', 'VivoBook', 'ROG (Republic of Gamers)', 'TUF Gaming', 'ExpertBook', 'ProArt'],
+  Acer: ['Aspire', 'Swift', 'Spin', 'Nitro', 'Predator', 'TravelMate', 'Enduro'],
+  Microsoft: ['Surface Laptop', 'Surface Pro', 'Surface Go', 'Surface Book', 'Surface Studio']
 };
 
 export function getModelsForBrand(brand: string, category: Category): string[] {
