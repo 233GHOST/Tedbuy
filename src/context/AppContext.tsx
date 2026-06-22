@@ -16,7 +16,8 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   signInAnonymously,
-  fetchSignInMethodsForEmail
+  fetchSignInMethodsForEmail,
+  linkWithCredential
 } from 'firebase/auth';
 import {
   collection,
@@ -100,6 +101,9 @@ interface AppContextType {
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   resetPasswordEmail: (email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  googleLinkingData: { email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null;
+  setGoogleLinkingData: React.Dispatch<React.SetStateAction<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>>;
+  linkGoogleWithPassword: (password: string) => Promise<boolean>;
   logoutUser: () => Promise<void>;
   products: Product[];
   createProduct: (productData: {
@@ -360,6 +364,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -843,6 +848,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     const msgsRecipientSnap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', existingUserId)));
                     msgsRecipientSnap.forEach(mDoc => {
                       cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: firebaseUser.uid });
+                      cascadeCount++;
+                    });
+
+                    // Notifications to this user
+                    const notificationsSnap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', existingUserId)));
+                    notificationsSnap.forEach(nDoc => {
+                      cascadeBatch.update(doc(db, 'notifications', nDoc.id), { userId: firebaseUser.uid });
                       cascadeCount++;
                     });
 
@@ -2022,8 +2034,44 @@ CEO, Tedbuy Inc`;
       // Therefore, always prefer signInWithPopup first even on mobile, as it uses in-memory frame messaging and succeeds flawlessly!
       console.log('Triggering Google Auth using the robust Popup flow for maximum cross-origin compatibility...');
       try {
-        await signInWithPopup(auth, provider);
+        const result = await signInWithPopup(auth, provider);
+        const googleUser = result.user;
+        if (googleUser && googleUser.email) {
+          const emailClean = googleUser.email.trim().toLowerCase();
+
+          // Check in Firestore if an existing user has this email under a DIFFERENT uid
+          const q = query(collection(db, 'users'), where('email', '==', emailClean));
+          const snap = await getDocs(q);
+          const foundDoc = snap.docs.find(d => d.id !== googleUser.uid);
+          if (foundDoc) {
+            // A different existing user document has this email!
+            // We must link this Google sign-in to that existing account
+            const googleCred = GoogleAuthProvider.credentialFromResult(result);
+            setGoogleLinkingData({
+              email: googleUser.email,
+              credential: googleCred,
+              targetUid: foundDoc.id,
+              googleUserToSignOut: googleUser
+            });
+            // Immediately sign out to prevent a temporary duplicate Auth session
+            await signOut(auth);
+            throw { code: 'auth/account-exists-with-different-credential', message: 'An account with this email already exists inside Tedbuy. Please enter your password to link Google with your existing profile.' };
+          } else {
+            // Check if document exists for current Google uid
+            const userRef = doc(db, 'users', googleUser.uid);
+            const userSnap = await getDoc(userRef);
+            if (!userSnap.exists()) {
+              // No toast notification on sign in/up
+            } else {
+              // No toast notification on sign in
+            }
+          }
+        }
       } catch (popupErr: any) {
+        if (popupErr?.code === 'auth/account-exists-with-different-credential') {
+          throw popupErr;
+        }
+
         const isPopupBlocked = popupErr?.code === 'auth/popup-blocked' || 
                                popupErr?.code === 'auth/popup-closed-by-user' ||
                                popupErr?.code === 'auth/cancelled-popup-request' ||
@@ -2044,7 +2092,34 @@ CEO, Tedbuy Inc`;
       if (error?.code === 'auth/popup-blocked') {
         throw new Error('Google sign-in popup was blocked by your browser. Please allow popups for this site or open in a new tab to continue!');
       }
+      if (error?.code === 'auth/account-exists-with-different-credential') {
+        const pendingCred = GoogleAuthProvider.credentialFromError(error);
+        const email = error.customData?.email || '';
+        setGoogleLinkingData({ email, credential: pendingCred });
+      }
       throw error;
+    }
+  };
+
+  const linkGoogleWithPassword = async (password: string) => {
+    if (!googleLinkingData) {
+      throw new Error('No Google linking data available.');
+    }
+    const { email, credential } = googleLinkingData;
+    try {
+      // 1. Sign in with the existing email and password
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // 2. Link the google credential
+      await linkWithCredential(userCredential.user, credential);
+      // 3. Clear linking state
+      setGoogleLinkingData(null);
+      // No toast notification on sign in
+      return true;
+    } catch (err: any) {
+      if (process.env.NODE_ENV === "development") {
+        console.error('Failed to link Google credential with password:', err);
+      }
+      throw err;
     }
   };
 
@@ -3753,6 +3828,9 @@ CEO, Tedbuy Inc`;
       loginUser,
       resetPasswordEmail,
       loginWithGoogle,
+      googleLinkingData,
+      setGoogleLinkingData,
+      linkGoogleWithPassword,
       logoutUser,
       products,
       createProduct,

@@ -24,6 +24,7 @@ export function createProductSelector() {
   let lastMax = '';
   let lastSortByPrice: 'default' | 'asc' | 'desc' = 'default';
   let lastSortByAds: 'newest' | 'oldest' = 'newest';
+  let lastExtraFiltersStr = '{}';
   
   let cachedSorted: Product[] = [];
 
@@ -37,8 +38,10 @@ export function createProductSelector() {
     minPrice: string,
     maxPrice: string,
     sortByPrice: 'default' | 'asc' | 'desc',
-    sortByAds: 'newest' | 'oldest'
+    sortByAds: 'newest' | 'oldest',
+    extraFilters?: Record<string, string>
   ): Product[] => {
+    const extraFiltersStr = extraFilters ? JSON.stringify(extraFilters) : '{}';
     if (
       lastProducts === products &&
       lastUsers === users &&
@@ -49,7 +52,8 @@ export function createProductSelector() {
       lastMin === minPrice &&
       lastMax === maxPrice &&
       lastSortByPrice === sortByPrice &&
-      lastSortByAds === sortByAds
+      lastSortByAds === sortByAds &&
+      lastExtraFiltersStr === extraFiltersStr
     ) {
       return cachedSorted;
     }
@@ -64,6 +68,9 @@ export function createProductSelector() {
     lastMax = maxPrice;
     lastSortByPrice = sortByPrice;
     lastSortByAds = sortByAds;
+    lastExtraFiltersStr = extraFiltersStr;
+
+    const parsedExtraFilters: Record<string, string> = extraFilters || {};
 
     const filtered = products.filter(product => {
       const matchesCategory = !category || 
@@ -105,7 +112,35 @@ export function createProductSelector() {
         }
       }
 
-      return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice;
+      // Match dynamic category-specific fields (e.g. brand, model, storage, condition, etc.)
+      let matchesExtra = true;
+      if (Object.keys(parsedExtraFilters).length > 0) {
+        for (const [key, value] of Object.entries(parsedExtraFilters)) {
+          if (!value || value === 'All') continue;
+
+          // Check if attribute is stored explicitly in product attributes
+          const productVal = (product as any)[key];
+          if (productVal !== undefined && productVal !== null) {
+            const cleanProdVal = String(productVal).toLowerCase().trim();
+            const cleanFilterVal = String(value).toLowerCase().trim();
+            if (cleanProdVal !== cleanFilterVal && !cleanProdVal.includes(cleanFilterVal)) {
+              matchesExtra = false;
+              break;
+            }
+          } else {
+            // Fallback for keyword correlation in Title & Description for backward compatibility
+            const cleanVal = String(value).toLowerCase().trim();
+            const inTitle = product.title.toLowerCase().includes(cleanVal);
+            const inDesc = product.description.toLowerCase().includes(cleanVal);
+            if (!inTitle && !inDesc) {
+              matchesExtra = false;
+              break;
+            }
+          }
+        }
+      }
+
+      return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice && matchesExtra;
     });
 
     const getSellerScore = (sellerId: string): number => {

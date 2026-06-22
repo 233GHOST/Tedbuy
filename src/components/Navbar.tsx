@@ -31,6 +31,10 @@ export const Navbar: React.FC = () => {
     registerUser,
     loginUser,
     resetPasswordEmail,
+    loginWithGoogle,
+    googleLinkingData,
+    setGoogleLinkingData,
+    linkGoogleWithPassword,
     notifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
@@ -38,6 +42,9 @@ export const Navbar: React.FC = () => {
     setSelectedProductId,
     showToast
   } = useApp();
+
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [linkPasswordInput, setLinkPasswordInput] = useState('');
 
   const [loginIdentifierInput, setLoginIdentifierInput] = useState('');
   const [registerEmailInput, setRegisterEmailInput] = useState('');
@@ -165,6 +172,52 @@ export const Navbar: React.FC = () => {
       setIsAuthSubmitting(false);
     }
   };
+
+  const handleGoogleSignIn = async () => {
+    setAuthError('');
+    setIsGoogleSigningIn(true);
+    try {
+      await loginWithGoogle();
+      setShowAuthModal(false);
+    } catch (err: any) {
+      if (err?.code === 'auth/account-exists-with-different-credential' || err?.message === 'auth/account-exists-with-different-credential') {
+        console.log('Account exists with different credential error caught, prompting link form.');
+      } else {
+        setAuthError(getAuthErrorMessage(err) || 'Unable to complete Google Sign-In. Please try again.');
+      }
+    } finally {
+      setIsGoogleSigningIn(false);
+    }
+  };
+
+  const handleLinkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    setIsAuthSubmitting(true);
+    try {
+      const success = await linkGoogleWithPassword(linkPasswordInput);
+      if (success) {
+        setShowAuthModal(false);
+        setLinkPasswordInput('');
+        setGoogleLinkingData(null);
+      }
+    } catch (err: any) {
+      if (process.env.NODE_ENV === "development") {
+        console.error(err);
+      }
+      setAuthError(getAuthErrorMessage(err) || 'Failed to link account. Please double-check your password.');
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showAuthModal) {
+      setGoogleLinkingData(null);
+      setLinkPasswordInput('');
+      setAuthError('');
+    }
+  }, [showAuthModal, setGoogleLinkingData]);
 
   // Calculate unread chat badges with an optimized single-pass memoized filter
   const unreadCount = useMemo(() => {
@@ -607,7 +660,78 @@ export const Navbar: React.FC = () => {
             >
               &times;
             </button>
-            <div className="flex items-center gap-2 mb-4">
+            {googleLinkingData ? (
+              <form onSubmit={handleLinkSubmit} className="space-y-4">
+                <div className="text-center pb-2">
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3 animate-pulse">
+                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13.5l4-4" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-950">Link Existing Profile</h3>
+                  <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto leading-relaxed">
+                    A Tedbuy account already exists for <strong className="text-slate-800 font-black">{googleLinkingData.email}</strong>. Please enter your password to link your Google sign-in securely.
+                  </p>
+                </div>
+
+                {authError && (
+                  <div className="p-3.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-start gap-2.5 animate-fade-in shadow-2xs font-medium">
+                    <svg className="w-4 h-4 shrink-0 mt-0.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5 animate-slide-up">
+                  <label className="text-xs font-bold text-slate-700">Account Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={linkPasswordInput}
+                    onChange={(e) => {
+                      setLinkPasswordInput(e.target.value);
+                      setAuthError('');
+                    }}
+                    placeholder="Enter your account password"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-450 focus:bg-white placeholder-slate-400"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2">
+                  <button
+                    type="submit"
+                    disabled={isAuthSubmitting}
+                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-500 text-white font-bold rounded-xl transition duration-200 text-sm shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isAuthSubmitting ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                        <span>Linking Account...</span>
+                      </>
+                    ) : (
+                      <span>Confirm and Link Google</span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGoogleLinkingData(null);
+                      setLinkPasswordInput('');
+                      setAuthError('');
+                    }}
+                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition duration-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-900 flex items-center justify-center overflow-hidden">
                 <img src="/favicon.svg" alt="TedBuy Logo" className="w-6.5 h-6.5 object-contain" referrerPolicy="no-referrer" />
               </div>
@@ -942,6 +1066,54 @@ export const Navbar: React.FC = () => {
               )}
             </form>
 
+            {(authMode === 'login' || authMode === 'register') && (
+              <>
+                <div className="relative my-4 flex items-center justify-center text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-200"></div>
+                  </div>
+                  <span className="relative px-3 bg-white">Or</span>
+                </div>
+
+                <button
+                  type="button"
+                  id="google-signin-btn"
+                  disabled={isGoogleSigningIn}
+                  onClick={handleGoogleSignIn}
+                  className="w-full py-2.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold rounded-xl transition duration-200 text-sm shadow-2xs flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isGoogleSigningIn ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-slate-400/30 border-t-slate-600 rounded-full animate-spin"></span>
+                      <span>Signing you in...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.08-.2-.15-.43-.2-.63z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                        />
+                      </svg>
+                      <span>Continue with Google</span>
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+
             <div className="border-t border-slate-200 mt-5 pt-4 text-center">
               <button
                 onClick={() => {
@@ -969,6 +1141,8 @@ export const Navbar: React.FC = () => {
                 )}
               </button>
             </div>
+          </>
+        )}
           </div>
         </div>
       )}

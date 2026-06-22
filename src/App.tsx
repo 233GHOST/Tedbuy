@@ -17,6 +17,7 @@ import { getRegionForLocation } from './regions';
 import { VerificationBlockModal } from './components/VerificationBlockModal';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
 import { createProductSelector } from './utils/productSelector';
+import { DynamicCategoryFilters } from './components/DynamicCategoryFilters';
 
 const selectProducts = createProductSelector();
 
@@ -26,6 +27,7 @@ const CATEGORY_ICONS: { [key in Category]: string } = {
   Fashion: '👟',
   'Home Appliances': '🔌',
   Vehicles: '🚗',
+  Property: '🏠',
   'Beauty and Care': '💄',
   Games: '🎮',
   Electronics: '⚡',
@@ -390,10 +392,18 @@ const MarketplaceContent: React.FC = () => {
   const [displayLimit, setDisplayLimit] = useState<number>(12);
   const scrollSentinelRef = useRef<HTMLDivElement | null>(null);
 
+  // Dynamic category-specific extra filters state
+  const [extraFilters, setExtraFilters] = useState<Record<string, string>>({});
+
+  // Reset category-specific filters state when the category changes
+  React.useEffect(() => {
+    setExtraFilters({});
+  }, [selectedCategory]);
+
   // Reset pagination limit when any filter parameters change to ensure fast and lightweight mobile rendering
   React.useEffect(() => {
     setDisplayLimit(12);
-  }, [selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
+  }, [selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters]);
 
 
 
@@ -409,9 +419,10 @@ const MarketplaceContent: React.FC = () => {
       minPrice,
       maxPrice,
       sortByPrice,
-      sortByAds
+      sortByAds,
+      extraFilters
     );
-  }, [products, users, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds]);
+  }, [products, users, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters]);
 
   // Prefetch cover images of the first few products dynamically to make browsing feel instant
   const prefetchedImagesRef = React.useRef<Set<string>>(new Set());
@@ -548,7 +559,7 @@ const MarketplaceContent: React.FC = () => {
             
             {homeViewMode !== 'video-feed' && (
               /* Promotional Marketplace Hero Badge */
-              <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 overflow-hidden shadow-xs flex flex-col gap-6">
+              <div className="relative mb-8 bg-slate-100 border border-slate-200 text-slate-900 rounded-3xl p-6 sm:p-8 shadow-xs flex flex-col gap-6">
                 {/* Hidden programmatic click trigger so video empty-state CTA remains completely functional */}
                 <button id="hero-post-ad-btn" onClick={handlePostAdBtn} className="hidden" />
 
@@ -593,13 +604,13 @@ const MarketplaceContent: React.FC = () => {
 
                   {/* Enhanced Autocomplete Suggestion Dropdown Panel */}
                   {isSearchFocused && (
-                    <div className="absolute left-0 right-0 mt-2 bg-white border border-slate-200 shadow-2xl rounded-2xl z-50 overflow-hidden divide-y divide-slate-100 max-h-96 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="absolute left-0 right-0 mt-3 bg-white border-2 border-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.22)] rounded-3xl z-50 overflow-hidden divide-y divide-slate-100 max-h-[420px] overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-205 ring-4 ring-slate-950/5">
                       {/* Recent Search Terms */}
                       {filteredRecentSearches.length > 0 && (
-                        <div className="p-3">
-                          <div className="flex items-center justify-between text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2 px-2">
-                            <span className="flex items-center gap-1.5">
-                              <History className="w-3.5 h-3.5" /> Recent Searches
+                        <div className="p-4">
+                          <div className="flex items-center justify-between text-xs font-black text-slate-800 uppercase tracking-widest mb-3 px-1">
+                            <span className="flex items-center gap-1.5 text-slate-900">
+                              <History className="w-4 h-4 text-slate-800 stroke-[2.2]" /> Recent Searches
                             </span>
                             <button
                               onMouseDown={(e) => {
@@ -607,12 +618,12 @@ const MarketplaceContent: React.FC = () => {
                                 setRecentSearches([]);
                                 localStorage.removeItem('tedbuy_recent_searches');
                               }}
-                              className="text-[10px] text-slate-400 hover:text-slate-950 underline font-bold outline-none cursor-pointer"
+                              className="text-xs text-rose-600 hover:text-rose-800 font-black hover:underline outline-none cursor-pointer transition"
                             >
                               Clear All
                             </button>
                           </div>
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-wrap gap-2 px-1">
                             {filteredRecentSearches.map((term, idx) => (
                               <div
                                 key={idx}
@@ -622,18 +633,18 @@ const MarketplaceContent: React.FC = () => {
                                   saveSearchTerm(term);
                                   setIsSearchFocused(false);
                                 }}
-                                className="group flex items-center justify-between px-2 py-1.5 hover:bg-slate-50 rounded-xl cursor-pointer transition text-left text-sm font-semibold text-slate-700 hover:text-slate-950"
+                                className="group inline-flex items-center gap-2 pl-3.5 pr-2 py-2 bg-slate-50 hover:bg-slate-900 border border-slate-200/80 hover:border-slate-900 rounded-xl cursor-pointer transition-all duration-150 text-left text-xs font-bold text-slate-800 hover:text-white shadow-3xs hover:shadow-xs active:scale-95"
                               >
                                 <span className="flex items-center gap-2">
-                                  <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
-                                  <span>{term}</span>
+                                  <Search className="w-3.5 h-3.5 text-slate-450 group-hover:text-slate-350 transition-colors" />
+                                  <span className="truncate max-w-[150px]">{term}</span>
                                 </span>
                                 <button
                                   onMouseDown={(e) => removeRecentSearch(term, e)}
-                                  className="text-slate-400 hover:text-rose-600 p-1 rounded-md transition hover:bg-slate-100"
+                                  className="text-slate-400 group-hover:text-slate-300 hover:text-rose-500 p-1 rounded-md transition hover:bg-white/10"
                                   title="Remove keyword"
                                 >
-                                  <X className="w-3.5 h-3.5" />
+                                  <X className="w-3 h-3 stroke-[2.5]" />
                                 </button>
                               </div>
                             ))}
@@ -643,12 +654,12 @@ const MarketplaceContent: React.FC = () => {
 
                       {/* Suggested categories list */}
                       {filteredCategories.length > 0 && (
-                        <div className="p-3">
-                          <div className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2 px-2 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5 text-slate-400" />
+                        <div className="p-4 bg-slate-50/50">
+                          <div className="text-xs font-black text-slate-805 uppercase tracking-widest mb-3 px-1 flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-amber-500 fill-amber-100" />
                             Suggested Categories
                           </div>
-                          <div className="grid grid-cols-2 gap-1.5">
+                          <div className="grid grid-cols-2 gap-2">
                             {filteredCategories.map((cat, idx) => (
                               <button
                                 key={idx}
@@ -659,9 +670,9 @@ const MarketplaceContent: React.FC = () => {
                                   setIsSearchFocused(false);
                                   if (currentView !== 'browse') setCurrentView('browse');
                                 }}
-                                className="flex items-center gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl transition text-left text-xs font-bold text-slate-700 hover:text-slate-950 outline-none cursor-pointer"
+                                className="flex items-center gap-2 px-3.5 py-2.5 bg-white hover:bg-slate-900 border border-slate-200 hover:border-slate-900 text-slate-800 hover:text-white rounded-xl transition-all duration-150 text-left text-xs font-extrabold outline-none cursor-pointer shadow-3xs hover:shadow-xs hover:-translate-y-0.5"
                               >
-                                <span className="text-base select-none">{CATEGORY_ICONS[cat] || '📦'}</span>
+                                <span className="text-lg select-none filter drop-shadow-3xs shrink-0">{CATEGORY_ICONS[cat] || '📦'}</span>
                                 <span className="truncate">{cat}</span>
                               </button>
                             ))}
@@ -671,12 +682,12 @@ const MarketplaceContent: React.FC = () => {
 
                       {/* Popular Search Suggestions */}
                       {filteredPopularKeywords.length > 0 && (
-                        <div className="p-3">
-                          <div className="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2 px-2 flex items-center gap-1.5">
-                            <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
+                        <div className="p-4">
+                          <div className="text-xs font-black text-slate-805 uppercase tracking-widest mb-3 px-1 flex items-center gap-1.5">
+                            <TrendingUp className="w-4 h-4 text-emerald-500" />
                             Popular Searches
                           </div>
-                          <div className="flex flex-wrap gap-1.5 px-1.5">
+                          <div className="flex flex-wrap gap-2 px-1">
                             {filteredPopularKeywords.map((keyword, idx) => (
                               <button
                                 key={idx}
@@ -687,10 +698,10 @@ const MarketplaceContent: React.FC = () => {
                                   setIsSearchFocused(false);
                                   if (currentView !== 'browse') setCurrentView('browse');
                                 }}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100/75 hover:bg-slate-200/75 rounded-full text-xs font-bold text-slate-650 hover:text-slate-900 transition outline-none cursor-pointer"
+                                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-900 border border-slate-200/80 hover:border-slate-900 rounded-xl text-xs font-extrabold text-slate-800 hover:text-white transition-all duration-150 outline-none cursor-pointer shadow-3xs hover:shadow-xs active:scale-95"
                               >
-                                <TrendingUp className="w-3 h-3 text-slate-400" />
-                                {keyword}
+                                <TrendingUp className="w-3.5 h-3.5 text-slate-450 group-hover:text-slate-350" />
+                                <span>{keyword}</span>
                               </button>
                             ))}
                           </div>
@@ -698,8 +709,9 @@ const MarketplaceContent: React.FC = () => {
                       )}
 
                       {filteredRecentSearches.length === 0 && filteredCategories.length === 0 && filteredPopularKeywords.length === 0 && (
-                        <div className="p-6 text-center text-xs font-semibold text-slate-450">
-                          Try searching for "phones", "laptops", or "fashion"!
+                        <div className="p-8 text-center text-sm font-bold text-slate-500 bg-slate-50/50 flex flex-col items-center justify-center gap-1.5">
+                          <span className="text-lg">🔍</span>
+                          <span>Try searching for "phones", "laptops", or "fashion"!</span>
                         </div>
                       )}
                     </div>
@@ -707,9 +719,11 @@ const MarketplaceContent: React.FC = () => {
                 </div>
               </div>
 
-              {/* Decorative radial glows */}
-              <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-48 h-48 bg-slate-400/15 rounded-full blur-3xl pointer-events-none"></div>
-              <div className="absolute -right-24 -top-24 w-60 h-60 bg-slate-400/10 rounded-full blur-3xl pointer-events-none"></div>
+              {/* Decorative radial glows (wrapped inside absolute block so we do not hide the search suggestions overflow) */}
+              <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none z-0">
+                <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-48 h-48 bg-slate-400/15 rounded-full blur-3xl"></div>
+                <div className="absolute -right-24 -top-24 w-60 h-60 bg-slate-400/10 rounded-full blur-3xl"></div>
+              </div>
             </div>
             )}
 
@@ -887,6 +901,12 @@ const MarketplaceContent: React.FC = () => {
                   selectedCity={selectedCity}
                   setSelectedCity={setSelectedCity}
                   products={products}
+                />
+
+                <DynamicCategoryFilters
+                  selectedCategory={selectedCategory}
+                  extraFilters={extraFilters}
+                  setExtraFilters={setExtraFilters}
                 />
 
                 {/* Price Budget Filter - Shown only when searching for a product */}

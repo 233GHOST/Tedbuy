@@ -1005,6 +1005,10 @@ export const ProfileSettings: React.FC = () => {
                   a: "Tapping the 'Sell' button at the center of the mobile bottom nav bar or the top desktop header opens the listing form. Fill in details, upload clear pictures or a 9:16 interactive video ad, choose your region and price, then publish. Note: verified active accounts receive higher query priority!"
                 },
                 {
+                  q: "How do the dynamic search specs and brand filters work?",
+                  a: "When you select a primary category (such as Phones, Vehicles, Laptops, or Property), our dynamic hierarchical filter panel automatically reveals matching spec options (like Brand, Model, Condition, Bedroom counts, or Fuel Type). Choosing a brand dynamically refines the model list instantly, allowing progressive and powerful filtering just like Jiji or eBay!"
+                },
+                {
                   q: "What are interactive 9:16 Video Ads?",
                   a: "They are immersive, vertical product video walkthroughs displayed directly in the feed for high buyer conversion. It is the best way to showcase real performance, physical condition, and build immediate buyer trust."
                 },

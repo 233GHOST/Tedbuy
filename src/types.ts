@@ -86,6 +86,7 @@ export type Category =
   | 'Fashion'
   | 'Home Appliances'
   | 'Vehicles'
+  | 'Property'
   | 'Beauty and Care'
   | 'Games'
   | 'Electronics'
@@ -190,6 +191,7 @@ export function normalizeCategory(cat: string): Category {
   if (clean === 'game' || clean === 'games' || clean.includes('game') || clean.includes('playstation') || clean.includes('xbox') || clean.includes('nintendo') || clean.includes('console') || clean.includes('fifa')) return 'Games';
   if (clean === 'electronics' || clean === 'electronic' || clean.includes('electronic') || clean.includes('tv') || clean.includes('television') || clean.includes('audio') || clean.includes('speaker') || clean.includes('headphone') || clean.includes('camera')) return 'Electronics';
   if (clean === 'service' || clean === 'services' || clean.includes('service') || clean.includes('job') || clean.includes('freelance') || clean.includes('work') || clean.includes('repair')) return 'Services';
+  if (clean === 'property' || clean === 'properties' || clean === 'real estate' || clean.includes('house') || clean.includes('land') || clean.includes('apartment') || clean.includes('room')) return 'Property';
   if (clean === 'other' || clean === 'others') return 'Other';
 
   const knownCategories: Category[] = [
@@ -198,6 +200,7 @@ export function normalizeCategory(cat: string): Category {
     'Fashion',
     'Home Appliances',
     'Vehicles',
+    'Property',
     'Beauty and Care',
     'Games',
     'Electronics',
