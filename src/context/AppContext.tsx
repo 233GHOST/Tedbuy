@@ -24,11 +24,11 @@ import {
   doc,
   setDoc,
   getDoc,
-  getDocs as firebaseGetDocs,
+  getDocs,
   updateDoc,
   deleteDoc,
   writeBatch,
-  onSnapshot as firebaseOnSnapshot,
+  onSnapshot,
   query,
   where,
   increment,
@@ -57,150 +57,6 @@ function cleanObject<T extends any>(obj: T): T {
     return result;
   }
   return obj;
-}
-
-/**
- * Traced onSnapshot wrapper to diagnose hangs on Safari and other browsers
- */
-function onSnapshot(
-  queryOrRef: any,
-  ...args: any[]
-): () => void {
-  // Determine if the first argument in args is the callback or options
-  let onNext: ((snapshot: any) => void) | undefined;
-  let onError: ((error: any) => void) | undefined;
-  let options: any = undefined;
-
-  if (typeof args[0] === 'function') {
-    onNext = args[0];
-    onError = args[1];
-  } else {
-    options = args[0];
-    onNext = args[1];
-    onError = args[2];
-  }
-
-  const queryId = Math.random().toString(36).substring(2, 9);
-  const startTime = performance.now();
-
-  // Try to extract a query name or collection/document path for logging
-  let queryLabel = 'Unknown Reference';
-  if (queryOrRef) {
-    if (typeof queryOrRef.path === 'string') {
-      queryLabel = `Doc/Collection path: "${queryOrRef.path}"`;
-    } else if (queryOrRef._query) {
-      const pathStr = queryOrRef._query.path?.toString() || '';
-      queryLabel = `Query on path: "${pathStr}"`;
-    } else if (typeof queryOrRef.toString === 'function') {
-      const str = queryOrRef.toString();
-      if (str && str !== '[object Object]') {
-        queryLabel = str;
-      }
-    }
-  }
-
-  console.log(`[Firestore Trace] [${queryId}] [onSnapshot SUBSCRIBE] Initializing subscription for "${queryLabel}"...`);
-
-  let resolvedOnce = false;
-
-  const hangTimer = setTimeout(() => {
-    if (!resolvedOnce) {
-      console.warn(
-        `[Firestore Trace] [${queryId}] [onSnapshot HANG WARNING] Subscription for "${queryLabel}" has not emitted its initial snapshot after 5000ms. Keep monitoring. Potential Safari connection hang or iframe storage/cookie restriction.`
-      );
-    }
-  }, 5000);
-
-  const tracedOnNext = (snapshot: any) => {
-    const elapsed = (performance.now() - startTime).toFixed(1);
-    if (!resolvedOnce) {
-      resolvedOnce = true;
-      clearTimeout(hangTimer);
-      console.log(
-        `[Firestore Trace] [${queryId}] [onSnapshot INITIAL RESOLVE] Subscription for "${queryLabel}" resolved successfully in ${elapsed}ms. Size: ${snapshot?.size ?? (snapshot?.exists?.() ? 1 : 0)}, metadata: { fromCache: ${snapshot?.metadata?.fromCache ?? false}, hasPendingWrites: ${snapshot?.metadata?.hasPendingWrites ?? false} }`
-      );
-    } else {
-      console.log(
-        `[Firestore Trace] [${queryId}] [onSnapshot LIVE UPDATE] Received update for "${queryLabel}". Size: ${snapshot?.size ?? (snapshot?.exists?.() ? 1 : 0)}, metadata: { fromCache: ${snapshot?.metadata?.fromCache ?? false}, hasPendingWrites: ${snapshot?.metadata?.hasPendingWrites ?? false} }`
-      );
-    }
-    if (onNext) onNext(snapshot);
-  };
-
-  const tracedOnError = (error: any) => {
-    clearTimeout(hangTimer);
-    const elapsed = (performance.now() - startTime).toFixed(1);
-    console.error(
-      `[Firestore Trace] [${queryId}] [onSnapshot ERROR] Subscription for "${queryLabel}" failed after ${elapsed}ms. Error: "${error?.message || error}"`,
-      error
-    );
-    if (onError) onError(error);
-  };
-
-  const unsub = options
-    ? firebaseOnSnapshot(queryOrRef, options, tracedOnNext, tracedOnError)
-    : firebaseOnSnapshot(queryOrRef, tracedOnNext, tracedOnError);
-
-  return () => {
-    clearTimeout(hangTimer);
-    console.log(`[Firestore Trace] [${queryId}] [onSnapshot UNSUBSCRIBE] Tearing down subscription for "${queryLabel}" after ${(performance.now() - startTime).toFixed(1)}ms`);
-    unsub();
-  };
-}
-
-/**
- * Traced getDocs wrapper to diagnose promise hangs on Safari and other browsers
- */
-async function getDocs(queryOrRef: any): Promise<any> {
-  const queryId = Math.random().toString(36).substring(2, 9);
-  const startTime = performance.now();
-
-  let queryLabel = 'Unknown Reference';
-  if (queryOrRef) {
-    if (typeof queryOrRef.path === 'string') {
-      queryLabel = `Doc/Collection path: "${queryOrRef.path}"`;
-    } else if (queryOrRef._query) {
-      const pathStr = queryOrRef._query.path?.toString() || '';
-      queryLabel = `Query on path: "${pathStr}"`;
-    } else if (typeof queryOrRef.toString === 'function') {
-      const str = queryOrRef.toString();
-      if (str && str !== '[object Object]') {
-        queryLabel = str;
-      }
-    }
-  }
-
-  console.log(`[Firestore Trace] [${queryId}] [getDocs START] Initiating fetch for "${queryLabel}"...`);
-
-  let resolved = false;
-
-  const hangTimer = setTimeout(() => {
-    if (!resolved) {
-      console.warn(
-        `[Firestore Trace] [${queryId}] [getDocs HANG WARNING] getDocs call for "${queryLabel}" is hanging after 5000ms. Keep monitoring. Potential Safari connection hang or network issue.`
-      );
-    }
-  }, 5000);
-
-  try {
-    const snapshot = await firebaseGetDocs(queryOrRef);
-    resolved = true;
-    clearTimeout(hangTimer);
-    const elapsed = (performance.now() - startTime).toFixed(1);
-    console.log(
-      `[Firestore Trace] [${queryId}] [getDocs RESOLVE] Fetch for "${queryLabel}" resolved in ${elapsed}ms. Size: ${snapshot?.size ?? 0}, metadata: { fromCache: ${snapshot?.metadata?.fromCache ?? false} }`
-    );
-    return snapshot;
-  } catch (error: any) {
-    resolved = true;
-    clearTimeout(hangTimer);
-    const elapsed = (performance.now() - startTime).toFixed(1);
-    console.error(
-      `[Firestore Trace] [${queryId}] [getDocs ERROR] Fetch for "${queryLabel}" failed after ${elapsed}ms. Error: "${error?.message || error}"`,
-      error
-    );
-    throw error;
-  }
 }
 
 export function isRealProduct(item: any): boolean {
