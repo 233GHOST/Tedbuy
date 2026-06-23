@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -11,24 +11,54 @@ const getResilientDb = () => {
     ? firebaseConfig.firestoreDatabaseId
     : undefined;
 
-  try {
-    return initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      }),
-      experimentalForceLongPolling: true
-    }, dbId);
-  } catch (err) {
-    console.warn('Could not initialize persistent local cache due to browser restrictions, falling back to basic setup:', err);
+  let isIndexedDbFunctional = false;
+  if (typeof window !== 'undefined' && window.indexedDB) {
     try {
-      return initializeFirestore(app, {
-        experimentalForceLongPolling: true
-      }, dbId);
-    } catch (fallbackErr) {
-      console.warn('Basic initializeFirestore failed, using default getFirestore fallback:', fallbackErr);
-      return initializeFirestore(app, {
-        experimentalForceLongPolling: true
+      const test = window.indexedDB;
+      if (test) {
+        isIndexedDbFunctional = true;
+      }
+    } catch (_) {
+      isIndexedDbFunctional = false;
+    }
+  }
+
+  let insideIframe = false;
+  if (typeof window !== 'undefined') {
+    try {
+      insideIframe = window.self !== window.top;
+    } catch (_) {
+      insideIframe = true;
+    }
+  }
+
+  // In Safari Private Mode and Cross-Origin Iframes, IndexedDB persistence is highly unstable or blocked.
+  // We explicitly disable offline local cache to prevent silent hangs, auth failures, and SecurityError exceptions.
+  const usePersistence = isIndexedDbFunctional && !insideIframe;
+
+  try {
+    const settings: any = {
+      experimentalForceLongPolling: true
+    };
+
+    if (usePersistence) {
+      settings.localCache = persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
       });
+      console.log('[Firestore] Initializing with persistent multi-tab local cache.');
+    } else {
+      settings.localCache = memoryLocalCache();
+      console.log('[Firestore] Initializing with clean in-memory cache to bypass Safari/IFrame restrictions.');
+    }
+
+    return initializeFirestore(app, settings, dbId);
+  } catch (err) {
+    console.warn('[Firestore] Resistant initializeFirestore threw an exception (possibly because already initialized), falling back to standard getFirestore:', err);
+    try {
+      return getFirestore(app);
+    } catch (fallbackErr) {
+      console.error('[Firestore] getFirestore fallback failed:', fallbackErr);
+      throw fallbackErr;
     }
   }
 };

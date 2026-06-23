@@ -40,6 +40,8 @@ import { slugify } from '../utils/slugify';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
 import { useHashRouting } from '../hooks/useHashRouting';
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
+import { checkClientRateLimit } from '../utils/rateLimiter';
+import { sanitizeText, validateInputLength } from '../utils/inputValidation';
 
 function cleanObject<T extends any>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
@@ -177,6 +179,8 @@ interface AppContextType {
   setUnauthorizedDomainDetected: (detected: boolean) => void;
   isAuthLoading: boolean;
   isProductsLoading: boolean;
+  productsLoadError: boolean;
+  retryLoadProducts: () => void;
   refreshProducts: () => Promise<void>;
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -332,7 +336,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
       if (stored) {
         const parsed = JSON.parse(stored) as User;
-        if (parsed.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+        if (parsed.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' || parsed.isAdmin === true) {
           parsed.isAdmin = true;
         } else {
           // Prevent local storage manipulation from injecting admin permissions on the client
@@ -350,7 +354,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUserStateRaw(prev => {
       let next = typeof val === 'function' ? val(prev) : val;
       if (next) {
-        if (next.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+        const isSuperAdmin = next.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' || next.isAdmin === true;
+        if (isSuperAdmin) {
           next = { ...next, isAdmin: true };
         } else {
           // Safeguard: Ensure no regular user can hold or receive an isAdmin property in state
@@ -364,6 +369,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [productsLoadError, setProductsLoadError] = useState(false);
   const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -385,7 +391,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const pathDisplay = errInfo.path ? ` at [${errInfo.path}]` : '';
 
       if (cleanErr.includes('permission') || cleanErr.includes('insufficient')) {
-        const isAdmin = currentUser?.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com';
+        const isAdmin = currentUser?.isAdmin === true;
         if (isAdmin) {
           friendlyMsg = `Firestore Security: Missing permissions to perform ${opName}${pathDisplay}. Please check database security rules.`;
         } else {
@@ -673,6 +679,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } catch (_) {}
           }
 
+          // Retrieve administrative claims dynamically
+          let isUserAdmin = false;
+          try {
+            const tokenResult = await firebaseUser.getIdTokenResult();
+            isUserAdmin = tokenResult.claims?.admin === true;
+          } catch (claimsErr) {
+            console.warn('[Admin Claims Sync] Did not parse ID Token admin claim:', claimsErr);
+          }
+          const isSuperAdmin = (firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') || isUserAdmin;
+
           // Generate and sanitize a pleasant, unique store name from Google profile or email
           const rawDisplayName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
           let initialUsername = rawDisplayName.replace(/[^\w\s-]/g, '').trim() || 'User';
@@ -700,7 +716,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             savedProductIds: cachedUser?.savedProductIds || [],
             emailVerified: firebaseUser.emailVerified || cachedUser?.emailVerified,
             isGoogleAuth: isGoogleUser || cachedUser?.isGoogleAuth || undefined,
-            authProvider: isGoogleUser ? 'google.com' : (cachedUser?.authProvider || undefined)
+            authProvider: isGoogleUser ? 'google.com' : (cachedUser?.authProvider || undefined),
+            isAdmin: isSuperAdmin ? true : undefined
           };
           
           // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
@@ -884,7 +901,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   followingSellers: [],
                   savedProductIds: [],
                   emailVerified: firebaseUser.emailVerified,
-                  isAdmin: firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' ? true : undefined,
+                  isAdmin: isSuperAdmin ? true : undefined,
                   isGoogleAuth: true,
                   authProvider: 'google.com'
                 };
@@ -1096,20 +1113,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser && !hasCountedSessionVisit.current) {
       hasCountedSessionVisit.current = true;
       const sessionKey = `tedbuy_visit_counted_${currentUser.id}`;
+      const nowIso = new Date().toISOString();
       if (!safeSessionStorage.getItem(sessionKey)) {
         safeSessionStorage.setItem(sessionKey, 'true');
         
-        // Dynamically increment visitCount in Firestore and state
+        // Dynamically increment visitCount in Firestore and state, tracking login & seen
         const originalVisits = currentUser.visitCount || 0;
         const newVisits = originalVisits + 1;
         
         updateDoc(doc(db, 'users', currentUser.id), {
-          visitCount: increment(1)
+          visitCount: increment(1),
+          lastLogin: nowIso,
+          lastSeen: nowIso,
+          isOnline: true
         }).catch(err => {
           console.warn('[Tracking] Failed to increment visitCount on Firestore:', err);
         });
 
-        setCurrentUserState(prev => prev ? { ...prev, visitCount: newVisits } : null);
+        setCurrentUserState(prev => prev ? { 
+          ...prev, 
+          visitCount: newVisits,
+          lastLogin: nowIso,
+          lastSeen: nowIso,
+          isOnline: true
+        } : null);
+      } else {
+        // Just make sure user is marked online and update lastSeen
+        updateDoc(doc(db, 'users', currentUser.id), {
+          isOnline: true,
+          lastSeen: nowIso
+        }).catch(() => {});
+
+        setCurrentUserState(prev => prev ? { 
+          ...prev, 
+          lastSeen: nowIso,
+          isOnline: true
+        } : null);
       }
     }
   }, [currentUserId]);
@@ -1119,13 +1158,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentUser) return;
     const interval = setInterval(() => {
       localStayAccumulator.current += 10;
+      const nowIso = new Date().toISOString();
       
       // Update local state copy every 10s so ranking updates live
       setCurrentUserState(prev => {
         if (!prev) return null;
         return {
           ...prev,
-          totalStayTime: (prev.totalStayTime || 0) + 10
+          totalStayTime: (prev.totalStayTime || 0) + 10,
+          lastSeen: nowIso,
+          isOnline: true
         };
       });
 
@@ -1134,7 +1176,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const incrementSec = localStayAccumulator.current;
         localStayAccumulator.current = 0;
         updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(incrementSec)
+          totalStayTime: increment(incrementSec),
+          lastSeen: nowIso,
+          isOnline: true
         }).catch(err => {
           console.warn('[Tracking] Failed to write stay time to Firestore:', err);
         });
@@ -1143,11 +1187,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       clearInterval(interval);
+      const nowIso = new Date().toISOString();
       if (localStayAccumulator.current > 0) {
         const remainingSec = localStayAccumulator.current;
         localStayAccumulator.current = 0;
         updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(remainingSec)
+          totalStayTime: increment(remainingSec),
+          lastSeen: nowIso,
+          isOnline: false
+        }).catch(() => {});
+      } else {
+        updateDoc(doc(db, 'users', currentUser.id), {
+          isOnline: false,
+          lastSeen: nowIso
         }).catch(() => {});
       }
     };
@@ -1247,72 +1299,230 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsProductsLoading(true);
     }
 
+    let didFireSnapshot = false;
+    let fallbackAttempted = false;
+
+    // Modern browser / Safari resilient timeout safeguard:
+    // If the database connection hangs, is blocked by sandboxed iframes, or the user is offline
+    // and no response is returned within 10 seconds (STEP 11), stop skeletons and log failure.
+    const safetyTimeout = setTimeout(() => {
+      setIsProductsLoading((currentlyLoading) => {
+        if (currentlyLoading) {
+          console.error('[Safari/IFrame Rescue] Product loading has exceeded 10 seconds. Terminating skeleton loaders and falling back to offline/local database backup.');
+          setProductsLoadError(true);
+          
+          if (products.length === 0) {
+            try {
+              const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
+              if (savedListStr) {
+                const parsed = JSON.parse(savedListStr) as Product[];
+                setProducts(parsed.filter(isRealProduct));
+              }
+            } catch (err) {
+              console.warn('[Safari Rescue] Could not restore cached products:', err);
+            }
+          }
+        }
+        return false;
+      });
+    }, 10000);
+
     const q = query(
       collection(db, 'products'),
       orderBy('createdAt', 'desc')
     );
-    const unsub = onSnapshot(q, (snapshot) => {
-      const pList: Product[] = [];
-      snapshot.forEach(docSnap => {
-        const item = {
-          ...docSnap.data() as Product,
-          id: docSnap.id
-        };
-        if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
-          if (item.category) {
-            item.category = normalizeCategory(item.category);
-          }
-          pList.push(item);
-        } else {
-          if (item.id === 'prod_1780927804590') {
-            // Self-healing: clear demo listings from database if they are found
-            try {
-              deleteDoc(doc(db, 'products', item.id)).catch(() => {});
-            } catch (_) {}
-          }
-        }
-      });
 
-      // Merge locally created products that aren't yet in the server list
-      try {
-        const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
-        const createdList = JSON.parse(createdStr) as Product[];
-        createdList.forEach(localProd => {
-          if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
-            pList.push(localProd);
-          }
-        });
-      } catch (_) {}
+    let unsub: (() => void) | null = null;
 
-      // Apply locally updated overrides
-      try {
-        const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
-        const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
-        pList.forEach((prod, idx) => {
-          if (overrides[prod.id]) {
-            // Filter out social and dynamic fields from local overrides so they don't block server synced value
-            const { likesCount, likedUserIds, viewsCount, ...fieldsToOverride } = overrides[prod.id];
-            pList[idx] = { ...prod, ...fieldsToOverride };
-          }
-        });
-      } catch (_) {}
-
-      const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      setProducts(sorted);
-      setIsProductsLoading(false);
-      setHasMoreProducts(false); // Since we have fully synchronized all products, there are no more to fetch from the server!
-
-      try {
-        safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
-      } catch (err) {
-        console.warn('Could not save product backups to local storage:', err);
+    const handleSnapshotError = async (error: any) => {
+      console.warn('[Safari Rescue] Real-time listener subscription failed or blocked. Attempting getDocs recovery fallback:', error);
+      if (fallbackAttempted) {
+        clearTimeout(safetyTimeout);
+        handleFirestoreError(error, OperationType.LIST, 'products');
+        setProductsLoadError(true);
+        setIsProductsLoading(false);
+        return;
       }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'products');
-      setIsProductsLoading(false);
-    });
+      fallbackAttempted = true;
 
-    return unsub;
+      try {
+        const pList: Product[] = [];
+        let fetchSuccess = false;
+
+        // Try fetching via fast, same-origin Express proxy `/api/products` first
+        try {
+          console.log('[Safari Rescue] Querying Express proxy /api/products for initial products...');
+          const proxyRes = await fetch('/api/products');
+          if (proxyRes.ok) {
+            const body = await proxyRes.json();
+            if (body.success && Array.isArray(body.products) && body.products.length > 0) {
+              console.log('[Safari Rescue] Successfully fetched products list from local Express proxy!', body.products.length);
+              const rawList = body.products as Product[];
+              rawList.forEach((item: any) => {
+                if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
+                  if (item.category) {
+                    item.category = normalizeCategory(item.category);
+                  }
+                  pList.push(item);
+                }
+              });
+              fetchSuccess = true;
+            }
+          }
+        } catch (proxyError) {
+          console.warn('[Safari Rescue] Local Express proxy fetch failed:', proxyError);
+        }
+
+        // If local proxy failed, fallback to standard Firestore getDocs
+        if (!fetchSuccess) {
+          console.log('[Safari Rescue] Proxy fallback wasn\'t successful, falling back to standard getDocs...');
+          const snapshot = await getDocs(q);
+          snapshot.forEach(docSnap => {
+            const item = {
+              ...docSnap.data() as Product,
+              id: docSnap.id
+            };
+            if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
+              if (item.category) {
+                item.category = normalizeCategory(item.category);
+              }
+              pList.push(item);
+            }
+          });
+          fetchSuccess = true;
+        }
+
+        clearTimeout(safetyTimeout);
+        setProductsLoadError(false);
+
+        // Merge locally created products
+        try {
+          const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+          const createdList = JSON.parse(createdStr) as Product[];
+          createdList.forEach(localProd => {
+            if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
+              pList.push(localProd);
+            }
+          });
+        } catch (_) {}
+
+        // Apply locally updated overrides
+        try {
+          const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
+          const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
+          pList.forEach((prod, idx) => {
+            if (overrides[prod.id]) {
+              const { likesCount, likedUserIds, viewsCount, ...fieldsToOverride } = overrides[prod.id];
+              pList[idx] = { ...prod, ...fieldsToOverride };
+            }
+          });
+        } catch (_) {}
+
+        const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setProducts(sorted);
+        setIsProductsLoading(false);
+        setHasMoreProducts(false);
+
+        try {
+          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+        } catch (err) {
+          console.warn('Could not save product backups to local storage:', err);
+        }
+      } catch (fallbackErr) {
+        clearTimeout(safetyTimeout);
+        handleFirestoreError(fallbackErr, OperationType.LIST, 'products_fallback');
+        setProductsLoadError(true);
+        setIsProductsLoading(false);
+      }
+    };
+
+    // Proactive REST fallback: If stream hangs for more than 3.5 seconds (highly likely in sandboxed iframes),
+    // proactively query once via getDocs which uses simple POST/GET polling.
+    const proactiveFallbackTimeout = setTimeout(() => {
+      if (!didFireSnapshot && !fallbackAttempted) {
+        console.warn('[Safari Rescue] onSnapshot stream hasn\'t responded in 3.5s. Proactively calling getDocs recovery fallback.');
+        handleSnapshotError(new Error('OnSnapshot initial stream hang'));
+      }
+    }, 3500);
+
+    try {
+      unsub = onSnapshot(q, (snapshot) => {
+        didFireSnapshot = true;
+        clearTimeout(proactiveFallbackTimeout);
+        // Clear safety timeout as data arrived!
+        clearTimeout(safetyTimeout);
+        setProductsLoadError(false);
+
+        const pList: Product[] = [];
+        snapshot.forEach(docSnap => {
+          const item = {
+            ...docSnap.data() as Product,
+            id: docSnap.id
+          };
+          if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
+            if (item.category) {
+              item.category = normalizeCategory(item.category);
+            }
+            pList.push(item);
+          } else {
+            if (item.id === 'prod_1780927804590') {
+              // Self-healing: clear demo listings from database if they are found
+              try {
+                deleteDoc(doc(db, 'products', item.id)).catch(() => {});
+              } catch (_) {}
+            }
+          }
+        });
+
+        // Merge locally created products that aren't yet in the server list
+        try {
+          const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+          const createdList = JSON.parse(createdStr) as Product[];
+          createdList.forEach(localProd => {
+            if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
+              pList.push(localProd);
+            }
+          });
+        } catch (_) {}
+
+        // Apply locally updated overrides
+        try {
+          const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
+          const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
+          pList.forEach((prod, idx) => {
+            if (overrides[prod.id]) {
+              // Filter out social and dynamic fields from local overrides so they don't block server synced value
+              const { likesCount, likedUserIds, viewsCount, ...fieldsToOverride } = overrides[prod.id];
+              pList[idx] = { ...prod, ...fieldsToOverride };
+            }
+          });
+        } catch (_) {}
+
+        const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setProducts(sorted);
+        setIsProductsLoading(false);
+        setHasMoreProducts(false); // Since we have fully synchronized all products, there are no more to fetch from the server!
+
+        try {
+          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+        } catch (err) {
+          console.warn('Could not save product backups to local storage:', err);
+        }
+      }, (error) => {
+        handleSnapshotError(error);
+      });
+    } catch (err) {
+      console.warn('[Safari Rescue] onSnapshot registration threw immediately:', err);
+      handleSnapshotError(err);
+    }
+
+    return () => {
+      clearTimeout(proactiveFallbackTimeout);
+      clearTimeout(safetyTimeout);
+      if (unsub) {
+        unsub();
+      }
+    };
   }, [optimisticDeletedProductIds]);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
@@ -2249,7 +2459,40 @@ CEO, Tedbuy Inc`;
     condition?: string;
     negotiable?: boolean;
   }): Promise<Product | undefined> => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      throw new Error('Authentication Required: You must be logged in to list resources.');
+    }
+
+    // 1. Client-side Rate Limit check
+    const rLimit = checkClientRateLimit('add_product', currentUser.id);
+    if (!rLimit.allowed) {
+      throw new Error(`Rate limit exceeded: You can only publish 5 listings within 10 minutes. Please try again in ${rLimit.remainingSecs} seconds.`);
+    }
+
+    // 2. Input Sanitization and Length safeguards
+    const cleanTitle = sanitizeText(productData.title);
+    const cleanDesc = sanitizeText(productData.description);
+    const cleanLocation = sanitizeText(productData.location);
+    const cleanBrand = productData.brand ? sanitizeText(productData.brand) : undefined;
+
+    if (cleanTitle.length < 5 || cleanTitle.length > 100) {
+      throw new Error('Title must be between 5 and 100 characters long.');
+    }
+    if (cleanDesc.length < 10 || cleanDesc.length > 3000) {
+      throw new Error('Description must be between 10 and 3000 characters long.');
+    }
+    if (cleanLocation.length < 3 || cleanLocation.length > 100) {
+      throw new Error('Location must be between 3 and 100 characters long.');
+    }
+
+    const sanitizedProductData = {
+      ...productData,
+      title: cleanTitle,
+      description: cleanDesc,
+      location: cleanLocation,
+      brand: cleanBrand
+    };
+
     const prodId = `prod_${Date.now()}`;
     const newProduct: Product = {
       id: prodId,
@@ -2257,7 +2500,7 @@ CEO, Tedbuy Inc`;
       sellerName: currentUser.username,
       sellerPhoto: currentUser.photoUrl || '',
       sellerJoinDate: currentUser.joinDate,
-      ...productData,
+      ...sanitizedProductData,
       category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
       viewsCount: 0
@@ -2373,7 +2616,26 @@ CEO, Tedbuy Inc`;
 
   const updateProduct = async (id: string, productData: Partial<Product>): Promise<string | undefined> => {
     try {
+      const localProduct = products.find(p => p.id === id);
+      const keys = Object.keys(productData);
+      const isSocialOnly = keys.every(k => ['likesCount', 'likedUserIds', 'viewsCount', 'isSold'].includes(k));
+
+      // Authorization Guard
+      if (!isSocialOnly) {
+        if (!currentUser) {
+          throw new Error('Authentication Required: You must be logged in to modify listings.');
+        }
+        if (localProduct && localProduct.sellerId !== currentUser.id && !currentUser.isAdmin) {
+          throw new Error('Unauthorized Access: You do not have permissions to modify this listing.');
+        }
+      }
+
       const updatedData = { ...productData };
+      if (updatedData.title) updatedData.title = sanitizeText(updatedData.title);
+      if (updatedData.description) updatedData.description = sanitizeText(updatedData.description);
+      if (updatedData.location) updatedData.location = sanitizeText(updatedData.location);
+      if (updatedData.brand) updatedData.brand = sanitizeText(updatedData.brand);
+
       if (updatedData.category) {
         updatedData.category = normalizeCategory(updatedData.category);
       }
@@ -2419,7 +2681,6 @@ CEO, Tedbuy Inc`;
 
       // Step C: Try updating standard Firestore document, but in a completely non-blocking asynchronous way
       const productRef = doc(db, 'products', id);
-      const localProduct = products.find(p => p.id === id);
 
       if (localProduct) {
         const keys = Object.keys(updatedData);
@@ -2543,6 +2804,11 @@ CEO, Tedbuy Inc`;
   };
 
   const toggleLikeProduct = async (id: string, userId: string) => {
+    if (!currentUser) {
+      throw new Error('Authentication Required: You must be logged in to like listings.');
+    }
+    const verifiedUserId = currentUser.id;
+
     try {
       const productRef = doc(db, 'products', id);
       const productDoc = await getDoc(productRef);
@@ -2553,12 +2819,12 @@ CEO, Tedbuy Inc`;
       if (productDoc.exists()) {
         const existingData = productDoc.data() as Product;
         const currentLikedUserIds = Array.isArray(existingData.likedUserIds) ? existingData.likedUserIds : [];
-        const hasLiked = currentLikedUserIds.includes(userId);
+        const hasLiked = currentLikedUserIds.includes(verifiedUserId);
         
         if (hasLiked) {
-          nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== userId);
+          nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== verifiedUserId);
         } else {
-          nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, userId]));
+          nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, verifiedUserId]));
         }
         nextLikesCount = nextLikedUserIds.length;
 
@@ -2572,11 +2838,11 @@ CEO, Tedbuy Inc`;
         const localProduct = products.find(p => p.id === id);
         if (localProduct) {
           const currentLikedUserIds = Array.isArray(localProduct.likedUserIds) ? localProduct.likedUserIds : [];
-          const hasLiked = currentLikedUserIds.includes(userId);
+          const hasLiked = currentLikedUserIds.includes(verifiedUserId);
           if (hasLiked) {
-            nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== userId);
+            nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== verifiedUserId);
           } else {
-            nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, userId]));
+            nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, verifiedUserId]));
           }
           nextLikesCount = nextLikedUserIds.length;
         }
@@ -2634,11 +2900,44 @@ CEO, Tedbuy Inc`;
   };
 
   const incrementProductViews = useCallback(async (id: string) => {
+    // A. Prevent self-views: Owner of the product viewing their own ad should not count as a valid external view
+    const targetProduct = products.find(p => p.id === id);
+    if (targetProduct && currentUser && targetProduct.sellerId === currentUser.id) {
+      console.log(`[View Fraud Protection] Skipped view increment on product "${id}": Seller is the owner.`);
+      return;
+    }
+
     try {
+      // B. Prevent repeated refreshes: Skip if session already flagged
       const sessionKey = `tedbuy_viewed_product_${id}`;
       if (safeSessionStorage.getItem(sessionKey)) {
-        return; // Already logged this session, skip duplicate remote increment to avoid infinite feedback loops and quota waste
+        console.log(`[View Fraud Protection] Skipped view increment on product "${id}": Already viewed in this session.`);
+        return; 
       }
+
+      // C. Cooldown Protection: Prevent users from spamming views within a short period (10 minutes)
+      const now = Date.now();
+      const localTimestampsKey = 'tedbuy_view_cooldown_timestamps';
+      let timestamps: Record<string, number> = {};
+      
+      try {
+        const stored = safeLocalStorage.getItem(localTimestampsKey);
+        if (stored) {
+          timestamps = JSON.parse(stored);
+        }
+      } catch (_) {}
+
+      const lastViewedAt = timestamps[id] || 0;
+      const cooldownMs = 10 * 60 * 1000; // 10 minutes duration
+      if (now - lastViewedAt < cooldownMs) {
+        const remainingSecs = Math.ceil((cooldownMs - (now - lastViewedAt)) / 1000);
+        console.log(`[View Fraud Protection] Skipped view increment on product "${id}": Cooldown active (${remainingSecs} seconds remaining).`);
+        return;
+      }
+
+      // Log verified view timestamp and persist
+      timestamps[id] = now;
+      safeLocalStorage.setItem(localTimestampsKey, JSON.stringify(timestamps));
       safeSessionStorage.setItem(sessionKey, 'true');
     } catch {
       // safe fallback
@@ -2648,14 +2947,24 @@ CEO, Tedbuy Inc`;
       await updateDoc(doc(db, 'products', id), {
         viewsCount: increment(1)
       });
+      console.log(`[Analytics] Valid external view registered successfully for product ${id}`);
     } catch (error) {
       console.warn('Failed to increment metrics view:', error);
     }
-  }, []);
+  }, [products, currentUser?.id]);
 
   // Chats Operations
   const startChat = async (productId: string, initialMessage?: string) => {
     if (!currentUser) return '';
+
+    // 1. Client-side Rate Limit check
+    const rLimit = checkClientRateLimit('create_chat', currentUser.id);
+    if (!rLimit.allowed) {
+      throw new Error(`Rate limit exceeded: You can only start 5 chats within 5 minutes. Please try again in ${rLimit.remainingSecs} seconds.`);
+    }
+
+    const cleanInitialMessage = initialMessage ? sanitizeText(initialMessage) : undefined;
+
     const product = products.find(p => p.id === productId);
     if (!product) return '';
 
@@ -2666,8 +2975,8 @@ CEO, Tedbuy Inc`;
     );
 
     if (existingChat) {
-      if (initialMessage) {
-        await sendMessage(existingChat.id, initialMessage);
+      if (cleanInitialMessage) {
+        await sendMessage(existingChat.id, cleanInitialMessage);
       }
       setActiveChatId(existingChat.id);
       setViewingChatOnMobile(true);
@@ -2688,7 +2997,7 @@ CEO, Tedbuy Inc`;
       sellerId: product.sellerId,
       buyerName: currentUser.username,
       sellerName: product.sellerName,
-      lastMessageText: initialMessage || 'Chat started',
+      lastMessageText: cleanInitialMessage || 'Chat started',
       lastMessageTime: new Date().toISOString(),
       deliveredBySeller: false,
       pickedUpByBuyer: false,
@@ -2811,6 +3120,21 @@ CEO, Tedbuy Inc`;
     const sender = optionalSenderId ? users.find(u => u.id === optionalSenderId) : currentUser;
     if (!sender) return;
 
+    // 1. Client-side Rate Limit check
+    const rLimit = checkClientRateLimit('send_message', sender.id);
+    if (!rLimit.allowed) {
+      throw new Error(`Rate limit exceeded: You are sending messages too fast. Please wait ${rLimit.remainingSecs} seconds.`);
+    }
+
+    // 2. Text Sanitization and size limits
+    const cleanText = sanitizeText(text);
+    if (!cleanText) {
+      throw new Error('Message text cannot be empty.');
+    }
+    if (cleanText.length > 5000) {
+      throw new Error('Message cannot exceed 5000 characters.');
+    }
+
     const chat = chats.find(c => c.id === chatId);
     if (!chat) return;
 
@@ -2822,7 +3146,7 @@ CEO, Tedbuy Inc`;
       chatId,
       senderId: sender.id,
       recipientId: recId,
-      text,
+      text: cleanText,
       createdAt: new Date().toISOString(),
       read: false
     };
@@ -3713,7 +4037,25 @@ CEO, Tedbuy Inc`;
   };
 
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      throw new Error('Authentication Required: You must be logged in to submit reviews.');
+    }
+
+    // 1. Client-side Rate Limit check
+    const rLimit = checkClientRateLimit('submit_review', currentUser.id);
+    if (!rLimit.allowed) {
+      throw new Error(`Rate limit exceeded: You can only submit 3 reviews within 5 minutes. Please try again in ${rLimit.remainingSecs} seconds.`);
+    }
+
+    // 2. Input Sanitization and validation
+    const cleanComment = sanitizeText(comment);
+    if (cleanComment.length < 5 || cleanComment.length > 1000) {
+      throw new Error('Comment must be between 5 and 1000 characters long.');
+    }
+    if (rating < 1 || rating > 5) {
+      throw new Error('Review rating must be between 1 and 5 stars.');
+    }
+
     const revId = `rev_${Date.now()}`;
     const newReview: Review = {
       id: revId,
@@ -3721,10 +4063,10 @@ CEO, Tedbuy Inc`;
       buyerId: currentUser.id,
       buyerName: currentUser.username,
       buyerPhoto: currentUser.photoUrl || '',
-      rating,
-      comment,
+      rating: Math.floor(rating),
+      comment: cleanComment,
       createdAt: new Date().toISOString(),
-      productTitle
+      productTitle: productTitle ? sanitizeText(productTitle) : undefined
     };
     try {
       await setDoc(doc(db, 'reviews', revId), cleanObject(newReview));
@@ -3784,6 +4126,14 @@ CEO, Tedbuy Inc`;
     } finally {
       setIsProductsLoading(false);
     }
+  };
+
+  const retryLoadProducts = () => {
+    setProductsLoadError(false);
+    setIsProductsLoading(true);
+    refreshProducts().catch((err) => {
+      console.error('retryLoadProducts refresh failed:', err);
+    });
   };
 
   const loadMoreProducts = useCallback(() => {
@@ -3889,6 +4239,8 @@ CEO, Tedbuy Inc`;
       setUnauthorizedDomainDetected,
       isAuthLoading,
       isProductsLoading,
+      productsLoadError,
+      retryLoadProducts,
       refreshProducts,
       toast,
       showToast,

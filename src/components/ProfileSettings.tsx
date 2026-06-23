@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
+import { validateImageFile } from '../utils/fileValidation';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
 import { auth } from '../firebase';
 
@@ -143,17 +144,9 @@ export const ProfileSettings: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const fileNameLower = file.name.toLowerCase();
-    const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg)$/i.test(fileNameLower);
-    const isImageType = file.type && file.type.startsWith('image/');
-
-    if (!isImageType && !hasImageExt) {
-      setErrorMsg('Please select a valid image file (JPEG, PNG, WEBP, HEIC, JFIF).');
-      return;
-    }
-
-    if (file.size > 16 * 1024 * 1024) {
-      setErrorMsg('Please upload an image smaller than 16MB.');
+    const validation = validateImageFile(file);
+    if (!validation.isValid) {
+      setErrorMsg(validation.error || 'Invalid photo format.');
       return;
     }
 
@@ -257,7 +250,7 @@ export const ProfileSettings: React.FC = () => {
       <input
         type="file"
         id="profile-avatar-upload"
-        accept="image/*, .heic, .heif, .webp, .jfif, .jpg, .jpeg, .png"
+        accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
         className="hidden"
         onChange={handleAvatarChange}
       />

@@ -4,6 +4,7 @@ import { ProductCard } from './ProductCard';
 import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus } from 'lucide-react';
 import { isUserVerified, calculateTrustScore } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
+import { validateImageFile } from '../utils/fileValidation';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const SellerProfilePage: React.FC = () => {
@@ -190,23 +191,16 @@ export const SellerProfilePage: React.FC = () => {
               <input
                 type="file"
                 id="seller-avatar-upload"
-                accept="image/*, .heic, .heif, .webp, .jfif, .jpg, .jpeg, .png"
+                accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
                 className="hidden"
                 onClick={(e) => e.stopPropagation()}
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
                   
-                  const fileNameLower = file.name.toLowerCase();
-                  const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg)$/i.test(fileNameLower);
-                  const isImageType = file.type && file.type.startsWith('image/');
-
-                  if (!isImageType && !hasImageExt) {
-                    alert('Please select a valid image file (JPEG, PNG, WEBP, HEIC, JFIF).');
-                    return;
-                  }
-                  if (file.size > 16 * 1024 * 1024) {
-                    alert('Please upload an image smaller than 16MB.');
+                  const validation = validateImageFile(file);
+                  if (!validation.isValid) {
+                    console.error('File Upload Blocked:', validation.error);
                     return;
                   }
                   try {

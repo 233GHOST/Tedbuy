@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff, Bell, CheckCheck, Trash2, ExternalLink } from 'lucide-react';
 import { compressImage } from '../utils/imageOptimizer';
+import { validateImageFile } from '../utils/fileValidation';
 import { motion, AnimatePresence } from 'motion/react';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
 
@@ -109,6 +110,16 @@ export const Navbar: React.FC = () => {
         }
         if (!usernameInput.trim()) {
           setAuthError('Please enter a username.');
+          setIsAuthSubmitting(false);
+          return;
+        }
+        if (usernameInput.trim().length > 50) {
+          setAuthError('Username must be 50 characters or less.');
+          setIsAuthSubmitting(false);
+          return;
+        }
+        if (registerPhoneInput.trim().length > 25) {
+          setAuthError('Phone number must be 25 characters or less.');
           setIsAuthSubmitting(false);
           return;
         }
@@ -875,13 +886,14 @@ export const Navbar: React.FC = () => {
                         <input
                           type="file"
                           id="register-avatar-file"
-                          accept="image/*"
+                          accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
                           className="hidden"
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              if (file.size > 16 * 1024 * 1024) {
-                                setAuthError('Selected photo resides over our 16MB threshold.');
+                              const validation = validateImageFile(file);
+                              if (!validation.isValid) {
+                                setAuthError(validation.error || 'Invalid photo format.');
                                 return;
                               }
                               try {

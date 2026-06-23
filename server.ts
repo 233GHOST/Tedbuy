@@ -5,12 +5,104 @@ import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import net from "net";
+import dns from "dns";
+import { promisify } from "util";
+
+const lookupAsync = promisify(dns.lookup);
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// --- SERVER-SIDE IP RATE LIMITER IMPLEMENTATION ---
+const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
+
+function serverRateLimiter(windowMs: number, maxRequests: number, resourceName: string) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
+    const key = `${ip}:${resourceName}`;
+    const now = Date.now();
+    
+    if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
+      rateLimitStore[key] = {
+        count: 1,
+        resetTime: now + windowMs
+      };
+      return next();
+    }
+    
+    rateLimitStore[key].count++;
+    if (rateLimitStore[key].count > maxRequests) {
+      const remainingSecs = Math.ceil((rateLimitStore[key].resetTime - now) / 1000);
+      res.setHeader("Retry-After", remainingSecs);
+      return res.status(429).json({
+        error: `Too many requests to ${resourceName}. Please wait ${remainingSecs} seconds and try again.`
+      });
+    }
+    
+    next();
+  };
+}
+
+// --- SECURE SSRF PROTECTION MIDDLEWARE ---
+function isIpPrivateAndBlock(ipText: string): boolean {
+  const parts = ipText.split('.');
+  if (parts.length === 4) {
+    const first = parseInt(parts[0], 10);
+    const second = parseInt(parts[1], 10);
+    if (isNaN(first) || isNaN(second)) return true;
+    if (first === 127 || first === 10 || first === 0) return true;
+    if (first === 172 && (second >= 16 && second <= 31)) return true;
+    if (first === 192 && second === 168) return true;
+    if (first === 169 && second === 254) return true;
+  }
+  if (ipText.includes(':')) {
+    const norm = ipText.toLowerCase().trim();
+    if (norm === '::1' || norm === '::' || norm.startsWith('fe80:') || norm.startsWith('fc00:') || norm.startsWith('fd00:')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function validateImageUrlSecurely(urlStr: string): Promise<boolean> {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.protocol !== 'https:') {
+      return false; // HTTPS only
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    
+    // Explicit allowlist of highly trusted CDN domains
+    const allowedDomains = [
+      'images.unsplash.com',
+      'firebasestorage.googleapis.com',
+      'storage.googleapis.com',
+      'tedbuy.store',
+      'tedbuy-fb79a.web.app',
+      'lh3.googleusercontent.com',
+      'lh5.googleusercontent.com'
+    ];
+    
+    const isAllowedHost = allowedDomains.some(d => hostname === d || hostname.endsWith('.' + d));
+    if (!isAllowedHost) {
+      console.warn(`[SSRF Shield] Blocked untrusted host fetch: ${hostname}`);
+      return false;
+    }
+
+    const lookupResult = await lookupAsync(parsed.hostname).catch(() => null);
+    if (lookupResult && isIpPrivateAndBlock(lookupResult.address)) {
+      console.warn(`[SSRF Shield] Blocked host resolving to private IP: ${hostname} (${lookupResult.address})`);
+      return false;
+    }
+    
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
 
 app.use((req, res, next) => {
   const logLine = `${new Date().toISOString()} [Express Log] ${req.method} ${req.url} | Body keys: ${Object.keys(req.body || {})}\n`;
@@ -648,6 +740,62 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.json({ status: 'ok', projectId });
   });
 
+  app.get('/api/products', serverRateLimiter(60 * 1000, 120, "products-list"), async (req, res) => {
+    try {
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products?pageSize=300${apiKey ? `&key=${apiKey}` : ""}`;
+      const response = await fetch(firestoreUrl);
+      if (!response.ok) {
+        throw new Error(`Firestore REST API returned ${response.status}`);
+      }
+      const data = await response.json();
+      const documents = data.documents || [];
+      const productsList = documents.map((doc: any) => {
+        try {
+          const fields = doc.fields || {};
+          const result: any = {};
+          
+          const parseVal = (val: any): any => {
+            if (!val) return undefined;
+            if ('stringValue' in val) return val.stringValue;
+            if ('integerValue' in val) return parseInt(val.integerValue, 10);
+            if ('doubleValue' in val) return parseFloat(val.doubleValue);
+            if ('booleanValue' in val) return val.booleanValue;
+            if ('arrayValue' in val) {
+              const arr = val.arrayValue?.values || [];
+              return arr.map((item: any) => parseVal(item));
+            }
+            if ('mapValue' in val) {
+              const mapFields = val.mapValue?.fields || {};
+              const mapResult: any = {};
+              for (const k of Object.keys(mapFields)) {
+                mapResult[k] = parseVal(mapFields[k]);
+              }
+              return mapResult;
+            }
+            return undefined;
+          };
+
+          for (const key of Object.keys(fields)) {
+            result[key] = parseVal(fields[key]);
+          }
+
+          const nameParts = doc.name ? doc.name.split('/') : [];
+          result.id = nameParts[nameParts.length - 1] || '';
+          return result;
+        } catch (err) {
+          console.error('[Products API] Error parsing document:', err);
+          return null;
+        }
+      }).filter(Boolean);
+
+      res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.json({ success: true, products: productsList });
+    } catch (error: any) {
+      console.error('[Products API] Failed to fetch layout products:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   app.get('/.well-known/api-catalog', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.json({
@@ -732,7 +880,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.send(content);
   });
 
-  app.post('/api/send-welcome-email', async (req, res) => {
+  app.post('/api/send-welcome-email', serverRateLimiter(5 * 60 * 1000, 3, "welcome-email"), async (req, res) => {
     const { email, username } = req.body;
     if (!email) {
       return res.status(400).json({ error: 'Email parameter is required.' });
@@ -920,7 +1068,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files
-  app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], async (req, res) => {
+  app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 100, "image-proxy"), async (req, res) => {
     const { productId } = req.params;
     const queryImageUrl = req.query.image as string;
     const fallbackUrl = 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&w=1200&h=630&q=80';
@@ -931,9 +1079,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     
     let imageUrl = queryImageUrl;
     if (!imageUrl && productId) {
-      const product = await getProductData(productId);
-      if (product && product.image) {
-        imageUrl = product.image;
+      try {
+        const product = await getProductData(productId);
+        if (product && product.image) {
+          imageUrl = product.image;
+        }
+      } catch (err) {
+        console.error('Error in secure image endpoint fetching product data:', err);
       }
     }
     
@@ -946,6 +1098,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const parts = imageUrl.split(';base64,');
         if (parts.length === 2) {
           const mimeType = parts[0].replace('data:', ''); // e.g., image/jpeg or image/png
+          
+          // Strict mime validation for proxy output
+          const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+          if (!allowedMimes.includes(mimeType.toLowerCase())) {
+            return res.redirect(fallbackUrl);
+          }
+          
           const base64Data = parts[1];
           const buffer = Buffer.from(base64Data, 'base64');
           
@@ -959,18 +1118,33 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
       // Direct stream proxy for external URLs to ensure social media crawlers fetch the image reliably without blocking redirects
       try {
-        const imageRes = await fetch(imageUrl);
+        const isValid = await validateImageUrlSecurely(imageUrl);
+        if (!isValid) {
+          return res.status(403).send('Forbidden: Selected image URL fails SSRF safety check.');
+        }
+
+        const imageRes = await fetch(imageUrl, { redirect: 'manual' });
+        if (imageRes.status >= 300 && imageRes.status < 400) {
+          console.warn('[SSRF Shield] Blocked redirect response on image proxy request');
+          return res.status(400).send('SSRF Security Error: Redirects are not allowed.');
+        }
         if (imageRes.ok) {
           const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
+          
+          const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+          if (!allowedMimes.includes(contentType.toLowerCase())) {
+            return res.redirect(fallbackUrl);
+          }
+
           const buffer = Buffer.from(await imageRes.arrayBuffer());
           res.set('Content-Type', contentType);
-          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+          res.set('Cache-Control', 'public, max-age=86400'); // Cache for day
           return res.send(buffer);
         }
       } catch (error) {
-        console.error('Error proxying external product image for crawler:', error);
+        console.error('Error proxying external product image securely:', error);
       }
-      return res.redirect(imageUrl);
+      return res.redirect(fallbackUrl);
     }
     
     return res.redirect(fallbackUrl);

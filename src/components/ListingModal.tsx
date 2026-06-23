@@ -4,6 +4,7 @@ import { Category, Product, normalizeCategory } from '../types';
 import { X, Image, Upload, AlertCircle, Plus, Video, Scissors } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
+import { validateImageFile } from '../utils/fileValidation';
 
 interface ListingModalProps {
   isOpen: boolean;
@@ -308,18 +309,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     }
 
     (Array.from(files) as File[]).forEach(async file => {
-      // Relaxed type validation supporting empty mime-types with recognized image extensions or any startsWith image/
-      const fileNameLower = file.name.toLowerCase();
-      const hasImageExt = /\.(jpg|jpeg|png|webp|gif|heic|heif|tiff|bmp|jfif|svg|heics|avif)$/i.test(fileNameLower);
-      const isImageType = file.type && file.type.startsWith('image/');
-
-      if (!isImageType && !hasImageExt) {
-        console.warn('Broadly accepting custom file type as an image to allow visibility:', file.name);
-      }
-      
-      // Allow up to 16MB image uploads (since we compress them client-side)
-      if (file.size > 16 * 1024 * 1024) {
-        setErrorMsg('Some images were skipped because they exceed 16MB in size.');
+      const validation = validateImageFile(file);
+      if (!validation.isValid) {
+        setErrorMsg(validation.error || 'Invalid image file.');
         return;
       }
 
@@ -710,6 +702,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
     if (category !== 'Services' && !title.trim()) {
       return setErrorMsg('Product title is required.');
+    }
+    if (title.length > 150) {
+      return setErrorMsg('Product title must be 150 characters or less.');
+    }
+    if (description.length > 5000) {
+      return setErrorMsg('Product description must be 5000 characters or less.');
     }
     
     const finalTitle = category === 'Services'
@@ -1160,7 +1158,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                       <input
                         type="file"
                         multiple
-                        accept="image/*, .heic, .heif, .webp, .jfif, .jpg, .jpeg, .png, .tiff, .bmp, .gif, .svg, .avif"
+                        accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
                         onChange={handleImageUpload}
                         className="hidden"
                       />
