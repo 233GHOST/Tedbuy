@@ -1099,20 +1099,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser && !hasCountedSessionVisit.current) {
       hasCountedSessionVisit.current = true;
       const sessionKey = `tedbuy_visit_counted_${currentUser.id}`;
+      const nowIso = new Date().toISOString();
       if (!safeSessionStorage.getItem(sessionKey)) {
         safeSessionStorage.setItem(sessionKey, 'true');
         
-        // Dynamically increment visitCount in Firestore and state
+        // Dynamically increment visitCount in Firestore and state, tracking login & seen
         const originalVisits = currentUser.visitCount || 0;
         const newVisits = originalVisits + 1;
         
         updateDoc(doc(db, 'users', currentUser.id), {
-          visitCount: increment(1)
+          visitCount: increment(1),
+          lastLogin: nowIso,
+          lastSeen: nowIso,
+          isOnline: true
         }).catch(err => {
           console.warn('[Tracking] Failed to increment visitCount on Firestore:', err);
         });
 
-        setCurrentUserState(prev => prev ? { ...prev, visitCount: newVisits } : null);
+        setCurrentUserState(prev => prev ? { 
+          ...prev, 
+          visitCount: newVisits,
+          lastLogin: nowIso,
+          lastSeen: nowIso,
+          isOnline: true
+        } : null);
+      } else {
+        // Just make sure user is marked online and update lastSeen
+        updateDoc(doc(db, 'users', currentUser.id), {
+          isOnline: true,
+          lastSeen: nowIso
+        }).catch(() => {});
+
+        setCurrentUserState(prev => prev ? { 
+          ...prev, 
+          lastSeen: nowIso,
+          isOnline: true
+        } : null);
       }
     }
   }, [currentUserId]);
@@ -1122,13 +1144,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentUser) return;
     const interval = setInterval(() => {
       localStayAccumulator.current += 10;
+      const nowIso = new Date().toISOString();
       
       // Update local state copy every 10s so ranking updates live
       setCurrentUserState(prev => {
         if (!prev) return null;
         return {
           ...prev,
-          totalStayTime: (prev.totalStayTime || 0) + 10
+          totalStayTime: (prev.totalStayTime || 0) + 10,
+          lastSeen: nowIso,
+          isOnline: true
         };
       });
 
@@ -1137,7 +1162,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const incrementSec = localStayAccumulator.current;
         localStayAccumulator.current = 0;
         updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(incrementSec)
+          totalStayTime: increment(incrementSec),
+          lastSeen: nowIso,
+          isOnline: true
         }).catch(err => {
           console.warn('[Tracking] Failed to write stay time to Firestore:', err);
         });
@@ -1146,11 +1173,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       clearInterval(interval);
+      const nowIso = new Date().toISOString();
       if (localStayAccumulator.current > 0) {
         const remainingSec = localStayAccumulator.current;
         localStayAccumulator.current = 0;
         updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(remainingSec)
+          totalStayTime: increment(remainingSec),
+          lastSeen: nowIso,
+          isOnline: false
+        }).catch(() => {});
+      } else {
+        updateDoc(doc(db, 'users', currentUser.id), {
+          isOnline: false,
+          lastSeen: nowIso
         }).catch(() => {});
       }
     };
@@ -2671,11 +2706,44 @@ CEO, Tedbuy Inc`;
   };
 
   const incrementProductViews = useCallback(async (id: string) => {
+    // A. Prevent self-views: Owner of the product viewing their own ad should not count as a valid external view
+    const targetProduct = products.find(p => p.id === id);
+    if (targetProduct && currentUser && targetProduct.sellerId === currentUser.id) {
+      console.log(`[View Fraud Protection] Skipped view increment on product "${id}": Seller is the owner.`);
+      return;
+    }
+
     try {
+      // B. Prevent repeated refreshes: Skip if session already flagged
       const sessionKey = `tedbuy_viewed_product_${id}`;
       if (safeSessionStorage.getItem(sessionKey)) {
-        return; // Already logged this session, skip duplicate remote increment to avoid infinite feedback loops and quota waste
+        console.log(`[View Fraud Protection] Skipped view increment on product "${id}": Already viewed in this session.`);
+        return; 
       }
+
+      // C. Cooldown Protection: Prevent users from spamming views within a short period (10 minutes)
+      const now = Date.now();
+      const localTimestampsKey = 'tedbuy_view_cooldown_timestamps';
+      let timestamps: Record<string, number> = {};
+      
+      try {
+        const stored = safeLocalStorage.getItem(localTimestampsKey);
+        if (stored) {
+          timestamps = JSON.parse(stored);
+        }
+      } catch (_) {}
+
+      const lastViewedAt = timestamps[id] || 0;
+      const cooldownMs = 10 * 60 * 1000; // 10 minutes duration
+      if (now - lastViewedAt < cooldownMs) {
+        const remainingSecs = Math.ceil((cooldownMs - (now - lastViewedAt)) / 1000);
+        console.log(`[View Fraud Protection] Skipped view increment on product "${id}": Cooldown active (${remainingSecs} seconds remaining).`);
+        return;
+      }
+
+      // Log verified view timestamp and persist
+      timestamps[id] = now;
+      safeLocalStorage.setItem(localTimestampsKey, JSON.stringify(timestamps));
       safeSessionStorage.setItem(sessionKey, 'true');
     } catch {
       // safe fallback
@@ -2685,10 +2753,11 @@ CEO, Tedbuy Inc`;
       await updateDoc(doc(db, 'products', id), {
         viewsCount: increment(1)
       });
+      console.log(`[Analytics] Valid external view registered successfully for product ${id}`);
     } catch (error) {
       console.warn('Failed to increment metrics view:', error);
     }
-  }, []);
+  }, [products, currentUser?.id]);
 
   // Chats Operations
   const startChat = async (productId: string, initialMessage?: string) => {
