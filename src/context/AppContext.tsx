@@ -177,6 +177,8 @@ interface AppContextType {
   setUnauthorizedDomainDetected: (detected: boolean) => void;
   isAuthLoading: boolean;
   isProductsLoading: boolean;
+  productsLoadError: boolean;
+  retryLoadProducts: () => void;
   refreshProducts: () => Promise<void>;
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -364,6 +366,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [productsLoadError, setProductsLoadError] = useState(false);
   const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -1247,11 +1250,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsProductsLoading(true);
     }
 
+    // Modern browser / Safari resilient timeout safeguard:
+    // If the database connection hangs, is blocked by sandboxed iframes, or the user is offline
+    // and no response is returned within 10 seconds (STEP 11), stop skeletons and log failure.
+    const safetyTimeout = setTimeout(() => {
+      setIsProductsLoading((currentlyLoading) => {
+        if (currentlyLoading) {
+          console.error('[Safari/IFrame Rescue] Product loading has exceeded 10 seconds. Terminating skeleton loaders and falling back to offline/local database backup.');
+          setProductsLoadError(true);
+          
+          if (products.length === 0) {
+            try {
+              const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
+              if (savedListStr) {
+                const parsed = JSON.parse(savedListStr) as Product[];
+                setProducts(parsed.filter(isRealProduct));
+              }
+            } catch (err) {
+              console.warn('[Safari Rescue] Could not restore cached products:', err);
+            }
+          }
+        }
+        return false;
+      });
+    }, 10000);
+
     const q = query(
       collection(db, 'products'),
       orderBy('createdAt', 'desc')
     );
     const unsub = onSnapshot(q, (snapshot) => {
+      // Clear safety timeout as data arrived!
+      clearTimeout(safetyTimeout);
+      setProductsLoadError(false);
+
       const pList: Product[] = [];
       snapshot.forEach(docSnap => {
         const item = {
@@ -1308,11 +1340,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('Could not save product backups to local storage:', err);
       }
     }, (error) => {
+      clearTimeout(safetyTimeout);
       handleFirestoreError(error, OperationType.LIST, 'products');
+      setProductsLoadError(true);
       setIsProductsLoading(false);
     });
 
-    return unsub;
+    return () => {
+      clearTimeout(safetyTimeout);
+      unsub();
+    };
   }, [optimisticDeletedProductIds]);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
@@ -3786,6 +3823,14 @@ CEO, Tedbuy Inc`;
     }
   };
 
+  const retryLoadProducts = () => {
+    setProductsLoadError(false);
+    setIsProductsLoading(true);
+    refreshProducts().catch((err) => {
+      console.error('retryLoadProducts refresh failed:', err);
+    });
+  };
+
   const loadMoreProducts = useCallback(() => {
     setProductLimit(prev => prev + 24);
   }, []);
@@ -3889,6 +3934,8 @@ CEO, Tedbuy Inc`;
       setUnauthorizedDomainDetected,
       isAuthLoading,
       isProductsLoading,
+      productsLoadError,
+      retryLoadProducts,
       refreshProducts,
       toast,
       showToast,
