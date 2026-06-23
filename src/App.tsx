@@ -56,8 +56,6 @@ const MarketplaceContent: React.FC = () => {
     setUnauthorizedDomainDetected,
     isAuthLoading,
     isProductsLoading,
-    productsLoadError,
-    retryLoadProducts,
     messages,
     chats,
     setAuthMode,
@@ -458,47 +456,24 @@ const MarketplaceContent: React.FC = () => {
     const sentinel = scrollSentinelRef.current;
     if (!sentinel) return;
 
-    // Primarily use standard IntersectionObserver
     const observer = new IntersectionObserver((entries) => {
       const entry = entries[0];
       if (entry.isIntersecting) {
-        setDisplayLimit((prev) => prev + 12);
-        if (hasMoreProducts) {
-          loadMoreProducts();
-        }
-      }
-    }, {
-      rootMargin: '250px', // start loading before the user completely reaches the bottom
-      threshold: 0.1
-    });
-
-    observer.observe(sentinel);
-
-    // Safari & nested sandboxed iframe fallback listener
-    const handleScrollFallback = () => {
-      if (!scrollSentinelRef.current) return;
-      const rect = scrollSentinelRef.current.getBoundingClientRect();
-      const isNearBottom = rect.top - 200 <= (window.innerHeight || document.documentElement.clientHeight);
-      
-      if (isNearBottom) {
         setDisplayLimit((prev) => {
-          // If we've already displayed everything within limit bounds, avoid redundant increments
-          if (sortedProducts.length <= prev) return prev;
           return prev + 12;
         });
         if (hasMoreProducts) {
           loadMoreProducts();
         }
       }
-    };
+    }, {
+      rootMargin: '200px', // start loading before the user completely reaches the bottom
+      threshold: 0.1
+    });
 
-    window.addEventListener('scroll', handleScrollFallback, { passive: true });
-    window.addEventListener('resize', handleScrollFallback, { passive: true });
-
+    observer.observe(sentinel);
     return () => {
       observer.unobserve(sentinel);
-      window.removeEventListener('scroll', handleScrollFallback);
-      window.removeEventListener('resize', handleScrollFallback);
     };
   }, [scrollSentinelRef.current, sortedProducts.length, hasMoreProducts, loadMoreProducts]);
 
@@ -1156,24 +1131,6 @@ const MarketplaceContent: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                  ) : productsLoadError && sortedProducts.length === 0 ? (
-                    <div id="products-error-boundary-view" className="bg-white border border-red-100 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-sm animate-fade-in my-6">
-                      <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-red-50 text-red-500 mb-4 animate-bounce">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                        </svg>
-                      </div>
-                      <h4 className="text-sm font-black text-slate-800">Unable to load listings.</h4>
-                      <p className="text-xs text-slate-450 mt-1.5 mb-6 leading-relaxed">
-                        We are having trouble establishing a real-time connection to the servers. Please check your network or try again.
-                      </p>
-                      <button
-                        onClick={retryLoadProducts}
-                        className="px-6 py-2.5 bg-red-650 hover:bg-red-700 active:scale-95 text-white font-extrabold text-xs rounded-xl transition shadow-sm cursor-pointer"
-                      >
-                        Tap to retry
-                      </button>
-                    </div>
                   ) : sortedProducts.length === 0 ? (
                     <div id="no-products-found" className="bg-white border border-slate-200 rounded-3xl p-16 text-center max-w-lg mx-auto shadow-sm">
                       <Package className="w-14 h-14 mx-auto stroke-[1.2] text-slate-300 mb-2" />
@@ -1195,24 +1152,6 @@ const MarketplaceContent: React.FC = () => {
                     </div>
                   ) : (
                     <div className="space-y-6">
-                      {productsLoadError && (
-                        <div id="listings-warning-banner" className="bg-amber-50 border border-amber-200/65 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-amber-850 animate-fade-in shadow-3xs">
-                          <div className="flex items-center gap-3">
-                            <span className="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 bg-amber-150 text-amber-850 rounded-full text-xs font-bold font-mono">!</span>
-                            <div className="text-left">
-                              <h5 className="text-xs font-bold">Viewing Offline Backed Listings</h5>
-                              <p className="text-[11px] text-amber-600/90 leading-tight block">We are running in offline/isolated mode. Showing cached listings backup.</p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={retryLoadProducts}
-                            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-[11px] font-bold rounded-xl transition cursor-pointer"
-                          >
-                            Tap to retry
-                          </button>
-                        </div>
-                      )}
-
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 animate-fade-in">
                         {sortedProducts.slice(0, displayLimit).map(product => (
                           <ProductCard key={product.id} product={product} />

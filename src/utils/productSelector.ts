@@ -143,166 +143,37 @@ export function createProductSelector() {
       return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice && matchesExtra;
     });
 
-    const getAdRankingScore = (product: Product): {
-      rankingScore: number;
-      sellerActivityScore: number;
-      popularityScore: number;
-      freshnessScore: number;
-      qualityScore: number;
-    } => {
-      // 1. Seller Activity Score (40% weight)
-      let sellerActivityScore = 0;
-      const seller = users?.find(u => u.id === product.sellerId);
-      if (seller) {
-        // Online status (Max 40 pts)
-        if (seller.isOnline) {
-          sellerActivityScore += 40;
-        }
+    const getSellerScore = (sellerId: string): number => {
+      const seller = users?.find(u => u.id === sellerId);
+      if (!seller) return 0;
+      const visitCount = seller.visitCount || 0;
+      const totalStayTime = seller.totalStayTime || 0; // in seconds
+      const rapidPostScore = seller.rapidPostScore || 0;
 
-        // Active recency (Max 30 pts)
-        const lastActiveStr = seller.lastSeen || seller.lastLogin;
-        if (lastActiveStr) {
-          try {
-            const lastActiveTime = new Date(lastActiveStr).getTime();
-            const diffMs = Date.now() - lastActiveTime;
-            const diffHours = diffMs / (1000 * 60 * 60);
+      // Compound Score Formula: 50 points per visit, 12 points per 10s of stay time, 200 points per rapidPostScore
+      const visitScore = visitCount * 50;
+      const stayScore = Math.floor(totalStayTime / 10) * 12;
+      const postScore = rapidPostScore * 200;
 
-            if (diffHours <= 1) {
-              sellerActivityScore += 30;
-            } else if (diffHours <= 24) {
-              sellerActivityScore += 20;
-            } else if (diffHours <= 72) {
-              sellerActivityScore += 10;
-            }
-          } catch (_) {}
-        }
-
-        // Recent app usage: visits & stay (Max 30 pts)
-        const visits = seller.visitCount || 0;
-        const visitsScore = Math.min(15, visits * 1); // 1 pt per visit, max 15
-
-        const staySeconds = seller.totalStayTime || 0;
-        const stayScore = Math.min(15, Math.floor(staySeconds / 30) * 1); // 1 pt per 30s stay, max 15
-
-        sellerActivityScore += visitsScore + stayScore;
-      }
-
-      // 2. Popularity Score (30% weight)
-      const views = product.viewsCount || 0;
-      // Logarithmic scaling with max cap of 100
-      const popularityScore = Math.min(100, Math.log2(views + 1) * 12);
-
-      // 3. Freshness Score (20% weight)
-      let freshnessScore = 0;
-      if (product.createdAt) {
-        try {
-          const createdTime = new Date(product.createdAt).getTime();
-          const diffMs = Date.now() - createdTime;
-          const diffDays = diffMs / (1000 * 60 * 60 * 24);
-
-          if (diffDays <= 3) {
-            freshnessScore = 100; // Strong boost
-          } else if (diffDays <= 14) {
-            freshnessScore = 50; // Moderate boost
-          }
-        } catch (_) {}
-      }
-
-      // 4. Quality Score (10% weight)
-      let qualityScore = 0;
-      const imagesCount = product.images ? product.images.length : 0;
-      if (imagesCount > 1) {
-        qualityScore += 30;
-      } else if (imagesCount === 1) {
-        qualityScore += 15;
-      }
-
-      const descLen = product.description ? product.description.trim().length : 0;
-      if (descLen >= 120) {
-        qualityScore += 25;
-      } else if (descLen >= 40) {
-        qualityScore += 15;
-      }
-
-      const priceVal = parseNumericPrice(product.price);
-      if (priceVal > 0 && priceVal < 5000000) {
-        qualityScore += 15;
-      }
-
-      if (product.category && product.category !== 'Other') {
-        qualityScore += 15;
-      }
-
-      if (product.location && product.location.trim() !== '' && product.location.toLowerCase() !== 'all') {
-        qualityScore += 15;
-      }
-
-      // Final balanced calculation with the requested weights
-      const rankingScore = (
-        sellerActivityScore * 0.40 +
-        popularityScore * 0.30 +
-        freshnessScore * 0.20 +
-        qualityScore * 0.10
-      );
-
-      return {
-        rankingScore: parseFloat(rankingScore.toFixed(2)),
-        sellerActivityScore,
-        popularityScore: parseFloat(popularityScore.toFixed(2)),
-        freshnessScore,
-        qualityScore
-      };
+      return visitScore + stayScore + postScore;
     };
 
-    // Calculate ranking scores and group-log diagnostics (STEP 12)
-    const scoringMap = new Map<string, ReturnType<typeof getAdRankingScore>>();
-    
-    // Fill scoringMap
-    filtered.forEach(p => {
-      scoringMap.set(p.id, getAdRankingScore(p));
-    });
-
-    // Logging diagnostics
-    if (typeof window !== 'undefined' && filtered.length > 0) {
-      console.groupCollapsed('[Tedbuy Smart Ad Ranking Diagnostics] Evaluated Ads:', filtered.length);
-      filtered.forEach(p => {
-        const scores = scoringMap.get(p.id);
-        if (scores) {
-          console.log({
-            adId: p.id,
-            title: p.title,
-            rankingScore: scores.rankingScore,
-            sellerActivityScore: scores.sellerActivityScore,
-            popularityScore: scores.popularityScore,
-            freshnessScore: scores.freshnessScore,
-            qualityScore: scores.qualityScore
-          });
-        }
-      });
-      console.groupEnd();
-    }
-
     const sorted = [...filtered].sort((a, b) => {
-      const scoresA = scoringMap.get(a.id) || { rankingScore: 0 };
-      const scoresB = scoringMap.get(b.id) || { rankingScore: 0 };
+      const scoreA = getSellerScore(a.sellerId);
+      const scoreB = getSellerScore(b.sellerId);
 
-      // Under explicit price sorting, sort primarily by price and fallback to rankingScore for tie breaking
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA; // Higher seller activity score always ranks first!
+      }
+
       if (sortByPrice === 'asc') {
         const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
         if (diff !== 0) return diff;
-        return scoresB.rankingScore - scoresA.rankingScore;
       } else if (sortByPrice === 'desc') {
         const diff = parseNumericPrice(b.price) - parseNumericPrice(a.price);
         if (diff !== 0) return diff;
-        return scoresB.rankingScore - scoresA.rankingScore;
       }
 
-      // Otherwise if sortByPrice === 'default', sort primarily by smart rankingScore!
-      if (scoresA.rankingScore !== scoresB.rankingScore) {
-        return scoresB.rankingScore - scoresA.rankingScore;
-      }
-
-      // Break ties using the user's date-based preferences (newest vs oldest)
       const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       if (sortByAds === 'newest') {

@@ -18,9 +18,6 @@ export interface User {
   visitCount?: number;
   totalStayTime?: number; // in seconds
   rapidPostScore?: number;
-  lastLogin?: string; // ISO string
-  lastSeen?: string; // ISO string
-  isOnline?: boolean;
 }
 
 export const isUserVerified = (user?: User | null): boolean => {
