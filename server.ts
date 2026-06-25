@@ -579,20 +579,60 @@ Welcome to **TedBuy**, Ghana's #1 Social Classifieds & Video Commerce platform.
 - Verification badge metrics representing transaction completions`;
 
 async function startServer() {
-  // Ensure favicon.ico exists at the web root dynamically
+  // Ensure favicon.ico exists at the web root dynamically as a valid .ico file
   try {
     const src = path.resolve(process.cwd(), "public", "favicon-48.png");
     const destPublic = path.resolve(process.cwd(), "public", "favicon.ico");
     const destDist = path.resolve(process.cwd(), "dist", "favicon.ico");
     
     if (fs.existsSync(src)) {
-      if (!fs.existsSync(destPublic)) {
-        fs.copyFileSync(src, destPublic);
-        console.log("[Favicon Sync] Copied favicon-48.png to public/favicon.ico");
+      let generatePublic = !fs.existsSync(destPublic);
+      if (fs.existsSync(destPublic)) {
+        const fileHead = fs.readFileSync(destPublic).slice(0, 4);
+        if (fileHead.toString("hex") === "89504e47") {
+          // It's a raw PNG file masquerading as an .ico!
+          generatePublic = true;
+        }
       }
-      if (fs.existsSync(path.resolve(process.cwd(), "dist")) && !fs.existsSync(destDist)) {
-        fs.copyFileSync(src, destDist);
-        console.log("[Favicon Sync] Copied favicon-48.png to dist/favicon.ico");
+      
+      const pngBuf = fs.readFileSync(src);
+      const pngSize = pngBuf.length;
+      
+      // Construct a valid ICO header wrapping the 48x48 PNG
+      const header = Buffer.alloc(22);
+      header.writeUInt16LE(0, 0);     // Reserved: 0
+      header.writeUInt16LE(1, 2);     // Type: 1 (icon)
+      header.writeUInt16LE(1, 4);     // Count: 1 image
+      
+      header.writeUInt8(48, 6);       // Width: 48
+      header.writeUInt8(48, 7);       // Height: 48
+      header.writeUInt8(0, 8);        // Color count: 0
+      header.writeUInt8(0, 9);        // Reserved: 0
+      header.writeUInt16LE(1, 10);    // Color planes: 1
+      header.writeUInt16LE(32, 12);   // Bits per pixel: 32
+      header.writeUInt32LE(pngSize, 14); // Image size in bytes
+      header.writeUInt32LE(22, 18);   // Image offset (22 bytes header)
+      
+      const icoBuf = Buffer.concat([header, pngBuf]);
+      
+      if (generatePublic) {
+        fs.writeFileSync(destPublic, icoBuf);
+        console.log("[Favicon Sync] Generated valid ICO at public/favicon.ico");
+      }
+      
+      const distExists = fs.existsSync(path.resolve(process.cwd(), "dist"));
+      if (distExists) {
+        let generateDist = !fs.existsSync(destDist);
+        if (fs.existsSync(destDist)) {
+          const fileHead = fs.readFileSync(destDist).slice(0, 4);
+          if (fileHead.toString("hex") === "89504e47") {
+            generateDist = true;
+          }
+        }
+        if (generateDist) {
+          fs.writeFileSync(destDist, icoBuf);
+          console.log("[Favicon Sync] Generated valid ICO at dist/favicon.ico");
+        }
       }
     }
   } catch (err) {
