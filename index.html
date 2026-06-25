@@ -2,6 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Prevent Vite HMR WebSocket connection failure overlays/unhandled rejections from appearing in sandbox -->
+    <script>
+      window.addEventListener('unhandledrejection', function (event) {
+        if (event.reason && (
+          event.reason.message?.includes('WebSocket') || 
+          event.reason.message?.includes('vite') ||
+          String(event.reason).includes('WebSocket')
+        )) {
+          event.preventDefault();
+        }
+      });
+      window.addEventListener('error', function (event) {
+        if (event.message && (
+          event.message.includes('WebSocket') ||
+          event.message.includes('vite')
+        )) {
+          event.preventDefault();
+        }
+      });
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="google-site-verification" content="kYIpOlXfETZk9XYPvl98G6cm_ei4auoXyweL4dgncbg" />
 
@@ -43,6 +63,69 @@
     <link rel="manifest" href="/manifest.json" />
 
     <title>TedBuy - Buy and Sell Products in Ghana</title>
+
+    <!-- Structured Data / JSON-LD Schemas (Organization, WebSite, and Marketplace) to enhance indexing and brand appearance in Google -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://tedbuy.store/#organization",
+          "name": "TedBuy",
+          "url": "https://tedbuy.store/",
+          "logo": {
+            "@type": "ImageObject",
+            "@id": "https://tedbuy.store/#logo",
+            "url": "https://tedbuy.store/icon-192.png",
+            "caption": "TedBuy Logo"
+          },
+          "image": {
+            "@id": "https://tedbuy.store/#logo"
+          },
+          "description": "Ghana's #1 Social Classifieds & Video Commerce platform. Buy, sell, and discover items in action with immersive video ads, verified direct chats, and trusted local deals directly on TedBuy.",
+          "email": "admin@tedbuy.store",
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "admin@tedbuy.store",
+            "contactType": "customer support"
+          }
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://tedbuy.store/#website",
+          "url": "https://tedbuy.store/",
+          "name": "TedBuy",
+          "description": "Ghana's #1 Social Classifieds & Video Commerce Platform",
+          "publisher": {
+            "@id": "https://tedbuy.store/#organization"
+          },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://tedbuy.store/?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": ["Store", "OnlineBusiness"],
+          "@id": "https://tedbuy.store/#marketplace",
+          "name": "TedBuy Marketplace",
+          "url": "https://tedbuy.store/",
+          "description": "The leading digital marketplace for direct local deals, video-driven classifieds, and secure social commerce in Ghana.",
+          "logo": "https://tedbuy.store/icon-192.png",
+          "image": "https://tedbuy.store/icon-192.png",
+          "parentOrganization": {
+            "@id": "https://tedbuy.store/#organization"
+          },
+          "priceRange": "$$",
+          "currenciesAccepted": "GHS"
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

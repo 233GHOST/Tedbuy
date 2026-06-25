@@ -442,6 +442,96 @@ function injectHomepageMetaTags(html: string, shareUrl: string, host: string, pr
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
 
+async function getSellerData(sellerId: string) {
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${sellerId}${apiKey ? `?key=${apiKey}` : ""}`;
+    console.log(`[Meta Crawler] Fetching seller from Firestore REST URL: ${url}`);
+    
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[Meta Crawler] Firestore seller fetch failed for ${sellerId} with status: ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    
+    // Parse response
+    const fields = data.fields || {};
+    const username = fields.username?.stringValue || '';
+    const role = fields.role?.stringValue || 'seller';
+    const photoUrl = fields.photoUrl?.stringValue || '';
+    const isVerified = fields.emailVerified?.booleanValue || false;
+
+    console.log(`[Meta Crawler] Successfully fetched seller data for ${sellerId}: "${username}"`);
+
+    return {
+      username,
+      role,
+      photoUrl,
+      isVerified
+    };
+  } catch (err) {
+    console.error('[Meta Crawler] Error fetching seller data from Firestore REST:', err);
+    return null;
+  }
+}
+
+function injectSellerMetaTags(html: string, seller: { username: string; role: string; photoUrl: string; isVerified: boolean }, shareUrl: string, host: string, protocol: string, sellerId: string): string {
+  const username = seller.username || 'Verified Seller';
+  const title = `TedBuy Ghana - ${username}'s Store Profile`;
+  const description = `Browse active product classifieds, verified ratings, and immersive video ads posted by ${username} on TedBuy Ghana. Chat directly via WhatsApp on Ghana's #1 Social Commerce & Peer Classifieds platform.`;
+  const image = seller.photoUrl || `${protocol}://${host}/favicon.svg`;
+  const canonicalUrl = `${protocol}://${host}/seller/${sellerId}`;
+
+  const schemaJson = {
+    "@context": "https://schema.org",
+    "@type": "ProfilePage",
+    "name": `${username} Profile | TedBuy`,
+    "url": canonicalUrl,
+    "description": description,
+    "image": image,
+    "mainEntity": {
+      "@type": "Person",
+      "name": username,
+      "image": image,
+      "description": `Registered seller on TedBuy Ghana.`,
+      "url": canonicalUrl
+    }
+  };
+
+  const tags = `
+    <!-- Seller SEO Meta Tags -->
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
+    <!-- Open Graph -->
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:image" content="${escapeHtml(image)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
+    <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
+    <meta property="og:type" content="profile" />
+    <meta property="og:site_name" content="TedBuy" />
+    <meta property="og:locale" content="en_GH" />
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(image)}" />
+    
+    <!-- Rich Snippets / Google Profile Page Schema Integration -->
+    <script type="application/ld+json">
+${JSON.stringify(schemaJson, null, 6)}
+    </script>
+  `;
+
+  let cleanHtml = html
+    .replace(/<title>[\s\S]*?<\/title>/gi, '')
+    .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
+    .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
+
+  return cleanHtml.replace('<head>', `<head>${tags}`);
+}
+
 function escapeHtml(unsafe: string): string {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -1055,15 +1145,34 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         xml += `  </url>\n`;
       }
 
-      // 3. Dynamic Products from Firestore REST API
+      // 3. Dynamic Products from Firestore REST API via structured runQuery
       try {
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products?pageSize=300${apiKey ? `&key=${apiKey}` : ""}`;
-        const response = await fetch(firestoreUrl);
+        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+        const response = await fetch(firestoreUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [
+                {
+                  collectionId: "products",
+                  allDescendants: false
+                }
+              ],
+              limit: 500
+            }
+          })
+        });
+
         if (response.ok) {
           const data = await response.json();
-          const documents = data.documents || [];
-          for (const doc of documents) {
-            const nameParts = doc.name.split('/');
+          const results = Array.isArray(data) ? data : [];
+          for (const item of results) {
+            if (!item || !item.document) continue;
+            const doc = item.document;
+            const nameParts = doc.name ? doc.name.split('/') : [];
             const id = nameParts[nameParts.length - 1];
             
             const fields = doc.fields || {};
@@ -1082,9 +1191,64 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               xml += `  </url>\n`;
             }
           }
+        } else {
+          console.error('[Sitemap] Failed to fetch active products via runQuery. Status:', response.status);
         }
       } catch (err) {
         console.error('[Sitemap] Failed to fetch active products for sitemap:', err);
+      }
+
+      // 4. Dynamic Sellers / Profiles from Firestore REST API via structured runQuery
+      try {
+        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+        const response = await fetch(firestoreUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [
+                {
+                  collectionId: "users",
+                  allDescendants: false
+                }
+              ],
+              limit: 500
+            }
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const results = Array.isArray(data) ? data : [];
+          for (const item of results) {
+            if (!item || !item.document) continue;
+            const doc = item.document;
+            const nameParts = doc.name ? doc.name.split('/') : [];
+            const id = nameParts[nameParts.length - 1];
+            
+            const fields = doc.fields || {};
+            const username = fields.username?.stringValue || '';
+            const role = fields.role?.stringValue || 'seller';
+            const updatedTime = doc.updateTime ? doc.updateTime.split('T')[0] : todayString;
+
+            // Only add to sitemap if the user has a username and is a seller/both
+            if (id && username && (role === 'seller' || role === 'both')) {
+              const sellerUrl = `${baseUrl}/seller/${id}`;
+              xml += `  <url>\n`;
+              xml += `    <loc>${sellerUrl}</loc>\n`;
+              xml += `    <lastmod>${updatedTime}</lastmod>\n`;
+              xml += `    <changefreq>weekly</changefreq>\n`;
+              xml += `    <priority>0.7</priority>\n`;
+              xml += `  </url>\n`;
+            }
+          }
+        } else {
+          console.error('[Sitemap] Failed to fetch sellers via runQuery. Status:', response.status);
+        }
+      } catch (err) {
+        console.error('[Sitemap] Failed to fetch sellers for sitemap:', err);
       }
 
       xml += `</urlset>\n`;
@@ -1232,6 +1396,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
 
+        let sellerId = "";
+        const sellerPathnameMatch = url.split('?')[0].match(/^\/sellers?\/([^\/]+)/);
+        if (sellerPathnameMatch) {
+          sellerId = sellerPathnameMatch[1];
+        }
+
         if (!productId) {
           try {
             const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -1269,6 +1439,17 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             const fullUrl = `${protocol}://${host}${url}`;
             if (product) {
               template = injectMetaTags(template, product, fullUrl, host, protocol, productId);
+            } else {
+              template = injectHomepageMetaTags(template, fullUrl, host, protocol);
+            }
+          } else if (sellerId) {
+            const seller = await getSellerData(sellerId);
+            const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+            const host = cleanHostHeader(rawHost);
+            const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+            const fullUrl = `${protocol}://${host}${url}`;
+            if (seller) {
+              template = injectSellerMetaTags(template, seller, fullUrl, host, protocol, sellerId);
             } else {
               template = injectHomepageMetaTags(template, fullUrl, host, protocol);
             }
@@ -1336,6 +1517,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
 
+      let sellerId = "";
+      const sellerPathnameMatch = url.split('?')[0].match(/^\/sellers?\/([^\/]+)/);
+      if (sellerPathnameMatch) {
+        sellerId = sellerPathnameMatch[1];
+      }
+
       if (!productId) {
         try {
           const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -1374,6 +1561,17 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           const fullUrl = `${protocol}://${host}${url}`;
           if (product) {
             template = injectMetaTags(template, product, fullUrl, host, protocol, productId);
+          } else {
+            template = injectHomepageMetaTags(template, fullUrl, host, protocol);
+          }
+        } else if (sellerId) {
+          const seller = await getSellerData(sellerId);
+          const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
+          const host = cleanHostHeader(rawHost);
+          const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+          const fullUrl = `${protocol}://${host}${url}`;
+          if (seller) {
+            template = injectSellerMetaTags(template, seller, fullUrl, host, protocol, sellerId);
           } else {
             template = injectHomepageMetaTags(template, fullUrl, host, protocol);
           }
