@@ -24,7 +24,6 @@ import {
   Heart,
   Plus,
   Share2,
-  Music,
   Flame,
   Eye,
   X
@@ -406,14 +405,14 @@ const ReelItem: React.FC<ReelItemProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="flex items-center justify-center w-full h-full p-2 select-none">
-      {/* Immersive Aspect locked video player container mimicking Snapchat feeds with brand yellow highlights */}
+    <div ref={containerRef} className="flex items-center justify-center w-full h-full p-0 select-none">
+      {/* Immersive full-screen video player container where everything floats on top */}
       <div 
         onClick={handleVideoContainerClick}
         onMouseMove={resetControlsTimeout}
         onTouchStart={resetControlsTimeout}
         onMouseEnter={resetControlsTimeout}
-        className="relative aspect-[9/16] w-full max-w-[360px] sm:max-w-[380px] md:max-w-[400px] h-full max-h-[96%] bg-slate-950 rounded-[2rem] overflow-hidden shadow-[0_30px_70px_-10px_rgba(0,0,0,0.95)] border border-white/10 group cursor-pointer flex items-center justify-center shrink-0 transition-all duration-300 hover:scale-[1.01] hover:border-yellow-400/30"
+        className="relative w-full h-full bg-slate-950 overflow-hidden group cursor-pointer flex items-center justify-center shrink-0 transition-all duration-300"
       >
         {!shouldLoad ? (
           <div className="text-center p-6 text-slate-500">
@@ -528,26 +527,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 {product.description}
               </p>
             )}
-
-            {/* Snapchat Rotational Vinyl & Scrolling Music Banner Overlay */}
-            <div className="flex items-center gap-1.5 pt-1.5 border-t border-white/10 mt-1 max-w-[95%]">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
-                className="shrink-0"
-              >
-                <Music className="w-3.5 h-3.5 text-[#FFFC00]" />
-              </motion.div>
-              <div className="overflow-hidden w-full relative h-4 select-none">
-                <motion.div
-                  animate={{ x: [120, -180] }}
-                  transition={{ repeat: Infinity, duration: 8, ease: "linear" }}
-                  className="absolute whitespace-nowrap text-[9px] text-[#FFFC00]/95 font-bold font-mono tracking-tight uppercase"
-                >
-                  🔊 Original Soundtrack - @{product?.sellerName}
-                </motion.div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -689,7 +668,9 @@ export const VideoAdsFeed: React.FC = () => {
     loadMoreProducts,
     setIsVerificationBlockOpen,
     setBlockedActionType,
-    showToast
+    showToast,
+    homeViewMode,
+    setHomeViewMode
   } = useApp();
 
   const feedScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -836,7 +817,7 @@ export const VideoAdsFeed: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 min-h-0 h-full sm:h-[620px] lg:h-[680px] w-full sm:border border-slate-200 border-0 bg-slate-950 sm:rounded-3xl rounded-none overflow-hidden shadow-xl flex flex-col text-white mt-0 sm:mt-4 relative animate-fade-in">
+    <div className="flex-1 min-h-0 h-full w-full bg-slate-950 overflow-hidden flex flex-col text-white relative animate-fade-in">
  
       {/* 1. Immersive vertical center-aligned Reels viewport container */}
       <div className="flex-1 relative bg-slate-950 flex flex-col justify-start overflow-hidden">

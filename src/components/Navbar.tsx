@@ -265,7 +265,6 @@ export const Navbar: React.FC = () => {
               <span className="text-xl font-sans font-black tracking-tight leading-none text-white">
                 tedbuy
               </span>
-              <span className="text-[9px] text-slate-400 font-sans font-bold tracking-widest uppercase">Classifieds</span>
             </div>
           </div>
 

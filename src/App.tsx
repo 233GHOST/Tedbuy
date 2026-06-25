@@ -529,10 +529,10 @@ const MarketplaceContent: React.FC = () => {
   return (
     <div className={`flex flex-col font-sans relative ${
       currentView === 'browse' && homeViewMode === 'video-feed'
-        ? 'bg-slate-50 max-sm:bg-slate-900 h-[100dvh] overflow-hidden pb-[76px] sm:pb-0'
+        ? 'bg-slate-950 h-[100dvh] overflow-hidden pb-0'
         : 'bg-slate-50 min-h-screen pb-16 md:pb-0'
     }`}>
-      <Navbar />
+      {!(currentView === 'browse' && homeViewMode === 'video-feed') && <Navbar />}
 
       {currentUser && !currentUser.emailVerified && (
         <div id="unverified-email-banner" className="bg-amber-500 text-amber-950 px-4 py-2.5 text-xs font-semibold flex flex-col md:flex-row items-center justify-between gap-3 shadow-inner border-b border-amber-600/35 relative z-30">
@@ -556,16 +556,26 @@ const MarketplaceContent: React.FC = () => {
         </div>
       )}
 
-      <main className={`flex-1 min-h-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full' : ''}`}>
+      <main 
+        className={`flex-1 min-h-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full' : ''}`}
+        style={
+          currentView === 'browse' && homeViewMode === 'video-feed'
+            ? {
+                paddingTop: 'env(safe-area-inset-top, 0px)',
+                paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+              }
+            : undefined
+        }
+      >
         {currentView === 'browse' && (
           <div 
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
-            className={`max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 ${
+            className={`flex-1 flex flex-col min-h-0 ${
               homeViewMode === 'video-feed'
-                ? 'px-0 sm:px-6 lg:px-8 py-0 sm:py-6 h-full overflow-hidden'
-                : 'px-4 sm:px-6 lg:px-8 py-6'
+                ? 'max-w-none w-full h-full p-0 overflow-hidden'
+                : 'max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6'
             }`}
           >
             {/* Smooth Pull to Refresh indicator */}
@@ -753,37 +763,33 @@ const MarketplaceContent: React.FC = () => {
             )}
 
             {/* View Mode Switching Tabs (Standard Grid vs Live Video Ads Feed) */}
-            <div className={`bg-slate-200/50 p-1 rounded-2xl font-sans max-w-sm border border-slate-250/60 ${
-              homeViewMode === 'video-feed' ? 'hidden sm:flex mb-2 sm:mx-0 mt-2 sm:mt-0' : 'flex mb-8'
-            }`}>
-              <button
-                id="tab-view-grid"
-                onClick={() => setHomeViewMode('grid')}
-                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition duration-200 cursor-pointer outline-none ${
-                  homeViewMode === 'grid'
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/30'
-                }`}
-              >
-                <LayoutGrid className="w-4 h-4" />
-                <span>Standard Grid</span>
-              </button>
-              <button
-                id="tab-view-video-feed"
-                onClick={() => setHomeViewMode('video-feed')}
-                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition duration-200 cursor-pointer outline-none ${
-                  homeViewMode === 'video-feed'
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-650 hover:text-slate-900 hover:bg-white/30'
-                }`}
-              >
-                <Video className="w-4 h-4 text-emerald-500 animate-pulse fill-emerald-500" />
-                <span>Watch Video Ads</span>
-                <span className="hidden sm:inline px-1 py-0.5 bg-emerald-600 text-[8px] text-white rounded-md tracking-wide font-black">
-                  NEW
-                </span>
-              </button>
-            </div>
+            {homeViewMode !== 'video-feed' && (
+              <div className="bg-slate-200/50 p-1 rounded-2xl font-sans max-w-sm border border-slate-250/60 flex mb-8">
+                <button
+                  id="tab-view-grid"
+                  onClick={() => setHomeViewMode('grid')}
+                  className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition duration-200 cursor-pointer outline-none ${
+                    homeViewMode === 'grid'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/30'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  <span>Standard Grid</span>
+                </button>
+                <button
+                  id="tab-view-video-feed"
+                  onClick={() => setHomeViewMode('video-feed')}
+                  className="flex-1 py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition duration-200 cursor-pointer outline-none text-slate-650 hover:text-slate-900 hover:bg-white/30"
+                >
+                  <Video className="w-4 h-4 text-emerald-500 animate-pulse fill-emerald-500" />
+                  <span>Watch Video Ads</span>
+                  <span className="hidden sm:inline px-1 py-0.5 bg-emerald-600 text-[8px] text-white rounded-md tracking-wide font-black">
+                    NEW
+                  </span>
+                </button>
+              </div>
+            )}
 
             {homeViewMode === 'video-feed' ? (
               <VideoAdsFeed />
@@ -1249,7 +1255,7 @@ const MarketplaceContent: React.FC = () => {
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
         <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-8 mt-12 mb-16 md:mb-0">
           <div className="max-w-7xl mx-auto px-4 text-center space-y-2">
-            <p className="font-sans font-bold text-slate-800">Tedbuy Classifieds Marketplace &copy; 2026</p>
+            <p className="font-sans font-bold text-slate-800">Tedbuy Marketplace &copy; 2026</p>
             <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
               Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
             </p>
