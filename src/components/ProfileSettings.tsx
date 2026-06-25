@@ -60,8 +60,20 @@ export const ProfileSettings: React.FC = () => {
   const [deletePasswordText, setDeletePasswordText] = useState('');
 
   // Settings sub tabs and sections
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'more'>('profile');
-  const [moreActiveSection, setMoreActiveSection] = useState<'help' | 'terms'>('help');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'more'>(() => {
+    const path = (window.location.hash.replace(/^#/, '') || window.location.pathname).split('?')[0];
+    if (['/terms', '/privacy', '/help', '/about', '/contact'].includes(path)) {
+      return 'more';
+    }
+    return 'profile';
+  });
+  const [moreActiveSection, setMoreActiveSection] = useState<'help' | 'terms'>(() => {
+    const path = (window.location.hash.replace(/^#/, '') || window.location.pathname).split('?')[0];
+    if (['/terms', '/privacy'].includes(path)) {
+      return 'terms';
+    }
+    return 'help';
+  });
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   // Tab states for Followers/Following Network

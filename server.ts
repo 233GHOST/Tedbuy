@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import net from "net";
 import dns from "dns";
 import { promisify } from "util";
+import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml } from "./src/utils/sitemap.js";
 
 const lookupAsync = promisify(dns.lookup);
 
@@ -1136,7 +1137,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   // Dynamic robots.txt declaring active domain's sitemap.xml to speed up indexing on custom domains
-  app.get('/robots.txt', (req, res) => {
+  app.get(['/robots.txt', '/api/robots'], (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
     const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
@@ -1144,160 +1145,140 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.send(`User-agent: *\nAllow: /\nDisallow: /settings\nDisallow: /dashboard\n\nContent-Signal: ai-train=no, search=yes, ai-input=no\n\nSitemap: ${protocol}://${host}/sitemap.xml`);
   });
 
-  // Dynamic Google XML Sitemap Endpoint
-  app.get('/sitemap.xml', async (req, res) => {
+  // Dynamic Google XML Sitemap Index / Single Sitemap Router
+  app.get(['/sitemap.xml', '/api/sitemap'], async (req, res) => {
     try {
       const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
       const host = cleanHostHeader(rawHost);
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
 
-      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-      xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+      const data = await getSitemapDataset();
+      
+      const totalUrlsCount = data.staticUrls.length + data.categoryUrls.length + data.productUrls.length + data.storeUrls.length;
 
-      // 1. Homepage
+      // If total URLs count is within Google's limit for a single sitemap (< 45,000 for safety), serve it as a single sitemap
+      if (totalUrlsCount < 45000) {
+        const allUrls = [
+          ...data.staticUrls,
+          ...data.categoryUrls,
+          ...data.productUrls,
+          ...data.storeUrls
+        ];
+        const xml = generateUrlSetXml(baseUrl, allUrls);
+        res.header('Content-Type', 'application/xml');
+        return res.send(xml);
+      }
+
+      // Otherwise, return a Sitemap Index
       const todayString = new Date().toISOString().split('T')[0];
-      xml += `  <url>\n`;
-      xml += `    <loc>${baseUrl}/</loc>\n`;
-      xml += `    <lastmod>${todayString}</lastmod>\n`;
-      xml += `    <changefreq>daily</changefreq>\n`;
-      xml += `    <priority>1.0</priority>\n`;
-      xml += `  </url>\n`;
+      const sitemaps = [
+        { loc: '/sitemap-static.xml', lastmod: todayString },
+        { loc: '/sitemap-categories.xml', lastmod: todayString }
+      ];
 
-      // 2. Main interactive views
-      const staticViews = ['chats', 'dashboard', 'settings'];
-      for (const view of staticViews) {
-        xml += `  <url>\n`;
-        xml += `    <loc>${baseUrl}/${view}</loc>\n`;
-        xml += `    <lastmod>${todayString}</lastmod>\n`;
-        xml += `    <changefreq>weekly</changefreq>\n`;
-        xml += `    <priority>0.6</priority>\n`;
-        xml += `  </url>\n`;
+      const productsPageCount = Math.ceil(data.productUrls.length / 40000);
+      for (let i = 1; i <= productsPageCount; i++) {
+        sitemaps.push({ loc: `/sitemap-products-${i}.xml`, lastmod: todayString });
       }
 
-      // 2b. Real Category pathways for Google Search Console indexing
-      for (const cat of categorySlugs) {
-        xml += `  <url>\n`;
-        xml += `    <loc>${baseUrl}/${cat}</loc>\n`;
-        xml += `    <lastmod>${todayString}</lastmod>\n`;
-        xml += `    <changefreq>daily</changefreq>\n`;
-        xml += `    <priority>0.9</priority>\n`;
-        xml += `  </url>\n`;
+      const storesPageCount = Math.ceil(data.storeUrls.length / 40000);
+      for (let i = 1; i <= storesPageCount; i++) {
+        sitemaps.push({ loc: `/sitemap-stores-${i}.xml`, lastmod: todayString });
       }
 
-      // 3. Dynamic Products from Firestore REST API via structured runQuery
-      try {
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-        const response = await fetch(firestoreUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [
-                {
-                  collectionId: "products",
-                  allDescendants: false
-                }
-              ],
-              limit: 500
-            }
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const results = Array.isArray(data) ? data : [];
-          for (const item of results) {
-            if (!item || !item.document) continue;
-            const doc = item.document;
-            const nameParts = doc.name ? doc.name.split('/') : [];
-            const id = nameParts[nameParts.length - 1];
-            
-            const fields = doc.fields || {};
-            const title = fields.title?.stringValue || '';
-            const createdAt = fields.createdAt?.stringValue || todayString;
-            const updatedTime = doc.updateTime ? doc.updateTime.split('T')[0] : (createdAt ? createdAt.split('T')[0] : todayString);
-
-            if (id && title) {
-              const slug = slugify(title);
-              const productUrl = `${baseUrl}/product/${id}-${slug}`;
-              xml += `  <url>\n`;
-              xml += `    <loc>${productUrl}</loc>\n`;
-              xml += `    <lastmod>${updatedTime}</lastmod>\n`;
-              xml += `    <changefreq>daily</changefreq>\n`;
-              xml += `    <priority>0.8</priority>\n`;
-              xml += `  </url>\n`;
-            }
-          }
-        } else {
-          console.error('[Sitemap] Failed to fetch active products via runQuery. Status:', response.status);
-        }
-      } catch (err) {
-        console.error('[Sitemap] Failed to fetch active products for sitemap:', err);
-      }
-
-      // 4. Dynamic Sellers / Profiles from Firestore REST API via structured runQuery
-      try {
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-        const response = await fetch(firestoreUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [
-                {
-                  collectionId: "users",
-                  allDescendants: false
-                }
-              ],
-              limit: 500
-            }
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const results = Array.isArray(data) ? data : [];
-          for (const item of results) {
-            if (!item || !item.document) continue;
-            const doc = item.document;
-            const nameParts = doc.name ? doc.name.split('/') : [];
-            const id = nameParts[nameParts.length - 1];
-            
-            const fields = doc.fields || {};
-            const username = fields.username?.stringValue || '';
-            const role = fields.role?.stringValue || 'seller';
-            const updatedTime = doc.updateTime ? doc.updateTime.split('T')[0] : todayString;
-
-            // Only add to sitemap if the user has a username and is a seller/both
-            if (id && username && (role === 'seller' || role === 'both')) {
-              const sellerUrl = `${baseUrl}/seller/${id}`;
-              xml += `  <url>\n`;
-              xml += `    <loc>${sellerUrl}</loc>\n`;
-              xml += `    <lastmod>${updatedTime}</lastmod>\n`;
-              xml += `    <changefreq>weekly</changefreq>\n`;
-              xml += `    <priority>0.7</priority>\n`;
-              xml += `  </url>\n`;
-            }
-          }
-        } else {
-          console.error('[Sitemap] Failed to fetch sellers via runQuery. Status:', response.status);
-        }
-      } catch (err) {
-        console.error('[Sitemap] Failed to fetch sellers for sitemap:', err);
-      }
-
-      xml += `</urlset>\n`;
-
+      const xml = generateSitemapIndexXml(baseUrl, sitemaps);
       res.header('Content-Type', 'application/xml');
-      res.send(xml);
+      return res.send(xml);
     } catch (error) {
-      console.error('[Sitemap] Failed to generate sitemap:', error);
+      console.error('[Sitemap Route] Failed to generate main sitemap:', error);
       res.status(500).send('Error generating sitemap');
+    }
+  });
+
+  // Dynamic Google XML Sitemap - Static URLs
+  app.get(['/sitemap-static.xml', '/api/sitemap-static'], async (req, res) => {
+    try {
+      const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+      const host = cleanHostHeader(rawHost);
+      const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+      const baseUrl = `${protocol}://${host}`;
+
+      const data = await getSitemapDataset();
+      const xml = generateUrlSetXml(baseUrl, data.staticUrls);
+      res.header('Content-Type', 'application/xml');
+      return res.send(xml);
+    } catch (error) {
+      console.error('[Sitemap Route] Failed to generate static sitemap:', error);
+      res.status(500).send('Error');
+    }
+  });
+
+  // Dynamic Google XML Sitemap - Categories
+  app.get(['/sitemap-categories.xml', '/api/sitemap-categories'], async (req, res) => {
+    try {
+      const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+      const host = cleanHostHeader(rawHost);
+      const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+      const baseUrl = `${protocol}://${host}`;
+
+      const data = await getSitemapDataset();
+      const xml = generateUrlSetXml(baseUrl, data.categoryUrls);
+      res.header('Content-Type', 'application/xml');
+      return res.send(xml);
+    } catch (error) {
+      console.error('[Sitemap Route] Failed to generate categories sitemap:', error);
+      res.status(500).send('Error');
+    }
+  });
+
+  // Dynamic Google XML Sitemap - Products (Paginated)
+  app.get(['/sitemap-products-:page(\\d+).xml', '/api/sitemap-products-:page(\\d+)'], async (req, res) => {
+    try {
+      const page = parseInt(req.params.page, 10) || 1;
+      const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+      const host = cleanHostHeader(rawHost);
+      const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+      const baseUrl = `${protocol}://${host}`;
+
+      const data = await getSitemapDataset();
+      
+      const PAGE_SIZE = 40000;
+      const startIndex = (page - 1) * PAGE_SIZE;
+      const endIndex = page * PAGE_SIZE;
+      const pageProducts = data.productUrls.slice(startIndex, endIndex);
+
+      const xml = generateUrlSetXml(baseUrl, pageProducts);
+      res.header('Content-Type', 'application/xml');
+      return res.send(xml);
+    } catch (error) {
+      console.error('[Sitemap Route] Failed to generate products sitemap:', error);
+      res.status(500).send('Error');
+    }
+  });
+
+  // Dynamic Google XML Sitemap - Stores (Paginated)
+  app.get(['/sitemap-stores-:page(\\d+).xml', '/api/sitemap-stores-:page(\\d+)'], async (req, res) => {
+    try {
+      const page = parseInt(req.params.page, 10) || 1;
+      const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+      const host = cleanHostHeader(rawHost);
+      const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+      const baseUrl = `${protocol}://${host}`;
+
+      const data = await getSitemapDataset();
+      
+      const PAGE_SIZE = 40000;
+      const startIndex = (page - 1) * PAGE_SIZE;
+      const endIndex = page * PAGE_SIZE;
+      const pageStores = data.storeUrls.slice(startIndex, endIndex);
+
+      const xml = generateUrlSetXml(baseUrl, pageStores);
+      res.header('Content-Type', 'application/xml');
+      return res.send(xml);
+    } catch (error) {
+      console.error('[Sitemap Route] Failed to generate stores sitemap:', error);
+      res.status(500).send('Error');
     }
   });
 

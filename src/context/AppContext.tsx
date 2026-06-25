@@ -485,7 +485,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // /settings
-    if (pathname === '/settings') {
+    if (pathname === '/settings' || ['/terms', '/privacy', '/help', '/about', '/contact'].includes(pathname)) {
       return { view: 'profile-settings' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
@@ -503,8 +503,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       'other',
       'others'
     ];
-    if (categorySlugs.includes(cleanPath)) {
-      const normalized = normalizeCategory(cleanPath === 'others' ? 'Other' : cleanPath);
+    let matchPath = cleanPath;
+    if (cleanPath.startsWith('category/')) {
+      matchPath = cleanPath.substring(9);
+    }
+    if (categorySlugs.includes(matchPath)) {
+      const normalized = normalizeCategory(matchPath === 'others' ? 'Other' : matchPath);
       return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: normalized };
     }
 
