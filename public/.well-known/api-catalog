@@ -1,15 +1,15 @@
 {
   "linkset": [
     {
-      "anchor": "https://www.tedbuy.store/api",
+      "anchor": "https://tedbuy.store/api",
       "rel": "service-desc",
-      "href": "https://www.tedbuy.store/docs/api-catalog.json",
+      "href": "https://tedbuy.store/docs/api-catalog.json",
       "type": "application/openapi+json"
     },
     {
-      "anchor": "https://www.tedbuy.store/api",
+      "anchor": "https://tedbuy.store/api",
       "rel": "status",
-      "href": "https://www.tedbuy.store/api/health",
+      "href": "https://tedbuy.store/api/health",
       "type": "application/json"
     }
   ]

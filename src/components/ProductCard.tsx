@@ -1,5 +1,5 @@
 import React from 'react';
-import { Product, isUserVerified } from '../types';
+import { Product, isUserVerified, User } from '../types';
 import { useApp } from '../context/AppContext';
 import { MapPin, Eye, Calendar, Tag, Bookmark, Video, Flame } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
@@ -8,10 +8,12 @@ interface ProductCardProps {
   product: Product;
 }
 
+// 1. Context Consumer / Wrapper (keeps re-renders local, only re-evaluating lightweight mapping)
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const {
     currentUser,
     users,
+    usersMap,
     toggleSaveProduct,
     setSelectedProductId,
     setCurrentView,
@@ -20,16 +22,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     updateProduct
   } = useApp();
 
-  const [cardRef, isVisible] = useIntersectionObserver({ rootMargin: '200px' });
-
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
-  const seller = users?.find(u => u.id === product.sellerId);
+  
+  // O(1) user profile resolution utilizing pre-mapped dictionary or array fallback
+  const seller = usersMap ? usersMap.get(product.sellerId) : users?.find(u => u.id === product.sellerId);
   const isSellerVerified = isUserVerified(seller);
-  const isPrioSeller = seller && (
+  const isPrioSeller = !!(seller && (
     (seller.visitCount && seller.visitCount >= 2) ||
     (seller.totalStayTime && seller.totalStayTime >= 40) ||
     (seller.rapidPostScore && seller.rapidPostScore >= 2)
-  );
+  ));
 
   const handleDetailsClick = () => {
     setSelectedProductId(product.id);
@@ -45,6 +47,49 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     }
     toggleSaveProduct(product.id);
   };
+
+  const isAdminOrSeller = !!(currentUser?.isAdmin || currentUser?.id === product.sellerId);
+
+  return (
+    <ProductCardMemo
+      product={product}
+      isSaved={isSaved}
+      seller={seller}
+      isSellerVerified={isSellerVerified}
+      isPrioSeller={isPrioSeller}
+      isAdminOrSeller={isAdminOrSeller}
+      onDetailsClick={handleDetailsClick}
+      onSaveClick={handleSaveClick}
+      onUpdateProduct={updateProduct}
+    />
+  );
+};
+
+// 2. Pure Presentation Component
+interface ProductCardInnerProps {
+  product: Product;
+  isSaved: boolean;
+  seller: User | undefined;
+  isSellerVerified: boolean;
+  isPrioSeller: boolean;
+  isAdminOrSeller: boolean;
+  onDetailsClick: () => void;
+  onSaveClick: (e: React.MouseEvent) => void;
+  onUpdateProduct: (productId: string, data: Partial<Product>) => Promise<any>;
+}
+
+const ProductCardInner: React.FC<ProductCardInnerProps> = ({
+  product,
+  isSaved,
+  seller,
+  isSellerVerified,
+  isPrioSeller,
+  isAdminOrSeller,
+  onDetailsClick,
+  onSaveClick,
+  onUpdateProduct
+}) => {
+  const [cardRef, isVisible] = useIntersectionObserver({ rootMargin: '300px' }); // Increased rootMargin for pre-loading images
 
   const formatProductPrice = (priceVal: string | number) => {
     if (typeof priceVal === 'string') {
@@ -171,7 +216,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const [loaded, setLoaded] = React.useState(false);
 
-  // Format the relative/absolute date
   const dateFormatted = new Date(product.createdAt).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric'
@@ -181,7 +225,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     <article
       ref={cardRef as any}
       id={`product-card-${product.id}`}
-      onClick={handleDetailsClick}
+      onClick={onDetailsClick}
       className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group animate-fade-in"
     >
       {/* Listing image section */}
@@ -276,7 +320,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         {/* Bookmark/Watchlist floating button */}
         <button
           id={`btn-save-product-${product.id}`}
-          onClick={handleSaveClick}
+          onClick={onSaveClick}
           className={`absolute top-2.5 right-2.5 z-25 p-1.5 rounded-full border shadow-3xs flex items-center justify-center transition-all duration-200 outline-none ${
             isSaved
               ? 'bg-rose-500 border-rose-500 text-white hover:bg-rose-600 scale-105'
@@ -288,7 +332,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         </button>
         
         {/* Dynamic bottom status bar on image hover */}
-        {(currentUser?.isAdmin || currentUser?.id === product.sellerId) && (
+        {isAdminOrSeller && (
           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
             <span className="text-[10px] flex items-center gap-1 font-sans">
               <Eye className="w-3 h-3 text-slate-100" />
@@ -334,7 +378,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
           <div className="flex items-center justify-between mt-0.5 text-[10px]">
             <span className="text-slate-400 flex items-center gap-1 flex-wrap">
-              Seller: <b className="text-slate-700 font-semibold">{product.sellerName}</b>
+              Seller: <b className="text-slate-700 font-semibold">{product.sellerName || 'Verified Seller'}</b>
               {isSellerVerified && (
                 <span className="inline-flex items-center gap-0.5 text-[9px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-150/40 px-1 py-0.2 rounded-md" title="Verified Tedbuy Seller">
                   🛡️ Verified
@@ -345,7 +389,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
         </div>
 
-        {(currentUser?.isAdmin || currentUser?.id === product.sellerId) && (
+        {isAdminOrSeller && (
           <div className="pt-2.5 border-t border-dashed border-slate-200 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status Toggle</span>
             <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700">
@@ -354,7 +398,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                 checked={!!product.isSold}
                 onChange={async (e) => {
                   try {
-                    await updateProduct(product.id, { isSold: e.target.checked });
+                    await onUpdateProduct(product.id, { isSold: e.target.checked });
                   } catch (err) {
                     console.error("Failed to update product isSold state", err);
                   }
@@ -369,3 +413,26 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     </article>
   );
 };
+
+// 3. React.memo wrapped presentation component to prevent parent/unrelated re-renders
+const ProductCardMemo = React.memo(ProductCardInner, (prevProps, nextProps) => {
+  return (
+    prevProps.product.id === nextProps.product.id &&
+    prevProps.product.title === nextProps.product.title &&
+    prevProps.product.price === nextProps.product.price &&
+    prevProps.product.isSold === nextProps.product.isSold &&
+    prevProps.product.likesCount === nextProps.product.likesCount &&
+    prevProps.product.viewsCount === nextProps.product.viewsCount &&
+    prevProps.product.category === nextProps.product.category &&
+    prevProps.product.location === nextProps.product.location &&
+    prevProps.product.brand === nextProps.product.brand &&
+    prevProps.product.condition === nextProps.product.condition &&
+    prevProps.isSaved === nextProps.isSaved &&
+    prevProps.isSellerVerified === nextProps.isSellerVerified &&
+    prevProps.isPrioSeller === nextProps.isPrioSeller &&
+    prevProps.isAdminOrSeller === nextProps.isAdminOrSeller &&
+    prevProps.seller?.id === nextProps.seller?.id &&
+    prevProps.seller?.isOnline === nextProps.seller?.isOnline &&
+    prevProps.seller?.visitCount === nextProps.seller?.visitCount
+  );
+});

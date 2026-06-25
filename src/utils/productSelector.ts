@@ -143,6 +143,15 @@ export function createProductSelector() {
       return matchesCategory && matchesSearch && matchesRegion && matchesCity && matchesMinPrice && matchesMaxPrice && matchesExtra;
     });
 
+    const userMap = new Map<string, User>();
+    if (users) {
+      users.forEach(u => {
+        if (u && u.id) {
+          userMap.set(u.id, u);
+        }
+      });
+    }
+
     const getAdRankingScore = (product: Product): {
       rankingScore: number;
       sellerActivityScore: number;
@@ -152,7 +161,7 @@ export function createProductSelector() {
     } => {
       // 1. Seller Activity Score (40% weight)
       let sellerActivityScore = 0;
-      const seller = users?.find(u => u.id === product.sellerId);
+      const seller = userMap.get(product.sellerId);
       if (seller) {
         // Online status (Max 40 pts)
         if (seller.isOnline) {

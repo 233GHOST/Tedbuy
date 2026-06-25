@@ -99,6 +99,7 @@ interface AppContextType {
   currentUser: User | null;
   setCurrentUser: (user: User | null) => void;
   users: User[];
+  usersMap?: Map<string, User>;
   registerUser: (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => Promise<User>;
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   resetPasswordEmail: (email: string) => Promise<void>;
@@ -265,6 +266,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     usersRef.current = users;
   }, [users]);
 
+  const usersMap = useMemo(() => {
+    const map = new Map<string, User>();
+    users.forEach(u => map.set(u.id, u));
+    return map;
+  }, [users]);
+
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
@@ -368,7 +375,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [isProductsLoading, setIsProductsLoading] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tedbuy_local_products_backup');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return false;
+        }
+      }
+    } catch {}
+    return true;
+  });
   const [productsLoadError, setProductsLoadError] = useState(false);
   const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
 
@@ -1299,34 +1317,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsProductsLoading(true);
     }
 
-    let didFireSnapshot = false;
-    let fallbackAttempted = false;
+    let proxyFetchCompleted = false;
+    let active = true;
 
-    // Modern browser / Safari resilient timeout safeguard:
-    // If the database connection hangs, is blocked by sandboxed iframes, or the user is offline
-    // and no response is returned within 10 seconds (STEP 11), stop skeletons and log failure.
-    const safetyTimeout = setTimeout(() => {
-      setIsProductsLoading((currentlyLoading) => {
-        if (currentlyLoading) {
-          console.error('[Safari/IFrame Rescue] Product loading has exceeded 10 seconds. Terminating skeleton loaders and falling back to offline/local database backup.');
-          setProductsLoadError(true);
-          
-          if (products.length === 0) {
-            try {
-              const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
-              if (savedListStr) {
-                const parsed = JSON.parse(savedListStr) as Product[];
-                setProducts(parsed.filter(isRealProduct));
-              }
-            } catch (err) {
-              console.warn('[Safari Rescue] Could not restore cached products:', err);
-            }
+    const processProductList = (rawList: Product[]) => {
+      const pList: Product[] = [];
+      rawList.forEach((item: any) => {
+        if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
+          if (item.category) {
+            item.category = normalizeCategory(item.category);
           }
+          pList.push(item);
         }
-        return false;
       });
-    }, 10000);
 
+      // Merge locally created products
+      try {
+        const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
+        const createdList = JSON.parse(createdStr) as Product[];
+        createdList.forEach(localProd => {
+          if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
+            pList.push(localProd);
+          }
+        });
+      } catch (_) {}
+
+      // Apply locally updated overrides
+      try {
+        const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
+        const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
+        pList.forEach((prod, idx) => {
+          if (overrides[prod.id]) {
+            const { likesCount, likedUserIds, viewsCount, ...fieldsToOverride } = overrides[prod.id];
+            pList[idx] = { ...prod, ...fieldsToOverride };
+          }
+        });
+      } catch (_) {}
+
+      return pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    };
+
+    // 1. Proactive & Lightning-fast Server-side REST API proxy fetch
+    const fetchFromProxy = async () => {
+      try {
+        console.log('[Product Loading] Loading listings from local Express proxy...');
+        const proxyRes = await fetch('/api/products');
+        if (!active) return;
+
+        if (proxyRes.ok) {
+          const body = await proxyRes.json();
+          // Success check: an empty array of products is a perfectly valid successful state.
+          if (body.success && Array.isArray(body.products)) {
+            proxyFetchCompleted = true;
+            console.log('[Product Loading] Proxy fetched products successfully. Count:', body.products.length);
+            
+            const sorted = processProductList(body.products);
+            setProducts(sorted);
+            setIsProductsLoading(false);
+            setProductsLoadError(false);
+            setHasMoreProducts(false);
+
+            try {
+              safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+            } catch (err) {
+              console.warn('Could not save product backups to local storage:', err);
+            }
+          } else {
+            console.warn('[Product Loading] Proxy response payload was invalid:', body);
+          }
+        } else {
+          console.warn('[Product Loading] Proxy returned error status:', proxyRes.status);
+        }
+      } catch (err) {
+        console.warn('[Product Loading] Express proxy fetch failed:', err);
+      }
+    };
+
+    // Trigger the REST API fetch immediately on mount
+    fetchFromProxy();
+
+    // 2. Real-time snapshot connection to keep listings updated dynamically
     const q = query(
       collection(db, 'products'),
       orderBy('createdAt', 'desc')
@@ -1334,93 +1404,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     let unsub: (() => void) | null = null;
 
-    const handleSnapshotError = async (error: any) => {
-      console.warn('[Safari Rescue] Real-time listener subscription failed or blocked. Attempting getDocs recovery fallback:', error);
-      if (fallbackAttempted) {
-        clearTimeout(safetyTimeout);
-        handleFirestoreError(error, OperationType.LIST, 'products');
-        setProductsLoadError(true);
-        setIsProductsLoading(false);
-        return;
-      }
-      fallbackAttempted = true;
+    try {
+      unsub = onSnapshot(q, (snapshot) => {
+        if (!active) return;
+        console.log('[Product Loading] Real-time onSnapshot event received!');
 
-      try {
-        const pList: Product[] = [];
-        let fetchSuccess = false;
-
-        // Try fetching via fast, same-origin Express proxy `/api/products` first
-        try {
-          console.log('[Safari Rescue] Querying Express proxy /api/products for initial products...');
-          const proxyRes = await fetch('/api/products');
-          if (proxyRes.ok) {
-            const body = await proxyRes.json();
-            if (body.success && Array.isArray(body.products) && body.products.length > 0) {
-              console.log('[Safari Rescue] Successfully fetched products list from local Express proxy!', body.products.length);
-              const rawList = body.products as Product[];
-              rawList.forEach((item: any) => {
-                if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
-                  if (item.category) {
-                    item.category = normalizeCategory(item.category);
-                  }
-                  pList.push(item);
-                }
-              });
-              fetchSuccess = true;
-            }
+        const rawList: Product[] = [];
+        snapshot.forEach(docSnap => {
+          const item = {
+            ...docSnap.data() as Product,
+            id: docSnap.id
+          };
+          if (item.id !== 'prod_1780927804590') {
+            rawList.push(item);
+          } else {
+            // Self-healing: clear demo listings from database if they are found
+            try {
+              deleteDoc(doc(db, 'products', item.id)).catch(() => {});
+            } catch (_) {}
           }
-        } catch (proxyError) {
-          console.warn('[Safari Rescue] Local Express proxy fetch failed:', proxyError);
-        }
+        });
 
-        // If local proxy failed, fallback to standard Firestore getDocs
-        if (!fetchSuccess) {
-          console.log('[Safari Rescue] Proxy fallback wasn\'t successful, falling back to standard getDocs...');
-          const snapshot = await getDocs(q);
-          snapshot.forEach(docSnap => {
-            const item = {
-              ...docSnap.data() as Product,
-              id: docSnap.id
-            };
-            if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
-              if (item.category) {
-                item.category = normalizeCategory(item.category);
-              }
-              pList.push(item);
-            }
-          });
-          fetchSuccess = true;
-        }
-
-        clearTimeout(safetyTimeout);
-        setProductsLoadError(false);
-
-        // Merge locally created products
-        try {
-          const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
-          const createdList = JSON.parse(createdStr) as Product[];
-          createdList.forEach(localProd => {
-            if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
-              pList.push(localProd);
-            }
-          });
-        } catch (_) {}
-
-        // Apply locally updated overrides
-        try {
-          const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
-          const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
-          pList.forEach((prod, idx) => {
-            if (overrides[prod.id]) {
-              const { likesCount, likedUserIds, viewsCount, ...fieldsToOverride } = overrides[prod.id];
-              pList[idx] = { ...prod, ...fieldsToOverride };
-            }
-          });
-        } catch (_) {}
-
-        const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const sorted = processProductList(rawList);
         setProducts(sorted);
         setIsProductsLoading(false);
+        setProductsLoadError(false);
         setHasMoreProducts(false);
 
         try {
@@ -1428,97 +1436,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch (err) {
           console.warn('Could not save product backups to local storage:', err);
         }
-      } catch (fallbackErr) {
-        clearTimeout(safetyTimeout);
-        handleFirestoreError(fallbackErr, OperationType.LIST, 'products_fallback');
-        setProductsLoadError(true);
-        setIsProductsLoading(false);
-      }
-    };
-
-    // Proactive REST fallback: If stream hangs for more than 3.5 seconds (highly likely in sandboxed iframes),
-    // proactively query once via getDocs which uses simple POST/GET polling.
-    const proactiveFallbackTimeout = setTimeout(() => {
-      if (!didFireSnapshot && !fallbackAttempted) {
-        console.warn('[Safari Rescue] onSnapshot stream hasn\'t responded in 3.5s. Proactively calling getDocs recovery fallback.');
-        handleSnapshotError(new Error('OnSnapshot initial stream hang'));
-      }
-    }, 3500);
-
-    try {
-      unsub = onSnapshot(q, (snapshot) => {
-        didFireSnapshot = true;
-        clearTimeout(proactiveFallbackTimeout);
-        // Clear safety timeout as data arrived!
-        clearTimeout(safetyTimeout);
-        setProductsLoadError(false);
-
-        const pList: Product[] = [];
-        snapshot.forEach(docSnap => {
-          const item = {
-            ...docSnap.data() as Product,
-            id: docSnap.id
-          };
-          if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
-            if (item.category) {
-              item.category = normalizeCategory(item.category);
-            }
-            pList.push(item);
-          } else {
-            if (item.id === 'prod_1780927804590') {
-              // Self-healing: clear demo listings from database if they are found
-              try {
-                deleteDoc(doc(db, 'products', item.id)).catch(() => {});
-              } catch (_) {}
-            }
-          }
-        });
-
-        // Merge locally created products that aren't yet in the server list
-        try {
-          const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
-          const createdList = JSON.parse(createdStr) as Product[];
-          createdList.forEach(localProd => {
-            if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
-              pList.push(localProd);
-            }
-          });
-        } catch (_) {}
-
-        // Apply locally updated overrides
-        try {
-          const overridesStr = safeLocalStorage.getItem('tedbuy_local_products_overrides') || '{}';
-          const overrides = JSON.parse(overridesStr) as Record<string, Partial<Product>>;
-          pList.forEach((prod, idx) => {
-            if (overrides[prod.id]) {
-              // Filter out social and dynamic fields from local overrides so they don't block server synced value
-              const { likesCount, likedUserIds, viewsCount, ...fieldsToOverride } = overrides[prod.id];
-              pList[idx] = { ...prod, ...fieldsToOverride };
-            }
-          });
-        } catch (_) {}
-
-        const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setProducts(sorted);
-        setIsProductsLoading(false);
-        setHasMoreProducts(false); // Since we have fully synchronized all products, there are no more to fetch from the server!
-
-        try {
-          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
-        } catch (err) {
-          console.warn('Could not save product backups to local storage:', err);
-        }
       }, (error) => {
-        handleSnapshotError(error);
+        console.warn('[Product Loading] onSnapshot subscription had a network issue or was blocked:', error);
+        
+        // If we haven't completed the proxy fetch and onSnapshot fails, we try a fallback standard client-side getDocs
+        if (!proxyFetchCompleted && active) {
+          console.log('[Product Loading] Attempting fallback client-side getDocs fetch...');
+          getDocs(q).then((snapshot) => {
+            if (!active) return;
+            const rawList: Product[] = [];
+            snapshot.forEach(docSnap => {
+              const item = {
+                ...docSnap.data() as Product,
+                id: docSnap.id
+              };
+              if (item.id !== 'prod_1780927804590') {
+                rawList.push(item);
+              }
+            });
+
+            const sorted = processProductList(rawList);
+            setProducts(sorted);
+            setIsProductsLoading(false);
+            setProductsLoadError(false);
+            setHasMoreProducts(false);
+
+            try {
+              safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+            } catch (err) {
+              console.warn('Could not save product backups to local storage:', err);
+            }
+          }).catch((getDocsErr) => {
+            if (!active) return;
+            console.error('[Product Loading] getDocs fallback failed:', getDocsErr);
+            
+            // If we have absolutely no products loaded, restore local storage cached backup
+            if (products.length === 0) {
+              try {
+                const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
+                if (savedListStr) {
+                  const parsed = JSON.parse(savedListStr) as Product[];
+                  setProducts(parsed.filter(isRealProduct));
+                }
+              } catch (restoreErr) {
+                console.warn('Could not restore cached products:', restoreErr);
+              }
+            }
+            // Do not force error flag unless both REST API and Firestore completely fail
+            if (products.length === 0) {
+              setProductsLoadError(true);
+            }
+            setIsProductsLoading(false);
+          });
+        }
       });
     } catch (err) {
-      console.warn('[Safari Rescue] onSnapshot registration threw immediately:', err);
-      handleSnapshotError(err);
+      console.warn('[Product Loading] onSnapshot registration threw immediately:', err);
     }
 
     return () => {
-      clearTimeout(proactiveFallbackTimeout);
-      clearTimeout(safetyTimeout);
+      active = false;
       if (unsub) {
         unsub();
       }
@@ -4174,6 +4151,7 @@ CEO, Tedbuy Inc`;
       currentUser: memoizedCurrentUser,
       setCurrentUser: setCurrentUserState,
       users,
+      usersMap,
       registerUser,
       loginUser,
       resetPasswordEmail,

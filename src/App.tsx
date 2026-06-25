@@ -391,7 +391,7 @@ const MarketplaceContent: React.FC = () => {
   const [maxPrice, setMaxPrice] = useState<string>('');
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
-  const [displayLimit, setDisplayLimit] = useState<number>(12);
+  const [displayLimit, setDisplayLimit] = useState<number>(24);
   const scrollSentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Dynamic category-specific extra filters state
@@ -404,7 +404,7 @@ const MarketplaceContent: React.FC = () => {
 
   // Reset pagination limit when any filter parameters change to ensure fast and lightweight mobile rendering
   React.useEffect(() => {
-    setDisplayLimit(12);
+    setDisplayLimit(24);
   }, [selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters]);
 
 

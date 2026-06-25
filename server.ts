@@ -742,51 +742,81 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
   app.get('/api/products', serverRateLimiter(60 * 1000, 120, "products-list"), async (req, res) => {
     try {
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products?pageSize=300${apiKey ? `&key=${apiKey}` : ""}`;
-      const response = await fetch(firestoreUrl);
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+      const response = await fetch(firestoreUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          structuredQuery: {
+            from: [
+              {
+                collectionId: "products",
+                allDescendants: false
+              }
+            ],
+            orderBy: [
+              {
+                field: {
+                  fieldPath: "createdAt"
+                },
+                direction: "DESCENDING"
+              }
+            ],
+            limit: 300
+          }
+        })
+      });
+
       if (!response.ok) {
         throw new Error(`Firestore REST API returned ${response.status}`);
       }
+
       const data = await response.json();
-      const documents = data.documents || [];
-      const productsList = documents.map((doc: any) => {
-        try {
-          const fields = doc.fields || {};
-          const result: any = {};
-          
-          const parseVal = (val: any): any => {
-            if (!val) return undefined;
-            if ('stringValue' in val) return val.stringValue;
-            if ('integerValue' in val) return parseInt(val.integerValue, 10);
-            if ('doubleValue' in val) return parseFloat(val.doubleValue);
-            if ('booleanValue' in val) return val.booleanValue;
-            if ('arrayValue' in val) {
-              const arr = val.arrayValue?.values || [];
-              return arr.map((item: any) => parseVal(item));
-            }
-            if ('mapValue' in val) {
-              const mapFields = val.mapValue?.fields || {};
-              const mapResult: any = {};
-              for (const k of Object.keys(mapFields)) {
-                mapResult[k] = parseVal(mapFields[k]);
+      const results = Array.isArray(data) ? data : [];
+      
+      const productsList = results
+        .filter((item: any) => item && item.document)
+        .map((item: any) => {
+          try {
+            const doc = item.document;
+            const fields = doc.fields || {};
+            const result: any = {};
+            
+            const parseVal = (val: any): any => {
+              if (!val) return undefined;
+              if ('stringValue' in val) return val.stringValue;
+              if ('integerValue' in val) return parseInt(val.integerValue, 10);
+              if ('doubleValue' in val) return parseFloat(val.doubleValue);
+              if ('booleanValue' in val) return val.booleanValue;
+              if ('arrayValue' in val) {
+                const arr = val.arrayValue?.values || [];
+                return arr.map((sub: any) => parseVal(sub));
               }
-              return mapResult;
+              if ('mapValue' in val) {
+                const mapFields = val.mapValue?.fields || {};
+                const mapResult: any = {};
+                for (const k of Object.keys(mapFields)) {
+                  mapResult[k] = parseVal(mapFields[k]);
+                }
+                return mapResult;
+              }
+              return undefined;
+            };
+
+            for (const key of Object.keys(fields)) {
+              result[key] = parseVal(fields[key]);
             }
-            return undefined;
-          };
 
-          for (const key of Object.keys(fields)) {
-            result[key] = parseVal(fields[key]);
+            const nameParts = doc.name ? doc.name.split('/') : [];
+            result.id = nameParts[nameParts.length - 1] || '';
+            return result;
+          } catch (err) {
+            console.error('[Products API] Error parsing document:', err);
+            return null;
           }
-
-          const nameParts = doc.name ? doc.name.split('/') : [];
-          result.id = nameParts[nameParts.length - 1] || '';
-          return result;
-        } catch (err) {
-          console.error('[Products API] Error parsing document:', err);
-          return null;
-        }
-      }).filter(Boolean);
+        }).filter(Boolean);
 
       res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.json({ success: true, products: productsList });
