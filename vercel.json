@@ -1,6 +1,7 @@
 {
   "cleanUrls": true,
   "rewrites": [
+    { "source": "/__/auth/:path*", "destination": "https://tedbuy-fb79a.firebaseapp.com/__/auth/:path*" },
     { "source": "/robots.txt", "destination": "/api/robots" },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/sitemap-static.xml", "destination": "/api/sitemap-static" },
