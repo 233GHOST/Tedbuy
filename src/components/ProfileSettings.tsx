@@ -1022,6 +1022,14 @@ export const ProfileSettings: React.FC = () => {
                   a: "To ensure a clean marketplace, buyers and sellers can undergo system verification. This validates active email accounts and increases community safety. Complete your verification securely inside your Profile Settings."
                 },
                 {
+                  q: "How does the secure peer trade delivery tracking work?",
+                  a: "Inside your secure chat, the seller can mark an item as 'Delivered' once dispatched. The buyer is then prompted to confirm 'Picked Up'. Once both actions are complete, the trade advances to a 'Completed' state. For security, once a trade reaches this completed terminal state, it is locked against further modification by any standard user to protect the integrity of the transaction."
+                },
+                {
+                  q: "How does TedBuy prevent fake likes or database tampering?",
+                  a: "Our system employs state-of-the-art Firestore rule verification and cryptographic token integrity checks. Likes and views cannot be manipulated or inflated via automated scripts. A user can only toggle their own like once, and notifications are securely bound to the active triggering sender to prevent spoofing or unauthorized database injections."
+                },
+                {
                   q: "Are there listing fees?",
                   a: "Posting classified ads on Tedbuy Ghana is completely free. We do not charge listing fees or commissions. Trades and payments are completed directly between peers."
                 }

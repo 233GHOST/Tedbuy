@@ -343,10 +343,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
       if (stored) {
         const parsed = JSON.parse(stored) as User;
-        if (parsed.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' || parsed.isAdmin === true) {
+        if (parsed.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
           parsed.isAdmin = true;
         } else {
-          // Prevent local storage manipulation from injecting admin permissions on the client
+          // Prevent local storage manipulation or Firestore field injection from injecting admin permissions on the client
           delete parsed.isAdmin;
         }
         return parsed;
@@ -361,7 +361,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUserStateRaw(prev => {
       let next = typeof val === 'function' ? val(prev) : val;
       if (next) {
-        const isSuperAdmin = next.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com' || next.isAdmin === true;
+        const isSuperAdmin = next.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com';
         if (isSuperAdmin) {
           next = { ...next, isAdmin: true };
         } else {

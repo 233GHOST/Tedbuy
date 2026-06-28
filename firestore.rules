@@ -16,12 +16,12 @@ service cloud.firestore {
       );
     }
 
-    // Helper to check if user has admin privileges based on Firebase Custom Claims
+    // Helper to check if user has admin privileges based on Firebase Custom Claims or Verified Super Admin Email
     function isAdmin() {
-      return isSignedIn() && 
-             request.auth.token != null && 
-             "admin" in request.auth.token && 
-             request.auth.token.admin == true;
+      return isSignedIn() && (
+        (request.auth.token != null && "admin" in request.auth.token && request.auth.token.admin == true) ||
+        (request.auth.token != null && "email" in request.auth.token && request.auth.token.email.lower() == "asumaduvincent7@gmail.com" && request.auth.token.email_verified == true)
+      );
     }
 
     function incoming() {
@@ -52,11 +52,12 @@ service cloud.firestore {
       }
 
       allow read: if true; // Public marketplace profiles are viewable by everyone
-      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && (incoming().get('isAdmin', false) == false || isAdmin());
       allow update: if (isOwner(userId) || isAdmin()) &&
                     isValidId(userId) &&
                     isValidUser(incoming()) &&
-                    incoming().get('id', userId) == existing().get('id', userId);
+                    incoming().get('id', userId) == existing().get('id', userId) &&
+                    (incoming().get('isAdmin', false) == existing().get('isAdmin', false) || isAdmin());
       allow delete: if isSignedIn() && (isOwner(userId) || isAdmin());
     }
 
@@ -77,7 +78,16 @@ service cloud.firestore {
                       // Let social-only increments run with strict integrity checks
                       (incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount', 'likesCount', 'likedUserIds']) &&
                        (incoming().get('viewsCount', 0) == existing().get('viewsCount', 0) + 1 || incoming().get('viewsCount', 0) == existing().get('viewsCount', 0)) &&
-                       incoming().get('likesCount', 0) == incoming().get('likedUserIds', []).size()
+                       (!incoming().diff(existing()).affectedKeys().hasAny(['likesCount', 'likedUserIds']) || (
+                          isSignedIn() &&
+                          incoming().get('likesCount', 0) == incoming().get('likedUserIds', []).size() &&
+                          (
+                            (incoming().get('likedUserIds', []).size() == existing().get('likedUserIds', []).size() + 1 &&
+                             incoming().get('likedUserIds', []).toSet().difference(existing().get('likedUserIds', []).toSet()).hasOnly([request.auth.uid])) ||
+                            (incoming().get('likedUserIds', []).size() == existing().get('likedUserIds', []).size() - 1 &&
+                             existing().get('likedUserIds', []).toSet().difference(incoming().get('likedUserIds', []).toSet()).hasOnly([request.auth.uid]))
+                          )
+                       ))
                       )
                     );
       allow delete: if isAdmin() || isOwner(existing().get('sellerId', ''));
@@ -95,22 +105,52 @@ service cloud.firestore {
 
       allow read: if isSignedIn() && (isOwner(resource.data.get('buyerId', '')) || isOwner(resource.data.get('sellerId', '')) || isAdmin());
       allow create: if isSignedIn() && (isOwner(incoming().get('buyerId', '')) || isAdmin()) && isValidId(chatId) && isValidChat(incoming());
-      allow update: if isSignedIn() && (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', '')) || isAdmin()) && isValidId(chatId) && 
-                    isValidChat(incoming()) &&
-                    incoming().get('id', chatId) == existing().get('id', chatId) &&
-                    incoming().get('buyerId', '') == existing().get('buyerId', '') &&
-                    incoming().get('sellerId', '') == existing().get('sellerId', '');
+      allow update: if isSignedIn() && isValidId(chatId) && isValidChat(incoming()) && (
+                      isAdmin() || (
+                        // Terminal State Lock: Once completed, no further updates by normal users are allowed
+                        existing().get('tradeStatus', 'pending') != 'completed' &&
+                        incoming().get('id', chatId) == existing().get('id', chatId) &&
+                        incoming().get('buyerId', '') == existing().get('buyerId', '') &&
+                        incoming().get('sellerId', '') == existing().get('sellerId', '') &&
+                        (
+                          // Action 1: New message text sent (any chat participant)
+                          ( (isOwner(existing().get('buyerId', '')) || isOwner(existing().get('sellerId', ''))) &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['lastMessageText', 'lastMessageTime'])
+                          ) ||
+                          // Action 2: Seller marks as delivered
+                          ( isOwner(existing().get('sellerId', '')) &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['deliveredBySeller', 'tradeStatus', 'lastMessageText', 'lastMessageTime']) &&
+                            incoming().get('deliveredBySeller', false) == true &&
+                            incoming().get('tradeStatus', '') == 'delivered' &&
+                            incoming().get('pickedUpByBuyer', false) == existing().get('pickedUpByBuyer', false)
+                          ) ||
+                          // Action 3: Buyer marks as completed/picked up
+                          ( isOwner(existing().get('buyerId', '')) &&
+                            incoming().diff(existing()).affectedKeys().hasOnly(['pickedUpByBuyer', 'tradeStatus', 'lastMessageText', 'lastMessageTime']) &&
+                            incoming().get('pickedUpByBuyer', false) == true &&
+                            incoming().get('tradeStatus', '') == 'completed' &&
+                            existing().get('deliveredBySeller', false) == true &&
+                            incoming().get('deliveredBySeller', false) == true
+                          )
+                        )
+                      )
+                    );
       allow delete: if isAdmin();
     }
 
     // 4. Messages Collection rules
     match /messages/{messageId} {
       function isValidMessage(data) {
+        let chat = get(/databases/$(database)/documents/chats/$(data.get('chatId', ''))).data;
         return data.get('id', messageId) is string && data.get('id', messageId).size() <= 128 &&
                data.get('chatId', '') is string && data.get('chatId', '').size() <= 128 &&
                isOwner(data.get('senderId', '')) &&
                data.get('recipientId', '') is string && data.get('recipientId', '').size() <= 128 &&
-               data.get('text', '') is string && data.get('text', '').size() <= 5000;
+               data.get('text', '') is string && data.get('text', '').size() <= 5000 &&
+               (
+                 (data.get('senderId', '') == chat.get('buyerId', '') && data.get('recipientId', '') == chat.get('sellerId', '')) ||
+                 (data.get('senderId', '') == chat.get('sellerId', '') && data.get('recipientId', '') == chat.get('buyerId', ''))
+               );
       }
 
       allow read: if isSignedIn() && (isOwner(resource.data.get('senderId', '')) || isOwner(resource.data.get('recipientId', '')) || isAdmin());
@@ -149,9 +189,18 @@ service cloud.firestore {
 
     // 7. Notifications Collection rules (strictly bound to active recipient owner)
     match /notifications/{notificationId} {
-      allow read: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
-      allow create: if isSignedIn(); // Interactive notifications (follow, like, message) are permissible for creation
-      allow update, delete: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
+      function isValidNotification(data) {
+        return data.get('id', notificationId) is string && data.get('id', notificationId).size() <= 128 &&
+               data.get('userId', '') is string && data.get('userId', '').size() <= 128 &&
+               data.get('type', '') in ['post_created', 'new_follower'] &&
+               data.get('title', '') is string && data.get('title', '').size() <= 500 &&
+               data.get('message', '') is string && data.get('message', '').size() <= 1000 &&
+               data.get('triggerUserId', '') == request.auth.uid;
+      }
+
+      allow read: if isSignedIn() && (isOwner(resource.data.get('userId', '')) || isAdmin());
+      allow create: if isSignedIn() && isValidId(notificationId) && isValidNotification(incoming());
+      allow update, delete: if isSignedIn() && (isOwner(resource.data.get('userId', '')) || isAdmin());
     }
 
     // 8. StoreNames Collection rules (strictly bound to owner claims)

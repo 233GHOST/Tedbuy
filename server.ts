@@ -108,7 +108,14 @@ async function validateImageUrlSecurely(urlStr: string): Promise<boolean> {
 app.use((req, res, next) => {
   const logLine = `${new Date().toISOString()} [Express Log] ${req.method} ${req.url} | Body keys: ${Object.keys(req.body || {})}\n`;
   try {
-    fs.appendFileSync(path.resolve(process.cwd(), "express_requests.log"), logLine);
+    const logPath = path.resolve(process.cwd(), "express_requests.log");
+    if (fs.existsSync(logPath)) {
+      const stats = fs.statSync(logPath);
+      if (stats.size > 5 * 1024 * 1024) { // 5MB Cap
+        fs.writeFileSync(logPath, `--- LOGS ROTATED & RESET ${new Date().toISOString()} ---\n`);
+      }
+    }
+    fs.appendFileSync(logPath, logLine);
   } catch (e) {
     // ignore
   }
@@ -1048,6 +1055,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     const cleanName = username || email.split('@')[0] || 'there';
+    const escapedName = escapeHtml(cleanName);
 
     try {
       const transporter = getMailTransporter();
@@ -1095,7 +1103,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       <h2>Welcome to Tedbuy</h2>
     </div>
     <div class="content">
-      <p style="font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 24px;">Hi ${cleanName},</p>
+      <p style="font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 24px;">Hi ${escapedName},</p>
       
       <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
       
