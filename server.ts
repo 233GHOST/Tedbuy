@@ -176,6 +176,8 @@ try {
   console.error('[Products Cache] Failed to load/initialize cache file:', cacheErr);
 }
 
+let isGCPServiceAccountAuthorized = true;
+
 try {
   if (getApps().length === 0) {
     initializeAdminApp({
@@ -183,12 +185,23 @@ try {
     });
   }
   adminDb = getFirestore();
-  console.log('[Firebase Admin] Successfully initialized Firestore Admin client.');
+  console.log('[Firebase Admin] Successfully initialized Firestore Admin client. Running permission pre-flight check...');
+  
+  // Asynchronously test Admin SDK permissions without blocking server start.
+  adminDb.collection('products').limit(1).get()
+    .then(() => {
+      console.log('[Firebase Admin] Permission pre-flight check passed. Service Account is fully authorized.');
+    })
+    .catch((err: any) => {
+      console.warn('[Firebase Admin] Permission pre-flight check failed. Proactively falling back to REST API:', err.message || err);
+      if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission')) {
+        isGCPServiceAccountAuthorized = false;
+        adminDb = null;
+      }
+    });
 } catch (err: any) {
   console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
 }
-
-let isGCPServiceAccountAuthorized = true;
 
 // Dynamically fetch GCP service account token if running on Cloud Run
 async function getGCPMetadataToken() {
