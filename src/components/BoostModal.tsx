@@ -223,6 +223,17 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
       if (response.ok && data.success) {
         setCheckoutStep('success');
         showToast('Payment verified successfully! Boost activated.', 'success');
+        
+        // Optimistically update the product status in local memory instantly
+        if (data.product) {
+          try {
+            await updateProduct(product.id, data.product);
+            console.log('[BoostModal] Optimistically updated product local state:', data.product);
+          } catch (updateErr) {
+            console.warn('[BoostModal] Failed to optimistically update product state locally:', updateErr);
+          }
+        }
+
         await refreshProducts();
         if (onSuccess) onSuccess();
       } else {

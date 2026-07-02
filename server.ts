@@ -188,8 +188,14 @@ try {
   console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
 }
 
+let isGCPServiceAccountAuthorized = true;
+
 // Dynamically fetch GCP service account token if running on Cloud Run
 async function getGCPMetadataToken() {
+  if (!isGCPServiceAccountAuthorized) {
+    console.log('[GCP Metadata] Skipping GCP service account token since it is marked as unauthorized.');
+    return null;
+  }
   try {
     const res = await fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token', {
       headers: { 'Metadata-Flavor': 'Google' },
@@ -243,7 +249,11 @@ async function getProductData(productId: string) {
         productDataCache.set(productId, { data: null, timestamp: now });
         return null;
       } catch (adminErr: any) {
-        console.error('[Meta Crawler] Admin SDK getProductData failed, falling back to REST:', adminErr);
+        console.warn('[Meta Crawler] Admin SDK getProductData failed, falling back to REST:', adminErr?.message || adminErr);
+        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
       }
     }
 
@@ -586,7 +596,11 @@ async function getSellerData(sellerId: string) {
         sellerDataCache.set(sellerId, { data: null, timestamp: now });
         return null;
       } catch (adminErr: any) {
-        console.error('[Meta Crawler] Admin SDK getSellerData failed, falling back to REST:', adminErr);
+        console.warn('[Meta Crawler] Admin SDK getSellerData failed, falling back to REST:', adminErr?.message || adminErr);
+        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
       }
     }
 
@@ -1105,6 +1119,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           adminFetchedSuccessfully = true;
         } catch (adminErr: any) {
           console.warn('[Products API] Admin SDK fetch warning (graceful fall back to REST):', adminErr?.message || adminErr);
+          if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+            isGCPServiceAccountAuthorized = false;
+            adminDb = null;
+          }
         }
       }
 
@@ -1304,7 +1322,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
         return null;
       } catch (adminErr: any) {
-        // Fall back to REST API gracefully
+        console.warn('[Firebase Admin] Fetching product failed with Admin SDK, falling back to REST API:', adminErr?.message || adminErr);
+        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
       }
     }
 
@@ -1357,7 +1379,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         await adminDb.collection('products').doc(productId).update(updatedFields);
         return { name: `projects/${projectId}/databases/(default)/documents/products/${productId}` };
       } catch (adminErr: any) {
-        // Fall back to REST API gracefully
+        console.warn('[Firebase Admin] Product update failed with Admin SDK, falling back to REST API:', adminErr?.message || adminErr);
+        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
       }
     }
 
@@ -1437,6 +1463,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       if (!res.ok) {
         const text = await res.text();
+        if ((res.status === 403 || res.status === 401) && gcpToken) {
+          console.warn('[Firestore PATCH] 403/401 Forbidden with GCP Service Account token. Disabling GCP Service Account administrative privileges.');
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
         throw new Error(`PATCH request failed with status ${res.status}: ${text}`);
       }
 
@@ -1454,7 +1485,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         await adminDb.collection('boost_purchases').add(purchaseData);
         return;
       } catch (adminErr: any) {
-        // Fall back to REST API gracefully
+        console.warn('[Firebase Admin] Creating boost purchase failed with Admin SDK, checking fallback:', adminErr.message || adminErr);
+        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
       }
     }
 
@@ -1489,11 +1524,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         console.log('[Firestore POST] Attaching client provided Custom Auth token.');
       }
 
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify({ fields })
       });
+
+      if (!res.ok) {
+        const text = await res.text();
+        if ((res.status === 403 || res.status === 401) && gcpToken) {
+          console.warn('[Firestore POST] 403/401 Forbidden with GCP Service Account token. Disabling GCP Service Account administrative privileges.');
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
+        throw new Error(`POST request failed with status ${res.status}: ${text}`);
+      }
     } catch (err) {
       console.error('[Firestore REST POST] Error creating boost purchase record:', err);
     }
@@ -1642,14 +1687,31 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (adminDb) {
         try {
           console.log(`[Firebase Admin] Executing robust atomic transaction to activate boost for product: ${productId}`);
+          
+          const docRef = adminDb.collection('products').doc(productId);
+          let docSnap = await docRef.get();
+          let retryCount = 0;
+          const maxRetries = 5;
+          const retryDelayMs = 1000;
+          
+          while (!docSnap.exists && retryCount < maxRetries) {
+            retryCount++;
+            console.log(`[Firebase Admin Lag Check] Product document ${productId} not found on attempt ${retryCount}/${maxRetries}. Retrying in ${retryDelayMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            docSnap = await docRef.get();
+          }
+
+          if (!docSnap.exists) {
+            throw new Error(`Product listing with ID ${productId} was not found on the database after ${maxRetries} retrieval attempts.`);
+          }
+
           await adminDb.runTransaction(async (transaction: any) => {
-            const docRef = adminDb.collection('products').doc(productId);
-            const docSnap = await transaction.get(docRef);
-            if (!docSnap.exists) {
+            const txDocSnap = await transaction.get(docRef);
+            if (!txDocSnap.exists) {
               throw new Error(`Product listing with ID ${productId} was not found in transaction.`);
             }
 
-            const currentProductData = docSnap.data() || {};
+            const currentProductData = txDocSnap.data() || {};
             const txNow = new Date();
             let txStartDate = txNow.toISOString();
             let txEndDate = new Date(txNow.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
@@ -1739,13 +1801,29 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           });
           console.log(`[Firebase Admin] Transaction successfully committed for product: ${productId}`);
         } catch (txErr: any) {
-          console.error(`[Firebase Admin] Transaction failed for product boost update. Falling back to non-transactional REST update:`, txErr.message || txErr);
+          console.warn(`[Firebase Admin] Transaction failed for product boost update. Falling back to non-transactional REST update:`, txErr.message || txErr);
+          if (String(txErr).includes('PERMISSION_DENIED') || String(txErr).includes('permission')) {
+            console.warn('[Firebase Admin] Detected PERMISSION_DENIED on Admin SDK. Disabling Admin client and falling back to Auth Token REST.');
+            adminDb = null;
+            isGCPServiceAccountAuthorized = false;
+          }
         }
       }
 
       // Safe fallback if Admin transaction is not executed or fails
       if (!finalUpdatedFields) {
-        const productData = await getRawProductFirestoreREST(productId);
+        let productData = await getRawProductFirestoreREST(productId);
+        let retryCount = 0;
+        const maxRetries = 5;
+        const retryDelayMs = 1000;
+        
+        while (!productData && retryCount < maxRetries) {
+          retryCount++;
+          console.log(`[REST Lag Check] Product ${productId} not found on attempt ${retryCount}/${maxRetries}. Retrying in ${retryDelayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+          productData = await getRawProductFirestoreREST(productId);
+        }
+
         if (!productData) {
           return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
         }
@@ -2036,7 +2114,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             console.warn('[Boost Expiration Job] Firestore is currently busy (Quota Exceeded). Skipping background scan.');
             return;
           }
-          console.error('[Boost Expiration Job] Admin SDK query failed, falling back to REST:', adminErr);
+          console.warn('[Boost Expiration Job] Admin SDK query failed, falling back to REST:', adminErr?.message || adminErr);
+          if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+            isGCPServiceAccountAuthorized = false;
+            adminDb = null;
+          }
         }
       }
 

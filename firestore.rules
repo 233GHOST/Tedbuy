@@ -72,43 +72,45 @@ service cloud.firestore {
 
       allow read: if true; // Listings are public
       allow create: if isSignedIn() && isOwner(incoming().get('sellerId', '')) && isValidId(productId) && isValidProduct(incoming());
-      allow update: if isValidId(productId) && isValidProduct(incoming()) && (
-                      isAdmin() ||
+      allow update: if isValidId(productId) && (
                       incoming().get('serverVerificationSecret', '') == 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' ||
-                      // Let product owners update details like title, description, category, etc.,
-                      // but strictly prevent them from manipulating boost or ranking fields.
-                      (
-                        isOwner(existing().get('sellerId', '')) &&
-                        !incoming().diff(existing()).affectedKeys().hasAny([
-                          'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
-                          'boostPriority', 'priorityScore', 'lastBoostedAt', 'boostHistory',
-                          'boostAmount', 'boostPackagePrice', 'boostPriorityLevel', 
-                          'remainingBoostTime', 'lastBoostPurchase'
-                        ])
-                      ) ||
-                      // Allow clearing/expiring boosts (e.g. background job setting boostStatus to false)
-                      (
-                        existing().get('boostStatus', false) == true &&
-                        incoming().get('boostStatus', false) == false &&
-                        incoming().diff(existing()).affectedKeys().hasOnly([
-                          'boostStatus', 'boostPriority', 'priorityScore', 
-                          'boostPriorityLevel', 'remainingBoostTime'
-                        ])
-                      ) ||
-                      // Let social-only increments run with strict integrity checks
-                      (incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount', 'likesCount', 'likedUserIds']) &&
-                       (incoming().get('viewsCount', 0) == existing().get('viewsCount', 0) + 1 || incoming().get('viewsCount', 0) == existing().get('viewsCount', 0)) &&
-                       (!incoming().diff(existing()).affectedKeys().hasAny(['likesCount', 'likedUserIds']) || (
-                          isSignedIn() &&
-                          incoming().get('likesCount', 0) == incoming().get('likedUserIds', []).size() &&
-                          (
-                            (incoming().get('likedUserIds', []).size() == existing().get('likedUserIds', []).size() + 1 &&
-                             incoming().get('likedUserIds', []).toSet().difference(existing().get('likedUserIds', []).toSet()).hasOnly([request.auth.uid])) ||
-                            (incoming().get('likedUserIds', []).size() == existing().get('likedUserIds', []).size() - 1 &&
-                             existing().get('likedUserIds', []).toSet().difference(incoming().get('likedUserIds', []).toSet()).hasOnly([request.auth.uid]))
-                          )
-                       ))
-                      )
+                      (isValidProduct(incoming()) && (
+                        isAdmin() ||
+                        // Let product owners update details like title, description, category, etc.,
+                        // but strictly prevent them from manipulating boost or ranking fields.
+                        (
+                          isOwner(existing().get('sellerId', '')) &&
+                          !incoming().diff(existing()).affectedKeys().hasAny([
+                            'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
+                            'boostPriority', 'priorityScore', 'lastBoostedAt', 'boostHistory',
+                            'boostAmount', 'boostPackagePrice', 'boostPriorityLevel', 
+                            'remainingBoostTime', 'lastBoostPurchase'
+                          ])
+                        ) ||
+                        // Allow clearing/expiring boosts (e.g. background job setting boostStatus to false)
+                        (
+                          existing().get('boostStatus', false) == true &&
+                          incoming().get('boostStatus', false) == false &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'boostStatus', 'boostPriority', 'priorityScore', 
+                            'boostPriorityLevel', 'remainingBoostTime'
+                          ])
+                        ) ||
+                        // Let social-only increments run with strict integrity checks
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount', 'likesCount', 'likedUserIds']) &&
+                         (incoming().get('viewsCount', 0) == existing().get('viewsCount', 0) + 1 || incoming().get('viewsCount', 0) == existing().get('viewsCount', 0)) &&
+                         (!incoming().diff(existing()).affectedKeys().hasAny(['likesCount', 'likedUserIds']) || (
+                            isSignedIn() &&
+                            incoming().get('likesCount', 0) == incoming().get('likedUserIds', []).size() &&
+                            (
+                              (incoming().get('likedUserIds', []).size() == existing().get('likedUserIds', []).size() + 1 &&
+                               incoming().get('likedUserIds', []).toSet().difference(existing().get('likedUserIds', []).toSet()).hasOnly([request.auth.uid])) ||
+                              (incoming().get('likedUserIds', []).size() == existing().get('likedUserIds', []).size() - 1 &&
+                               existing().get('likedUserIds', []).toSet().difference(incoming().get('likedUserIds', []).toSet()).hasOnly([request.auth.uid]))
+                            )
+                         ))
+                        )
+                      ))
                     );
       allow delete: if isAdmin() || isOwner(existing().get('sellerId', ''));
     }

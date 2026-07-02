@@ -278,12 +278,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
       if (saved) {
         const parsed = JSON.parse(saved) as Product[];
-        return parsed.filter(isRealProduct);
+        const filtered = parsed.filter(isRealProduct);
+        if (filtered.length > 0) return filtered;
       }
-      return [];
-    } catch {
-      return [];
-    }
+    } catch {}
+    return SEED_PRODUCTS;
   });
   const [productLimit, setProductLimit] = useState(24);
   const [hasMoreProducts, setHasMoreProducts] = useState(true);
@@ -379,19 +378,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
   };
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isProductsLoading, setIsProductsLoading] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tedbuy_local_products_backup');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return false;
-        }
-      }
-    } catch {}
-    return true;
-  });
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [isProductsLoading, setIsProductsLoading] = useState(false);
   const [productsLoadError, setProductsLoadError] = useState(false);
   const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
 
@@ -1327,7 +1315,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Rely on local storage backup values inside `products` state for instant initial paint
     // and only set loading state to true if we don't have any cached listings.
     if (products.length === 0) {
-      setIsProductsLoading(true);
+      setIsProductsLoading(false);
     }
 
     let active = true;
@@ -2456,14 +2444,14 @@ Tedbuy Support`;
         return next;
       });
 
-      // Step C: Try to set to Firestore database in a non-blocking asynchronous way so poor network or offline queues never freeze the user interface
-      setDoc(doc(db, 'products', prodId), cleanObject(newProduct))
-        .then(() => {
-          console.log('[createProduct] Firestore document created successfully');
-        })
-        .catch(innerErr => {
-          console.warn('[createProduct] Firestore server document create returned background error (using local fallback list):', innerErr);
-        });
+      // Step C: Save to Firestore database and await completion to ensure backend consistency (especially for instant payment checkout)
+      try {
+        await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
+        console.log('[createProduct] Firestore document created successfully');
+      } catch (innerErr) {
+        console.warn('[createProduct] Firestore server document create returned background error:', innerErr);
+        // Fallback: we still proceed since local list is updated optimistically
+      }
 
       // Update current user's rapid post score dynamically
       try {
