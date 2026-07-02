@@ -794,11 +794,12 @@ export const ProductDetail: React.FC = () => {
                             setIsAdminBoosting(true);
                             try {
                               const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                              const cleanToken = token.trim().replace(/[\r\n]/g, '').replace(/^['"]|['"]$/g, '');
                               const res = await fetch('/api/admin/boost-control', {
                                 method: 'POST',
                                 headers: {
                                   'Content-Type': 'application/json',
-                                  'Authorization': token ? `Bearer ${token}` : ''
+                                  'Authorization': cleanToken ? `Bearer ${cleanToken}` : ''
                                 },
                                 body: JSON.stringify({
                                   productId: product.id,
@@ -847,18 +848,19 @@ export const ProductDetail: React.FC = () => {
                           <option value="30days">30 Days Boost (Free)</option>
                           <option value="90days">90 Days Boost (Free)</option>
                         </select>
-                        <button
+                         <button
                           type="button"
                           disabled={isAdminBoosting}
                           onClick={async () => {
                             setIsAdminBoosting(true);
                             try {
                               const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                              const cleanToken = token.trim().replace(/[\r\n]/g, '').replace(/^['"]|['"]$/g, '');
                               const res = await fetch('/api/admin/boost-control', {
                                 method: 'POST',
                                 headers: {
                                   'Content-Type': 'application/json',
-                                  'Authorization': token ? `Bearer ${token}` : ''
+                                  'Authorization': cleanToken ? `Bearer ${cleanToken}` : ''
                                 },
                                 body: JSON.stringify({
                                   productId: product.id,
@@ -1079,11 +1081,11 @@ export const ProductDetail: React.FC = () => {
             </div>
             
             {/* Trust disclaimer */}
-            <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-100 flex items-start gap-2.5 text-[10px] text-slate-500">
-              <ShieldAlert className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+            <div className="bg-red-50 rounded-2xl p-3.5 border border-red-100 flex items-start gap-2.5 text-[10px] text-red-700">
+              <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-slate-700">🔒 Tedbuy Classifieds Safety Tips:</p>
-                <p className="mt-0.5">Meet in public, check item status carefully, and DO NOT send cash deposits in advance of collecting your items!</p>
+                <p className="font-semibold text-red-800">⚠️ Tedbuy Classifieds Safety Tips:</p>
+                <p className="mt-0.5 text-red-700">Meet in public, check item status carefully, and DO NOT send cash deposits in advance of collecting your items!</p>
               </div>
             </div>
           </div>

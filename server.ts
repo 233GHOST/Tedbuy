@@ -1418,15 +1418,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'Content-Type': 'application/json'
       };
 
-      if (customAuthToken) {
+      const gcpToken = await getGCPMetadataToken();
+      if (gcpToken) {
+        headers['Authorization'] = `Bearer ${gcpToken}`;
+        console.log('[Firestore PATCH] Attaching GCP Service Account token for administrative authorization.');
+      } else if (customAuthToken) {
         headers['Authorization'] = customAuthToken;
-        console.log('[Firestore PATCH] Attaching client provided Custom Auth token for authorization.');
-      } else {
-        const gcpToken = await getGCPMetadataToken();
-        if (gcpToken) {
-          headers['Authorization'] = `Bearer ${gcpToken}`;
-          console.log('[Firestore PATCH] Attaching GCP Service Account token for authorization.');
-        }
+        console.log('[Firestore PATCH] Attaching client provided Custom Auth token.');
       }
 
       const res = await fetch(url, {
@@ -1482,15 +1480,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'Content-Type': 'application/json'
       };
 
-      if (customAuthToken) {
+      const gcpToken = await getGCPMetadataToken();
+      if (gcpToken) {
+        headers['Authorization'] = `Bearer ${gcpToken}`;
+        console.log('[Firestore POST] Attaching GCP Service Account token for administrative authorization.');
+      } else if (customAuthToken) {
         headers['Authorization'] = customAuthToken;
-        console.log('[Firestore POST] Attaching client provided Custom Auth token for authorization.');
-      } else {
-        const gcpToken = await getGCPMetadataToken();
-        if (gcpToken) {
-          headers['Authorization'] = `Bearer ${gcpToken}`;
-          console.log('[Firestore POST] Attaching GCP Service Account token for authorization.');
-        }
+        console.log('[Firestore POST] Attaching client provided Custom Auth token.');
       }
 
       await fetch(url, {
@@ -1573,8 +1569,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let verifiedAmount = amountGHS || 1;
       let gatewayUsed = 'simulated';
 
-      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
-      const flutterwaveSecret = process.env.FLUTTERWAVE_SECRET_KEY;
+      let paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      if (paystackSecret) {
+        paystackSecret = paystackSecret.trim().replace(/^['"]|['"]$/g, '');
+      }
+      let flutterwaveSecret = process.env.FLUTTERWAVE_SECRET_KEY;
+      if (flutterwaveSecret) {
+        flutterwaveSecret = flutterwaveSecret.trim().replace(/^['"]|['"]$/g, '');
+      }
 
       if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
         isVerified = true;

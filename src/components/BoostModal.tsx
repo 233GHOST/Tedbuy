@@ -202,7 +202,8 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
         'Content-Type': 'application/json'
       };
       if (idToken) {
-        headers['Authorization'] = `Bearer ${idToken}`;
+        const cleanToken = idToken.trim().replace(/[\r\n]/g, '').replace(/^['"]|['"]$/g, '');
+        headers['Authorization'] = `Bearer ${cleanToken}`;
       }
 
       const response = await fetch('/api/verify-payment', {
