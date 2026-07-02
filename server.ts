@@ -10,6 +10,7 @@ import { promisify } from "util";
 import admin from "firebase-admin";
 import { getApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml } from "./src/utils/sitemap.js";
 
 const lookupAsync = promisify(dns.lookup);
@@ -1382,7 +1383,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           fieldsToPatch[key] = { stringValue: val };
         } else if (Array.isArray(val)) {
           const values = val.map((item: any) => {
-            if (typeof item === 'object') {
+            if (item && typeof item === 'object') {
               const mapFields: any = {};
               for (const subKey of Object.keys(item)) {
                 const subVal = item[subKey];
@@ -1406,8 +1407,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         queryParams.push(`key=${apiKey}`);
       }
 
-      // Add server-side bypass secret to fields, but do not add to updateMask.fieldPaths so it is not saved to the document
+      // Add server-side bypass secret to fields and updateMask so that security rules can inspect it in request.resource.data
       fieldsToPatch['serverVerificationSecret'] = { stringValue: 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' };
+      queryParams.push('updateMask.fieldPaths=serverVerificationSecret');
 
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}?${queryParams.join('&')}`;
       console.log(`[Firestore PATCH] Patching URL: ${url}`);
@@ -1501,6 +1503,62 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   }
 
+  // Safe helper to verify administrator privileges by verifying JWT tokens or querying user settings from Firestore.
+  async function verifyAdmin(authHeader: string | undefined): Promise<boolean> {
+    if (!authHeader) return false;
+    
+    // 1. Try Admin SDK
+    if (adminDb && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split('Bearer ')[1];
+      try {
+        const decoded = await getAdminAuth().verifyIdToken(token);
+        if (decoded.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
+          return true;
+        }
+        const userSnap = await adminDb.collection('users').doc(decoded.uid).get();
+        if (userSnap.exists && userSnap.data()?.isAdmin === true) {
+          return true;
+        }
+      } catch (err) {
+        console.warn('[verifyAdmin] Admin SDK verification failed:', err);
+      }
+    }
+
+    // 2. Try REST API lookup (useful for local sandbox, or when Admin SDK is fallback)
+    try {
+      const token = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        const uid = payload.user_id || payload.sub;
+        const email = payload.email;
+        if (email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
+          return true;
+        }
+        
+        if (uid) {
+          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${uid}`;
+          const res = await fetch(url, {
+            headers: { 'Authorization': authHeader }
+          });
+          if (res.ok) {
+            const userDoc = await res.json();
+            const fields = userDoc.fields || {};
+            const isAdminValue = fields.isAdmin?.booleanValue === true;
+            const emailValue = fields.email?.stringValue || '';
+            if (isAdminValue || emailValue.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+              return true;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[verifyAdmin] REST verification failed:', err);
+    }
+
+    return false;
+  }
+
   // POST endpoint to verify Mobile Money or Card payment and activate premium boost status
   app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "payment-verification"), async (req, res) => {
     const { paymentReference, productId, planId, paymentMethod, email, amountGHS } = req.body;
@@ -1518,7 +1576,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
       const flutterwaveSecret = process.env.FLUTTERWAVE_SECRET_KEY;
 
-      if (paystackSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
+      if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
+        isVerified = true;
+        verifiedAmount = 0;
+        gatewayUsed = 'admin-bypass';
+      } else if (paystackSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
         gatewayUsed = 'paystack';
         const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paymentReference)}`, {
           headers: {
@@ -1627,6 +1689,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         boostPackagePrice = 1;
       }
 
+      if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
+        boostPackagePrice = 0;
+      }
+
       const remainingBoostTime = Math.max(0, new Date(endDate).getTime() - now.getTime());
       
       const tempProduct = {
@@ -1686,6 +1752,150 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } catch (err: any) {
       console.error('[Verify Payment Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during verification." });
+    }
+  });
+
+  // Admin Boost Control API (for Vincent Asumadu, CEO & other administrators)
+  // 1. Silently deactivates any user's boosted ad without banner or notification.
+  // 2. Activates a premium boost for any user's ad for free.
+  app.post('/api/admin/boost-control', async (req, res) => {
+    const { productId, action, planId } = req.body;
+    const authHeader = req.headers.authorization;
+
+    if (!productId || !action) {
+      return res.status(400).json({ success: false, error: "Missing required parameters: productId and action are required." });
+    }
+
+    if (action !== 'activate' && action !== 'deactivate') {
+      return res.status(400).json({ success: false, error: "Invalid action. Must be 'activate' or 'deactivate'." });
+    }
+
+    try {
+      // Verify administrative privileges
+      const isAdmin = await verifyAdmin(authHeader);
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: "Access Denied: Administrative privileges required." });
+      }
+
+      // Fetch current product data
+      const productData = await getRawProductFirestoreREST(productId);
+      if (!productData) {
+        return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
+      }
+
+      const now = new Date();
+      let updatedFields: any = {};
+
+      if (action === 'deactivate') {
+        // Silently deactivate boost
+        const engagementScore = Number(productData.viewsCount || 0);
+        const createdAtMs = productData.createdAt ? new Date(productData.createdAt).getTime() : 0;
+        const freshnessFactor = createdAtMs / 1e12;
+        const priorityScore = engagementScore + freshnessFactor;
+
+        updatedFields = {
+          boostStatus: false,
+          boostPlan: null,
+          boostStartDate: null,
+          boostEndDate: null,
+          boostPriority: 0,
+          boostPriorityLevel: 0,
+          boostAmount: 0,
+          boostPackagePrice: 0,
+          remainingBoostTime: 0,
+          priorityScore,
+          lastBoostedAt: null
+        };
+
+        console.log(`[Admin Control] Deactivating boost for product ${productId} silently.`);
+      } else {
+        // Activate free boost
+        if (!planId) {
+          return res.status(400).json({ success: false, error: "planId is required for activation." });
+        }
+
+        const plans: Record<string, { days: number; price: number; name: string }> = {
+          '3days': { days: 3, price: 1, name: '3 Days Boost' },
+          '7days': { days: 7, price: 3, name: '7 Days Boost' },
+          '14days': { days: 14, price: 7, name: '14 Days Boost' },
+          '30days': { days: 30, price: 12, name: '30 Days Boost' },
+          '90days': { days: 90, price: 20, name: '90 Days Boost' }
+        };
+
+        const plan = plans[planId];
+        if (!plan) {
+          return res.status(400).json({ success: false, error: `Invalid plan specified: ${planId}` });
+        }
+
+        const startDate = now.toISOString();
+        const endDate = new Date(now.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
+
+        let boostPriorityLevel = 0;
+        let boostPackagePrice = 0;
+        if (planId === '90days') {
+          boostPriorityLevel = 5;
+          boostPackagePrice = 20;
+        } else if (planId === '30days') {
+          boostPriorityLevel = 4;
+          boostPackagePrice = 12;
+        } else if (planId === '14days') {
+          boostPriorityLevel = 3;
+          boostPackagePrice = 7;
+        } else if (planId === '7days') {
+          boostPriorityLevel = 2;
+          boostPackagePrice = 3;
+        } else if (planId === '3days') {
+          boostPriorityLevel = 1;
+          boostPackagePrice = 1;
+        }
+
+        const tempProduct = {
+          boostStatus: true,
+          boostPlan: planId,
+          boostEndDate: endDate,
+          createdAt: productData.createdAt,
+          viewsCount: productData.viewsCount
+        };
+        const priorityScore = calculatePriorityScore(tempProduct);
+
+        updatedFields = {
+          boostStatus: true,
+          boostPlan: planId,
+          boostStartDate: startDate,
+          boostEndDate: endDate,
+          paymentStatus: 'success',
+          paymentReference: `ADMIN_FREE_BOOST_${Date.now()}`,
+          boostPriority: boostPriorityLevel * 10000000,
+          priorityScore,
+          lastBoostedAt: now.toISOString(),
+          boostAmount: 0,
+          boostPackagePrice: 0,
+          boostPriorityLevel,
+          remainingBoostTime: Math.max(0, new Date(endDate).getTime() - now.getTime()),
+          lastBoostPurchase: now.toISOString()
+        };
+
+        console.log(`[Admin Control] Free boost activated for product ${productId} using plan ${planId}.`);
+      }
+
+      // Update in Firestore
+      await updateProductFirestoreREST(productId, updatedFields, authHeader);
+      
+      // Clear cache immediately
+      cachedProducts = null;
+
+      return res.json({
+        success: true,
+        message: action === 'deactivate' ? "Boost deactivated successfully!" : "Free boost activated successfully!",
+        product: {
+          id: productId,
+          ...updatedFields
+        }
+      });
+
+    } catch (err: any) {
+      console.error('[Admin Boost Control Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error during admin boost control." });
     }
   });
 

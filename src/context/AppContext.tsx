@@ -2614,7 +2614,14 @@ Tedbuy Support`;
 
       if (localProduct) {
         const keys = Object.keys(updatedData);
-        const isSocialOnly = keys.every(k => ['likesCount', 'likedUserIds', 'viewsCount', 'isSold'].includes(k));
+        const silentKeys = [
+          'likesCount', 'likedUserIds', 'viewsCount', 'isSold',
+          'boostStatus', 'boostPlan', 'boostEndDate', 'boostStartDate', 
+          'boostPriority', 'priorityScore', 'boostHistory', 'paymentStatus', 
+          'paymentReference', 'boostAmount', 'boostPackagePrice', 
+          'boostPriorityLevel', 'remainingBoostTime', 'lastBoostPurchase', 'lastBoostedAt'
+        ];
+        const isSocialOnly = keys.every(k => silentKeys.includes(k));
 
         if (isSocialOnly) {
           updateDoc(productRef, cleanObject(updatedData))

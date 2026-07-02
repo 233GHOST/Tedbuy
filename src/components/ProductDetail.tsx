@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus, Sparkles } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
 import { isUserVerified, calculateTrustScore } from '../types';
 import { slugify } from '../utils/slugify';
+import { auth } from '../firebase';
+import { isBoostActive, parseDate } from '../utils/dateParser';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -25,7 +27,8 @@ export const ProductDetail: React.FC = () => {
     deleteProduct,
     updateProduct,
     setIsVerificationBlockOpen,
-    setBlockedActionType
+    setBlockedActionType,
+    showToast
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId);
@@ -33,6 +36,7 @@ export const ProductDetail: React.FC = () => {
   const isSellerVerified = isUserVerified(sellerUser);
   const sellerReviews = reviews.filter(r => r.sellerId === product?.sellerId);
   const trustResult = calculateTrustScore(sellerUser, sellerReviews);
+
   const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string } | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
@@ -41,6 +45,8 @@ export const ProductDetail: React.FC = () => {
   const [deleteCheckboxConfirmed, setDeleteCheckboxConfirmed] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isAdminBoosting, setIsAdminBoosting] = useState(false);
+  const [selectedFreePlan, setSelectedFreePlan] = useState('7days');
 
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
@@ -315,6 +321,143 @@ export const ProductDetail: React.FC = () => {
         }
       }
       setDeleteError(msg);
+    }
+  };
+
+  const calculatePriorityScore = (prod: any): number => {
+    const now = new Date();
+    const isBoostActive = prod.boostStatus === true && 
+                         prod.boostEndDate && 
+                         new Date(prod.boostEndDate).getTime() > now.getTime();
+    
+    if (!isBoostActive) {
+      const engagementScore = Number(prod.viewsCount || 0);
+      const createdAtMs = prod.createdAt ? new Date(prod.createdAt).getTime() : 0;
+      const freshnessFactor = createdAtMs / 1e12;
+      return engagementScore + freshnessFactor;
+    }
+
+    const planId = prod.boostPlan;
+    let packageLevel = 0;
+    if (planId === '90days') packageLevel = 5;
+    else if (planId === '30days') packageLevel = 4;
+    else if (planId === '14days') packageLevel = 3;
+    else if (planId === '7days') packageLevel = 2;
+    else if (planId === '3days') packageLevel = 1;
+
+    const boostBase = packageLevel * 10000000;
+    
+    const endDateMs = prod.boostEndDate ? new Date(prod.boostEndDate).getTime() : now.getTime();
+    const remainingMs = Math.max(0, endDateMs - now.getTime());
+    const remainingTimeFactor = remainingMs / 10000;
+    
+    const engagementScore = Number(prod.viewsCount || 0);
+    const engagementFactor = engagementScore / 10;
+    
+    const createdAtMs = prod.createdAt ? new Date(prod.createdAt).getTime() : 0;
+    const freshnessFactor = createdAtMs / 1e12;
+    
+    return boostBase + remainingTimeFactor + engagementFactor + freshnessFactor;
+  };
+
+  const handleDeactivateBoostSilently = async () => {
+    if (!product) return;
+    try {
+      setIsAdminBoosting(true);
+      
+      const updatedFields = {
+        boostStatus: false,
+        boostPlan: "",
+        boostEndDate: "",
+        boostPriority: 0,
+        priorityScore: calculatePriorityScore({
+          ...product,
+          boostStatus: false,
+          boostPlan: "",
+          boostEndDate: ""
+        })
+      };
+
+      await updateProduct(product.id, updatedFields);
+      showToast('Boost deactivated silently without notifications.', 'success');
+    } catch (err) {
+      console.error('Failed to deactivate boost silently:', err);
+      showToast('Failed to deactivate boost.', 'error');
+    } finally {
+      setIsAdminBoosting(false);
+    }
+  };
+
+  const handleActivateFreeBoost = async () => {
+    if (!product) return;
+    try {
+      setIsAdminBoosting(true);
+      const planDaysMap: Record<string, number> = {
+        '3days': 3,
+        '7days': 7,
+        '14days': 14,
+        '30days': 30,
+        '90days': 90
+      };
+      const days = planDaysMap[selectedFreePlan] || 7;
+      const now = new Date();
+      const startDate = now.toISOString();
+      const endDate = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000)).toISOString();
+      
+      let boostPriorityLevel = 0;
+      if (selectedFreePlan === '90days') boostPriorityLevel = 5;
+      else if (selectedFreePlan === '30days') boostPriorityLevel = 4;
+      else if (selectedFreePlan === '14days') boostPriorityLevel = 3;
+      else if (selectedFreePlan === '7days') boostPriorityLevel = 2;
+      else if (selectedFreePlan === '3days') boostPriorityLevel = 1;
+
+      const tempProduct = {
+        boostStatus: true,
+        boostPlan: selectedFreePlan,
+        boostEndDate: endDate,
+        createdAt: product.createdAt,
+        viewsCount: product.viewsCount || 0
+      };
+      const priorityScore = calculatePriorityScore(tempProduct);
+
+      const boostHistory = Array.isArray(product.boostHistory) ? [...product.boostHistory] : [];
+      boostHistory.push({
+        planId: selectedFreePlan,
+        planName: `${days} Days Boost (Admin Free)`,
+        startDate,
+        endDate,
+        paymentReference: `ADMIN_FREE_BOOST_${Date.now()}`,
+        amount: 0,
+        gateway: 'admin-override',
+        paymentMethod: 'admin',
+        createdAt: now.toISOString()
+      });
+
+      const updatedFields = {
+        boostStatus: true,
+        boostPlan: selectedFreePlan,
+        boostStartDate: startDate,
+        boostEndDate: endDate,
+        paymentStatus: 'success' as const,
+        paymentReference: `ADMIN_FREE_BOOST_${Date.now()}`,
+        boostPriority: boostPriorityLevel * 10000000,
+        priorityScore,
+        lastBoostedAt: now.toISOString(),
+        boostHistory,
+        boostAmount: 0,
+        boostPackagePrice: 0,
+        boostPriorityLevel,
+        remainingBoostTime: days * 24 * 60 * 60 * 1000,
+        lastBoostPurchase: now.toISOString()
+      };
+
+      await updateProduct(product.id, updatedFields);
+      showToast(`Ad successfully boosted for ${days} days for free!`, 'success');
+    } catch (err) {
+      console.error('Failed to activate free boost:', err);
+      showToast('Failed to activate free boost.', 'error');
+    } finally {
+      setIsAdminBoosting(false);
     }
   };
 
@@ -620,6 +763,132 @@ export const ProductDetail: React.FC = () => {
                       />
                       <span>Mark as Sold</span>
                     </label>
+                  </div>
+
+                  {/* Admin Boost Control Sub-Section */}
+                  <div className="bg-white border border-rose-200/60 rounded-2xl p-4.5 space-y-4 shadow-3xs">
+                    <div className="flex items-center gap-1.5 font-extrabold text-xs text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-2">
+                      <Sparkles className="w-4 h-4 text-rose-500 animate-pulse" />
+                      <span>Admin Boost Controls</span>
+                    </div>
+
+                    {/* Active Boost Details or Inactive Indicator */}
+                    {product.boostStatus ? (
+                      <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase text-rose-800 tracking-wider">Active Boost</span>
+                          <span className="px-1.5 py-0.5 bg-rose-200 text-rose-800 text-[9px] font-black rounded-md uppercase">
+                            {product.boostPlan}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-600 leading-relaxed font-sans">
+                          Expires on <strong className="font-bold text-slate-800">{product.boostEndDate ? new Date(product.boostEndDate).toLocaleDateString() : 'N/A'}</strong>
+                        </p>
+                        <button
+                          type="button"
+                          disabled={isAdminBoosting}
+                          onClick={async () => {
+                            if (!window.confirm("Are you sure you want to silently deactivate this boosted ad? There will be no notification sent to the user.")) {
+                              return;
+                            }
+                            setIsAdminBoosting(true);
+                            try {
+                              const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                              const res = await fetch('/api/admin/boost-control', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': token ? `Bearer ${token}` : ''
+                                },
+                                body: JSON.stringify({
+                                  productId: product.id,
+                                  action: 'deactivate'
+                                })
+                              });
+                              const data = await res.json();
+                              if (res.ok && data.success) {
+                                showToast('Boost silently deactivated!', 'success');
+                                if (data.product) {
+                                  await updateProduct(product.id, data.product);
+                                }
+                              } else {
+                                showToast(data.error || 'Failed to deactivate boost.', 'error');
+                              }
+                            } catch (err: any) {
+                              console.error('Error deactivating boost:', err);
+                              showToast(err.message || 'Error occurred.', 'error');
+                            } finally {
+                              setIsAdminBoosting(false);
+                            }
+                          }}
+                          className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold rounded-lg text-[10px] uppercase tracking-wider transition select-none cursor-pointer"
+                        >
+                          {isAdminBoosting ? 'Processing...' : 'Deactivate Boost (Silent)'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-center py-1 bg-slate-50 border border-slate-100 rounded-xl">
+                        <span className="text-[10px] font-bold text-slate-500">No active premium boost on this ad</span>
+                      </div>
+                    )}
+
+                    {/* Free Boosting Section */}
+                    <div className="space-y-2">
+                      <span className="text-[10px] font-black uppercase text-slate-600 tracking-wider block">Apply Admin Free Boost</span>
+                      <div className="flex gap-2">
+                        <select
+                          value={selectedFreePlan}
+                          onChange={(e) => setSelectedFreePlan(e.target.value)}
+                          className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-800 text-[11px] font-bold py-2 px-2.5 rounded-xl border border-slate-200 outline-none transition cursor-pointer"
+                        >
+                          <option value="3days">3 Days Boost (Free)</option>
+                          <option value="7days">7 Days Boost (Free)</option>
+                          <option value="14days">14 Days Boost (Free)</option>
+                          <option value="30days">30 Days Boost (Free)</option>
+                          <option value="90days">90 Days Boost (Free)</option>
+                        </select>
+                        <button
+                          type="button"
+                          disabled={isAdminBoosting}
+                          onClick={async () => {
+                            setIsAdminBoosting(true);
+                            try {
+                              const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                              const res = await fetch('/api/admin/boost-control', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': token ? `Bearer ${token}` : ''
+                                },
+                                body: JSON.stringify({
+                                  productId: product.id,
+                                  action: 'activate',
+                                  planId: selectedFreePlan
+                                })
+                              });
+                              const data = await res.json();
+                              if (res.ok && data.success) {
+                                showToast('Free premium boost applied successfully!', 'success');
+                                if (data.product) {
+                                  await updateProduct(product.id, data.product);
+                                }
+                              } else {
+                                showToast(data.error || 'Failed to apply free boost.', 'error');
+                              }
+                            } catch (err: any) {
+                              console.error('Error applying free boost:', err);
+                              showToast(err.message || 'Error occurred.', 'error');
+                            } finally {
+                              setIsAdminBoosting(false);
+                            }
+                          }}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black rounded-xl text-[10px] uppercase tracking-wider transition select-none cursor-pointer flex items-center gap-1"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{isAdminBoosting ? 'Boosting...' : 'Boost'}</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex gap-2.5">

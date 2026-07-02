@@ -32,7 +32,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
   const { currentUser, showToast, refreshProducts, updateProduct } = useApp();
 
   const [selectedPlanId, setSelectedPlanId] = useState<string>('7days');
-  const [paymentMethod, setPaymentMethod] = useState<'momo' | 'card'>('momo');
+  const [paymentMethod, setPaymentMethod] = useState<'momo' | 'card' | 'admin'>('momo');
   const [momoProvider, setMomoProvider] = useState<'mtn' | 'telecel' | 'airteltigo'>('mtn');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
   const [cardName, setCardName] = useState<string>('');
@@ -341,7 +341,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
               {/* Step 2: Payment Method */}
               <div className="space-y-3.5 pt-1">
                 <h3 className="text-xs font-black text-slate-600 uppercase tracking-wider font-sans">2. Select Payment Method</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className={`grid gap-3 ${currentUser?.isAdmin ? 'grid-cols-3' : 'grid-cols-2'}`}>
                   <button
                     type="button"
                     onClick={() => setPaymentMethod('momo')}
@@ -366,10 +366,24 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                     <CreditCard className="w-4 h-4" />
                     <span>Visa / Mastercard</span>
                   </button>
+                  {currentUser?.isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('admin')}
+                      className={`p-3.5 border rounded-2xl flex flex-col items-center gap-2 font-semibold text-xs transition cursor-pointer ${
+                        paymentMethod === 'admin'
+                          ? 'border-rose-900 bg-rose-900 text-white shadow-md'
+                          : 'border-rose-200 bg-rose-50/50 text-rose-700 hover:bg-rose-100/50'
+                      }`}
+                    >
+                      <Sparkles className="w-4 h-4 animate-pulse" />
+                      <span>Free Admin Boost</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Mobile Money Input Form */}
-                {paymentMethod === 'momo' ? (
+                {paymentMethod === 'momo' && (
                   <form onSubmit={handleMomoSubmit} className="space-y-3.5 bg-slate-50 p-4 border border-slate-200/60 rounded-2xl animate-fade-in">
                     <p className="text-xs text-slate-600 font-sans leading-relaxed text-center px-2 py-1">
                       Pressing the button below will securely open the Paystack checkout gateway, where you can complete your payment via your MTN MoMo, Telecel Cash, or AirtelTigo wallet.
@@ -385,7 +399,10 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </form>
-                ) : (
+                )}
+
+                {/* Card Input Form */}
+                {paymentMethod === 'card' && (
                   <form onSubmit={handleCardSubmit} className="space-y-3.5 bg-slate-50 p-4 border border-slate-200/60 rounded-2xl animate-fade-in">
                     <div>
                       <label className="block text-[11px] font-extrabold text-slate-600 uppercase tracking-wider font-sans mb-1">Cardholder Name</label>
@@ -458,6 +475,30 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </form>
+                )}
+
+                {/* Free Admin Boost Form */}
+                {paymentMethod === 'admin' && (
+                  <div className="space-y-3.5 bg-rose-50/50 p-4 border border-rose-200/65 rounded-2xl animate-fade-in text-slate-900">
+                    <p className="text-xs text-rose-800 font-sans leading-relaxed text-center px-2 py-1">
+                      As an Administrator, you can activate this premium boost instantly for <strong className="font-extrabold text-rose-900">FREE</strong>. No transaction will be initiated on Paystack.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ref = `ADMIN_FREE_BOOST_${Date.now()}`;
+                        setPaymentReference(ref);
+                        handleVerifyPaymentBackend(ref);
+                      }}
+                      className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs tracking-wider uppercase rounded-xl transition duration-200 cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+                    >
+                      <span>
+                        Activate Free {activePlan.durationDays} Days Boost
+                      </span>
+                      <Sparkles className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
               </div>
             </>
