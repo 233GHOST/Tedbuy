@@ -6,6 +6,7 @@ import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Sparkles } from '
 import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
+import { toUserFriendlyError } from '../utils/authErrorHelper';
 
 interface ListingModalProps {
   isOpen: boolean;
@@ -880,11 +881,14 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         }
       }
 
-      let finalMsg = `Submission failed: ${errStr}`;
-      if (isPermissionDenied) {
-        finalMsg += '. (Possible causes: Your login session might have expired - try logging out and back in. Also, compile smaller compressed images if you are using high-resolution photos, or verify you are editing folders/products created by your exact account).';
+      const friendlyErr = toUserFriendlyError(errStr);
+      let finalMsg = `Submission failed: ${friendlyErr}`;
+      if (isPermissionDenied || friendlyErr.toLowerCase().includes('temporarily unavailable') || friendlyErr.toLowerCase().includes('permission')) {
+        finalMsg += ' (Your session might have expired. Please try logging out and back in, check that you are editing your own items, and ensure images are compressed under 730KB).';
+      } else if (friendlyErr.toLowerCase().includes('connect') || friendlyErr.toLowerCase().includes('internet')) {
+        finalMsg += ' (Please check your internet connection and try again).';
       } else {
-        finalMsg += ' (Hint: High-resolution photos/videos might exceed standard firestore sizes; try smaller images/compressing).';
+        finalMsg += ' (Try using smaller images or a highly compressed video under 730KB to fit our database size limits).';
       }
       setErrorMsg(finalMsg);
       showToast(finalMsg, "error");

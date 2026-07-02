@@ -37,7 +37,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener, requestFcmToken } from '../firebase';
 import { slugify } from '../utils/slugify';
-import { getAuthErrorMessage } from '../utils/authErrorHelper';
+import { getAuthErrorMessage, toUserFriendlyError } from '../utils/authErrorHelper';
 import { useHashRouting } from '../hooks/useHashRouting';
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 import { checkClientRateLimit } from '../utils/rateLimiter';
@@ -386,7 +386,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setToast({ message, type });
+    const finalMessage = type === 'error' ? toUserFriendlyError(message) : message;
+    setToast({ message: finalMessage, type });
   }, []);
 
   const hideToast = useCallback(() => {
@@ -395,28 +396,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     const unsubscribe = registerFirestoreErrorListener((errInfo) => {
-      let friendlyMsg = 'Firestore Operation Failed';
-      const cleanErr = errInfo.error.toLowerCase();
-      
-      const opName = errInfo.operationType ? errInfo.operationType.toUpperCase() : 'WRITE';
-      const pathDisplay = errInfo.path ? ` at [${errInfo.path}]` : '';
-
-      if (cleanErr.includes('permission') || cleanErr.includes('insufficient')) {
-        const isAdmin = currentUser?.isAdmin === true;
-        if (isAdmin) {
-          friendlyMsg = `Firestore Security: Missing permissions to perform ${opName}${pathDisplay}. Please check database security rules.`;
-        } else {
-          friendlyMsg = `Action denied: You do not have permissions to perform this request. Please refresh or update your connection.`;
-        }
-      } else if (cleanErr.includes('quota') || cleanErr.includes('resource exhausted')) {
-        friendlyMsg = `Firestore Quota Exceeded: Daily database limit reached on your free plan. Code: resource-exhausted.`;
-      } else if (cleanErr.includes('index') || cleanErr.includes('requires an index')) {
-        friendlyMsg = `Firestore Index Required: A composite index is missing for this query. Visit developer console link to initialize.`;
-      } else {
-        friendlyMsg = `Firestore Error (${opName}${pathDisplay}): ${errInfo.error}`;
-      }
-
-      showToast(friendlyMsg, 'error');
+      showToast(errInfo.error, 'error');
     });
 
     return () => unsubscribe();
