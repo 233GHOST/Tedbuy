@@ -1636,102 +1636,214 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         return res.status(400).json({ success: false, error: `Invalid plan specified: ${planId}` });
       }
 
-      const productData = await getRawProductFirestoreREST(productId);
-      if (!productData) {
-        return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
-      }
+      let finalUpdatedFields: any = null;
+      let finalProductData: any = null;
 
-      const now = new Date();
-      let startDate = now.toISOString();
-      let endDate = new Date(now.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
+      if (adminDb) {
+        try {
+          console.log(`[Firebase Admin] Executing robust atomic transaction to activate boost for product: ${productId}`);
+          await adminDb.runTransaction(async (transaction: any) => {
+            const docRef = adminDb.collection('products').doc(productId);
+            const docSnap = await transaction.get(docRef);
+            if (!docSnap.exists) {
+              throw new Error(`Product listing with ID ${productId} was not found in transaction.`);
+            }
 
-      const existingStatus = productData.boostStatus || false;
-      const existingEndDateStr = productData.boostEndDate;
+            const currentProductData = docSnap.data() || {};
+            const txNow = new Date();
+            let txStartDate = txNow.toISOString();
+            let txEndDate = new Date(txNow.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
 
-      if (existingStatus && existingEndDateStr) {
-        const existingEndDate = new Date(existingEndDateStr);
-        if (existingEndDate.getTime() > now.getTime()) {
-          startDate = productData.boostStartDate || startDate;
-          endDate = new Date(existingEndDate.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
-          console.log(`[Boost Extend] Extending active boost for product ${productId} from ${existingEndDateStr} to ${endDate}`);
+            const txExistingStatus = currentProductData.boostStatus || false;
+            const txExistingEndDateStr = currentProductData.boostEndDate;
+
+            if (txExistingStatus && txExistingEndDateStr) {
+              const txExistingEndDate = new Date(txExistingEndDateStr);
+              if (txExistingEndDate.getTime() > txNow.getTime()) {
+                txStartDate = currentProductData.boostStartDate || txStartDate;
+                txEndDate = new Date(txExistingEndDate.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
+                console.log(`[Transaction Boost Extend] Extending active boost for product ${productId} from ${txExistingEndDateStr} to ${txEndDate}`);
+              }
+            }
+
+            const txHistoryItem = {
+              planId,
+              planName: plan.name,
+              startDate: txStartDate,
+              endDate: txEndDate,
+              paymentReference,
+              amount: verifiedAmount,
+              gateway: gatewayUsed,
+              paymentMethod: paymentMethod || 'momo',
+              createdAt: txNow.toISOString()
+            };
+
+            const txBoostHistory = Array.isArray(currentProductData.boostHistory) ? [...currentProductData.boostHistory] : [];
+            txBoostHistory.push(txHistoryItem);
+
+            let txBoostPriorityLevel = 0;
+            let txBoostPackagePrice = 0;
+            if (planId === '90days') {
+              txBoostPriorityLevel = 5;
+              txBoostPackagePrice = 20;
+            } else if (planId === '30days') {
+              txBoostPriorityLevel = 4;
+              txBoostPackagePrice = 12;
+            } else if (planId === '14days') {
+              txBoostPriorityLevel = 3;
+              txBoostPackagePrice = 7;
+            } else if (planId === '7days') {
+              txBoostPriorityLevel = 2;
+              txBoostPackagePrice = 3;
+            } else if (planId === '3days') {
+              txBoostPriorityLevel = 1;
+              txBoostPackagePrice = 1;
+            }
+
+            if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
+              txBoostPackagePrice = 0;
+            }
+
+            const txRemainingBoostTime = Math.max(0, new Date(txEndDate).getTime() - txNow.getTime());
+
+            const txTempProduct = {
+              boostStatus: true,
+              boostPlan: planId,
+              boostEndDate: txEndDate,
+              createdAt: currentProductData.createdAt,
+              viewsCount: currentProductData.viewsCount
+            };
+            const txPriorityScore = calculatePriorityScore(txTempProduct);
+
+            const txUpdatedFields = {
+              boostStatus: true,
+              boostPlan: planId,
+              boostStartDate: txStartDate,
+              boostEndDate: txEndDate,
+              paymentStatus: 'success',
+              paymentReference,
+              boostPriority: txBoostPriorityLevel * 10000000,
+              priorityScore: txPriorityScore,
+              lastBoostedAt: txNow.toISOString(),
+              boostHistory: txBoostHistory,
+              boostAmount: verifiedAmount,
+              boostPackagePrice: txBoostPackagePrice,
+              boostPriorityLevel: txBoostPriorityLevel,
+              remainingBoostTime: txRemainingBoostTime,
+              lastBoostPurchase: txNow.toISOString()
+            };
+
+            transaction.update(docRef, txUpdatedFields);
+            finalUpdatedFields = txUpdatedFields;
+            finalProductData = currentProductData;
+          });
+          console.log(`[Firebase Admin] Transaction successfully committed for product: ${productId}`);
+        } catch (txErr: any) {
+          console.error(`[Firebase Admin] Transaction failed for product boost update. Falling back to non-transactional REST update:`, txErr.message || txErr);
         }
       }
 
-      const historyItem = {
-        planId,
-        planName: plan.name,
-        startDate,
-        endDate,
-        paymentReference,
-        amount: verifiedAmount,
-        gateway: gatewayUsed,
-        paymentMethod: paymentMethod || 'momo',
-        createdAt: now.toISOString()
-      };
+      // Safe fallback if Admin transaction is not executed or fails
+      if (!finalUpdatedFields) {
+        const productData = await getRawProductFirestoreREST(productId);
+        if (!productData) {
+          return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
+        }
 
-      const boostHistory = Array.isArray(productData.boostHistory) ? [...productData.boostHistory] : [];
-      boostHistory.push(historyItem);
+        const now = new Date();
+        let startDate = now.toISOString();
+        let endDate = new Date(now.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
 
-      let boostPriorityLevel = 0;
-      let boostPackagePrice = 0;
-      if (planId === '90days') {
-        boostPriorityLevel = 5;
-        boostPackagePrice = 20;
-      } else if (planId === '30days') {
-        boostPriorityLevel = 4;
-        boostPackagePrice = 12;
-      } else if (planId === '14days') {
-        boostPriorityLevel = 3;
-        boostPackagePrice = 7;
-      } else if (planId === '7days') {
-        boostPriorityLevel = 2;
-        boostPackagePrice = 3;
-      } else if (planId === '3days') {
-        boostPriorityLevel = 1;
-        boostPackagePrice = 1;
+        const existingStatus = productData.boostStatus || false;
+        const existingEndDateStr = productData.boostEndDate;
+
+        if (existingStatus && existingEndDateStr) {
+          const existingEndDate = new Date(existingEndDateStr);
+          if (existingEndDate.getTime() > now.getTime()) {
+            startDate = productData.boostStartDate || startDate;
+            endDate = new Date(existingEndDate.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
+            console.log(`[Boost Extend Fallback] Extending active boost for product ${productId} from ${existingEndDateStr} to ${endDate}`);
+          }
+        }
+
+        const historyItem = {
+          planId,
+          planName: plan.name,
+          startDate,
+          endDate,
+          paymentReference,
+          amount: verifiedAmount,
+          gateway: gatewayUsed,
+          paymentMethod: paymentMethod || 'momo',
+          createdAt: now.toISOString()
+        };
+
+        const boostHistory = Array.isArray(productData.boostHistory) ? [...productData.boostHistory] : [];
+        boostHistory.push(historyItem);
+
+        let boostPriorityLevel = 0;
+        let boostPackagePrice = 0;
+        if (planId === '90days') {
+          boostPriorityLevel = 5;
+          boostPackagePrice = 20;
+        } else if (planId === '30days') {
+          boostPriorityLevel = 4;
+          boostPackagePrice = 12;
+        } else if (planId === '14days') {
+          boostPriorityLevel = 3;
+          boostPackagePrice = 7;
+        } else if (planId === '7days') {
+          boostPriorityLevel = 2;
+          boostPackagePrice = 3;
+        } else if (planId === '3days') {
+          boostPriorityLevel = 1;
+          boostPackagePrice = 1;
+        }
+
+        if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
+          boostPackagePrice = 0;
+        }
+
+        const remainingBoostTime = Math.max(0, new Date(endDate).getTime() - now.getTime());
+        
+        const tempProduct = {
+          boostStatus: true,
+          boostPlan: planId,
+          boostEndDate: endDate,
+          createdAt: productData.createdAt,
+          viewsCount: productData.viewsCount
+        };
+        const priorityScore = calculatePriorityScore(tempProduct);
+
+        finalUpdatedFields = {
+          boostStatus: true,
+          boostPlan: planId,
+          boostStartDate: startDate,
+          boostEndDate: endDate,
+          paymentStatus: 'success',
+          paymentReference,
+          boostPriority: boostPriorityLevel * 10000000,
+          priorityScore,
+          lastBoostedAt: now.toISOString(),
+          boostHistory,
+          boostAmount: verifiedAmount,
+          boostPackagePrice,
+          boostPriorityLevel,
+          remainingBoostTime,
+          lastBoostPurchase: now.toISOString()
+        };
+
+        await updateProductFirestoreREST(productId, finalUpdatedFields, authHeader);
+        finalProductData = productData;
       }
 
-      if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
-        boostPackagePrice = 0;
-      }
-
-      const remainingBoostTime = Math.max(0, new Date(endDate).getTime() - now.getTime());
-      
-      const tempProduct = {
-        boostStatus: true,
-        boostPlan: planId,
-        boostEndDate: endDate,
-        createdAt: productData.createdAt,
-        viewsCount: productData.viewsCount
-      };
-      const priorityScore = calculatePriorityScore(tempProduct);
-
-      const updatedFields = {
-        boostStatus: true,
-        boostPlan: planId,
-        boostStartDate: startDate,
-        boostEndDate: endDate,
-        paymentStatus: 'success',
-        paymentReference,
-        boostPriority: boostPriorityLevel * 10000000,
-        priorityScore,
-        lastBoostedAt: now.toISOString(),
-        boostHistory,
-        boostAmount: verifiedAmount,
-        boostPackagePrice,
-        boostPriorityLevel,
-        remainingBoostTime,
-        lastBoostPurchase: now.toISOString()
-      };
-
-      await updateProductFirestoreREST(productId, updatedFields, authHeader);
       cachedProducts = null; // Clear products cache to reflect the new boost status immediately
 
       await createBoostPurchaseFirestoreREST({
         productId,
-        sellerId: productData.sellerId || '',
-        sellerName: productData.sellerName || '',
-        productTitle: productData.title || '',
+        sellerId: finalProductData.sellerId || '',
+        sellerName: finalProductData.sellerName || '',
+        productTitle: finalProductData.title || '',
         planId,
         amount: verifiedAmount,
         currency: 'GHS',
@@ -1739,7 +1851,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         gateway: gatewayUsed,
         paymentMethod: paymentMethod || 'momo',
         buyerEmail: email || '',
-        createdAt: now.toISOString()
+        createdAt: new Date().toISOString()
       }, authHeader);
 
       return res.json({
@@ -1747,7 +1859,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         message: "Premium boost successfully verified and activated!",
         product: {
           id: productId,
-          ...updatedFields
+          ...finalUpdatedFields
         }
       });
 
