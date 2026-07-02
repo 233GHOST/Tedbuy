@@ -1281,12 +1281,10 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       {/* Floating Create Listings form */}
-      <React.Suspense fallback={null}>
-        <ListingModal
-          isOpen={isPostAdOpen}
-          onClose={() => setIsPostAdOpen(false)}
-        />
-      </React.Suspense>
+      <ListingModal
+        isOpen={isPostAdOpen}
+        onClose={() => setIsPostAdOpen(false)}
+      />
 
       {/* Floating Modern Toast Notification */}
       {toast && (
