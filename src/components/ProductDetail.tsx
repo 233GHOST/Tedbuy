@@ -794,7 +794,7 @@ export const ProductDetail: React.FC = () => {
                             setIsAdminBoosting(true);
                             try {
                               const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-                              const cleanToken = token.trim().replace(/[\r\n]/g, '').replace(/^['"]|['"]$/g, '');
+                              const cleanToken = token.replace(/[^A-Za-z0-9._-]/g, '');
                               const res = await fetch('/api/admin/boost-control', {
                                 method: 'POST',
                                 headers: {
@@ -855,7 +855,7 @@ export const ProductDetail: React.FC = () => {
                             setIsAdminBoosting(true);
                             try {
                               const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-                              const cleanToken = token.trim().replace(/[\r\n]/g, '').replace(/^['"]|['"]$/g, '');
+                              const cleanToken = token.replace(/[^A-Za-z0-9._-]/g, '');
                               const res = await fetch('/api/admin/boost-control', {
                                 method: 'POST',
                                 headers: {

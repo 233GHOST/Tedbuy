@@ -202,7 +202,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
         'Content-Type': 'application/json'
       };
       if (idToken) {
-        const cleanToken = idToken.trim().replace(/[\r\n]/g, '').replace(/^['"]|['"]$/g, '');
+        const cleanToken = idToken.replace(/[^A-Za-z0-9._-]/g, '');
         headers['Authorization'] = `Bearer ${cleanToken}`;
       }
 
