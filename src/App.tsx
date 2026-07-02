@@ -3,13 +3,16 @@ import { AppProvider, useApp } from './context/AppContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
-import { ProductDetail } from './components/ProductDetail';
-import { ChatInterface } from './components/ChatInterface';
-import { SellerDashboard } from './components/SellerDashboard';
-import { SellerProfilePage } from './components/SellerProfilePage';
-import { ProfileSettings } from './components/ProfileSettings';
-import { ListingModal } from './components/ListingModal';
-import { VideoAdsFeed } from './components/VideoAdsFeed';
+
+// Lazy load heavy components to drastically reduce the initial bundle size to under 1 MB
+const ProductDetail = React.lazy(() => import('./components/ProductDetail').then(m => ({ default: m.ProductDetail })));
+const ChatInterface = React.lazy(() => import('./components/ChatInterface').then(m => ({ default: m.ChatInterface })));
+const SellerDashboard = React.lazy(() => import('./components/SellerDashboard').then(m => ({ default: m.SellerDashboard })));
+const SellerProfilePage = React.lazy(() => import('./components/SellerProfilePage').then(m => ({ default: m.SellerProfilePage })));
+const ProfileSettings = React.lazy(() => import('./components/ProfileSettings').then(m => ({ default: m.ProfileSettings })));
+const ListingModal = React.lazy(() => import('./components/ListingModal').then(m => ({ default: m.ListingModal })));
+const VideoAdsFeed = React.lazy(() => import('./components/VideoAdsFeed').then(m => ({ default: m.VideoAdsFeed })));
+
 import { Category, Product } from './types';
 import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
@@ -792,7 +795,14 @@ const MarketplaceContent: React.FC = () => {
             )}
 
             {homeViewMode === 'video-feed' ? (
-              <VideoAdsFeed />
+              <React.Suspense fallback={
+                <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center py-20 bg-slate-50 border border-slate-200 rounded-3xl text-slate-500">
+                  <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
+                  <p className="text-xs font-semibold">Loading Video Ads...</p>
+                </div>
+              }>
+                <VideoAdsFeed />
+              </React.Suspense>
             ) : (
               <>
                 {/* Category selection ribbon */}
@@ -1244,11 +1254,18 @@ const MarketplaceContent: React.FC = () => {
         )}
 
         {/* Dynamic sub screens */}
-        {currentView === 'product-detail' && <ProductDetail />}
-        {currentView === 'chats' && <ChatInterface />}
-        {currentView === 'my-dashboard' && <SellerDashboard />}
-        {currentView === 'seller-profile' && <SellerProfilePage />}
-        {currentView === 'profile-settings' && <ProfileSettings />}
+        <React.Suspense fallback={
+          <div className="flex-1 flex flex-col items-center justify-center py-20 bg-slate-50 text-slate-500 rounded-2xl">
+            <div className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
+            <p className="text-xs font-semibold">Loading view...</p>
+          </div>
+        }>
+          {currentView === 'product-detail' && <ProductDetail />}
+          {currentView === 'chats' && <ChatInterface />}
+          {currentView === 'my-dashboard' && <SellerDashboard />}
+          {currentView === 'seller-profile' && <SellerProfilePage />}
+          {currentView === 'profile-settings' && <ProfileSettings />}
+        </React.Suspense>
       </main>
 
       {/* Persistent platform footer */}
@@ -1264,10 +1281,12 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       {/* Floating Create Listings form */}
-      <ListingModal
-        isOpen={isPostAdOpen}
-        onClose={() => setIsPostAdOpen(false)}
-      />
+      <React.Suspense fallback={null}>
+        <ListingModal
+          isOpen={isPostAdOpen}
+          onClose={() => setIsPostAdOpen(false)}
+        />
+      </React.Suspense>
 
       {/* Floating Modern Toast Notification */}
       {toast && (

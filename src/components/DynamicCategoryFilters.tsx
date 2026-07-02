@@ -48,21 +48,9 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
     setSelectSearchQuery('');
   };
 
-  // If no category is selected, render a supportive helper card
+  // If no category is selected, do not render filters
   if (!selectedCategory) {
-    return (
-      <div className="bg-slate-50 border border-dashed border-slate-200 rounded-3xl p-5 text-left font-sans">
-        <div className="flex gap-3">
-          <span className="text-xl shrink-0">💡</span>
-          <div>
-            <h4 className="text-sm font-extrabold text-slate-800 mb-1">Custom Filters</h4>
-            <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-              Select a classified category above to reveal specialized options (e.g. Brands, Models, Conditions, and Specific Specs).
-            </p>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // Fetch relevant filter fields for the active category

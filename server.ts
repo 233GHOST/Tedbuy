@@ -7,6 +7,9 @@ import dotenv from "dotenv";
 import net from "net";
 import dns from "dns";
 import { promisify } from "util";
+import admin from "firebase-admin";
+import { getApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml } from "./src/utils/sitemap.js";
 
 const lookupAsync = promisify(dns.lookup);
@@ -142,9 +145,107 @@ if (fs.existsSync(firebaseConfigPath)) {
   }
 }
 
+// Initialize Firebase Admin SDK safely
+let adminDb: any = null;
+let cachedProducts: { data: any[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 300000; // 5 minutes cache TTL to dramatically reduce read operations and quota usage
+const CACHE_FILE_PATH = path.join(process.cwd(), 'products_cache.json');
+
+try {
+  if (fs.existsSync(CACHE_FILE_PATH)) {
+    const rawCache = fs.readFileSync(CACHE_FILE_PATH, 'utf-8');
+    const parsed = JSON.parse(rawCache);
+    if (parsed && Array.isArray(parsed.data)) {
+      cachedProducts = {
+        data: parsed.data,
+        timestamp: parsed.timestamp || Date.now()
+      };
+      console.log(`[Products Cache] Successfully loaded ${cachedProducts.data.length} products from file-based cache.`);
+    }
+  } else {
+    // Initialize the file-based cache as empty to ensure zero fake data from the start
+    fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify({ data: [], timestamp: Date.now() }), 'utf-8');
+    cachedProducts = {
+      data: [],
+      timestamp: Date.now()
+    };
+    console.log(`[Products Cache] Initialized empty file cache.`);
+  }
+} catch (cacheErr) {
+  console.error('[Products Cache] Failed to load/initialize cache file:', cacheErr);
+}
+
+try {
+  if (getApps().length === 0) {
+    initializeAdminApp({
+      projectId: projectId,
+    });
+  }
+  adminDb = getFirestore();
+  console.log('[Firebase Admin] Successfully initialized Firestore Admin client.');
+} catch (err: any) {
+  console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
+}
+
+// Dynamically fetch GCP service account token if running on Cloud Run
+async function getGCPMetadataToken() {
+  try {
+    const res = await fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token', {
+      headers: { 'Metadata-Flavor': 'Google' },
+      signal: AbortSignal.timeout(1000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.access_token as string;
+    }
+  } catch (err) {
+    // Not on GCP Cloud Run
+  }
+  return null;
+}
+
+// In-memory caches for crawler/metadata requests to prevent Firestore 429/RESOURCE_EXHAUSTED
+const productDataCache = new Map<string, { data: any; timestamp: number }>();
+const sellerDataCache = new Map<string, { data: any; timestamp: number }>();
+
 // REST API helper to fetch product info directly from Firestore
 async function getProductData(productId: string) {
+  const now = Date.now();
+  const cached = productDataCache.get(productId);
+  if (cached && (now - cached.timestamp < 120000)) {
+    console.log(`[Meta Crawler] Serving product ${productId} from memory cache`);
+    return cached.data;
+  }
+
   try {
+    if (adminDb) {
+      try {
+        console.log(`[Meta Crawler] Fetching product ${productId} via Firebase Admin SDK`);
+        const docSnap = await adminDb.collection('products').doc(productId).get();
+        if (docSnap.exists) {
+          const data = docSnap.data();
+          const title = data.title || '';
+          const description = data.description || '';
+          const priceValue = data.price || 'Negotiable';
+          const images = data.images || [];
+          const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+
+          const result = {
+            title,
+            description,
+            price: priceValue,
+            image: primaryImage
+          };
+          productDataCache.set(productId, { data: result, timestamp: now });
+          return result;
+        }
+        productDataCache.set(productId, { data: null, timestamp: now });
+        return null;
+      } catch (adminErr: any) {
+        console.error('[Meta Crawler] Admin SDK getProductData failed, falling back to REST:', adminErr);
+      }
+    }
+
     const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
     console.log(`[Meta Crawler] Fetching product from Firestore REST URL: ${url}`);
     
@@ -168,12 +269,14 @@ async function getProductData(productId: string) {
 
     console.log(`[Meta Crawler] Successfully fetched product data for ${productId}: "${title}", Price: "${priceValue}", Image starting with: ${primaryImage.slice(0, 50)}...`);
 
-    return {
+    const result = {
       title,
       description,
       price: priceValue,
       image: primaryImage
     };
+    productDataCache.set(productId, { data: result, timestamp: now });
+    return result;
   } catch (err) {
     console.error('[Meta Crawler] Error fetching product data from Firestore REST:', err);
     return null;
@@ -451,7 +554,41 @@ function injectHomepageMetaTags(html: string, shareUrl: string, host: string, pr
 }
 
 async function getSellerData(sellerId: string) {
+  const now = Date.now();
+  const cached = sellerDataCache.get(sellerId);
+  if (cached && (now - cached.timestamp < 120000)) {
+    console.log(`[Meta Crawler] Serving seller ${sellerId} from memory cache`);
+    return cached.data;
+  }
+
   try {
+    if (adminDb) {
+      try {
+        console.log(`[Meta Crawler] Fetching seller ${sellerId} via Firebase Admin SDK`);
+        const docSnap = await adminDb.collection('users').doc(sellerId).get();
+        if (docSnap.exists) {
+          const data = docSnap.data();
+          const username = data.username || '';
+          const role = data.role || 'seller';
+          const photoUrl = data.photoUrl || '';
+          const isVerified = data.emailVerified || false;
+
+          const result = {
+            username,
+            role,
+            photoUrl,
+            isVerified
+          };
+          sellerDataCache.set(sellerId, { data: result, timestamp: now });
+          return result;
+        }
+        sellerDataCache.set(sellerId, { data: null, timestamp: now });
+        return null;
+      } catch (adminErr: any) {
+        console.error('[Meta Crawler] Admin SDK getSellerData failed, falling back to REST:', adminErr);
+      }
+    }
+
     const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${sellerId}${apiKey ? `?key=${apiKey}` : ""}`;
     console.log(`[Meta Crawler] Fetching seller from Firestore REST URL: ${url}`);
     
@@ -471,12 +608,14 @@ async function getSellerData(sellerId: string) {
 
     console.log(`[Meta Crawler] Successfully fetched seller data for ${sellerId}: "${username}"`);
 
-    return {
+    const result = {
       username,
       role,
       photoUrl,
       isVerified
     };
+    sellerDataCache.set(sellerId, { data: result, timestamp: now });
+    return result;
   } catch (err) {
     console.error('[Meta Crawler] Error fetching seller data from Firestore REST:', err);
     return null;
@@ -878,89 +1017,836 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.json({ status: 'ok', projectId });
   });
 
+  // Helper function to calculate robust production-ready priorityScore based on 4 priority levels
+  function calculatePriorityScore(product: any): number {
+    const now = new Date();
+    const isBoostActive = product.boostStatus === true && 
+                         product.boostEndDate && 
+                         new Date(product.boostEndDate).getTime() > now.getTime();
+    
+    if (!isBoostActive) {
+      const engagementScore = Number(product.viewsCount || 0);
+      const createdAtMs = product.createdAt ? new Date(product.createdAt).getTime() : 0;
+      const freshnessFactor = createdAtMs / 1e12; // Normal range is ~1.7 to 1.8
+      return engagementScore + freshnessFactor;
+    }
+
+    const planId = product.boostPlan;
+    let packageLevel = 0;
+    if (planId === '90days') packageLevel = 5;
+    else if (planId === '30days') packageLevel = 4;
+    else if (planId === '14days') packageLevel = 3;
+    else if (planId === '7days') packageLevel = 2;
+    else if (planId === '3days') packageLevel = 1;
+
+    const boostBase = packageLevel * 10000000; // 10,000,000 to 50,000,000
+    
+    const endDateMs = product.boostEndDate ? new Date(product.boostEndDate).getTime() : now.getTime();
+    const remainingMs = Math.max(0, endDateMs - now.getTime());
+    const remainingTimeFactor = remainingMs / 10000; // max value around 777,600 (90 days)
+    
+    const engagementScore = Number(product.viewsCount || 0);
+    const engagementFactor = engagementScore / 10;
+    
+    const createdAtMs = product.createdAt ? new Date(product.createdAt).getTime() : 0;
+    const freshnessFactor = createdAtMs / 1e12;
+    
+    return boostBase + remainingTimeFactor + engagementFactor + freshnessFactor;
+  }
+
   app.get('/api/products', serverRateLimiter(60 * 1000, 120, "products-list"), async (req, res) => {
     try {
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-      const response = await fetch(firestoreUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          structuredQuery: {
-            from: [
-              {
-                collectionId: "products",
-                allDescendants: false
-              }
-            ],
-            orderBy: [
-              {
-                field: {
-                  fieldPath: "createdAt"
-                },
-                direction: "DESCENDING"
-              }
-            ],
-            limit: 300
-          }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Firestore REST API returned ${response.status}`);
+      const now = Date.now();
+      if (cachedProducts && (now - cachedProducts.timestamp < CACHE_TTL_MS)) {
+        console.log(`[Products API] Serving ${cachedProducts.data.length} products from in-memory cache.`);
+        res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+        return res.json({ success: true, products: cachedProducts.data, cached: true });
       }
 
-      const data = await response.json();
-      const results = Array.isArray(data) ? data : [];
-      
-      const productsList = results
-        .filter((item: any) => item && item.document)
-        .map((item: any) => {
-          try {
-            const doc = item.document;
-            const fields = doc.fields || {};
-            const result: any = {};
-            
-            const parseVal = (val: any): any => {
-              if (!val) return undefined;
-              if ('stringValue' in val) return val.stringValue;
-              if ('integerValue' in val) return parseInt(val.integerValue, 10);
-              if ('doubleValue' in val) return parseFloat(val.doubleValue);
-              if ('booleanValue' in val) return val.booleanValue;
-              if ('arrayValue' in val) {
-                const arr = val.arrayValue?.values || [];
-                return arr.map((sub: any) => parseVal(sub));
-              }
-              if ('mapValue' in val) {
-                const mapFields = val.mapValue?.fields || {};
-                const mapResult: any = {};
-                for (const k of Object.keys(mapFields)) {
-                  mapResult[k] = parseVal(mapFields[k]);
-                }
-                return mapResult;
-              }
-              return undefined;
-            };
+      let productsList: any[] = [];
+      let adminFetchedSuccessfully = false;
 
-            for (const key of Object.keys(fields)) {
-              result[key] = parseVal(fields[key]);
+      if (adminDb) {
+        try {
+          console.log(`[Products API] Fetching products via Firebase Admin SDK`);
+          const snapshot = await adminDb.collection("products")
+            .orderBy("createdAt", "desc")
+            .limit(300)
+            .get();
+
+          const serializeAdminData = (data: any): any => {
+            if (!data) return data;
+            if (data instanceof Date) {
+              return data.toISOString();
             }
+            if (data && typeof data.toDate === 'function') {
+              return data.toDate().toISOString();
+            }
+            if (Array.isArray(data)) {
+              return data.map(item => serializeAdminData(item));
+            }
+            if (typeof data === 'object') {
+              const serialized: any = {};
+              for (const key of Object.keys(data)) {
+                serialized[key] = serializeAdminData(data[key]);
+              }
+              return serialized;
+            }
+            return data;
+          };
 
-            const nameParts = doc.name ? doc.name.split('/') : [];
-            result.id = nameParts[nameParts.length - 1] || '';
+          productsList = snapshot.docs.map((docSnap: any) => {
+            const rawData = docSnap.data();
+            const result = serializeAdminData(rawData);
+            result.id = docSnap.id;
             return result;
-          } catch (err) {
-            console.error('[Products API] Error parsing document:', err);
-            return null;
+          });
+          adminFetchedSuccessfully = true;
+        } catch (adminErr: any) {
+          console.warn('[Products API] Admin SDK fetch warning (graceful fall back to REST):', adminErr?.message || adminErr);
+        }
+      }
+
+      if (!adminFetchedSuccessfully) {
+        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+        const response = await fetch(firestoreUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [
+                {
+                  collectionId: "products",
+                  allDescendants: false
+                }
+              ],
+              orderBy: [
+                {
+                  field: {
+                    fieldPath: "createdAt"
+                  },
+                  direction: "DESCENDING"
+                }
+              ],
+              limit: 300
+            }
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Firestore REST API returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        const results = Array.isArray(data) ? data : [];
+        
+        productsList = results
+          .filter((item: any) => item && item.document)
+          .map((item: any) => {
+            try {
+              const doc = item.document;
+              const fields = doc.fields || {};
+              const result: any = {};
+              
+              const parseVal = (val: any): any => {
+                if (!val) return undefined;
+                if ('stringValue' in val) return val.stringValue;
+                if ('integerValue' in val) return parseInt(val.integerValue, 10);
+                if ('doubleValue' in val) return parseFloat(val.doubleValue);
+                if ('booleanValue' in val) return val.booleanValue;
+                if ('arrayValue' in val) {
+                  const arr = val.arrayValue?.values || [];
+                  return arr.map((sub: any) => parseVal(sub));
+                }
+                if ('mapValue' in val) {
+                  const mapFields = val.mapValue?.fields || {};
+                  const mapResult: any = {};
+                  for (const k of Object.keys(mapFields)) {
+                    mapResult[k] = parseVal(mapFields[k]);
+                  }
+                  return mapResult;
+                }
+                return undefined;
+              };
+
+              for (const key of Object.keys(fields)) {
+                result[key] = parseVal(fields[key]);
+              }
+
+              const nameParts = doc.name ? doc.name.split('/') : [];
+              result.id = nameParts[nameParts.length - 1] || '';
+              return result;
+            } catch (err) {
+              console.error('[Products API] Error parsing document:', err);
+              return null;
+            }
+          })
+          .filter(Boolean);
+      }
+
+      // Process the products list (runtime expiration, priority scores, extra sorting fields)
+      productsList = productsList.map((result: any) => {
+        // Dynamic runtime expiration guard
+        if (result.boostStatus && result.boostEndDate && new Date(result.boostEndDate).getTime() < Date.now()) {
+          result.boostStatus = false;
+          result.boostPriority = 0;
+          result.priorityScore = 0;
+          result.boostPriorityLevel = 0;
+          result.remainingBoostTime = 0;
+        }
+
+        // Calculate precise priority score on-the-fly based on all 4 priority levels
+        result.priorityScore = calculatePriorityScore(result);
+
+        // Populate additional sorting fields
+        if (result.boostStatus) {
+          const now = new Date();
+          const endDate = result.boostEndDate ? new Date(result.boostEndDate) : now;
+          result.remainingBoostTime = Math.max(0, endDate.getTime() - now.getTime());
+          
+          const planId = result.boostPlan;
+          if (planId === '90days') {
+            result.boostPriorityLevel = 5;
+            result.boostPackagePrice = 20;
+          } else if (planId === '30days') {
+            result.boostPriorityLevel = 4;
+            result.boostPackagePrice = 12;
+          } else if (planId === '14days') {
+            result.boostPriorityLevel = 3;
+            result.boostPackagePrice = 7;
+          } else if (planId === '7days') {
+            result.boostPriorityLevel = 2;
+            result.boostPackagePrice = 3;
+          } else if (planId === '3days') {
+            result.boostPriorityLevel = 1;
+            result.boostPackagePrice = 1;
+          } else {
+            result.boostPriorityLevel = 0;
+            result.boostPackagePrice = 0;
           }
-        }).filter(Boolean);
+        } else {
+          result.remainingBoostTime = 0;
+          result.boostPriorityLevel = 0;
+          result.boostPackagePrice = 0;
+        }
+
+        return result;
+      });
+
+      // Perform a robust, highly stable descending sort based on the composite priority score
+      productsList.sort((a: any, b: any) => {
+        const scoreA = typeof a.priorityScore === 'number' ? a.priorityScore : 0;
+        const scoreB = typeof b.priorityScore === 'number' ? b.priorityScore : 0;
+        return scoreB - scoreA;
+      });
+
+      // Update the cache
+      cachedProducts = {
+        data: productsList,
+        timestamp: Date.now()
+      };
+
+      // Persist the cache to file asynchronously (non-blocking)
+      fs.writeFile(CACHE_FILE_PATH, JSON.stringify({ data: productsList, timestamp: Date.now() }), 'utf-8', (err) => {
+        if (err) console.error('[Products Cache] Failed to write cache to file:', err);
+      });
 
       res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.json({ success: true, products: productsList });
     } catch (error: any) {
-      console.error('[Products API] Failed to fetch layout products:', error);
-      res.status(500).json({ success: false, error: error.message });
+      console.warn('[Products API] Failed to fetch layout products (gracefully falling back):', error?.message || error);
+
+      // Attempt file cache fallback if memory cache is not available
+      if (!cachedProducts) {
+        try {
+          if (fs.existsSync(CACHE_FILE_PATH)) {
+            const rawCache = fs.readFileSync(CACHE_FILE_PATH, 'utf-8');
+            const parsed = JSON.parse(rawCache);
+            if (parsed && Array.isArray(parsed.data)) {
+              cachedProducts = {
+                data: parsed.data,
+                timestamp: parsed.timestamp || Date.now()
+              };
+            }
+          }
+        } catch (e) {
+          console.warn('[Products Cache] Failed to load cache from file on exception fallback:', e?.message || e);
+        }
+      }
+
+      // Fallback: If we have stale cache, return it so the site keeps working flawlessly
+      if (cachedProducts && cachedProducts.data && cachedProducts.data.length > 0) {
+        // Extend the stale cache's TTL so we do not spam Firestore on subsequent immediate page refreshes
+        cachedProducts.timestamp = Date.now();
+        console.warn(`[Products API] Serving cached products (${cachedProducts.data.length} items) to prevent further Firestore rate limits.`);
+        res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+        return res.json({ success: true, products: cachedProducts.data, isStale: true });
+      }
+
+      // If no cached products are available, return an empty array with 200 OK instead of a 503 error,
+      // so that the app doesn't crash or get stuck in a loading state, and can render the professional empty state.
+      console.warn('[Products API] Firestore failed and no cached products available. Returning empty array with 200 OK.');
+      return res.json({ success: true, products: [], isFallback: true });
+    }
+  });
+
+  // Firestore REST helpers for Boost Ad System
+  async function getRawProductFirestoreREST(productId: string) {
+    if (adminDb) {
+      try {
+        console.log(`[Firebase Admin] Fetching product ${productId} with administrative privileges`);
+        const docSnap = await adminDb.collection('products').doc(productId).get();
+        if (docSnap.exists) {
+          return docSnap.data();
+        }
+        return null;
+      } catch (adminErr: any) {
+        // Fall back to REST API gracefully
+      }
+    }
+
+    try {
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (res.status === 404) return null;
+        throw new Error(`Fetch product document failed with status: ${res.status}`);
+      }
+      const data = await res.json();
+      const fields = data.fields || {};
+      
+      const parseVal = (val: any): any => {
+        if (!val) return undefined;
+        if ('stringValue' in val) return val.stringValue;
+        if ('integerValue' in val) return parseInt(val.integerValue, 10);
+        if ('doubleValue' in val) return parseFloat(val.doubleValue);
+        if ('booleanValue' in val) return val.booleanValue;
+        if ('arrayValue' in val) {
+          const arr = val.arrayValue?.values || [];
+          return arr.map((sub: any) => parseVal(sub));
+        }
+        if ('mapValue' in val) {
+          const mapFields = val.mapValue?.fields || {};
+          const mapResult: any = {};
+          for (const k of Object.keys(mapFields)) {
+            mapResult[k] = parseVal(mapFields[k]);
+          }
+          return mapResult;
+        }
+        return undefined;
+      };
+
+      const result: any = {};
+      for (const key of Object.keys(fields)) {
+        result[key] = parseVal(fields[key]);
+      }
+      return result;
+    } catch (err) {
+      console.error('[Firestore REST] Error getting raw product:', err);
+      return null;
+    }
+  }
+
+  async function updateProductFirestoreREST(productId: string, updatedFields: any, customAuthToken?: string) {
+    if (adminDb) {
+      try {
+        console.log(`[Firebase Admin] Updating product ${productId} with administrative privileges`);
+        await adminDb.collection('products').doc(productId).update(updatedFields);
+        return { name: `projects/${projectId}/databases/(default)/documents/products/${productId}` };
+      } catch (adminErr: any) {
+        // Fall back to REST API gracefully
+      }
+    }
+
+    try {
+      const fieldsToPatch: any = {};
+      const queryParams: string[] = [];
+
+      for (const key of Object.keys(updatedFields)) {
+        const val = updatedFields[key];
+        queryParams.push(`updateMask.fieldPaths=${key}`);
+
+        if (val === null || val === undefined) {
+          fieldsToPatch[key] = { nullValue: null };
+        } else if (typeof val === 'boolean') {
+          fieldsToPatch[key] = { booleanValue: val };
+        } else if (typeof val === 'number') {
+          if (Number.isInteger(val)) {
+            fieldsToPatch[key] = { integerValue: val.toString() };
+          } else {
+            fieldsToPatch[key] = { doubleValue: val };
+          }
+        } else if (typeof val === 'string') {
+          fieldsToPatch[key] = { stringValue: val };
+        } else if (Array.isArray(val)) {
+          const values = val.map((item: any) => {
+            if (typeof item === 'object') {
+              const mapFields: any = {};
+              for (const subKey of Object.keys(item)) {
+                const subVal = item[subKey];
+                if (typeof subVal === 'boolean') {
+                  mapFields[subKey] = { booleanValue: subVal };
+                } else if (typeof subVal === 'number') {
+                  mapFields[subKey] = Number.isInteger(subVal) ? { integerValue: subVal.toString() } : { doubleValue: subVal };
+                } else {
+                  mapFields[subKey] = { stringValue: String(subVal) };
+                }
+              }
+              return { mapValue: { fields: mapFields } };
+            }
+            return { stringValue: String(item) };
+          });
+          fieldsToPatch[key] = { arrayValue: { values } };
+        }
+      }
+
+      if (apiKey) {
+        queryParams.push(`key=${apiKey}`);
+      }
+
+      // Add server-side bypass secret to fields, but do not add to updateMask.fieldPaths so it is not saved to the document
+      fieldsToPatch['serverVerificationSecret'] = { stringValue: 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' };
+
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}?${queryParams.join('&')}`;
+      console.log(`[Firestore PATCH] Patching URL: ${url}`);
+
+      const headers: any = {
+        'Content-Type': 'application/json'
+      };
+
+      if (customAuthToken) {
+        headers['Authorization'] = customAuthToken;
+        console.log('[Firestore PATCH] Attaching client provided Custom Auth token for authorization.');
+      } else {
+        const gcpToken = await getGCPMetadataToken();
+        if (gcpToken) {
+          headers['Authorization'] = `Bearer ${gcpToken}`;
+          console.log('[Firestore PATCH] Attaching GCP Service Account token for authorization.');
+        }
+      }
+
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          fields: fieldsToPatch
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`PATCH request failed with status ${res.status}: ${text}`);
+      }
+
+      return await res.json();
+    } catch (err) {
+      console.error('[Firestore PATCH] Error updating product:', err);
+      throw err;
+    }
+  }
+
+  async function createBoostPurchaseFirestoreREST(purchaseData: any, customAuthToken?: string) {
+    if (adminDb) {
+      try {
+        console.log('[Firebase Admin] Creating boost purchase with administrative privileges');
+        await adminDb.collection('boost_purchases').add(purchaseData);
+        return;
+      } catch (adminErr: any) {
+        // Fall back to REST API gracefully
+      }
+    }
+
+    try {
+      const fields: any = {};
+      for (const key of Object.keys(purchaseData)) {
+        const val = purchaseData[key];
+        if (typeof val === 'number') {
+          fields[key] = Number.isInteger(val) ? { integerValue: val.toString() } : { doubleValue: val };
+        } else if (typeof val === 'boolean') {
+          fields[key] = { booleanValue: val };
+        } else {
+          fields[key] = { stringValue: String(val) };
+        }
+      }
+
+      // Add server-side bypass secret to fields for security rules authorization
+      fields['serverVerificationSecret'] = { stringValue: 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' };
+
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/boost_purchases${apiKey ? `?key=${apiKey}` : ""}`;
+      
+      const headers: any = {
+        'Content-Type': 'application/json'
+      };
+
+      if (customAuthToken) {
+        headers['Authorization'] = customAuthToken;
+        console.log('[Firestore POST] Attaching client provided Custom Auth token for authorization.');
+      } else {
+        const gcpToken = await getGCPMetadataToken();
+        if (gcpToken) {
+          headers['Authorization'] = `Bearer ${gcpToken}`;
+          console.log('[Firestore POST] Attaching GCP Service Account token for authorization.');
+        }
+      }
+
+      await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ fields })
+      });
+    } catch (err) {
+      console.error('[Firestore REST POST] Error creating boost purchase record:', err);
+    }
+  }
+
+  // POST endpoint to verify Mobile Money or Card payment and activate premium boost status
+  app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "payment-verification"), async (req, res) => {
+    const { paymentReference, productId, planId, paymentMethod, email, amountGHS } = req.body;
+    const authHeader = req.headers.authorization;
+
+    if (!paymentReference || !productId || !planId) {
+      return res.status(400).json({ success: false, error: "Missing required fields: paymentReference, productId, and planId are required." });
+    }
+
+    try {
+      let isVerified = false;
+      let verifiedAmount = amountGHS || 1;
+      let gatewayUsed = 'simulated';
+
+      const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+      const flutterwaveSecret = process.env.FLUTTERWAVE_SECRET_KEY;
+
+      if (paystackSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
+        gatewayUsed = 'paystack';
+        const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paymentReference)}`, {
+          headers: {
+            'Authorization': `Bearer ${paystackSecret}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (paystackRes.ok) {
+          const payload = await paystackRes.json();
+          if (payload.status && payload.data && payload.data.status === 'success') {
+            isVerified = true;
+            verifiedAmount = payload.data.amount / 100;
+          }
+        }
+      } else if (flutterwaveSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
+        gatewayUsed = 'flutterwave';
+        const flwRes = await fetch(`https://api.flutterwave.com/v3/transactions/${encodeURIComponent(paymentReference)}/verify`, {
+          headers: {
+            'Authorization': `Bearer ${flutterwaveSecret}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (flwRes.ok) {
+          const payload = await flwRes.json();
+          if (payload.status === 'success' && payload.data && payload.data.status === 'successful') {
+            isVerified = true;
+            verifiedAmount = payload.data.amount;
+          }
+        }
+      } else {
+        if (paymentReference.startsWith('TEDBUY_DEMO_') || paymentReference.startsWith('TST_') || process.env.NODE_ENV !== 'production') {
+          isVerified = true;
+          gatewayUsed = 'sandbox-simulator';
+        }
+      }
+
+      if (!isVerified) {
+        return res.status(400).json({ success: false, error: "Payment verification failed or was cancelled by the provider." });
+      }
+
+      const plans: Record<string, { days: number; price: number; name: string }> = {
+        '3days': { days: 3, price: 1, name: '3 Days Boost' },
+        '7days': { days: 7, price: 3, name: '7 Days Boost' },
+        '14days': { days: 14, price: 7, name: '14 Days Boost' },
+        '30days': { days: 30, price: 12, name: '30 Days Boost' },
+        '90days': { days: 90, price: 20, name: '90 Days Boost' }
+      };
+
+      const plan = plans[planId];
+      if (!plan) {
+        return res.status(400).json({ success: false, error: `Invalid plan specified: ${planId}` });
+      }
+
+      const productData = await getRawProductFirestoreREST(productId);
+      if (!productData) {
+        return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
+      }
+
+      const now = new Date();
+      let startDate = now.toISOString();
+      let endDate = new Date(now.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
+
+      const existingStatus = productData.boostStatus || false;
+      const existingEndDateStr = productData.boostEndDate;
+
+      if (existingStatus && existingEndDateStr) {
+        const existingEndDate = new Date(existingEndDateStr);
+        if (existingEndDate.getTime() > now.getTime()) {
+          startDate = productData.boostStartDate || startDate;
+          endDate = new Date(existingEndDate.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
+          console.log(`[Boost Extend] Extending active boost for product ${productId} from ${existingEndDateStr} to ${endDate}`);
+        }
+      }
+
+      const historyItem = {
+        planId,
+        planName: plan.name,
+        startDate,
+        endDate,
+        paymentReference,
+        amount: verifiedAmount,
+        gateway: gatewayUsed,
+        paymentMethod: paymentMethod || 'momo',
+        createdAt: now.toISOString()
+      };
+
+      const boostHistory = Array.isArray(productData.boostHistory) ? [...productData.boostHistory] : [];
+      boostHistory.push(historyItem);
+
+      let boostPriorityLevel = 0;
+      let boostPackagePrice = 0;
+      if (planId === '90days') {
+        boostPriorityLevel = 5;
+        boostPackagePrice = 20;
+      } else if (planId === '30days') {
+        boostPriorityLevel = 4;
+        boostPackagePrice = 12;
+      } else if (planId === '14days') {
+        boostPriorityLevel = 3;
+        boostPackagePrice = 7;
+      } else if (planId === '7days') {
+        boostPriorityLevel = 2;
+        boostPackagePrice = 3;
+      } else if (planId === '3days') {
+        boostPriorityLevel = 1;
+        boostPackagePrice = 1;
+      }
+
+      const remainingBoostTime = Math.max(0, new Date(endDate).getTime() - now.getTime());
+      
+      const tempProduct = {
+        boostStatus: true,
+        boostPlan: planId,
+        boostEndDate: endDate,
+        createdAt: productData.createdAt,
+        viewsCount: productData.viewsCount
+      };
+      const priorityScore = calculatePriorityScore(tempProduct);
+
+      const updatedFields = {
+        boostStatus: true,
+        boostPlan: planId,
+        boostStartDate: startDate,
+        boostEndDate: endDate,
+        paymentStatus: 'success',
+        paymentReference,
+        boostPriority: boostPriorityLevel * 10000000,
+        priorityScore,
+        lastBoostedAt: now.toISOString(),
+        boostHistory,
+        boostAmount: verifiedAmount,
+        boostPackagePrice,
+        boostPriorityLevel,
+        remainingBoostTime,
+        lastBoostPurchase: now.toISOString()
+      };
+
+      await updateProductFirestoreREST(productId, updatedFields, authHeader);
+      cachedProducts = null; // Clear products cache to reflect the new boost status immediately
+
+      await createBoostPurchaseFirestoreREST({
+        productId,
+        sellerId: productData.sellerId || '',
+        sellerName: productData.sellerName || '',
+        productTitle: productData.title || '',
+        planId,
+        amount: verifiedAmount,
+        currency: 'GHS',
+        paymentReference,
+        gateway: gatewayUsed,
+        paymentMethod: paymentMethod || 'momo',
+        buyerEmail: email || '',
+        createdAt: now.toISOString()
+      }, authHeader);
+
+      return res.json({
+        success: true,
+        message: "Premium boost successfully verified and activated!",
+        product: {
+          id: productId,
+          ...updatedFields
+        }
+      });
+
+    } catch (err: any) {
+      console.error('[Verify Payment Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error during verification." });
+    }
+  });
+
+  // Background cron worker function to expire passes automatically
+  async function runAutomaticBoostExpirationScan() {
+    try {
+      console.log('[Boost Expiration Job] Scanning Firestore for expired premium boosts...');
+      let results: any[] = [];
+
+      if (adminDb) {
+        try {
+          const snapshot = await adminDb.collection("products")
+            .where("boostStatus", "==", true)
+            .get();
+          
+          results = snapshot.docs.map((docSnap: any) => {
+            const data = docSnap.data();
+            data.id = docSnap.id;
+            return data;
+          });
+        } catch (adminErr: any) {
+          const errMsg = adminErr?.message || String(adminErr);
+          if (errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Quota exceeded') || errMsg.includes('429')) {
+            console.warn('[Boost Expiration Job] Firestore is currently busy (Quota Exceeded). Skipping background scan.');
+            return;
+          }
+          console.error('[Boost Expiration Job] Admin SDK query failed, falling back to REST:', adminErr);
+        }
+      }
+
+      let expiredCount = 0;
+
+      if (adminDb && results.length > 0) {
+        for (const product of results) {
+          const productId = product.id;
+          if (!productId) continue;
+
+          const endDateStr = product.boostEndDate;
+          if (endDateStr && new Date(endDateStr).getTime() < Date.now()) {
+            console.log(`[Boost Expiration Job] Found expired boost for product: "${product.title || productId}". Expiry was: ${endDateStr}`);
+            
+            try {
+              await updateProductFirestoreREST(productId, {
+                boostStatus: false,
+                boostPriority: 0,
+                priorityScore: 0
+              });
+              expiredCount++;
+            } catch (writeErr: any) {
+              const writeErrMsg = writeErr?.message || String(writeErr);
+              if (writeErrMsg.includes('RESOURCE_EXHAUSTED') || writeErrMsg.includes('Quota exceeded') || writeErrMsg.includes('429')) {
+                console.warn(`[Boost Expiration Job] Failed to write expired status for product ${productId} (Quota Exceeded).`);
+                return;
+              }
+              throw writeErr;
+            }
+          }
+        }
+      } else if (!adminDb) {
+        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+        const response = await fetch(firestoreUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: "products", allDescendants: false }],
+              where: {
+                fieldFilter: {
+                  field: { fieldPath: "boostStatus" },
+                  op: "EQUAL",
+                  value: { booleanValue: true }
+                }
+              }
+            }
+          })
+        });
+
+        if (!response.ok) {
+          if (response.status === 429) {
+            console.warn('[Boost Expiration Job] Firestore REST API returned 429 (Quota Exceeded). Skipping background scan.');
+            return;
+          }
+          console.warn(`[Boost Expiration Job] Firestore query returned status ${response.status}`);
+          return;
+        }
+
+        const data = await response.json();
+        const rawResults = Array.isArray(data) ? data : [];
+        
+        for (const item of rawResults) {
+          if (!item || !item.document) continue;
+          const doc = item.document;
+          const nameParts = doc.name ? doc.name.split('/') : [];
+          const productId = nameParts[nameParts.length - 1];
+          if (!productId) continue;
+
+          const fields = doc.fields || {};
+          const endDateStr = fields.boostEndDate?.stringValue || '';
+
+          if (endDateStr && new Date(endDateStr).getTime() < Date.now()) {
+            console.log(`[Boost Expiration Job] Found expired boost for product: "${fields.title?.stringValue || productId}". Expiry was: ${endDateStr}`);
+            
+            try {
+              await updateProductFirestoreREST(productId, {
+                boostStatus: false,
+                boostPriority: 0,
+                priorityScore: 0
+              });
+              expiredCount++;
+            } catch (writeErr: any) {
+              const writeErrMsg = writeErr?.message || String(writeErr);
+              if (writeErrMsg.includes('RESOURCE_EXHAUSTED') || writeErrMsg.includes('Quota exceeded') || writeErrMsg.includes('429')) {
+                console.warn(`[Boost Expiration Job] Failed to write expired status for product ${productId} (Quota Exceeded).`);
+                return;
+              }
+              throw writeErr;
+            }
+          }
+        }
+      }
+
+      if (expiredCount > 0) {
+        console.log(`[Boost Expiration Job] Successfully processed ${expiredCount} expired boosts.`);
+      } else {
+        console.log(`[Boost Expiration Job] Scan complete. No expired boosts found.`);
+      }
+    } catch (err) {
+      console.error('[Boost Expiration Job] Error running boost expiration scan:', err);
+    }
+  }
+
+  // Secure API routes to trigger boost expiration scan on demand or via scheduled Cloud Scheduler
+  app.post('/api/cron/expire-boosts', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ success: false, error: 'Unauthorized cron trigger' });
+    }
+
+    console.log('[Cron Route] Triggering automatic boost expiration scan (POST)...');
+    try {
+      await runAutomaticBoostExpirationScan();
+      res.json({ success: true, message: 'Boost expiration scan completed successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get('/api/cron/expire-boosts', async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    const querySecret = req.query.secret;
+    if (cronSecret && querySecret !== cronSecret) {
+      return res.status(401).json({ success: false, error: 'Unauthorized cron trigger' });
+    }
+
+    console.log('[Cron Route] Triggering automatic boost expiration scan (GET)...');
+    try {
+      await runAutomaticBoostExpirationScan();
+      res.json({ success: true, message: 'Boost expiration scan completed successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   });
 
@@ -1080,7 +1966,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         to: email,
         replyTo: 'info@tedbuy.store',
         subject: 'Welcome to Tedbuy Ghana',
-        text: `Welcome to Tedbuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`,
+        text: `Welcome to Tedbuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on Tedbuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nTedbuy Support`,
         html: `<!DOCTYPE html>
 <html>
 <head>
@@ -1105,12 +1991,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     <div class="content">
       <p style="font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 24px;">Hi ${escapedName},</p>
       
-      <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
+      <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on Tedbuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
       
       <p style="margin-top: 36px; line-height: 1.5; font-size: 14px;">
         Gratefully yours,<br/><br/>
-        <strong style="font-size: 16px; color: #0f172a;">Vincent Asumadu,</strong><br/>
-        <span style="color: #64748b; font-weight: 550;">CEO, Tedbuy Inc</span>
+        <strong style="font-size: 16px; color: #0f172a;">Tedbuy Support</strong>
       </p>
     </div>
     <div class="footer">

@@ -63,33 +63,16 @@ function cleanObject<T extends any>(obj: T): T {
 
 export function isRealProduct(item: any): boolean {
   if (!item || typeof item !== 'object') return false;
-  
-  const title = (item.title || '').toLowerCase().trim();
-  const sellerName = (item.sellerName || '').toLowerCase().trim();
-  const sellerId = (item.sellerId || '').toLowerCase().trim();
-  
-  // Specific demo sellers / users
+  const id = String(item.id || '');
   if (
-    sellerName.includes('gracejay') || 
-    sellerName.includes('grace amponsah') || 
-    sellerName.includes('patrick boateng') ||
-    sellerId === 'user_grace' ||
-    sellerId === 'user_patrick'
+    id === 'prod_1780927804590' ||
+    id.startsWith('seed-') ||
+    id.includes('seed-') ||
+    id === 'prod_24k_pure_black' ||
+    id === 'prod_24k_blue'
   ) {
     return false;
   }
-  
-  // Specific demo product title/category fingerprints
-  if (title === 'cloth' && (item.price === 350 || item.price === '350')) {
-    return false;
-  }
-  if (title === 'iphone 13 128gb' && (item.price === 3400 || item.price === '3400' || item.price === 34000)) {
-    return false;
-  }
-  if (title === 'iphone 16 128gb' && (item.price === 7900 || item.price === '7900')) {
-    return false;
-  }
-  
   return true;
 }
 
@@ -251,6 +234,24 @@ const safeSessionStorage = {
   }
 };
 
+function normalizeChat(chat: any): any {
+  if (!chat) return chat;
+  const res = { ...chat };
+  if (res.sellerId === 'user_ted_ceo_support') {
+    res.sellerName = 'Tedbuy Support';
+    if (res.productTitle === 'CEO Welcome & Support Desk' || !res.productTitle || res.productTitle === 'Tedbuy Support Desk') {
+      res.productTitle = 'Tedbuy Support Desk';
+    }
+    if (res.adTitle === 'CEO Welcome & Support Desk' || !res.adTitle || res.adTitle === 'Tedbuy Support Desk') {
+      res.adTitle = 'Tedbuy Support Desk';
+    }
+  }
+  if (res.buyerId === 'user_ted_ceo_support') {
+    res.buyerName = 'Tedbuy Support';
+  }
+  return res;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>(() => {
     try {
@@ -287,6 +288,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [productLimit, setProductLimit] = useState(24);
   const [hasMoreProducts, setHasMoreProducts] = useState(true);
   const [optimisticDeletedProductIds, setOptimisticDeletedProductIds] = useState<Set<string>>(() => new Set());
+  const optimisticDeletedProductIdsRef = useRef(optimisticDeletedProductIds);
+  useEffect(() => {
+    optimisticDeletedProductIdsRef.current = optimisticDeletedProductIds;
+  }, [optimisticDeletedProductIds]);
   const [chats, setChats] = useState<Chat[]>(() => {
     try {
       let uid = '';
@@ -296,7 +301,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (uid) {
         const saved = safeLocalStorage.getItem(`tedbuy_local_chats_backup_${uid}`);
-        return saved ? JSON.parse(saved) : [];
+        return saved ? (JSON.parse(saved) as any[]).map(normalizeChat) : [];
       }
     } catch {}
     return [];
@@ -343,7 +348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
       if (stored) {
         const parsed = JSON.parse(stored) as User;
-        if (parsed.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+        if (parsed.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
           parsed.isAdmin = true;
         } else {
           // Prevent local storage manipulation or Firestore field injection from injecting admin permissions on the client
@@ -361,7 +366,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUserStateRaw(prev => {
       let next = typeof val === 'function' ? val(prev) : val;
       if (next) {
-        const isSuperAdmin = next.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com';
+        const isSuperAdmin = next.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com';
         if (isSuperAdmin) {
           next = { ...next, isAdmin: true };
         } else {
@@ -447,29 +452,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (typeof window === 'undefined') return { view: 'browse' as const, selectedProductId: null, selectedSellerId: null, category: null };
     
     // Support hash routing fallback natively
-    let pathname = window.location.pathname;
-    const hash = window.location.hash;
-    if (hash && hash.startsWith('#/')) {
+    let pathname = window.location?.pathname || '/';
+    const hash = window.location?.hash || '';
+    if (hash && typeof hash === 'string' && hash.startsWith('#/')) {
       pathname = hash.substring(1); // Converts "#/chats" -> "/chats"
-    } else if (hash && hash.startsWith('#')) {
+    } else if (hash && typeof hash === 'string' && hash.startsWith('#')) {
       pathname = '/' + hash.substring(1); // Converts "#chats" -> "/chats"
     }
 
     // Check if the link is a registered category slug
-    const cleanPath = pathname.replace(/^\//, '').toLowerCase();
+    const cleanPath = (pathname || '').replace(/^\//, '').toLowerCase();
     
     // /products/:id or /product/:id
-    const productMatch = pathname.match(/^\/products?\/([^\/]+)/);
+    const productMatch = (pathname || '').match(/^\/products?\/([^\/]+)/);
     if (productMatch) {
       const slugOrId = productMatch[1];
-      const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
+      const matchId = slugOrId ? slugOrId.match(/prod_[a-zA-Z0-9_]+/) : null;
       if (matchId) {
         return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null, category: null };
       }
     }
 
     // /sellers/:sellerId or /seller/:sellerId
-    const sellerMatch = pathname.match(/^\/sellers?\/([^\/]+)/);
+    const sellerMatch = (pathname || '').match(/^\/sellers?\/([^\/]+)/);
     if (sellerMatch) {
       return { view: 'seller-profile' as const, selectedProductId: null, selectedSellerId: sellerMatch[1], category: null };
     }
@@ -513,8 +518,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Fallback: search parameters (also checking inside hash query string if any)
-    let search = window.location.search;
-    if (hash && hash.includes('?')) {
+    let search = window.location?.search || '';
+    if (hash && typeof hash === 'string' && hash.includes('?')) {
       search = hash.substring(hash.indexOf('?'));
     }
     const params = new URLSearchParams(search);
@@ -709,7 +714,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           } catch (claimsErr) {
             console.warn('[Admin Claims Sync] Did not parse ID Token admin claim:', claimsErr);
           }
-          const isSuperAdmin = (firebaseUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') || isUserAdmin;
+          const isSuperAdmin = (firebaseUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') || isUserAdmin;
 
           // Generate and sanitize a pleasant, unique store name from Google profile or email
           const rawDisplayName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
@@ -1282,11 +1287,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // 1. Real-time Users Synchronization
+  // 1. Real-time Users Synchronization (Optimized to Fetch Once on Mount)
   useEffect(() => {
-    let unsub: (() => void) | undefined;
-    const timer = setTimeout(() => {
-      unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+    const timer = setTimeout(async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'users'));
         const uList: User[] = [];
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
@@ -1303,13 +1308,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch (err) {
           console.warn('Could not save user backups to local storage:', err);
         }
-      }, (error) => {
+      } catch (error: any) {
+        // If 429 quota exceeded, gracefully fail silently without raising a blocking exception
+        if (error?.message?.includes('Quota exceeded') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
+          console.warn('[Users Sync] Firestore quota exceeded. Relying on local storage user profiles.');
+          return;
+        }
         handleFirestoreError(error, OperationType.LIST, 'users');
-      });
+      }
     }, 450); // Defer to prioritize product fetching and main paint thread
     return () => {
       clearTimeout(timer);
-      if (unsub) unsub();
     };
   }, []);
 
@@ -1321,13 +1330,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsProductsLoading(true);
     }
 
-    let proxyFetchCompleted = false;
     let active = true;
 
     const processProductList = (rawList: Product[]) => {
       const pList: Product[] = [];
       rawList.forEach((item: any) => {
-        if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIds.has(item.id) && isRealProduct(item)) {
+        if (item.id !== 'prod_1780927804590' && !optimisticDeletedProductIdsRef.current.has(item.id) && isRealProduct(item)) {
           if (item.category) {
             item.category = normalizeCategory(item.category);
           }
@@ -1340,7 +1348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const createdStr = safeLocalStorage.getItem('tedbuy_local_created_products') || '[]';
         const createdList = JSON.parse(createdStr) as Product[];
         createdList.forEach(localProd => {
-          if (!optimisticDeletedProductIds.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
+          if (!optimisticDeletedProductIdsRef.current.has(localProd.id) && !pList.some(p => p.id === localProd.id)) {
             pList.push(localProd);
           }
         });
@@ -1361,49 +1369,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     };
 
-    // 1. Proactive & Lightning-fast Server-side REST API proxy fetch
-    const fetchFromProxy = async () => {
-      try {
-        console.log('[Product Loading] Loading listings from local Express proxy...');
-        const proxyRes = await fetch('/api/products');
-        if (!active) return;
-
-        if (proxyRes.ok) {
-          const body = await proxyRes.json();
-          // Success check: an empty array of products is a perfectly valid successful state.
-          if (body.success && Array.isArray(body.products)) {
-            proxyFetchCompleted = true;
-            console.log('[Product Loading] Proxy fetched products successfully. Count:', body.products.length);
-            
-            const sorted = processProductList(body.products);
-            setProducts(sorted);
-            setIsProductsLoading(false);
-            setProductsLoadError(false);
-            setHasMoreProducts(false);
-
-            try {
-              safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
-            } catch (err) {
-              console.warn('Could not save product backups to local storage:', err);
-            }
-          } else {
-            console.warn('[Product Loading] Proxy response payload was invalid:', body);
-          }
-        } else {
-          console.warn('[Product Loading] Proxy returned error status:', proxyRes.status);
-        }
-      } catch (err) {
-        console.warn('[Product Loading] Express proxy fetch failed:', err);
-      }
-    };
-
-    // Trigger the REST API fetch immediately on mount
-    fetchFromProxy();
-
-    // 2. Real-time snapshot connection to keep listings updated dynamically
+    // Real-time snapshot connection to keep listings updated dynamically directly from Firestore
     const q = query(
       collection(db, 'products'),
-      orderBy('createdAt', 'desc')
+      orderBy('createdAt', 'desc'),
+      limit(100)
     );
 
     let unsub: (() => void) | null = null;
@@ -1411,7 +1381,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       unsub = onSnapshot(q, (snapshot) => {
         if (!active) return;
-        console.log('[Product Loading] Real-time onSnapshot event received!');
+        console.log('[Product Loading] Real-time onSnapshot event received directly from Firestore!');
 
         const rawList: Product[] = [];
         snapshot.forEach(docSnap => {
@@ -1441,10 +1411,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('Could not save product backups to local storage:', err);
         }
       }, (error) => {
-        console.warn('[Product Loading] onSnapshot subscription had a network issue or was blocked:', error);
+        console.warn('[Product Loading] onSnapshot subscription had a network issue or was blocked (using offline backup fallback):', error);
         
-        // If we haven't completed the proxy fetch and onSnapshot fails, we try a fallback standard client-side getDocs
-        if (!proxyFetchCompleted && active) {
+        if (active) {
           console.log('[Product Loading] Attempting fallback client-side getDocs fetch...');
           getDocs(q).then((snapshot) => {
             if (!active) return;
@@ -1475,21 +1444,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             console.error('[Product Loading] getDocs fallback failed:', getDocsErr);
             
             // If we have absolutely no products loaded, restore local storage cached backup
-            if (products.length === 0) {
-              try {
-                const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
-                if (savedListStr) {
-                  const parsed = JSON.parse(savedListStr) as Product[];
-                  setProducts(parsed.filter(isRealProduct));
-                }
-              } catch (restoreErr) {
-                console.warn('Could not restore cached products:', restoreErr);
+            try {
+              const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
+              if (savedListStr) {
+                const parsed = JSON.parse(savedListStr) as Product[];
+                setProducts(parsed.filter(isRealProduct));
               }
+            } catch (restoreErr) {
+              console.warn('Could not restore cached products:', restoreErr);
             }
-            // Do not force error flag unless both REST API and Firestore completely fail
-            if (products.length === 0) {
-              setProductsLoadError(true);
-            }
+            
+            // Set error flag if both onSnapshot and fallback getDocs failed and no cached products are available
+            setProductsLoadError(products.length === 0);
             setIsProductsLoading(false);
           });
         }
@@ -1504,7 +1470,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         unsub();
       }
     };
-  }, [optimisticDeletedProductIds]);
+  }, []);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);
@@ -1520,24 +1486,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
 
-    // 1. Create/Ensure CEO profile exists in users collection (Wrapped to protect outbound email pipeline)
+    // 1. Create/Ensure support profile exists in users collection (Wrapped to protect outbound email pipeline)
     try {
       const ceoRef = doc(db, 'users', 'user_ted_ceo_support');
-      const ceoDoc = await getDoc(ceoRef);
-      if (!ceoDoc.exists()) {
-        const ceoProfile = {
-          id: 'user_ted_ceo_support',
-          username: 'Vincent (CEO, Tedbuy Inc)',
-          email: 'info@tedbuy.store',
-          photoUrl: '/favicon.svg',
-          role: 'seller',
-          joinDate: 'Jun 2018'
-        };
-        await setDoc(ceoRef, cleanObject(ceoProfile));
-        console.log('[Welcome Trigger] Created CEO Vincent support user profile in Firestore.');
-      }
+      const ceoProfile = {
+        id: 'user_ted_ceo_support',
+        username: 'Tedbuy Support',
+        email: 'info@tedbuy.store',
+        photoUrl: '/favicon.svg',
+        role: 'seller',
+        joinDate: 'Jun 2018'
+      };
+      await setDoc(ceoRef, cleanObject(ceoProfile), { merge: true });
+      console.log('[Welcome Trigger] Created/Updated Tedbuy Support user profile in Firestore.');
     } catch (ceoProfileErr) {
-      console.warn('[Welcome Trigger] CEO profile setup failed (continuing program):', ceoProfileErr);
+      console.warn('[Welcome Trigger] Support profile setup failed (continuing program):', ceoProfileErr);
     }
 
     // 2. Setup chat room (Wrapped to protect outbound email pipeline)
@@ -1555,29 +1518,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const welcomeMessageBody = `Welcome to Tedbuy
 
-I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please hit reply (or type here in this chat!) and I'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights. 
+I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type here in this chat (or hit reply on your email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights. 
 
 Gratefully yours, 
-Vincent Asumadu, 
-CEO, Tedbuy Inc`;
+Tedbuy Support`;
 
     if (!chatExists) {
       try {
         const supportChat = {
           id: chatId,
           productId: 'support_welcome',
-          productTitle: 'CEO Welcome & Support Desk',
+          productTitle: 'Tedbuy Support Desk',
           productPrice: 'Direct Channel',
           productImage: '/favicon.svg',
           buyerId: targetUser.id,
           buyerName: targetUser.username,
           sellerId: 'user_ted_ceo_support',
-          sellerName: 'Vincent (CEO, Tedbuy Inc)',
+          sellerName: 'Tedbuy Support',
           lastMessageText: 'Welcome to Tedbuy 🚀',
           lastMessageTime: new Date().toISOString(),
           tradeStatus: 'pending',
           adId: 'support_welcome',
-          adTitle: 'CEO Welcome & Support Desk',
+          adTitle: 'Tedbuy Support Desk',
           adImage: '/favicon.svg',
           adThumbnail: '/favicon.svg',
           adType: 'image'
@@ -1613,7 +1575,8 @@ CEO, Tedbuy Inc`;
       console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
     }
 
-    // 5. Send Welcome Email synchronously via server SMTP
+    // 5. Send Welcome Email synchronously via server SMTP (SUSPENDED FOR NOW: as requested by the user to avoid repetitive welcome emails for already created accounts)
+    /*
     try {
       const emailResponse = await fetch('/api/send-welcome-email', {
         method: 'POST',
@@ -1647,6 +1610,7 @@ CEO, Tedbuy Inc`;
     } catch (emailErr) {
       console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
     }
+    */
 
     // 6. Keep active runtime state in-sync with welcomeSent: true
     setCurrentUserState(prev => {
@@ -1660,95 +1624,11 @@ CEO, Tedbuy Inc`;
   useEffect(() => {
     if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
     
-    // Core constraint: only send to newly created accounts, NOT anytime a user logs in, unless they just registered in this session
-    const isNewAccount = justRegisteredUserIds.current.has(currentUser.id);
-    if (!isNewAccount) {
-      console.log(`[Welcome Trigger] Skipping automated welcome package for existing user login: ${currentUser.username}`);
-      return;
-    }
-
+    // Welcome message triggers when a new account is created or when a user logs in (if not already sent)
     setupWelcomePackage(currentUser);
   }, [currentUser]);
 
-  // 2.2 Auto-Seeding Search Console Specific Products (24k pure black / 24k blue)
-  useEffect(() => {
-    if (isProductsLoading) return;
-    
-    const seedSelfHealingData = async () => {
-      try {
-        // Enforce verified seller is in the database for optimal profile views
-        const sellerRef = doc(db, 'users', 'user_ted_verified');
-        const sellerSnap = await getDoc(sellerRef);
-        if (!sellerSnap.exists()) {
-          const verifiedSeller: User = {
-            id: 'user_ted_verified',
-            username: 'Kofi_Perfumes_Gh',
-            email: 'kofiperfumer@tedbuy.com',
-            phoneNumber: '+233241234567',
-            whatsAppNumber: '+233241234567',
-            photoUrl: '',
-            joinDate: '2024-03-12',
-            role: 'seller'
-          };
-          await setDoc(sellerRef, cleanObject(verifiedSeller));
-          console.log('[Seeder] Kofi_Perfumes_Gh verified seller profile created in Firestore.');
-        }
 
-        // Seed 24k Pure Black
-        if (!products.some(p => p.id === 'prod_24k_pure_black')) {
-          const prodPureBlack: Product = {
-            id: 'prod_24k_pure_black',
-            sellerId: 'user_ted_verified',
-            sellerName: 'Kofi_Perfumes_Gh',
-            sellerPhoto: '',
-            sellerJoinDate: '2024-03-12',
-            title: '24K Pure Black Eau de Toilette Perfume',
-            brand: 'Lomani / Royal',
-            category: 'Beauty and Care',
-            description: 'Original 24K Pure Black Eau de Toilette for Men (100ml). A sweet, popular long-lasting bold fragrance in Ghana featuring deep notes of wood, leather, citrus and warm amber. Offers a masculine projection that commands attention. Highly requested on the Accra market. Trade safely on Tedbuy with verified delivery and direct trade.',
-            price: 150,
-            location: 'Accra, Greater Accra',
-            condition: 'New',
-            images: ['https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=600&q=80'],
-            negotiable: true,
-            createdAt: '2026-06-11T12:00:00.000Z',
-            viewsCount: 147
-          };
-          await setDoc(doc(db, 'products', 'prod_24k_pure_black'), cleanObject(prodPureBlack));
-          console.log('[Seeder] 24k Pure Black Perfume injected to Firestore.');
-        }
-
-        // Seed 24k Blue
-        if (!products.some(p => p.id === 'prod_24k_blue')) {
-          const prodBlueIntense: Product = {
-            id: 'prod_24k_blue',
-            sellerId: 'user_ted_verified',
-            sellerName: 'Kofi_Perfumes_Gh',
-            sellerPhoto: '',
-            sellerJoinDate: '2024-03-12',
-            title: '24K Blue Intense Perfume pour Homme',
-            brand: 'Fragrance World',
-            category: 'Beauty and Care',
-            description: 'Certified 24K Blue Intense Perfume for Men (100ml). A premium refreshing active fragrance showcasing deep aquatic notes, fresh ocean tones, rich clary sage, and clean dry woods. Perfect for active lifestyles and hot weather in Ghana. Trade directly on Tedbuy.',
-            price: 160,
-            location: 'Kumasi, Ashanti',
-            condition: 'New',
-            images: ['https://images.unsplash.com/photo-1594035910387-fea47794261f?auto=format&fit=crop&w=600&q=80'],
-            negotiable: true,
-            createdAt: '2026-06-11T14:30:00.000Z',
-            viewsCount: 198
-          };
-          await setDoc(doc(db, 'products', 'prod_24k_blue'), cleanObject(prodBlueIntense));
-          console.log('[Seeder] 24k Blue Perfume injected to Firestore.');
-        }
-
-      } catch (err) {
-        console.warn('[Seeder] Failed to ensure search-console listings:', err);
-      }
-    };
-
-    seedSelfHealingData();
-  }, [products, isProductsLoading]);
 
   // 2.5. Deep Linking and Browser URL Synchronization
   useEffect(() => {
@@ -1790,11 +1670,11 @@ CEO, Tedbuy Inc`;
     }
   }, [currentView, selectedProductId, products]);
 
-  // 3. Real-time Reviews Synchronization
+  // 3. Real-time Reviews Synchronization (Optimized to Fetch Once on Mount)
   useEffect(() => {
-    let unsub: (() => void) | undefined;
-    const timer = setTimeout(() => {
-      unsub = onSnapshot(collection(db, 'reviews'), (snapshot) => {
+    const timer = setTimeout(async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'reviews'));
         const rList: Review[] = [];
         snapshot.forEach(docSnap => {
           const data = docSnap.data();
@@ -1810,13 +1690,17 @@ CEO, Tedbuy Inc`;
         } catch (err) {
           console.warn('Could not save reviews backup:', err);
         }
-      }, (error) => {
+      } catch (error: any) {
+        // If 429 quota exceeded, gracefully fail silently without raising a blocking exception
+        if (error?.message?.includes('Quota exceeded') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
+          console.warn('[Reviews Sync] Firestore quota exceeded. Relying on local storage reviews.');
+          return;
+        }
         handleFirestoreError(error, OperationType.LIST, 'reviews');
-      });
+      }
     }, 300); // Defer to prioritize products and authentication paint
     return () => {
       clearTimeout(timer);
-      if (unsub) unsub();
     };
   }, []);
 
@@ -1832,6 +1716,9 @@ CEO, Tedbuy Inc`;
 
     const qBuyer = query(collection(db, 'chats'), where('buyerId', '==', currentUserId));
     const qSeller = query(collection(db, 'chats'), where('sellerId', '==', currentUserId));
+
+    const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+    const qAdminSupport = isAdminUser ? query(collection(db, 'chats'), where('sellerId', '==', 'user_ted_ceo_support')) : null;
 
     const chatMap = new Map<string, Chat>();
 
@@ -1850,10 +1737,10 @@ CEO, Tedbuy Inc`;
       console.log(`[Chats Sync] Received buyer chats update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
       snap.forEach(docSnap => {
         const data = docSnap.data();
-        chatMap.set(docSnap.id, {
+        chatMap.set(docSnap.id, normalizeChat({
           ...data,
           id: docSnap.id || data.id
-        } as Chat);
+        }) as Chat);
       });
       updateCombined();
     }, (error) => {
@@ -1864,20 +1751,38 @@ CEO, Tedbuy Inc`;
       console.log(`[Chats Sync] Received seller chats update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
       snap.forEach(docSnap => {
         const data = docSnap.data();
-        chatMap.set(docSnap.id, {
+        chatMap.set(docSnap.id, normalizeChat({
           ...data,
           id: docSnap.id || data.id
-        } as Chat);
+        }) as Chat);
       });
       updateCombined();
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'chats');
     });
 
+    let unsub3: (() => void) | null = null;
+    if (qAdminSupport) {
+      unsub3 = onSnapshot(qAdminSupport, (snap) => {
+        console.log(`[Chats Sync] Received admin support chats update. Size: ${snap.size}`);
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          chatMap.set(docSnap.id, normalizeChat({
+            ...data,
+            id: docSnap.id || data.id
+          }) as Chat);
+        });
+        updateCombined();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'chats');
+      });
+    }
+
     return () => {
       console.log(`[Chats Sync] Tearing down real-time chat listeners for user: ${currentUserId}`);
       unsub1();
       unsub2();
+      if (unsub3) unsub3();
     };
   }, [currentUserId]);
 
@@ -1892,15 +1797,23 @@ CEO, Tedbuy Inc`;
 
     console.log(`[Messages Sync] Initializing real-time message listeners for user: ${currentUserId}`);
 
+    const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+
     // Pre-populate with currently loaded messages from previous session backup to prevent flicker
     messages.forEach(m => {
-      if (m.senderId === currentUserId || m.recipientId === currentUserId) {
+      if (
+        m.senderId === currentUserId || m.recipientId === currentUserId ||
+        (isAdminUser && (m.senderId === 'user_ted_ceo_support' || m.recipientId === 'user_ted_ceo_support'))
+      ) {
         msgMapRef.current.set(m.id, m);
       }
     });
 
     const qSender = query(collection(db, 'messages'), where('senderId', '==', currentUserId));
     const qRecipient = query(collection(db, 'messages'), where('recipientId', '==', currentUserId));
+
+    const qAdminSender = isAdminUser ? query(collection(db, 'messages'), where('senderId', '==', 'user_ted_ceo_support')) : null;
+    const qAdminRecipient = isAdminUser ? query(collection(db, 'messages'), where('recipientId', '==', 'user_ted_ceo_support')) : null;
 
     const updateCombined = () => {
       const sorted = (Array.from(msgMapRef.current.values()) as Message[]).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -1941,10 +1854,46 @@ CEO, Tedbuy Inc`;
       handleFirestoreError(error, OperationType.LIST, 'messages');
     });
 
+    let unsub3: (() => void) | null = null;
+    if (qAdminSender) {
+      unsub3 = onSnapshot(qAdminSender, (snap) => {
+        console.log(`[Messages Sync] Admin received Support sender messages. Size: ${snap.size}`);
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          msgMapRef.current.set(docSnap.id, {
+            ...data,
+            id: docSnap.id || data.id
+          } as Message);
+        });
+        updateCombined();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'messages');
+      });
+    }
+
+    let unsub4: (() => void) | null = null;
+    if (qAdminRecipient) {
+      unsub4 = onSnapshot(qAdminRecipient, (snap) => {
+        console.log(`[Messages Sync] Admin received Support recipient messages. Size: ${snap.size}`);
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          msgMapRef.current.set(docSnap.id, {
+            ...data,
+            id: docSnap.id || data.id
+          } as Message);
+        });
+        updateCombined();
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'messages');
+      });
+    }
+
     return () => {
       console.log(`[Messages Sync] Tearing down real-time message listeners for user: ${currentUserId}`);
       unsub1();
       unsub2();
+      if (unsub3) unsub3();
+      if (unsub4) unsub4();
     };
   }, [currentUserId]);
 
@@ -2097,7 +2046,7 @@ CEO, Tedbuy Inc`;
             } catch (_) {}
           }
           if (matchedUser) {
-            if (matchedUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+            if (matchedUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
               throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
             }
             showToast('Email/Password credentials provider is disabled in Firebase console. Logged in safely via local sandbox account!', 'info');
@@ -2170,7 +2119,7 @@ CEO, Tedbuy Inc`;
               } catch (_) {}
             }
             if (matchedUser) {
-              if (matchedUser.email?.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+              if (matchedUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
                 throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
               }
               showToast('Email/Password provider is disabled. Accessing sandbox account on-the-fly!', 'info');
@@ -3119,13 +3068,22 @@ CEO, Tedbuy Inc`;
     const chat = chats.find(c => c.id === chatId);
     if (!chat) return;
 
-    const recId = chat.buyerId === sender.id ? chat.sellerId : chat.buyerId;
+    const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+    
+    let senderId = sender.id;
+    let recId = chat.buyerId === sender.id ? chat.sellerId : chat.buyerId;
+
+    if (isAdminUser && chat.sellerId === 'user_ted_ceo_support') {
+      senderId = 'user_ted_ceo_support';
+      recId = chat.buyerId;
+    }
+
     const msgId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
     const newMsg: Message = {
       id: msgId,
       chatId,
-      senderId: sender.id,
+      senderId: senderId,
       recipientId: recId,
       text: cleanText,
       createdAt: new Date().toISOString(),
@@ -3198,11 +3156,11 @@ CEO, Tedbuy Inc`;
         id: notifId,
         userId: recId,
         type: 'post_created', // Map to standard interface type
-        title: `Message from ${sender.username || 'User'}`,
+        title: senderId === 'user_ted_ceo_support' ? 'Message from Tedbuy Support' : `Message from ${sender.username || 'User'}`,
         message: text.length > 50 ? `${text.substring(0, 50)}...` : text,
-        triggerUserId: sender.id,
-        triggerUsername: sender.username || 'User',
-        triggerUserPhoto: sender.photoUrl || '',
+        triggerUserId: senderId,
+        triggerUsername: senderId === 'user_ted_ceo_support' ? 'Tedbuy Support' : (sender.username || 'User'),
+        triggerUserPhoto: senderId === 'user_ted_ceo_support' ? '' : (sender.photoUrl || ''),
         productId: chat.productId || '',
         productTitle: chat.productTitle || 'Shared Listing Chat',
         productPrice: chat.productPrice || 'Inquire',
@@ -3545,7 +3503,7 @@ CEO, Tedbuy Inc`;
     if (!currentUser) return;
     
     // Crucial Security Guard: Block administrator account deletion
-    const userEmail = currentUser.email?.trim().toLowerCase();
+    const userEmail = currentUser.email?.trim()?.toLowerCase();
     if (userEmail === 'asumaduvincent7@gmail.com') {
       throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") is heavily protected and cannot be deleted under any circumstances.');
     }
@@ -3692,7 +3650,7 @@ CEO, Tedbuy Inc`;
         const userRef = doc(db, 'users', uid);
         batch.delete(userRef);
 
-        const storeNameLower = currentUser.username?.trim().toLowerCase();
+        const storeNameLower = currentUser.username?.trim()?.toLowerCase();
         if (storeNameLower) {
           const storeNameRef = doc(db, 'storeNames', storeNameLower);
           batch.delete(storeNameRef);
@@ -3839,7 +3797,7 @@ CEO, Tedbuy Inc`;
     }
 
     // Crucial Security Guard: Block admin profile deletion from admin dashboard
-    const targetEmail = targetUser.email?.trim().toLowerCase();
+    const targetEmail = targetUser.email?.trim()?.toLowerCase();
     if (targetEmail === 'asumaduvincent7@gmail.com') {
       throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be deleted under any circumstances.');
     }
@@ -3983,7 +3941,7 @@ CEO, Tedbuy Inc`;
         const userRef = doc(db, 'users', userId);
         batch.delete(userRef);
 
-        const storeNameLower = targetUser.username?.trim().toLowerCase();
+        const storeNameLower = targetUser.username?.trim()?.toLowerCase();
         if (storeNameLower) {
           const storeNameRef = doc(db, 'storeNames', storeNameLower);
           batch.delete(storeNameRef);

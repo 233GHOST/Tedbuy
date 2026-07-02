@@ -1,5 +1,6 @@
 import { Product, Category, User } from '../types';
 import { getRegionForLocation } from '../regions';
+import { parseDate } from './dateParser';
 
 function parseNumericPrice(p: string | number): number {
   if (typeof p === 'number') return p;
@@ -291,9 +292,62 @@ export function createProductSelector() {
       console.groupEnd();
     }
 
+    const isBoostActive = (p: Product): boolean => {
+      if (!p.boostStatus) return false;
+      const endDate = parseDate(p.boostEndDate);
+      if (!endDate) return false;
+      return endDate.getTime() > Date.now();
+    };
+
     const sorted = [...filtered].sort((a, b) => {
       const scoresA = scoringMap.get(a.id) || { rankingScore: 0 };
       const scoresB = scoringMap.get(b.id) || { rankingScore: 0 };
+
+      // Boosted listings must always appear above all normal listings under default sort
+      if (sortByPrice === 'default') {
+        const boostA = isBoostActive(a);
+        const boostB = isBoostActive(b);
+        if (boostA && !boostB) return -1;
+        if (!boostA && boostB) return 1;
+
+        if (boostA && boostB) {
+          // PRIORITY LEVEL 1: BOOST PACKAGE VALUE (GHS price / level)
+          // Package hierarchy: GH₵20 > GH₵12 > GH₵7 > GH₵3 > GH₵1
+          const getBoostPriorityLevel = (planId?: string): number => {
+            if (!planId) return 0;
+            if (planId === '90days') return 5; // GH₵20
+            if (planId === '30days') return 4; // GH₵12
+            if (planId === '14days') return 3; // GH₵7
+            if (planId === '7days') return 2;  // GH₵3
+            if (planId === '3days') return 1;  // GH₵1
+            return 0;
+          };
+
+          const levelA = getBoostPriorityLevel(a.boostPlan);
+          const levelB = getBoostPriorityLevel(b.boostPlan);
+          if (levelA !== levelB) {
+            return levelB - levelA; // Higher price/level package first
+          }
+
+          // PRIORITY LEVEL 2: REMAINING BOOST TIME
+          // Sort by highest remaining duration: boostEndDate - Current Time
+          const timeA = a.boostEndDate ? new Date(a.boostEndDate).getTime() : 0;
+          const timeB = b.boostEndDate ? new Date(b.boostEndDate).getTime() : 0;
+          if (timeA !== timeB) {
+            return timeB - timeA; // Longest remaining duration first
+          }
+
+          // PRIORITY LEVEL 3: EXISTING ENGAGEMENT SCORE
+          if (scoresA.rankingScore !== scoresB.rankingScore) {
+            return scoresB.rankingScore - scoresA.rankingScore; // Higher engagement first
+          }
+
+          // PRIORITY LEVEL 4: NEWEST LISTING
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA; // Newest first
+        }
+      }
 
       // Under explicit price sorting, sort primarily by price and fallback to rankingScore for tie breaking
       if (sortByPrice === 'asc') {

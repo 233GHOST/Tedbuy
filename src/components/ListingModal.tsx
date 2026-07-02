@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Category, Product, normalizeCategory } from '../types';
-import { X, Image, Upload, AlertCircle, Plus, Video, Scissors } from 'lucide-react';
+import { BoostModal } from './BoostModal';
+import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Sparkles } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -143,6 +144,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [negotiable, setNegotiable] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [postOption, setPostOption] = useState<'normal' | 'boost'>('normal');
+  const [createdProductForBoost, setCreatedProductForBoost] = useState<Product | null>(null);
 
   // Regional state helpers
   const [adRegion, setAdRegion] = useState('Greater Accra');
@@ -837,7 +840,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
         if (newProd && newProd.id) {
           setSelectedProductId(newProd.id);
-          setCurrentView('product-detail');
+          if (postOption === 'boost') {
+            setCreatedProductForBoost(newProd);
+            return; // Prevent immediate onClose so they can complete boost checkout
+          } else {
+            setCurrentView('product-detail');
+          }
         } else {
           setCurrentView('my-dashboard');
         }
@@ -859,15 +867,17 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         } catch {
           // ignore
         }
-      } else if (errStr.includes('permission-denied') || errStr.toLowerCase().includes('permission') || errStr.toLowerCase().includes('insufficient')) {
+      } else if (errStr && typeof errStr === 'string' && (errStr.includes('permission-denied') || errStr.toLowerCase().includes('permission') || errStr.toLowerCase().includes('insufficient'))) {
         isPermissionDenied = true;
       }
 
-      if (errStr.startsWith('FirebaseError: ')) {
-        errStr = errStr.replace('FirebaseError: ', '');
-      }
-      if (errStr.includes('[code=permission-denied]:')) {
-        errStr = errStr.substring(errStr.indexOf('[code=permission-denied]:') + '[code=permission-denied]:'.length).trim();
+      if (errStr && typeof errStr === 'string') {
+        if (errStr.startsWith('FirebaseError: ')) {
+          errStr = errStr.replace('FirebaseError: ', '');
+        }
+        if (errStr.includes('[code=permission-denied]:')) {
+          errStr = errStr.substring(errStr.indexOf('[code=permission-denied]:') + '[code=permission-denied]:'.length).trim();
+        }
       }
 
       let finalMsg = `Submission failed: ${errStr}`;
@@ -1168,7 +1178,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   )}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2">
-                  📌 **Tip**: Click &ldquo;Add Photos&rdquo; to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
+                  **Tip**: Click &ldquo;Add Photos&rdquo; to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
                 </p>
               </div>
             )}
@@ -1393,8 +1403,56 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 )}
 
                 <p className="text-[10px] text-slate-400 mt-2">
-                  📌 **Tip**: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 730KB due to database size limitations) showing proof of functionality or live product demo.
+                  **Tip**: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 730KB due to database size limitations) showing proof of functionality or live product demo.
                 </p>
+              </div>
+            )}
+
+            {/* Posting Option Selection */}
+            {!productToEdit && (
+              <div className="bg-slate-50 border border-slate-250/50 rounded-2xl p-4 space-y-3 mt-4">
+                <div className="flex items-center gap-1.5 text-slate-700">
+                  <span className="text-xs font-black uppercase tracking-wider font-sans">Posting Option</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className={`p-3.5 border rounded-2xl flex flex-col gap-1 cursor-pointer transition-all ${
+                    postOption === 'normal'
+                      ? 'border-slate-400 bg-white ring-2 ring-slate-100 shadow-3xs'
+                      : 'border-slate-200 bg-white/50 hover:bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800">Post Normally</span>
+                      <input
+                        type="radio"
+                        name="postOption"
+                        checked={postOption === 'normal'}
+                        onChange={() => setPostOption('normal')}
+                        className="accent-slate-900 cursor-pointer"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-450 font-sans mt-0.5">Free standard listing placement</span>
+                  </label>
+
+                  <label className={`p-3.5 border rounded-2xl flex flex-col gap-1 cursor-pointer transition-all ${
+                    postOption === 'boost'
+                      ? 'border-amber-400 bg-amber-50/20 ring-2 ring-amber-300/30 shadow-3xs'
+                      : 'border-slate-200 bg-white/50 hover:bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
+                        Boost Listing
+                      </span>
+                      <input
+                        type="radio"
+                        name="postOption"
+                        checked={postOption === 'boost'}
+                        onChange={() => setPostOption('boost')}
+                        className="accent-amber-500 cursor-pointer"
+                      />
+                    </div>
+                    <span className="text-[10px] text-amber-850 font-sans mt-0.5">Upgrade to top ad tier instantly</span>
+                  </label>
+                </div>
               </div>
             )}
 
@@ -1419,6 +1477,22 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           </form>
         </div>
       </div>
+
+      {/* Boost modal triggered right after creation if selected */}
+      <BoostModal
+        isOpen={createdProductForBoost !== null}
+        onClose={() => {
+          setCreatedProductForBoost(null);
+          setCurrentView('product-detail');
+          onClose();
+        }}
+        product={createdProductForBoost}
+        onSuccess={() => {
+          setCreatedProductForBoost(null);
+          setCurrentView('product-detail');
+          onClose();
+        }}
+      />
     </div>
   );
 };

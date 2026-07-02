@@ -182,10 +182,33 @@ export const ChatInterface: React.FC = () => {
     };
   }, [activeChatId]);
 
+  const isAdminUser = useMemo(() => {
+    return currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+  }, [currentUser]);
+
+  const [adminChatFilter, setAdminChatFilter] = useState<'all' | 'support' | 'marketplace'>('all');
+
   // Filter chats belonging to current user (either as buyer or seller)
   const myChats = useMemo(() => {
-    return chats.filter(c => currentUser && (c.buyerId === currentUser.id || c.sellerId === currentUser.id));
-  }, [chats, currentUser]);
+    return chats.filter(c => {
+      if (!currentUser) return false;
+      const isOwner = c.buyerId === currentUser.id || c.sellerId === currentUser.id;
+      const isSupportForAdmin = isAdminUser && (c.sellerId === 'user_ted_ceo_support' || c.buyerId === 'user_ted_ceo_support');
+      
+      const isMatch = isOwner || isSupportForAdmin;
+      if (!isMatch) return false;
+
+      if (isAdminUser) {
+        const isSupportChat = c.productId === 'support_welcome' || c.sellerId === 'user_ted_ceo_support' || c.buyerId === 'user_ted_ceo_support';
+        if (adminChatFilter === 'support') {
+          return isSupportChat;
+        } else if (adminChatFilter === 'marketplace') {
+          return !isSupportChat;
+        }
+      }
+      return true;
+    });
+  }, [chats, currentUser, isAdminUser, adminChatFilter]);
 
   // If no chat is active, pick the first one from the list by default
   useEffect(() => {
@@ -291,26 +314,85 @@ export const ChatInterface: React.FC = () => {
             </h2>
           </div>
 
-          {/* Admin Support WhatsApp Banner */}
-          <div className="p-3.5 bg-emerald-50 border-b border-emerald-100/80 text-left shrink-0">
-            <div className="flex items-center gap-1.5 text-emerald-800 font-black text-xs uppercase tracking-tight">
-              <svg className="w-4 h-4 fill-emerald-600 shrink-0 animate-pulse" viewBox="0 0 24 24">
-                <path d="M12.004 0C5.378 0 0 5.38 0 12.005c0 2.115.549 4.16 1.59 5.968l-1.691 6.18 6.32-1.658c1.737.947 3.69 1.447 5.688 1.447C18.63 23.942 24 18.563 24 12.004c0-3.178-1.24-6.166-3.498-8.423C18.243 1.258 15.253 0 12.004 0zm0 21.944a9.9 9.9 0 01-5.06-1.39l-.36-.215-3.763.987.994-3.665-.236-.376A9.907 9.907 0 012.062 12c0-5.485 4.46-9.946 9.947-9.946 2.657 0 5.154 1.035 7.031 2.91 1.876 1.879 2.91 4.379 2.907 7.04-.006 5.485-4.469 10.14-9.943 10.14z"/>
-              </svg>
-              <span>Need Direct Support?</span>
+          {isAdminUser ? (
+            <div className="p-3 bg-white border-b border-slate-150 shrink-0">
+              <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-2 px-1">
+                Admin Support Desk Switcher
+              </span>
+              <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-150">
+                <button
+                  onClick={() => setAdminChatFilter('all')}
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all ${
+                    adminChatFilter === 'all'
+                      ? 'bg-slate-900 text-white shadow-sm font-black'
+                      : 'text-slate-500 hover:text-slate-850 hover:bg-slate-200/50 font-bold'
+                  }`}
+                >
+                  <span className="text-[10px] leading-tight">All Chats</span>
+                  <span className="text-[9px] font-mono opacity-80 mt-0.5">
+                    ({chats.filter(c => {
+                      const isOwner = c.buyerId === currentUser.id || c.sellerId === currentUser.id;
+                      const isSupportForAdmin = c.sellerId === 'user_ted_ceo_support' || c.buyerId === 'user_ted_ceo_support';
+                      return isOwner || isSupportForAdmin;
+                    }).length})
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setAdminChatFilter('support')}
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all ${
+                    adminChatFilter === 'support'
+                      ? 'bg-blue-600 text-white shadow-sm font-black'
+                      : 'text-slate-500 hover:text-slate-850 hover:bg-slate-200/50 font-bold'
+                  }`}
+                >
+                  <span className="text-[10px] leading-tight text-center">Support Desk</span>
+                  <span className="text-[9px] font-mono opacity-80 mt-0.5">
+                    ({chats.filter(c => c.productId === 'support_welcome' || c.sellerId === 'user_ted_ceo_support' || c.buyerId === 'user_ted_ceo_support').length})
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setAdminChatFilter('marketplace')}
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all ${
+                    adminChatFilter === 'marketplace'
+                      ? 'bg-emerald-600 text-white shadow-sm font-black'
+                      : 'text-slate-500 hover:text-slate-850 hover:bg-slate-200/50 font-bold'
+                  }`}
+                >
+                  <span className="text-[10px] leading-tight text-center">Marketplace</span>
+                  <span className="text-[9px] font-mono opacity-80 mt-0.5">
+                    ({chats.filter(c => {
+                      const isOwner = c.buyerId === currentUser.id || c.sellerId === currentUser.id;
+                      const isSupportChat = c.productId === 'support_welcome' || c.sellerId === 'user_ted_ceo_support' || c.buyerId === 'user_ted_ceo_support';
+                      return isOwner && !isSupportChat;
+                    }).length})
+                  </span>
+                </button>
+              </div>
             </div>
-            <p className="text-[11px] text-slate-600 mt-1 font-sans leading-normal">
-              Need assistance or want to report an issue? Contact administrative support directly on WhatsApp.
-            </p>
-            <a
-              href="https://wa.me/233593565355?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 w-full py-2 bg-emerald-650 hover:bg-emerald-700 bg-emerald-600 text-white font-extrabold text-[11px] rounded-xl text-center shadow-3xs"
-            >
-              <span>Message Admin on WhatsApp</span>
-            </a>
-          </div>
+          ) : (
+            /* Admin Support WhatsApp Banner */
+            <div className="p-3.5 bg-emerald-50 border-b border-emerald-100/80 text-left shrink-0">
+              <div className="flex items-center gap-1.5 text-emerald-800 font-black text-xs uppercase tracking-tight">
+                <svg className="w-4 h-4 fill-emerald-600 shrink-0 animate-pulse" viewBox="0 0 24 24">
+                  <path d="M12.004 0C5.378 0 0 5.38 0 12.005c0 2.115.549 4.16 1.59 5.968l-1.691 6.18 6.32-1.658c1.737.947 3.69 1.447 5.688 1.447C18.63 23.942 24 18.563 24 12.004c0-3.178-1.24-6.166-3.498-8.423C18.243 1.258 15.253 0 12.004 0zm0 21.944a9.9 9.9 0 01-5.06-1.39l-.36-.215-3.763.987.994-3.665-.236-.376A9.907 9.907 0 012.062 12c0-5.485 4.46-9.946 9.947-9.946 2.657 0 5.154 1.035 7.031 2.91 1.876 1.879 2.91 4.379 2.907 7.04-.006 5.485-4.469 10.14-9.943 10.14z"/>
+                </svg>
+                <span>Need Direct Support?</span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-1 font-sans leading-normal">
+                Need assistance or want to report an issue? Contact administrative support directly on WhatsApp.
+              </p>
+              <a
+                href="https://wa.me/233593565355?text=Hello%20Tedbuy%20Support%20I'm%20using%20the%20platform%20and%20need%20some%20assistance."
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 w-full py-2 bg-emerald-650 hover:bg-emerald-700 bg-emerald-600 text-white font-extrabold text-[11px] rounded-xl text-center shadow-3xs"
+              >
+                <span>Message Admin on WhatsApp</span>
+              </a>
+            </div>
+          )}
 
           <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
             {myChats.length === 0 ? (
@@ -320,14 +402,19 @@ export const ChatInterface: React.FC = () => {
               </div>
             ) : (
               myChats.map(chat => {
-                const isPeerSeller = chat.buyerId === currentUser.id;
-                const peerName = isPeerSeller ? chat.sellerName : chat.buyerName;
+                const isPeerSeller = chat.buyerId === currentUser?.id;
+                const clientUser = users.find(u => u.id === chat.buyerId);
+                const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+                const displayPeerName = (chat.productId === 'support_welcome' && isAdminUser)
+                  ? (clientUser?.username || chat.buyerName || 'User')
+                  : (isPeerSeller ? chat.sellerName : chat.buyerName);
+
                 const active = chat.id === activeChatId;
 
                 // Count unread messages for this particular chat, ignoring if trade is completed
                 const unreadForThisChat = chat.tradeStatus === 'completed'
                   ? 0
-                  : messages.filter(m => m.chatId === chat.id && m.recipientId === currentUser.id && !m.read).length;
+                  : messages.filter(m => m.chatId === chat.id && m.recipientId === currentUser?.id && !m.read).length;
 
                 return (
                   <button
@@ -365,7 +452,11 @@ export const ChatInterface: React.FC = () => {
                       if (isAdDeleted) {
                         thumbnail = "DELETED_PLACEHOLDER";
                       } else if (conversation.productId === "support_welcome") {
-                        thumbnail = "/favicon.svg";
+                        if (isAdminUser) {
+                          thumbnail = clientUser?.photoUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>";
+                        } else {
+                          thumbnail = "/favicon.svg";
+                        }
                       } else {
                         // Strict validation requirement
                         if (conversation.adType === "video") {
@@ -385,6 +476,17 @@ export const ChatInterface: React.FC = () => {
 
                       if (thumbnail === "DELETED_PLACEHOLDER") {
                         return <DeletedPlaceholder className="w-12 h-12" />;
+                      }
+
+                      if (conversation.productId === "support_welcome" && isAdminUser) {
+                        return (
+                          <img
+                            src={thumbnail}
+                            alt={displayPeerName}
+                            className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0 shadow-3xs"
+                            referrerPolicy="no-referrer"
+                          />
+                        );
                       }
 
                       if (conversation.adType === "video") {
@@ -410,7 +512,7 @@ export const ChatInterface: React.FC = () => {
                     <div className="flex-1 min-w-0 flex flex-col justify-between">
                       <div className="flex justify-between items-baseline gap-1">
                         <span className="text-xs font-bold text-slate-900 truncate">
-                          {peerName}
+                          {displayPeerName}
                         </span>
                         <span className="text-[9px] text-slate-400 font-mono shrink-0">
                           {new Date(chat.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -440,34 +542,46 @@ export const ChatInterface: React.FC = () => {
           {activeChat ? (
             <>
               {/* Product Info / Chat Header banner */}
-              {activeChat.productId === 'support_welcome' ? (
-                <div className="bg-white border-b border-slate-200 p-3.5 flex items-center justify-between shadow-xs sticky top-0 z-25">
-                  <div className="flex items-center gap-2.5 sm:gap-3 text-left min-w-0">
-                    <button
-                      onClick={() => setViewingChatOnMobile(false)}
-                      className="md:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0"
-                      title="Back to inbox list"
-                    >
-                      <ArrowLeft className="w-5 h-5 text-slate-900" />
-                    </button>
+              {activeChat.productId === 'support_welcome' ? (() => {
+                const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+                const clientUser = users.find(u => u.id === activeChat.buyerId);
+                const supportHeaderName = isAdminUser ? (clientUser?.username || activeChat.buyerName || 'User') : 'Tedbuy Support';
+                const supportHeaderPhoto = isAdminUser 
+                  ? (clientUser?.photoUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>")
+                  : "/favicon.svg";
+                const supportHeaderSubtext = isAdminUser 
+                  ? `User Support Session (Registered user since ${clientUser?.joinDate || 'recently'})`
+                  : 'Welcome & Direct Support Channel';
 
-                    <img
-                      src="/favicon.svg"
-                      alt="Tedbuy Support"
-                      className="w-10 h-10 rounded-full object-contain border border-slate-200 shrink-0 p-1 bg-slate-50 shadow-3xs"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="min-w-0">
-                      <h3 className="text-xs sm:text-sm font-black text-slate-900 truncate">
-                        Vincent (CEO, Tedbuy Inc)
-                      </h3>
-                      <p className="text-[11px] text-slate-500 font-medium">
-                        Welcome & Direct Support Channel
-                      </p>
+                return (
+                  <div className="bg-white border-b border-slate-200 p-3.5 flex items-center justify-between shadow-xs sticky top-0 z-25">
+                    <div className="flex items-center gap-2.5 sm:gap-3 text-left min-w-0">
+                      <button
+                        onClick={() => setViewingChatOnMobile(false)}
+                        className="md:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0"
+                        title="Back to inbox list"
+                      >
+                        <ArrowLeft className="w-5 h-5 text-slate-900" />
+                      </button>
+
+                      <img
+                        src={supportHeaderPhoto}
+                        alt={supportHeaderName}
+                        className={`w-10 h-10 rounded-full border border-slate-200 shrink-0 object-cover shadow-3xs ${isAdminUser ? '' : 'p-1 bg-slate-50'}`}
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="min-w-0">
+                        <h3 className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                          {supportHeaderName}
+                        </h3>
+                        <p className="text-[11px] text-slate-500 font-medium truncate">
+                          {supportHeaderSubtext}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
+                );
+              })() : (
                 <div className="bg-white border-b border-slate-200 p-3.5 flex items-center justify-between shadow-xs sticky top-0 z-25">
                   <div className="flex items-center gap-2 sm:gap-3 text-left min-w-0">
                     <button

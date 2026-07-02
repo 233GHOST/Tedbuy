@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
+import { BoostModal } from './BoostModal';
 import { Product, Category } from '../types';
-import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play } from 'lucide-react';
+import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play, Sparkles, Clock } from 'lucide-react';
+import { isBoostActive, parseDate } from '../utils/dateParser';
 
 export const SellerDashboard: React.FC = () => {
   const {
@@ -21,6 +23,7 @@ export const SellerDashboard: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [boostingProduct, setBoostingProduct] = useState<Product | null>(null);
   const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
@@ -296,6 +299,12 @@ export const SellerDashboard: React.FC = () => {
                             Sold Product
                           </span>
                         )}
+                        {isBoostActive(prod) && (
+                          <span className="bg-amber-100 text-amber-800 border border-amber-250 text-[9px] px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wider shadow-3xs flex items-center gap-1 shrink-0 animate-pulse">
+                            <Sparkles className="w-3 h-3 fill-amber-800/30 text-amber-700" />
+                            <span>Boost Active</span>
+                          </span>
+                        )}
                       </span>
                       <h3 className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-slate-950 transition truncate-hover mt-0.5">
                         {prod.title}
@@ -311,6 +320,13 @@ export const SellerDashboard: React.FC = () => {
                         <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                         {prod.location}
                       </span>
+                      {isBoostActive(prod) && (
+                        <span className="text-[10px] text-amber-700 font-bold mt-1.5 flex items-center gap-1 bg-amber-50 border border-amber-200/50 rounded-lg px-2 py-0.5 w-fit">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                          <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Expires: {parseDate(prod.boostEndDate)?.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) || ''}</span>
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -352,9 +368,22 @@ export const SellerDashboard: React.FC = () => {
                     </button>
 
                     <button
+                      id={`btn-boost-${prod.id}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setBoostingProduct(prod);
+                      }}
+                      className="p-1.5 border rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-3xs text-[10px] font-black uppercase tracking-wider gap-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 border-amber-400 font-sans shrink-0 hover:scale-103 active:scale-97"
+                      title={isBoostActive(prod) ? "Extend Premium Boost" : "Boost Ad Listing"}
+                    >
+                      <Sparkles className="w-3 h-3 fill-slate-950/20 text-slate-950" />
+                      <span>{isBoostActive(prod) ? 'Extend' : 'Boost'}</span>
+                    </button>
+
+                    <button
                       id={`btn-edit-${prod.id}`}
                       onClick={(e) => handleEdit(prod, e)}
-                      className="p-2 border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-350 rounded-xl hover:bg-slate-100 transition-all shadow-3xs flex items-center justify-center cursor-pointer"
+                      className="p-2 border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-350 rounded-xl hover:bg-slate-100 transition-all shadow-3xs flex items-center justify-center cursor-pointer shrink-0"
                       title="Edit Item Details"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -605,6 +634,12 @@ export const SellerDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      <BoostModal
+        isOpen={boostingProduct !== null}
+        onClose={() => setBoostingProduct(null)}
+        product={boostingProduct}
+      />
     </div>
   );
 };

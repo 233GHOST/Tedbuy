@@ -40,7 +40,18 @@
         "videos": { "type": "array", "description": "Array of item video URLs" },
         "negotiable": { "type": "boolean", "description": "Toggle if the price is negotiable" },
         "createdAt": { "type": "string", "description": "Timestamp when listing was posted" },
-        "viewsCount": { "type": "number", "description": "Number of views" }
+        "viewsCount": { "type": "number", "description": "Number of views" },
+        "boostStatus": { "type": "boolean", "description": "Active boost indicator" },
+        "boostPlan": { "type": "string", "description": "Active boost package ID (3days, 7days, 14days, 30days, 90days)" },
+        "boostStartDate": { "type": "string", "description": "ISO timestamp of boost purchase/start" },
+        "boostEndDate": { "type": "string", "description": "ISO timestamp of boost expiration/end" },
+        "boostPriority": { "type": "number", "description": "Base boost priority score" },
+        "priorityScore": { "type": "number", "description": "Overall rank priority score including dynamic factors" },
+        "boostAmount": { "type": "number", "description": "Verified boost purchase price" },
+        "boostPackagePrice": { "type": "number", "description": "Nominal package price in GHS" },
+        "boostPriorityLevel": { "type": "number", "description": "Package priority level (1 to 5)" },
+        "remainingBoostTime": { "type": "number", "description": "Pre-computed or dynamic remaining duration in milliseconds" },
+        "lastBoostPurchase": { "type": "string", "description": "ISO timestamp of the most recent boost payment" }
       },
       "required": ["id", "sellerId", "sellerName", "title", "description", "price", "category", "location", "images", "createdAt", "viewsCount"]
     },

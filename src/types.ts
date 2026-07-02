@@ -117,6 +117,33 @@ export interface Product {
   isSold?: boolean;
   likesCount?: number;
   likedUserIds?: string[];
+  
+  // Boost ad fields
+  boostStatus?: boolean;
+  boostPlan?: string;
+  boostStartDate?: string;
+  boostEndDate?: string;
+  paymentStatus?: 'pending' | 'success' | 'failed' | 'cancelled';
+  paymentReference?: string;
+  boostPriority?: number;
+  priorityScore?: number;
+  lastBoostedAt?: string;
+  boostAmount?: number;
+  boostPackagePrice?: number;
+  boostPriorityLevel?: number;
+  remainingBoostTime?: number;
+  lastBoostPurchase?: string;
+  boostHistory?: {
+    planId: string;
+    planName: string;
+    startDate: string;
+    endDate: string;
+    paymentReference: string;
+    amount: number;
+    gateway?: string;
+    paymentMethod?: string;
+    createdAt?: string;
+  }[];
 }
 
 export interface Chat {

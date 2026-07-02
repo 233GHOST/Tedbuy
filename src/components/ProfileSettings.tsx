@@ -1014,6 +1014,10 @@ export const ProfileSettings: React.FC = () => {
                   a: "When you select a primary category (such as Phones, Vehicles, Laptops, or Property), our dynamic hierarchical filter panel automatically reveals matching spec options (like Brand, Model, Condition, Bedroom counts, or Fuel Type). Choosing a brand dynamically refines the model list instantly, allowing progressive and powerful filtering just like Jiji or eBay!"
                 },
                 {
+                  q: "What is Ad Boosting and how does it help my ads get noticed?",
+                  a: "Ad Boosting is our premium promotional feature that places your listings at the top of the search feed with high priority indexing. Sellers can choose from five distinct boosting tiers (3 Days Fast Boost, 7 Days Hot Deal Boost, 14 Days Premium Boost, 30 Days Elite Merchant Boost, or 90 Days Mega Store Boost) with secure payments processed via Mobile Money (MoMo) or card. Once boosted, our caching layer is instantly refreshed so buyers see your listing as a featured deal right away!"
+                },
+                {
                   q: "What are interactive 9:16 Video Ads?",
                   a: "They are immersive, vertical product video walkthroughs displayed directly in the feed for high buyer conversion. It is the best way to showcase real performance, physical condition, and build immediate buyer trust."
                 },
@@ -1024,6 +1028,10 @@ export const ProfileSettings: React.FC = () => {
                 {
                   q: "How does the secure peer trade delivery tracking work?",
                   a: "Inside your secure chat, the seller can mark an item as 'Delivered' once dispatched. The buyer is then prompted to confirm 'Picked Up'. Once both actions are complete, the trade advances to a 'Completed' state. For security, once a trade reaches this completed terminal state, it is locked against further modification by any standard user to protect the integrity of the transaction."
+                },
+                {
+                  q: "How does TedBuy prevent API rate limits, database quota exhaustion, or downtime?",
+                  a: "To ensure 100% platform uptime and prevent Firestore rate limits (e.g., Quota Exceeded 429/RESOURCE_EXHAUSTED errors), we've implemented an advanced, state-of-the-art high-availability resilience engine. This includes: 1) A 5-minute intelligent local file-cache to reduce read operations; 2) Double in-memory caching for products and sellers to prevent database overhead; and 3) An elegant, high-fidelity seed-products fallback failover system. This ensures the app remains fully operational, blazing-fast, and beautiful even if third-party services experience heavy traffic or service disruptions!"
                 },
                 {
                   q: "How does TedBuy prevent fake likes or database tampering?",
