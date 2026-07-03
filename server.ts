@@ -17,7 +17,7 @@ const lookupAsync = promisify(dns.lookup);
 
 dotenv.config();
 
-const app = express();
+export const app = express();
 
 // Set secure HTTP headers
 app.use((req, res, next) => {
@@ -2951,31 +2951,35 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    
-    try {
-      const routes: string[] = [];
-      app._router.stack.forEach((middleware: any) => {
-        if (middleware.route) {
-          routes.push(`${Object.keys(middleware.route.methods).join(',').toUpperCase()} ${middleware.route.path}`);
-        } else if (middleware.name === 'router') {
-          middleware.handle.stack.forEach((handler: any) => {
-            if (handler.route) {
-              routes.push(`${Object.keys(handler.route.methods).join(',').toUpperCase()} ${handler.route.path}`);
-            }
-          });
-        }
-      });
-      fs.appendFileSync(
-        path.resolve(process.cwd(), "express_requests.log"), 
-        `${new Date().toISOString()} [Startup] Routes registered:\n` + routes.join('\n') + '\n\n'
-      );
-      console.log('[Express Server Startup] Registered Routes:\n' + routes.join('\n'));
-    } catch (e: any) {
-      console.log('[Express Server Startup] Failed to extract routes description:', e.message);
-    }
-  });
+  if (process.env.VERCEL) {
+    console.log('[Vercel Serverless] Express app is loaded and ready.');
+  } else {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      
+      try {
+        const routes: string[] = [];
+        app._router.stack.forEach((middleware: any) => {
+          if (middleware.route) {
+            routes.push(`${Object.keys(middleware.route.methods).join(',').toUpperCase()} ${middleware.route.path}`);
+          } else if (middleware.name === 'router') {
+            middleware.handle.stack.forEach((handler: any) => {
+              if (handler.route) {
+                routes.push(`${Object.keys(handler.route.methods).join(',').toUpperCase()} ${handler.route.path}`);
+              }
+            });
+          }
+        });
+        fs.appendFileSync(
+          path.resolve(process.cwd(), "express_requests.log"), 
+          `${new Date().toISOString()} [Startup] Routes registered:\n` + routes.join('\n') + '\n\n'
+        );
+        console.log('[Express Server Startup] Registered Routes:\n' + routes.join('\n'));
+      } catch (e: any) {
+        console.log('[Express Server Startup] Failed to extract routes description:', e.message);
+      }
+    });
+  }
 }
 
 startServer();
