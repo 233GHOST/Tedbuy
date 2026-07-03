@@ -1,9 +1,14 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, getFirestore, setLogLevel } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
+
+// Silence Firestore internal connection warnings/errors in iframe preview environments
+try {
+  setLogLevel('silent');
+} catch (_) {}
 
 // Resilient initialization of Firestore with multi-tab offline cache
 const getResilientDb = () => {
@@ -38,7 +43,8 @@ const getResilientDb = () => {
 
   try {
     const settings: any = {
-      experimentalForceLongPolling: true
+      experimentalForceLongPolling: true,
+      experimentalAutoDetectLongPolling: true
     };
 
     if (usePersistence) {

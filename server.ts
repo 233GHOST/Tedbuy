@@ -190,14 +190,14 @@ try {
   console.error('[Products Cache] Failed to load/initialize cache file:', cacheErr);
 }
 
-let isGCPServiceAccountAuthorized = process.env.NODE_ENV === 'production' && !process.env.VERCEL;
+let isGCPServiceAccountAuthorized = process.env.K_SERVICE !== undefined || process.env.GOOGLE_APPLICATION_CREDENTIALS !== undefined;
 
 // On Vercel, always disable Firebase Admin SDK to prevent metadata server hangs and timeouts.
 if (process.env.VERCEL) {
   console.log('[Firebase Admin] Detected Vercel serverless environment. Force-disabling Admin SDK and using REST fallbacks.');
   adminDb = null;
   isGCPServiceAccountAuthorized = false;
-} else {
+} else if (isGCPServiceAccountAuthorized) {
   try {
     if (getApps().length === 0) {
       initializeAdminApp({
@@ -223,6 +223,9 @@ if (process.env.VERCEL) {
     isGCPServiceAccountAuthorized = false;
     adminDb = null;
   }
+} else {
+  console.log('[Firebase Admin] Non-GCP/Non-authorized environment. Proactively disabling Admin SDK to avoid timeouts. Using REST client exclusively.');
+  adminDb = null;
 }
 
 // Dynamically fetch GCP service account token if running on Cloud Run
@@ -1369,7 +1372,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     try {
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(8000)
+      });
       if (!res.ok) {
         if (res.status === 404) return null;
         throw new Error(`Fetch product document failed with status: ${res.status}`);
@@ -1383,6 +1388,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if ('integerValue' in val) return parseInt(val.integerValue, 10);
         if ('doubleValue' in val) return parseFloat(val.doubleValue);
         if ('booleanValue' in val) return val.booleanValue;
+        if ('timestampValue' in val) return val.timestampValue;
         if ('arrayValue' in val) {
           const arr = val.arrayValue?.values || [];
           return arr.map((sub: any) => parseVal(sub));
@@ -1495,7 +1501,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         headers,
         body: JSON.stringify({
           fields: fieldsToPatch
-        })
+        }),
+        signal: AbortSignal.timeout(8000)
       });
 
       if (!res.ok) {
@@ -1564,7 +1571,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const res = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ fields })
+        body: JSON.stringify({ fields }),
+        signal: AbortSignal.timeout(8000)
       });
 
       if (!res.ok) {
@@ -1672,43 +1680,142 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         gatewayUsed = 'admin-bypass';
       } else if (paystackSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
         gatewayUsed = 'paystack';
-        const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paymentReference)}`, {
-          headers: {
-            'Authorization': `Bearer ${paystackSecret}`,
-            'Content-Type': 'application/json'
+        try {
+          const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paymentReference)}`, {
+            headers: {
+              'Authorization': `Bearer ${paystackSecret}`,
+              'Content-Type': 'application/json'
+            },
+            signal: AbortSignal.timeout(8000)
+          });
+          
+          if (!paystackRes.ok) {
+            const errText = await paystackRes.text();
+            console.error('[Paystack API Error]:', paystackRes.status, errText);
+            if (paystackRes.status === 404) {
+              return res.status(400).json({
+                success: false,
+                error: "The payment gateway (Paystack) was unable to find this payment reference. Please ensure the payment went through and that you are verifying the correct reference."
+              });
+            } else if (paystackRes.status === 401) {
+              return res.status(500).json({
+                success: false,
+                error: "Server configuration issue: Paystack authentication failed. Please contact the administrator."
+              });
+            } else {
+              return res.status(400).json({
+                success: false,
+                error: `Paystack verification failed with status code ${paystackRes.status}. Please check details and try again.`
+              });
+            }
           }
-        });
-        if (paystackRes.ok) {
+          
           const payload = await paystackRes.json();
-          if (payload.status && payload.data && payload.data.status === 'success') {
-            isVerified = true;
-            verifiedAmount = payload.data.amount / 100;
+          if (payload.status && payload.data) {
+            const payStatus = payload.data.status;
+            if (payStatus === 'success') {
+              isVerified = true;
+              verifiedAmount = payload.data.amount / 100;
+            } else if (payStatus === 'failed') {
+              return res.status(400).json({
+                success: false,
+                error: `Payment failed or declined on Paystack: ${payload.data.gateway_response || 'Declined'}.`
+              });
+            } else {
+              return res.status(400).json({
+                success: false,
+                error: `Payment is still in a pending state (${payStatus}) on Paystack. Please complete the transaction on your device.`
+              });
+            }
+          } else {
+            return res.status(400).json({
+              success: false,
+              error: "Invalid or malformed payload received from Paystack."
+            });
           }
+        } catch (fetchErr: any) {
+          console.error('[Paystack connection error]:', fetchErr);
+          return res.status(503).json({
+            success: false,
+            error: `Unable to connect to Paystack payment gateway: ${fetchErr.message || 'Connection timed out'}. Please try again.`
+          });
         }
       } else if (flutterwaveSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
         gatewayUsed = 'flutterwave';
-        const flwRes = await fetch(`https://api.flutterwave.com/v3/transactions/${encodeURIComponent(paymentReference)}/verify`, {
-          headers: {
-            'Authorization': `Bearer ${flutterwaveSecret}`,
-            'Content-Type': 'application/json'
+        try {
+          const flwRes = await fetch(`https://api.flutterwave.com/v3/transactions/${encodeURIComponent(paymentReference)}/verify`, {
+            headers: {
+              'Authorization': `Bearer ${flutterwaveSecret}`,
+              'Content-Type': 'application/json'
+            },
+            signal: AbortSignal.timeout(8000)
+          });
+          
+          if (!flwRes.ok) {
+            const errText = await flwRes.text();
+            console.error('[Flutterwave API Error]:', flwRes.status, errText);
+            if (flwRes.status === 404) {
+              return res.status(400).json({
+                success: false,
+                error: "The payment gateway (Flutterwave) was unable to find this transaction. Please ensure the payment was completed."
+              });
+            } else if (flwRes.status === 401) {
+              return res.status(500).json({
+                success: false,
+                error: "Server configuration issue: Flutterwave authentication failed."
+              });
+            } else {
+              return res.status(400).json({
+                success: false,
+                error: `Flutterwave verification failed with status code ${flwRes.status}.`
+              });
+            }
           }
-        });
-        if (flwRes.ok) {
+          
           const payload = await flwRes.json();
-          if (payload.status === 'success' && payload.data && payload.data.status === 'successful') {
-            isVerified = true;
-            verifiedAmount = payload.data.amount;
+          if (payload.status === 'success' && payload.data) {
+            const flwStatus = payload.data.status;
+            if (flwStatus === 'successful') {
+              isVerified = true;
+              verifiedAmount = payload.data.amount;
+            } else if (flwStatus === 'failed') {
+              return res.status(400).json({
+                success: false,
+                error: `Payment failed or declined on Flutterwave: ${payload.data.processor_response || 'Declined'}.`
+              });
+            } else {
+              return res.status(400).json({
+                success: false,
+                error: `Payment is still in a pending state (${flwStatus}) on Flutterwave. Please complete the payment first.`
+              });
+            }
+          } else {
+            return res.status(400).json({
+              success: false,
+              error: "Invalid or malformed payload received from Flutterwave."
+            });
           }
+        } catch (fetchErr: any) {
+          console.error('[Flutterwave connection error]:', fetchErr);
+          return res.status(503).json({
+            success: false,
+            error: `Unable to connect to Flutterwave gateway: ${fetchErr.message || 'Connection timed out'}. Please try again.`
+          });
         }
       } else {
         if (paymentReference.startsWith('TEDBUY_DEMO_') || paymentReference.startsWith('TST_') || process.env.NODE_ENV !== 'production') {
           isVerified = true;
           gatewayUsed = 'sandbox-simulator';
+        } else {
+          return res.status(500).json({
+            success: false,
+            error: "Payment gateway secrets are not configured on the server. Real payment verification cannot be completed."
+          });
         }
       }
 
       if (!isVerified) {
-        return res.status(400).json({ success: false, error: "Payment verification failed or was cancelled by the provider." });
+        return res.status(400).json({ success: false, error: "Payment verification failed or was not completed." });
       }
 
       const plans: Record<string, { days: number; price: number; name: string }> = {
@@ -1721,7 +1828,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       const plan = plans[planId];
       if (!plan) {
-        return res.status(400).json({ success: false, error: `Invalid plan specified: ${planId}` });
+        return res.status(400).json({ success: false, error: `Invalid boost plan specified: ${planId}` });
       }
 
       let finalUpdatedFields: any = null;
@@ -1734,8 +1841,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           const docRef = adminDb.collection('products').doc(productId);
           let docSnap = await docRef.get();
           let retryCount = 0;
-          const maxRetries = 5;
-          const retryDelayMs = 1000;
+          const maxRetries = 2; // Optimize retry counts to prevent Vercel 10s timeout
+          const retryDelayMs = 400; // Fast non-blocking delay
           
           while (!docSnap.exists && retryCount < maxRetries) {
             retryCount++;
@@ -1745,7 +1852,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
 
           if (!docSnap.exists) {
-            throw new Error(`Product listing with ID ${productId} was not found on the database after ${maxRetries} retrieval attempts.`);
+            return res.status(404).json({
+              success: false,
+              error: `Product listing with ID '${productId}' was not found in the database. Please verify the listing exists before boosting.`
+            });
           }
 
           await adminDb.runTransaction(async (transaction: any) => {
@@ -1857,8 +1967,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (!finalUpdatedFields) {
         let productData = await getRawProductFirestoreREST(productId);
         let retryCount = 0;
-        const maxRetries = 5;
-        const retryDelayMs = 1000;
+        const maxRetries = 2; // Optimize retry counts to prevent Vercel 10s timeout
+        const retryDelayMs = 400; // Fast non-blocking delay
         
         while (!productData && retryCount < maxRetries) {
           retryCount++;
@@ -1868,7 +1978,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
 
         if (!productData) {
-          return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
+          return res.status(404).json({
+            success: false,
+            error: `Product listing with ID '${productId}' was not found in the database. Please verify the listing exists.`
+          });
         }
 
         const now = new Date();
@@ -1954,26 +2067,46 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           lastBoostPurchase: now.toISOString()
         };
 
-        await updateProductFirestoreREST(productId, finalUpdatedFields, authHeader);
-        finalProductData = productData;
+        try {
+          await updateProductFirestoreREST(productId, finalUpdatedFields, authHeader);
+          finalProductData = productData;
+        } catch (dbErr: any) {
+          console.error('[Verify Payment DB Error]:', dbErr);
+          const dbErrMsg = dbErr.message || String(dbErr);
+          if (dbErrMsg.includes('PERMISSION_DENIED') || dbErrMsg.includes('permission')) {
+            return res.status(403).json({
+              success: false,
+              error: "Permission denied while updating the listing's boost status in the database. Please ensure you are logged in as the owner of this listing."
+            });
+          }
+          return res.status(500).json({
+            success: false,
+            error: `Failed to update product boost status in database: ${dbErrMsg}`
+          });
+        }
       }
 
       cachedProducts = null; // Clear products cache to reflect the new boost status immediately
 
-      await createBoostPurchaseFirestoreREST({
-        productId,
-        sellerId: finalProductData.sellerId || '',
-        sellerName: finalProductData.sellerName || '',
-        productTitle: finalProductData.title || '',
-        planId,
-        amount: verifiedAmount,
-        currency: 'GHS',
-        paymentReference,
-        gateway: gatewayUsed,
-        paymentMethod: paymentMethod || 'momo',
-        buyerEmail: email || '',
-        createdAt: new Date().toISOString()
-      }, authHeader);
+      try {
+        await createBoostPurchaseFirestoreREST({
+          productId,
+          sellerId: finalProductData.sellerId || '',
+          sellerName: finalProductData.sellerName || '',
+          productTitle: finalProductData.title || '',
+          planId,
+          amount: verifiedAmount,
+          currency: 'GHS',
+          paymentReference,
+          gateway: gatewayUsed,
+          paymentMethod: paymentMethod || 'momo',
+          buyerEmail: email || '',
+          createdAt: new Date().toISOString()
+        }, authHeader);
+      } catch (purchaseErr: any) {
+        console.warn('[Verify Payment Purchase Log Warning]: Failed to log boost purchase:', purchaseErr.message || purchaseErr);
+        // Do not crash or fail the main verification request since the product's boostStatus is already successfully updated and persistent!
+      }
 
       return res.json({
         success: true,
@@ -1986,7 +2119,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     } catch (err: any) {
       console.error('[Verify Payment Exception]:', err);
-      return res.status(500).json({ success: false, error: err.message || "Internal server error during verification." });
+      return res.status(500).json({ 
+        success: false, 
+        error: err.message || "An unexpected internal server error occurred during payment verification. Please contact support." 
+      });
     }
   });
 
