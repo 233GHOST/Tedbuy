@@ -767,9 +767,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             } else {
               // If this user was just registered via Email/Password, wait for the registration function to complete the document creation.
-              const isPasswordUser = firebaseUser.providerData.some(p => p.providerId === 'password');
-              if (justRegisteredUserIds.current.has(firebaseUser.uid) || isPasswordUser) {
-                console.log(`[onAuthStateChanged] Standard email registration detected for UID: "${firebaseUser.uid}". Postponing profile creation to standard registration handler.`);
+              if (justRegisteredUserIds.current.has(firebaseUser.uid)) {
+                console.log(`[onAuthStateChanged] Standard email registration in progress for UID: "${firebaseUser.uid}". Postponing profile creation.`);
                 return;
               }
 
@@ -903,6 +902,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 }
               } else {
                 // Create the user document in Firestore asynchronously if first time
+                const isGoogleUser = firebaseUser.providerData.some(p => p.providerId === 'google.com') || (firebaseUser.email ? firebaseUser.email.endsWith('@gmail.com') : false);
                 const newUser: User = {
                   id: firebaseUser.uid,
                   username: initialUsername,
@@ -914,8 +914,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   savedProductIds: [],
                   emailVerified: firebaseUser.emailVerified,
                   isAdmin: isSuperAdmin ? true : undefined,
-                  isGoogleAuth: true,
-                  authProvider: 'google.com'
+                  isGoogleAuth: isGoogleUser ? true : undefined,
+                  authProvider: isGoogleUser ? 'google.com' : undefined
                 };
                 
                 // Register storeName and user document atomically so standard signups and Google signups are identical
@@ -3458,7 +3458,7 @@ Tedbuy Support`;
       if (profileData.photoUrl !== undefined) updatePayload.photoUrl = finalPhotoUrl || null;
       if (profileData.role !== undefined) updatePayload.role = finalRole;
 
-      batch.update(doc(db, 'users', currentUser.id), cleanObject(updatePayload));
+      batch.set(doc(db, 'users', currentUser.id), cleanObject(updatePayload), { merge: true });
 
       if (profileData.username !== undefined && newStoreNameLower !== currentStoreNameLower) {
         if (currentStoreNameLower) {

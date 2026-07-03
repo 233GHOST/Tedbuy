@@ -202,17 +202,44 @@ export const ProfileSettings: React.FC = () => {
       return;
     }
 
-    if (phoneNumber && phoneNumber.length > 25) {
-      setErrorMsg('Phone number must be under 25 characters.');
+    const validatePhoneFormat = (num: string) => {
+      const clean = num.trim();
+      if (!clean) return true;
+      if (!clean.startsWith('+233')) return false;
+      const digitsOnly = clean.replace(/[\s-]/g, '');
+      return /^\+233\d{9}$/.test(digitsOnly);
+    };
+
+    if (phoneNumber && !validatePhoneFormat(phoneNumber)) {
+      setErrorMsg('Ghanaian Mobile Contact must start with +233 and be followed by 9 digits (e.g., +233 24 123 4567).');
       return;
     }
-    if (whatsAppNumber && whatsAppNumber.length > 25) {
-      setErrorMsg('WhatsApp number must be under 25 characters.');
+
+    if (whatsAppNumber && !validatePhoneFormat(whatsAppNumber)) {
+      setErrorMsg('WhatsApp number must start with +233 and be followed by 9 digits (e.g., +233 24 123 4567).');
       return;
     }
 
     setIsSaving(true);
     try {
+      // 1. Perform Server-Side validation to double check
+      const response = await fetch('/api/profile/validate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+          phoneNumber: phoneNumber.trim(),
+          whatsAppNumber: whatsAppNumber.trim()
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Server-side validation failed.');
+      }
+
       await updateUserProfile({
         username: username.trim(),
         phoneNumber: phoneNumber.trim() || undefined,

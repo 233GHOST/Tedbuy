@@ -1072,6 +1072,39 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.json({ status: 'ok', projectId });
   });
 
+  app.post('/api/profile/validate', (req, res) => {
+    const { username, phoneNumber, whatsAppNumber } = req.body;
+
+    if (!username || !username.trim()) {
+      return res.status(400).json({ error: 'Store Name is required and cannot be empty.' });
+    }
+
+    const validatePhone = (num: any) => {
+      if (num === undefined || num === null || num === '') return true;
+      if (typeof num !== 'string') return false;
+      const trimmed = num.trim();
+      if (!trimmed) return true;
+
+      if (!trimmed.startsWith('+233')) return false;
+      const clean = trimmed.replace(/[\s-]/g, '');
+      return /^\+233\d{9}$/.test(clean);
+    };
+
+    if (!validatePhone(phoneNumber)) {
+      return res.status(400).json({
+        error: 'Ghanaian Mobile Contact must start with +233 and be followed by exactly 9 digits (e.g., +233 24 123 4567).'
+      });
+    }
+
+    if (!validatePhone(whatsAppNumber)) {
+      return res.status(400).json({
+        error: 'WhatsApp Contact Number must start with +233 and be followed by exactly 9 digits (e.g., +233 24 123 4567).'
+      });
+    }
+
+    return res.json({ valid: true });
+  });
+
   // Helper function to calculate robust production-ready priorityScore based on 4 priority levels
   function calculatePriorityScore(product: any): number {
     const now = new Date();
