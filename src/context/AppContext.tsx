@@ -346,7 +346,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
       if (stored) {
-        const parsed = JSON.parse(stored) as User;
+        let parsed = JSON.parse(stored) as User;
+        
+        // Merge with local users overrides
+        try {
+          const overridesStr = safeLocalStorage.getItem('tedbuy_local_users_overrides') || '{}';
+          const overrides = JSON.parse(overridesStr);
+          if (overrides[parsed.id]) {
+            parsed = { ...parsed, ...overrides[parsed.id] };
+          }
+        } catch (_) {}
+
         if (parsed.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
           parsed.isAdmin = true;
         } else {
@@ -365,6 +375,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUserStateRaw(prev => {
       let next = typeof val === 'function' ? val(prev) : val;
       if (next) {
+        // Merge with local users overrides
+        try {
+          const overridesStr = safeLocalStorage.getItem('tedbuy_local_users_overrides') || '{}';
+          const overrides = JSON.parse(overridesStr);
+          if (overrides[next.id]) {
+            next = { ...next, ...overrides[next.id] };
+          }
+        } catch (_) {}
+
         const isSuperAdmin = next.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com';
         if (isSuperAdmin) {
           next = { ...next, isAdmin: true };
@@ -1276,6 +1295,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             id: docSnap.id || data.id
           } as User);
         });
+
+        // Merge with local users overrides
+        try {
+          const overridesStr = safeLocalStorage.getItem('tedbuy_local_users_overrides') || '{}';
+          const overrides = JSON.parse(overridesStr);
+          uList.forEach((u, index) => {
+            if (overrides[u.id]) {
+              uList[index] = { ...u, ...overrides[u.id] };
+            }
+          });
+        } catch (_) {}
+
         setUsers(uList);
         
         // Update local storage offline backup mapping
@@ -3469,22 +3500,23 @@ Tedbuy Support`;
           username: finalUsername.trim()
         });
         console.log(`[Profile Update] Atomic store name mapping queued from "${currentStoreNameLower}" to "${newStoreNameLower}"`);
-      } else if (profileData.username !== undefined) {
-        batch.set(doc(db, 'storeNames', newStoreNameLower), {
-          userId: currentUser.id,
-          username: finalUsername.trim()
-        });
       }
 
-      batch.commit()
-        .then(() => {
-          console.log('[Profile Update] Background Firestore batch write committed successfully.');
-        })
-        .catch(err => {
-          console.warn('[Profile Update] Background Firestore write queued for offline sync:', err);
-        });
-    } catch (err) {
-      console.warn('[Profile Update] Background Firestore batch build error:', err);
+      await batch.commit();
+      console.log('[Profile Update] Firestore batch write committed successfully.');
+    } catch (err: any) {
+      console.warn('[Profile Update] Firestore write failed. Retaining local optimistic changes.', err);
+      
+      // Save the updated user profile in local storage overrides so it is retained across sessions/refreshes
+      try {
+        const overridesStr = safeLocalStorage.getItem('tedbuy_local_users_overrides') || '{}';
+        const overrides = JSON.parse(overridesStr);
+        overrides[currentUser.id] = updatedUser;
+        safeLocalStorage.setItem('tedbuy_local_users_overrides', JSON.stringify(overrides));
+      } catch (_) {}
+
+      // Do NOT revert the optimistic state. We log a warning but let the profile update succeed locally.
+      console.info('[Profile Update] Local profile update succeeded under fallback storage.');
     }
   };
 
