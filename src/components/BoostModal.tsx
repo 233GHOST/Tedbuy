@@ -219,7 +219,25 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
         })
       });
 
-      const data = await response.json();
+      let data: any = null;
+      try {
+        const text = await response.text();
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          console.error('[BoostModal] Non-JSON response received:', text);
+          let cleanMessage = text;
+          if (text.includes('A server error occurred') || text.includes('An error occurred')) {
+            cleanMessage = 'A server error occurred during verification. Please contact support or retry.';
+          } else if (text.length > 150) {
+            cleanMessage = `Server error (Status: ${response.status}). The payment gateway verification returned an unexpected format.`;
+          }
+          throw new Error(cleanMessage);
+        }
+      } catch (readErr: any) {
+        throw new Error(readErr.message || 'Failed to parse server response during payment verification.');
+      }
+
       if (response.ok && data.success) {
         setCheckoutStep('success');
         showToast('Payment verified successfully! Boost activated.', 'success');

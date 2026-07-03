@@ -190,31 +190,39 @@ try {
   console.error('[Products Cache] Failed to load/initialize cache file:', cacheErr);
 }
 
-let isGCPServiceAccountAuthorized = true;
+let isGCPServiceAccountAuthorized = process.env.NODE_ENV === 'production' && !process.env.VERCEL;
 
-try {
-  if (getApps().length === 0) {
-    initializeAdminApp({
-      projectId: projectId,
-    });
-  }
-  adminDb = getFirestore();
-  console.log('[Firebase Admin] Successfully initialized Firestore Admin client. Running permission pre-flight check...');
-  
-  // Asynchronously test Admin SDK permissions without blocking server start.
-  adminDb.collection('products').limit(1).get()
-    .then(() => {
-      console.log('[Firebase Admin] Permission pre-flight check passed. Service Account is fully authorized.');
-    })
-    .catch((err: any) => {
-      console.warn('[Firebase Admin] Permission pre-flight check failed. Proactively falling back to REST API:', err.message || err);
-      if (String(err).includes('PERMISSION_DENIED') || String(err).includes('permission')) {
+// On Vercel, always disable Firebase Admin SDK to prevent metadata server hangs and timeouts.
+if (process.env.VERCEL) {
+  console.log('[Firebase Admin] Detected Vercel serverless environment. Force-disabling Admin SDK and using REST fallbacks.');
+  adminDb = null;
+  isGCPServiceAccountAuthorized = false;
+} else {
+  try {
+    if (getApps().length === 0) {
+      initializeAdminApp({
+        projectId: projectId,
+      });
+    }
+    const tempDb = getFirestore();
+    console.log('[Firebase Admin] Safe-initializing Firestore Admin client. Running permission pre-flight check...');
+    
+    // Asynchronously test Admin SDK permissions without blocking server start.
+    tempDb.collection('products').limit(1).get()
+      .then(() => {
+        adminDb = tempDb;
+        console.log('[Firebase Admin] Permission pre-flight check passed. Service Account is fully authorized. Admin SDK activated.');
+      })
+      .catch((err: any) => {
+        console.warn('[Firebase Admin] Permission pre-flight check failed. Proactively falling back to REST API exclusively:', err.message || err);
         isGCPServiceAccountAuthorized = false;
         adminDb = null;
-      }
-    });
-} catch (err: any) {
-  console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
+      });
+  } catch (err: any) {
+    console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
+    isGCPServiceAccountAuthorized = false;
+    adminDb = null;
+  }
 }
 
 // Dynamically fetch GCP service account token if running on Cloud Run
