@@ -242,8 +242,8 @@ export const ProfileSettings: React.FC = () => {
 
       await updateUserProfile({
         username: username.trim(),
-        phoneNumber: phoneNumber.trim() || undefined,
-        whatsAppNumber: whatsAppNumber.trim() || undefined,
+        phoneNumber: phoneNumber.trim(),
+        whatsAppNumber: whatsAppNumber.trim(),
         photoUrl: photoUrl || "",
         role
       });

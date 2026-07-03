@@ -50,8 +50,8 @@ service cloud.firestore {
                data.get('username', '').size() <= 100 &&
                data.get('role', 'both') in ['buyer', 'seller', 'both'] &&
                (data.get('email', null) == null || (data.get('email', '') is string && data.get('email', '').size() <= 150)) &&
-               (data.get('phoneNumber', null) == null || (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 30 && data.get('phoneNumber', '').matches('^\\+233[0-9\\s-]{9,20}$'))) &&
-               (data.get('whatsAppNumber', null) == null || (data.get('whatsAppNumber', '') is string && data.get('whatsAppNumber', '').size() <= 30 && data.get('whatsAppNumber', '').matches('^\\+233[0-9\\s-]{9,20}$')));
+               (data.get('phoneNumber', null) == null || data.get('phoneNumber', '') == '' || (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 30 && data.get('phoneNumber', '').matches('^\\+233.*$'))) &&
+               (data.get('whatsAppNumber', null) == null || data.get('whatsAppNumber', '') == '' || (data.get('whatsAppNumber', '') is string && data.get('whatsAppNumber', '').size() <= 30 && data.get('whatsAppNumber', '').matches('^\\+233.*$')));
       }
 
       allow read: if true; // Public marketplace profiles are viewable by everyone
@@ -59,7 +59,6 @@ service cloud.firestore {
       allow update: if (isOwner(userId) || isAdmin()) &&
                     isValidId(userId) &&
                     isValidUser(incoming()) &&
-                    incoming().get('id', userId) == existing().get('id', userId) &&
                     (incoming().get('isAdmin', false) == existing().get('isAdmin', false) || isAdmin());
       allow delete: if isSignedIn() && (isOwner(userId) || isAdmin());
     }
