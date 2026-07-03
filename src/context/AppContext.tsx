@@ -104,7 +104,7 @@ interface AppContextType {
     condition?: string;
     negotiable?: boolean;
   }) => Promise<Product | undefined>;
-  updateProduct: (id: string, productData: Partial<Product>) => Promise<string | undefined>;
+  updateProduct: (id: string, productData: Partial<Product>, localOnly?: boolean) => Promise<string | undefined>;
   deleteProduct: (id: string) => Promise<void>;
   toggleLikeProduct: (productId: string, userId: string) => Promise<void>;
   chats: Chat[];
@@ -379,7 +379,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [isProductsLoading, setIsProductsLoading] = useState(false);
+  const [isProductsLoading, setIsProductsLoading] = useState(() => {
+    try {
+      const saved = safeLocalStorage.getItem('tedbuy_local_products_backup');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Product[];
+        const filtered = parsed.filter(isRealProduct);
+        if (filtered.length > 0) return false;
+      }
+    } catch {}
+    return true;
+  });
   const [productsLoadError, setProductsLoadError] = useState(false);
   const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
 
@@ -756,6 +766,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setCurrentUserState(dbData);
               }
             } else {
+              // If this user was just registered via Email/Password, wait for the registration function to complete the document creation.
+              const isPasswordUser = firebaseUser.providerData.some(p => p.providerId === 'password');
+              if (justRegisteredUserIds.current.has(firebaseUser.uid) || isPasswordUser) {
+                console.log(`[onAuthStateChanged] Standard email registration detected for UID: "${firebaseUser.uid}". Postponing profile creation to standard registration handler.`);
+                return;
+              }
+
               // The user document does not exist for the new Google authenticating UID.
               // Check if they already have an existing user document under a DIFFERENT UID (with same email address).
               let existingUserWithEmail: User | null = null;
@@ -945,16 +962,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   signInWithEmailAndPassword(auth, emailTarget, 'password123')
                     .then(() => console.log('[Auto Auth] Aligned simulated user Firebase session!'))
                     .catch((err) => {
-                      console.info('[Auto Auth] Fallback Email/Password auth check completed (not active). Trying anonymous session fallback.');
-                      signInAnonymously(auth)
-                        .then(() => console.log('[Auto Auth] Secondary anonymous session established!'))
-                        .catch((anonErr: any) => {
-                          if (anonErr?.code === 'auth/admin-restricted-operation' || anonErr?.message?.includes('admin-restricted-operation')) {
-                            console.log('[Auto Auth] Anonymous authentication provider is disabled in the Firebase Console. Operating in secure schema-free fallback state.');
-                          } else {
-                            console.warn('[Auto Auth] Fallback anonymous auth call returned:', anonErr?.message || anonErr);
-                          }
-                        });
+                      console.info('[Auto Auth] Fallback Email/Password auth check completed (not active). Operating in sandbox offline state.');
                     });
                 }
               } catch (_) {}
@@ -1295,7 +1303,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Rely on local storage backup values inside `products` state for instant initial paint
     // and only set loading state to true if we don't have any cached listings.
     if (products.length === 0) {
-      setIsProductsLoading(false);
+      setIsProductsLoading(true);
     }
 
     let active = true;
@@ -2512,7 +2520,7 @@ Tedbuy Support`;
     }
   };
 
-  const updateProduct = async (id: string, productData: Partial<Product>): Promise<string | undefined> => {
+  const updateProduct = async (id: string, productData: Partial<Product>, localOnly = false): Promise<string | undefined> => {
     try {
       const localProduct = products.find(p => p.id === id);
       const keys = Object.keys(productData);
@@ -2523,7 +2531,8 @@ Tedbuy Support`;
         if (!currentUser) {
           throw new Error('Authentication Required: You must be logged in to modify listings.');
         }
-        if (localProduct && localProduct.sellerId !== currentUser.id && !currentUser.isAdmin) {
+        const isSuperAdmin = currentUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com';
+        if (localProduct && localProduct.sellerId !== currentUser.id && !currentUser.isAdmin && !isSuperAdmin) {
           throw new Error('Unauthorized Access: You do not have permissions to modify this listing.');
         }
       }
@@ -2578,6 +2587,11 @@ Tedbuy Support`;
       } catch (_) {}
 
       // Step C: Try updating standard Firestore document, but in a completely non-blocking asynchronous way
+      if (localOnly) {
+        console.log('[updateProduct] Local-only state update requested. Skipping remote Firestore write.');
+        return id;
+      }
+
       const productRef = doc(db, 'products', id);
 
       if (localProduct) {

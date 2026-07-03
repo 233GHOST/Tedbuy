@@ -397,10 +397,6 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                 {/* Mobile Money Input Form */}
                 {paymentMethod === 'momo' && (
                   <form onSubmit={handleMomoSubmit} className="space-y-3.5 bg-slate-50 p-4 border border-slate-200/60 rounded-2xl animate-fade-in">
-                    <p className="text-xs text-slate-600 font-sans leading-relaxed text-center px-2 py-1">
-                      Pressing the button below will securely open the Paystack checkout gateway, where you can complete your payment via your MTN MoMo, Telecel Cash, or AirtelTigo wallet.
-                    </p>
-
                     <button
                       type="submit"
                       className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs tracking-wider uppercase rounded-xl transition duration-200 cursor-pointer shadow-md flex items-center justify-center gap-1.5"

@@ -1415,9 +1415,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             {/* Posting Option Selection */}
             {!productToEdit && (
               <div className="bg-slate-50 border border-slate-250/50 rounded-2xl p-4 space-y-3 mt-4">
-                <div className="flex items-center gap-1.5 text-slate-700">
-                  <span className="text-xs font-black uppercase tracking-wider font-sans">Posting Option</span>
-                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className={`p-3.5 border rounded-2xl flex flex-col gap-1 cursor-pointer transition-all ${
                     postOption === 'normal'

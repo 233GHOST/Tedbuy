@@ -46,6 +46,7 @@ export const ProductDetail: React.FC = () => {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isAdminBoosting, setIsAdminBoosting] = useState(false);
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [selectedFreePlan, setSelectedFreePlan] = useState('7days');
 
   const mediaGallery = product ? [
@@ -784,48 +785,82 @@ export const ProductDetail: React.FC = () => {
                         <p className="text-[10px] text-slate-600 leading-relaxed font-sans">
                           Expires on <strong className="font-bold text-slate-800">{product.boostEndDate ? new Date(product.boostEndDate).toLocaleDateString() : 'N/A'}</strong>
                         </p>
-                        <button
-                          type="button"
-                          disabled={isAdminBoosting}
-                          onClick={async () => {
-                            if (!window.confirm("Are you sure you want to silently deactivate this boosted ad? There will be no notification sent to the user.")) {
-                              return;
-                            }
-                            setIsAdminBoosting(true);
-                            try {
-                              const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-                              const cleanToken = token.replace(/[^A-Za-z0-9._-]/g, '');
-                              const res = await fetch('/api/admin/boost-control', {
-                                method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                  'Authorization': cleanToken ? `Bearer ${cleanToken}` : ''
-                                },
-                                body: JSON.stringify({
-                                  productId: product.id,
-                                  action: 'deactivate'
-                                })
-                              });
-                              const data = await res.json();
-                              if (res.ok && data.success) {
-                                showToast('Boost silently deactivated!', 'success');
-                                if (data.product) {
-                                  await updateProduct(product.id, data.product);
-                                }
-                              } else {
-                                showToast(data.error || 'Failed to deactivate boost.', 'error');
-                              }
-                            } catch (err: any) {
-                              console.error('Error deactivating boost:', err);
-                              showToast(err.message || 'Error occurred.', 'error');
-                            } finally {
-                              setIsAdminBoosting(false);
-                            }
-                          }}
-                          className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold rounded-lg text-[10px] uppercase tracking-wider transition select-none cursor-pointer"
-                        >
-                          {isAdminBoosting ? 'Processing...' : 'Deactivate Boost (Silent)'}
-                        </button>
+                        {showDeactivateConfirm ? (
+                          <div className="bg-rose-100/50 border border-rose-200 rounded-xl p-3.5 space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
+                            <p className="text-[10px] text-rose-900 font-extrabold text-center uppercase tracking-wide flex items-center justify-center gap-1">
+                              <span>⚠️ Silently Deactivate Boost?</span>
+                            </p>
+                            <p className="text-[10px] text-slate-600 leading-normal text-center">
+                              No notification will be sent to the seller. Are you absolutely sure?
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={isAdminBoosting}
+                                onClick={async () => {
+                                  setIsAdminBoosting(true);
+                                  try {
+                                    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                                    const cleanToken = token;
+                                    const res = await fetch('/api/admin/boost-control', {
+                                      method: 'POST',
+                                      headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': cleanToken ? `Bearer ${cleanToken}` : ''
+                                      },
+                                      body: JSON.stringify({
+                                        productId: product.id,
+                                        action: 'deactivate'
+                                      })
+                                    });
+                                    let data: any = {};
+                                    try {
+                                      data = await res.json();
+                                    } catch (parseErr) {
+                                      console.error('Failed to parse response JSON:', parseErr);
+                                    }
+                                    if (res.ok && data.success) {
+                                      showToast('Boost silently deactivated!', 'success');
+                                      if (data.product) {
+                                        await updateProduct(product.id, data.product, true);
+                                      }
+                                      setShowDeactivateConfirm(false);
+                                    } else {
+                                      console.warn('Backend boost-control API rejected request, falling back to direct Firestore update...', data.error);
+                                      await handleDeactivateBoostSilently();
+                                      setShowDeactivateConfirm(false);
+                                    }
+                                  } catch (err: any) {
+                                    console.error('Error contacting boost-control API, falling back to direct Firestore update...', err);
+                                    await handleDeactivateBoostSilently();
+                                    setShowDeactivateConfirm(false);
+                                  } finally {
+                                    setIsAdminBoosting(false);
+                                  }
+                                }}
+                                className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold rounded-lg text-[10px] uppercase tracking-wider transition cursor-pointer select-none text-center"
+                              >
+                                {isAdminBoosting ? 'Processing...' : 'Yes, Deactivate'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isAdminBoosting}
+                                onClick={() => setShowDeactivateConfirm(false)}
+                                className="flex-1 py-1.5 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-800 font-extrabold rounded-lg text-[10px] uppercase tracking-wider transition cursor-pointer select-none text-center"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowDeactivateConfirm(true)}
+                            className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold rounded-lg text-[10px] uppercase tracking-wider transition select-none cursor-pointer text-center"
+                          >
+                            Deactivate Boost (Silent)
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="text-center py-1 bg-slate-50 border border-slate-100 rounded-xl">
@@ -855,7 +890,8 @@ export const ProductDetail: React.FC = () => {
                             setIsAdminBoosting(true);
                             try {
                               const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-                              const cleanToken = token.replace(/[^A-Za-z0-9._-]/g, '');
+                              // Use the token directly without regex stripping to prevent token corruption
+                              const cleanToken = token;
                               const res = await fetch('/api/admin/boost-control', {
                                 method: 'POST',
                                 headers: {
@@ -868,14 +904,20 @@ export const ProductDetail: React.FC = () => {
                                   planId: selectedFreePlan
                                 })
                               });
-                              const data = await res.json();
+                              let data: any = {};
+                              try {
+                                data = await res.json();
+                              } catch (parseErr) {
+                                console.error('Failed to parse response JSON:', parseErr);
+                              }
                               if (res.ok && data.success) {
                                 showToast('Free premium boost applied successfully!', 'success');
                                 if (data.product) {
-                                  await updateProduct(product.id, data.product);
+                                  // Update the local react state only since the backend already successfully updated Firestore
+                                  await updateProduct(product.id, data.product, true);
                                 }
                               } else {
-                                showToast(data.error || 'Failed to apply free boost.', 'error');
+                                showToast(data.error || `Failed to apply free boost (Status: ${res.status}).`, 'error');
                               }
                             } catch (err: any) {
                               console.error('Error applying free boost:', err);

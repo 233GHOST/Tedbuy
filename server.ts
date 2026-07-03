@@ -18,6 +18,20 @@ const lookupAsync = promisify(dns.lookup);
 dotenv.config();
 
 const app = express();
+
+// Set secure HTTP headers
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob: android-webview-video-poster:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https:;"
+  );
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()");
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -206,7 +220,6 @@ try {
 // Dynamically fetch GCP service account token if running on Cloud Run
 async function getGCPMetadataToken() {
   if (!isGCPServiceAccountAuthorized) {
-    console.log('[GCP Metadata] Skipping GCP service account token since it is marked as unauthorized.');
     return null;
   }
   try {
@@ -217,9 +230,12 @@ async function getGCPMetadataToken() {
     if (res.ok) {
       const data = await res.json();
       return data.access_token as string;
+    } else {
+      isGCPServiceAccountAuthorized = false;
     }
   } catch (err) {
-    // Not on GCP Cloud Run
+    // Not on GCP Cloud Run, disable metadata check to prevent future 1000ms timeouts
+    isGCPServiceAccountAuthorized = false;
   }
   return null;
 }
@@ -1409,7 +1425,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         queryParams.push(`updateMask.fieldPaths=${key}`);
 
         if (val === null || val === undefined) {
-          fieldsToPatch[key] = { nullValue: null };
+          fieldsToPatch[key] = { nullValue: "NULL_VALUE" };
         } else if (typeof val === 'boolean') {
           fieldsToPatch[key] = { booleanValue: val };
         } else if (typeof val === 'number') {
@@ -1583,7 +1599,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const token = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
       const parts = token.split('.');
       if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        let payload: any;
+        try {
+          payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        } catch (_) {
+          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
+        }
         const uid = payload.user_id || payload.sub;
         const email = payload.email;
         if (email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {

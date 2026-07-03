@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
 import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
@@ -50,6 +50,17 @@ export const ProfileSettings: React.FC = () => {
   const [whatsAppNumber, setWhatsAppNumber] = useState(currentUser.whatsAppNumber || '');
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(currentUser.photoUrl);
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser.role || 'both');
+
+  // Synchronize internal state when currentUser's asynchronous Firestore data loading completes
+  useEffect(() => {
+    if (currentUser) {
+      setUsername(currentUser.username || '');
+      setPhoneNumber(currentUser.phoneNumber || '');
+      setWhatsAppNumber(currentUser.whatsAppNumber || '');
+      setPhotoUrl(currentUser.photoUrl);
+      setRole(currentUser.role || 'both');
+    }
+  }, [currentUser]);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -711,13 +722,7 @@ export const ProfileSettings: React.FC = () => {
 
 
 
-            {/* Note about real database persistence */}
-            <div className="flex items-start gap-2 bg-slate-50 p-4 rounded-xl text-[11px] text-slate-600 border border-slate-200/50">
-              <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-              <span>
-                <strong>Persistence Confirmation:</strong> Clicking "Save Changes" updates your profile in the project's cloud Firestore database instantly. Other users will immediately see your modified store name and phone number on listings.
-              </span>
-            </div>
+
 
             {/* Actions panel */}
             <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-3 sm:justify-end">
