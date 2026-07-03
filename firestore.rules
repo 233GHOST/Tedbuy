@@ -48,7 +48,8 @@ service cloud.firestore {
         return data.get('username', '') is string && data.get('username', '').size() <= 100 &&
                data.get('role', 'both') in ['buyer', 'seller', 'both'] &&
                (data.get('email', null) == null || (data.get('email', '') is string && data.get('email', '').size() <= 150)) &&
-               (data.get('phoneNumber', null) == null || (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 30));
+               (data.get('phoneNumber', null) == null || (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 30)) &&
+               (data.get('whatsAppNumber', null) == null || (data.get('whatsAppNumber', '') is string && data.get('whatsAppNumber', '').size() <= 30));
       }
 
       allow read: if true; // Public marketplace profiles are viewable by everyone
