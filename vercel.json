@@ -29,7 +29,7 @@
   "cleanUrls": true,
   "functions": {
     "api/index.ts": {
-      "maxDuration": 30
+      "maxDuration": 10
     }
   },
   "rewrites": [
