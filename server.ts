@@ -13,6 +13,13 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml, clearSitemapCache } from "./src/utils/sitemap.js";
 
+process.on('uncaughtException', (err) => {
+  console.error('!!!!! [DIAGNOSTIC] uncaughtException !!!!!', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('!!!!! [DIAGNOSTIC] unhandledRejection !!!!!', reason);
+});
+
 const lookupAsync = promisify(dns.lookup);
 
 dotenv.config();
