@@ -16,11 +16,20 @@ service cloud.firestore {
       );
     }
 
-    // Helper to check if user has admin privileges based on Firebase Custom Claims or Verified Super Admin Email
+    // Helper to check if user has admin privileges. Recognizes, in order:
+    // 1) A Firebase Auth custom claim (admin: true) - not currently set by the app, kept for future use.
+    // 2) The verified super-admin email (hardcoded fallback).
+    // 3) The users/{uid}.isAdmin Firestore field - this is the mechanism the app actually
+    //    uses everywhere (frontend currentUser.isAdmin, and server verifyAdmin()), so the
+    //    rules must recognize it too or admin-only writes made over the REST API (e.g. on
+    //    Vercel, where the Admin SDK is disabled) will be silently rejected for any admin
+    //    other than the hardcoded email above.
     function isAdmin() {
       return isSignedIn() && (
         (request.auth.token != null && "admin" in request.auth.token && request.auth.token.admin == true) ||
-        (request.auth.token != null && "email" in request.auth.token && request.auth.token.email.lower() == "asumaduvincent7@gmail.com" && request.auth.token.email_verified == true)
+        (request.auth.token != null && "email" in request.auth.token && request.auth.token.email.lower() == "asumaduvincent7@gmail.com" && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true)
       );
     }
 
