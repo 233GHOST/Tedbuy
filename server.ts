@@ -1,5 +1,3 @@
-
-Server · TS
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -14,13 +12,13 @@ import { getApps, initializeApp as initializeAdminApp } from "firebase-admin/app
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml, clearSitemapCache } from "./src/utils/sitemap.js";
- 
+
 const lookupAsync = promisify(dns.lookup);
- 
+
 dotenv.config();
- 
+
 export const app = express();
- 
+
 // Set secure HTTP headers
 app.use((req, res, next) => {
   res.setHeader(
@@ -33,13 +31,13 @@ app.use((req, res, next) => {
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()");
   next();
 });
- 
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
- 
+
 // --- SERVER-SIDE IP RATE LIMITER IMPLEMENTATION ---
 const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
- 
+
 function serverRateLimiter(windowMs: number, maxRequests: number, resourceName: string) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
@@ -66,7 +64,7 @@ function serverRateLimiter(windowMs: number, maxRequests: number, resourceName: 
     next();
   };
 }
- 
+
 // --- SECURE SSRF PROTECTION MIDDLEWARE ---
 function isIpPrivateAndBlock(ipText: string): boolean {
   const parts = ipText.split('.');
@@ -87,7 +85,7 @@ function isIpPrivateAndBlock(ipText: string): boolean {
   }
   return false;
 }
- 
+
 async function validateImageUrlSecurely(urlStr: string): Promise<boolean> {
   try {
     const parsed = new URL(urlStr);
@@ -112,7 +110,7 @@ async function validateImageUrlSecurely(urlStr: string): Promise<boolean> {
       console.warn(`[SSRF Shield] Blocked untrusted host fetch: ${hostname}`);
       return false;
     }
- 
+
     const lookupResult = await lookupAsync(parsed.hostname).catch(() => null);
     if (lookupResult && isIpPrivateAndBlock(lookupResult.address)) {
       console.warn(`[SSRF Shield] Blocked host resolving to private IP: ${hostname} (${lookupResult.address})`);
@@ -124,7 +122,7 @@ async function validateImageUrlSecurely(urlStr: string): Promise<boolean> {
     return false;
   }
 }
- 
+
 app.use((req, res, next) => {
   const logLine = `${new Date().toISOString()} [Express Log] ${req.method} ${req.url} | Body keys: ${Object.keys(req.body || {})}\n`;
   try {
@@ -141,9 +139,9 @@ app.use((req, res, next) => {
   }
   next();
 });
- 
+
 const PORT = 3000;
- 
+
 // Resolve Firebase project ID dynamically
 const firebaseConfigPath = path.resolve(process.cwd(), "firebase-applet-config.json");
 let projectId = "tedbuy-fb79a"; // Fallback default
@@ -161,13 +159,13 @@ if (fs.existsSync(firebaseConfigPath)) {
     console.error("Failed to parse firebase-applet-config.json", err);
   }
 }
- 
+
 // Initialize Firebase Admin SDK safely
 let adminDb: any = null;
 let cachedProducts: { data: any[]; timestamp: number } | null = null;
 const CACHE_TTL_MS = 300000; // 5 minutes cache TTL to dramatically reduce read operations and quota usage
 const CACHE_FILE_PATH = path.join(process.cwd(), 'products_cache.json');
- 
+
 try {
   if (fs.existsSync(CACHE_FILE_PATH)) {
     const rawCache = fs.readFileSync(CACHE_FILE_PATH, 'utf-8');
@@ -191,9 +189,9 @@ try {
 } catch (cacheErr) {
   console.error('[Products Cache] Failed to load/initialize cache file:', cacheErr);
 }
- 
+
 let isGCPServiceAccountAuthorized = process.env.K_SERVICE !== undefined || process.env.GOOGLE_APPLICATION_CREDENTIALS !== undefined;
- 
+
 // On Vercel, always disable Firebase Admin SDK to prevent metadata server hangs and timeouts.
 if (process.env.VERCEL) {
   console.log('[Firebase Admin] Detected Vercel serverless environment. Force-disabling Admin SDK and using REST fallbacks.');
@@ -229,7 +227,7 @@ if (process.env.VERCEL) {
   console.log('[Firebase Admin] Non-GCP/Non-authorized environment. Proactively disabling Admin SDK to avoid timeouts. Using REST client exclusively.');
   adminDb = null;
 }
- 
+
 // Dynamically fetch GCP service account token if running on Cloud Run
 async function getGCPMetadataToken() {
   if (!isGCPServiceAccountAuthorized) {
@@ -252,11 +250,11 @@ async function getGCPMetadataToken() {
   }
   return null;
 }
- 
+
 // In-memory caches for crawler/metadata requests to prevent Firestore 429/RESOURCE_EXHAUSTED
 const productDataCache = new Map<string, { data: any; timestamp: number }>();
 const sellerDataCache = new Map<string, { data: any; timestamp: number }>();
- 
+
 // REST API helper to fetch product info directly from Firestore
 async function getProductData(productId: string) {
   const now = Date.now();
@@ -265,7 +263,7 @@ async function getProductData(productId: string) {
     console.log(`[Meta Crawler] Serving product ${productId} from memory cache`);
     return cached.data;
   }
- 
+
   try {
     if (adminDb) {
       try {
@@ -278,7 +276,7 @@ async function getProductData(productId: string) {
           const priceValue = data.price || 'Negotiable';
           const images = data.images || [];
           const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
- 
+
           const result = {
             title,
             description,
@@ -298,7 +296,7 @@ async function getProductData(productId: string) {
         }
       }
     }
- 
+
     const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
     console.log(`[Meta Crawler] Fetching product from Firestore REST URL: ${url}`);
     
@@ -319,9 +317,9 @@ async function getProductData(productId: string) {
     const imagesVal = fields.images?.arrayValue?.values || [];
     const images = imagesVal.map((v: any) => v.stringValue).filter(Boolean);
     const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
- 
+
     console.log(`[Meta Crawler] Successfully fetched product data for ${productId}: "${title}", Price: "${priceValue}", Image starting with: ${primaryImage.slice(0, 50)}...`);
- 
+
     const result = {
       title,
       description,
@@ -335,7 +333,7 @@ async function getProductData(productId: string) {
     return null;
   }
 }
- 
+
 function cleanHostHeader(host: string): string {
   if (!host) return 'tedbuy-fb79a.web.app';
   if (host.includes(':')) {
@@ -346,7 +344,7 @@ function cleanHostHeader(host: string): string {
   }
   return host;
 }
- 
+
 // Injects dynamic meta tags based on the fetched product
 function injectMetaTags(html: string, product: { title: string; description: string; price: string; image: string }, shareUrl: string, host: string, protocol: string, productId: string): string {
   const pricePrefix = product.price ? `GHS ${product.price}` : 'Negotiable';
@@ -356,15 +354,15 @@ function injectMetaTags(html: string, product: { title: string; description: str
   // ALWAYS use our dynamic image wrapper endpoint to deliver first-party, absolute, redirect-free, fully-qualified web-optimized JPG images.
   // This solves base64 size limits, external redirects and domain/port mismatch crawler bugs perfectly.
   const image = `${protocol}://${host}/api/products/${productId}/image.jpg`;
- 
+
   // Generate dynamic JSON-LD Product Schema representation for googlebot search console indexing
   const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '';
   const priceSchema = cleanPrice && !isNaN(Number(cleanPrice)) ? cleanPrice : '0';
- 
+
   // Build clean absolute product canonical URL to prevent GSC Google Bot parameter/redirect indexing splits
   const titleSlug = product.title ? slugify(product.title) : '';
   const canonicalUrl = `${protocol}://${host}/product/${productId}-${titleSlug}`;
- 
+
   const schemaJson = {
     "@context": "https://schema.org/",
     "@type": "Product",
@@ -381,9 +379,9 @@ function injectMetaTags(html: string, product: { title: string; description: str
       "priceValidUntil": "2027-12-31"
     }
   };
- 
+
   console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Canonical URL: ${canonicalUrl}, Image URL: ${image}`);
- 
+
   const tags = `
     <!-- Dynamic Social Share Meta Tags -->
     <title>${escapeHtml(title)}</title>
@@ -418,15 +416,15 @@ function injectMetaTags(html: string, product: { title: string; description: str
 ${JSON.stringify(schemaJson, null, 6)}
     </script>
   `;
- 
+
   let cleanHtml = html
     .replace(/<title>[\s\S]*?<\/title>/gi, '')
     .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
     .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
- 
+
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
- 
+
 const categorySlugs = [
   'phones',
   'laptops',
@@ -440,7 +438,7 @@ const categorySlugs = [
   'other',
   'others'
 ];
- 
+
 const CATEGORY_META: Record<string, { title: string; description: string; imageSearch: string }> = {
   'phones': {
     title: 'Verified Phones for Sale in Ghana - iPhones & Androids | TedBuy',
@@ -493,7 +491,7 @@ const CATEGORY_META: Record<string, { title: string; description: string; imageS
     imageSearch: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?auto=format&fit=crop&w=600&q=80'
   }
 };
- 
+
 function injectCategoryMetaTags(html: string, slug: string, shareUrl: string, host: string, protocol: string): string {
   const metaKey = slug === 'others' ? 'other' : slug;
   const meta = CATEGORY_META[metaKey] || {
@@ -505,9 +503,9 @@ function injectCategoryMetaTags(html: string, slug: string, shareUrl: string, ho
   const title = meta.title;
   const description = meta.description;
   const image = meta.imageSearch;
- 
+
   const canonicalUrl = `${protocol}://${host}/${slug}`;
- 
+
   const schemaJson = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
@@ -524,9 +522,9 @@ function injectCategoryMetaTags(html: string, slug: string, shareUrl: string, ho
       }
     }
   };
- 
+
   console.log(`[Category Crawler] Injecting Category Meta Tags for: ${slug}. Title: ${title}, Canonical: ${canonicalUrl}`);
- 
+
   const tags = `
     <!-- Category SEO Meta Tags -->
     <title>${escapeHtml(title)}</title>
@@ -552,26 +550,26 @@ function injectCategoryMetaTags(html: string, slug: string, shareUrl: string, ho
 ${JSON.stringify(schemaJson, null, 6)}
     </script>
   `;
- 
+
   let cleanHtml = html
     .replace(/<title>[\s\S]*?<\/title>/gi, '')
     .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
     .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
- 
+
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
- 
+
 function injectHomepageMetaTags(html: string, shareUrl: string, host: string, protocol: string): string {
   const title = "TedBuy Ghana - Premium Buy & Sell Classifieds Marketplace";
   const description = "Discover the premier platform to buy and sell products in Ghana. Find phones, laptops, electronics, vehicles, and premium deals safely. Experience verified seller trust scores and direct WhatsApp negotiation.";
   
   // Use our beautiful vector brand logo from the favicon/logo as the main OG image fallback
   const image = `${protocol}://${host}/favicon.svg`;
- 
+
   const canonicalUrl = `${protocol}://${host}/`;
- 
+
   console.log(`[Meta Crawler] Injecting Homepage Open Graph tags. URL: ${shareUrl}, Canonical: ${canonicalUrl}, Image URL: ${image}`);
- 
+
   const tags = `
     <!-- Dynamic Social Share Meta Tags -->
     <title>${escapeHtml(title)}</title>
@@ -597,15 +595,15 @@ function injectHomepageMetaTags(html: string, shareUrl: string, host: string, pr
     <!-- App Logo Metas -->
     <meta property="og:logo" content="${escapeHtml(image)}" />
   `;
- 
+
   let cleanHtml = html
     .replace(/<title>[\s\S]*?<\/title>/gi, '')
     .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
     .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
- 
+
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
- 
+
 async function getSellerData(sellerId: string) {
   const now = Date.now();
   const cached = sellerDataCache.get(sellerId);
@@ -613,7 +611,7 @@ async function getSellerData(sellerId: string) {
     console.log(`[Meta Crawler] Serving seller ${sellerId} from memory cache`);
     return cached.data;
   }
- 
+
   try {
     if (adminDb) {
       try {
@@ -625,7 +623,7 @@ async function getSellerData(sellerId: string) {
           const role = data.role || 'seller';
           const photoUrl = data.photoUrl || '';
           const isVerified = data.emailVerified || false;
- 
+
           const result = {
             username,
             role,
@@ -645,7 +643,7 @@ async function getSellerData(sellerId: string) {
         }
       }
     }
- 
+
     const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${sellerId}${apiKey ? `?key=${apiKey}` : ""}`;
     console.log(`[Meta Crawler] Fetching seller from Firestore REST URL: ${url}`);
     
@@ -662,9 +660,9 @@ async function getSellerData(sellerId: string) {
     const role = fields.role?.stringValue || 'seller';
     const photoUrl = fields.photoUrl?.stringValue || '';
     const isVerified = fields.emailVerified?.booleanValue || false;
- 
+
     console.log(`[Meta Crawler] Successfully fetched seller data for ${sellerId}: "${username}"`);
- 
+
     const result = {
       username,
       role,
@@ -678,14 +676,14 @@ async function getSellerData(sellerId: string) {
     return null;
   }
 }
- 
+
 function injectSellerMetaTags(html: string, seller: { username: string; role: string; photoUrl: string; isVerified: boolean }, shareUrl: string, host: string, protocol: string, sellerId: string): string {
   const username = seller.username || 'Verified Seller';
   const title = `TedBuy Ghana - ${username}'s Store Profile`;
   const description = `Browse active product classifieds, verified ratings, and immersive video ads posted by ${username} on TedBuy Ghana. Chat directly via WhatsApp on Ghana's #1 Social Commerce & Peer Classifieds platform.`;
   const image = seller.photoUrl || `${protocol}://${host}/favicon.svg`;
   const canonicalUrl = `${protocol}://${host}/seller/${sellerId}`;
- 
+
   const schemaJson = {
     "@context": "https://schema.org",
     "@type": "ProfilePage",
@@ -701,7 +699,7 @@ function injectSellerMetaTags(html: string, seller: { username: string; role: st
       "url": canonicalUrl
     }
   };
- 
+
   const tags = `
     <!-- Seller SEO Meta Tags -->
     <title>${escapeHtml(title)}</title>
@@ -727,15 +725,15 @@ function injectSellerMetaTags(html: string, seller: { username: string; role: st
 ${JSON.stringify(schemaJson, null, 6)}
     </script>
   `;
- 
+
   let cleanHtml = html
     .replace(/<title>[\s\S]*?<\/title>/gi, '')
     .replace(/<meta[^>]*?name="description"[^>]*?>/gi, '')
     .replace(/<link[^>]*?rel="canonical"[^>]*?>/gi, '');
- 
+
   return cleanHtml.replace('<head>', `<head>${tags}`);
 }
- 
+
 function escapeHtml(unsafe: string): string {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -744,7 +742,7 @@ function escapeHtml(unsafe: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
- 
+
 function slugify(text: string): string {
   return text
     .toString()
@@ -756,11 +754,11 @@ function slugify(text: string): string {
     .replace(/^-+/, '')
     .replace(/-+$/, '');
 }
- 
+
 const systemMarkdown = `# TedBuy Ghana Classifieds - Verified Peer Commerce
- 
+
 Welcome to **TedBuy**, Ghana's #1 Social Classifieds & Video Commerce platform.
- 
+
 ## Active Classified Categories
 - Phones (Mobile devices, iPhones, Androids)
 - Laptops & Accessories
@@ -770,18 +768,18 @@ Welcome to **TedBuy**, Ghana's #1 Social Classifieds & Video Commerce platform.
 - Beauty & Care
 - Games & Consoles
 - Professional Services
- 
+
 ## Core Platform Capabilities & API endpoints
 - GET \`/api/health\`: Retrieve system heartbeat and Firebase configurations
 - GET \`/sitemap.xml\`: Auto-updated index of active listing pathways
 - GET \`/robots.txt\`: Navigation crawling policies
 - GET \`/api/products/:productId/image\`: Web-optimized product JPG deliveries
- 
+
 ## Communication & Verification
 - Immersive 9:16 Video Ads for real-time buyer trust
 - Direct verified seller peer chats on WhatsApp
 - Verification badge metrics representing transaction completions`;
- 
+
 async function startServer() {
   // Ensure favicon.ico exists at the web root dynamically as a valid .ico file
   try {
@@ -842,13 +840,13 @@ async function startServer() {
   } catch (err) {
     console.error("[Favicon Sync] Failed to align favicon.ico dynamically", err);
   }
- 
+
   const getMailTransporter = () => {
     const host = process.env.SMTP_HOST;
     const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
- 
+
     if (host && user && pass) {
       console.log(`[Email Engine] SMTP configured: ${host}:${port}. Initializing real transporter.`);
       return nodemailer.createTransport({
@@ -872,7 +870,7 @@ async function startServer() {
       });
     }
   };
- 
+
   /**
    * SMTP Diagnostic Utility
    * Checks TCP socket connectivity to the SMTP server (e.g. mail.privateemail.com) on the configured port,
@@ -884,38 +882,38 @@ async function startServer() {
     const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
- 
+
     if (!user || !pass) {
       const errorMsg = "[SMTP Diagnostic] SKIPPED: Missing credentials in SMTP_USER or SMTP_PASS environment variables.";
       console.warn(errorMsg);
       return { success: false, details: { error: errorMsg, smtpConfigured: false } };
     }
- 
+
     // Stage 1: TCP Port Connectivity test via net.connect
     const tcpConnection = new Promise<{ connected: boolean; error?: any }>((resolve) => {
       console.log(`[SMTP Diagnostic] Attempting TCP Connection to ${host}:${port}...`);
       const socket = net.createConnection(port, host);
       socket.setTimeout(6000); // 6 seconds timeout
- 
+
       socket.on('connect', () => {
         console.log(`[SMTP Diagnostic] TCP handshake SUCCESS: Connected successfully to ${host}:${port}`);
         socket.end();
         resolve({ connected: true });
       });
- 
+
       socket.on('timeout', () => {
         console.error(`[SMTP Diagnostic] TCP Connection TIMEOUT: Failed to connect to ${host}:${port} after 6000ms. It is likely that port ${port} is blocked by outbound network security groups / firewall policies.`);
         socket.destroy();
         resolve({ connected: false, error: new Error("TCP Connection Timeout (6s)") });
       });
- 
+
       socket.on('error', (err) => {
         console.error(`[SMTP Diagnostic] TCP connection ERROR: Failed to reach host ${host} on port ${port}:`, err);
         socket.destroy();
         resolve({ connected: false, error: err });
       });
     });
- 
+
     const tcpResult = await tcpConnection;
     if (!tcpResult.connected) {
       return {
@@ -928,7 +926,7 @@ async function startServer() {
         }
       };
     }
- 
+
     // Stage 2: SMTP Handshake & Authentication verify via Nodemailer
     console.log("\n--- [SMTP Diagnostic] INITIATING STAGE 2: SMTP HANDSHAKE & AUTHENTICATION VERIFICATION ---");
     try {
@@ -960,7 +958,7 @@ async function startServer() {
       };
     }
   };
- 
+
   // Pre-flight SMTP check during server launch
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER;
@@ -971,7 +969,7 @@ async function startServer() {
       console.error("[Email Engine] Startup SMTP validation exception:", err);
     });
   }
- 
+
   app.use((req, res, next) => {
     const isWebRoute = (
       req.method === 'GET' &&
@@ -991,12 +989,12 @@ async function startServer() {
       !req.path.endsWith('.woff2') &&
       !req.path.endsWith('.xml')
     );
- 
+
     // Always set the Link headers for agent discovery on all web routes
     if (isWebRoute) {
       res.setHeader('Link', '</sitemap.xml>; rel="sitemap", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
     }
- 
+
     // Return HTML responses as markdown when agents request it
     const acceptHeader = req.headers.accept?.toLowerCase() || '';
     if (isWebRoute && (acceptHeader.includes('text/markdown') || acceptHeader.includes('text/x-markdown'))) {
@@ -1004,10 +1002,10 @@ async function startServer() {
       res.setHeader('x-markdown-tokens', '1200');
       return res.status(200).send(systemMarkdown);
     }
- 
+
     next();
   });
- 
+
   app.get(['/.well-known/dns-aid', '/.well-known/dns-records'], (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
@@ -1019,13 +1017,13 @@ _index._agents.${host}.  3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint="216.58.210.14" key_uri="${protocol}://${host}/.well-known/jwks.json" service-doc="${protocol}://${host}/auth.md" api-catalog="${protocol}://${host}/.well-known/api-catalog"
 `);
   });
- 
+
   app.get(['/.well-known/dns-aid.json', '/.well-known/dns-records.json'], (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
     const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
     const origin = `${protocol}://${host}`;
- 
+
     res.setHeader('Content-Type', 'application/json');
     res.json({
       "dnssec": {
@@ -1069,7 +1067,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       ]
     });
   });
- 
+
   app.get('/.well-known/oauth-protected-resource', (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
@@ -1081,7 +1079,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       "scopes_supported": ["public", "read", "write"]
     });
   });
- 
+
   app.get('/.well-known/oauth-authorization-server', (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
@@ -1104,7 +1102,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     });
   });
- 
+
   app.get('/.well-known/openid-configuration', (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
@@ -1121,7 +1119,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       "id_token_signing_alg_values_supported": ["RS256"]
     });
   });
- 
+
   app.get('/.well-known/api-catalog', (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
@@ -1144,7 +1142,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       ]
     });
   });
- 
+
   app.get('/.well-known/agent-skills/index.json', (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
@@ -1162,16 +1160,16 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       ]
     });
   });
- 
+
   app.post('/api/sitemap/clear', (req, res) => {
     clearSitemapCache();
     res.json({ success: true, message: 'Sitemap cache cleared successfully' });
   });
- 
+
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', projectId });
   });
- 
+
   // Helper function to calculate robust production-ready priorityScore based on 4 priority levels
   function calculatePriorityScore(product: any): number {
     const now = new Date();
@@ -1185,7 +1183,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const freshnessFactor = createdAtMs / 1e12; // Normal range is ~1.7 to 1.8
       return engagementScore + freshnessFactor;
     }
- 
+
     const planId = product.boostPlan;
     let packageLevel = 0;
     if (planId === '90days') packageLevel = 5;
@@ -1193,7 +1191,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     else if (planId === '14days') packageLevel = 3;
     else if (planId === '7days') packageLevel = 2;
     else if (planId === '3days') packageLevel = 1;
- 
+
     const boostBase = packageLevel * 10000000; // 10,000,000 to 50,000,000
     
     const endDateMs = product.boostEndDate ? new Date(product.boostEndDate).getTime() : now.getTime();
@@ -1208,7 +1206,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     
     return boostBase + remainingTimeFactor + engagementFactor + freshnessFactor;
   }
- 
+
   app.get('/api/products', serverRateLimiter(60 * 1000, 120, "products-list"), async (req, res) => {
     try {
       const now = Date.now();
@@ -1217,10 +1215,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
         return res.json({ success: true, products: cachedProducts.data, cached: true });
       }
- 
+
       let productsList: any[] = [];
       let adminFetchedSuccessfully = false;
- 
+
       if (adminDb) {
         try {
           console.log(`[Products API] Fetching products via Firebase Admin SDK`);
@@ -1228,7 +1226,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             .orderBy("createdAt", "desc")
             .limit(300)
             .get();
- 
+
           const serializeAdminData = (data: any): any => {
             if (!data) return data;
             if (data instanceof Date) {
@@ -1249,7 +1247,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             }
             return data;
           };
- 
+
           productsList = snapshot.docs.map((docSnap: any) => {
             const rawData = docSnap.data();
             const result = serializeAdminData(rawData);
@@ -1265,7 +1263,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       }
- 
+
       if (!adminFetchedSuccessfully) {
         const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
         const response = await fetch(firestoreUrl, {
@@ -1293,11 +1291,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             }
           })
         });
- 
+
         if (!response.ok) {
           throw new Error(`Firestore REST API returned ${response.status}`);
         }
- 
+
         const data = await response.json();
         const results = Array.isArray(data) ? data : [];
         
@@ -1329,11 +1327,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
                 }
                 return undefined;
               };
- 
+
               for (const key of Object.keys(fields)) {
                 result[key] = parseVal(fields[key]);
               }
- 
+
               const nameParts = doc.name ? doc.name.split('/') : [];
               result.id = nameParts[nameParts.length - 1] || '';
               return result;
@@ -1344,7 +1342,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           })
           .filter(Boolean);
       }
- 
+
       // Process the products list (runtime expiration, priority scores, extra sorting fields)
       productsList = productsList.map((result: any) => {
         // Dynamic runtime expiration guard
@@ -1355,10 +1353,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           result.boostPriorityLevel = 0;
           result.remainingBoostTime = 0;
         }
- 
+
         // Calculate precise priority score on-the-fly based on all 4 priority levels
         result.priorityScore = calculatePriorityScore(result);
- 
+
         // Populate additional sorting fields
         if (result.boostStatus) {
           const now = new Date();
@@ -1390,33 +1388,33 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           result.boostPriorityLevel = 0;
           result.boostPackagePrice = 0;
         }
- 
+
         return result;
       });
- 
+
       // Perform a robust, highly stable descending sort based on the composite priority score
       productsList.sort((a: any, b: any) => {
         const scoreA = typeof a.priorityScore === 'number' ? a.priorityScore : 0;
         const scoreB = typeof b.priorityScore === 'number' ? b.priorityScore : 0;
         return scoreB - scoreA;
       });
- 
+
       // Update the cache
       cachedProducts = {
         data: productsList,
         timestamp: Date.now()
       };
- 
+
       // Persist the cache to file asynchronously (non-blocking)
       fs.writeFile(CACHE_FILE_PATH, JSON.stringify({ data: productsList, timestamp: Date.now() }), 'utf-8', (err) => {
         if (err) console.error('[Products Cache] Failed to write cache to file:', err);
       });
- 
+
       res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.json({ success: true, products: productsList });
     } catch (error: any) {
       console.warn('[Products API] Failed to fetch layout products (gracefully falling back):', error?.message || error);
- 
+
       // Attempt file cache fallback if memory cache is not available
       if (!cachedProducts) {
         try {
@@ -1434,7 +1432,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           console.warn('[Products Cache] Failed to load cache from file on exception fallback:', e?.message || e);
         }
       }
- 
+
       // Fallback: If we have stale cache, return it so the site keeps working flawlessly
       if (cachedProducts && cachedProducts.data && cachedProducts.data.length > 0) {
         // Extend the stale cache's TTL so we do not spam Firestore on subsequent immediate page refreshes
@@ -1443,14 +1441,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
         return res.json({ success: true, products: cachedProducts.data, isStale: true });
       }
- 
+
       // If no cached products are available, return an empty array with 200 OK instead of a 503 error,
       // so that the app doesn't crash or get stuck in a loading state, and can render the professional empty state.
       console.warn('[Products API] Firestore failed and no cached products available. Returning empty array with 200 OK.');
       return res.json({ success: true, products: [], isFallback: true });
     }
   });
- 
+
   // Firestore REST helpers for Boost Ad System
   async function getRawProductFirestoreREST(productId: string) {
     if (adminDb) {
@@ -1469,7 +1467,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
     }
- 
+
     try {
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
       const res = await fetch(url, {
@@ -1503,7 +1501,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
         return undefined;
       };
- 
+
       const result: any = {};
       for (const key of Object.keys(fields)) {
         result[key] = parseVal(fields[key]);
@@ -1514,7 +1512,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       return null;
     }
   }
- 
+
   async function updateProductFirestoreREST(productId: string, updatedFields: any, customAuthToken?: string) {
     if (adminDb) {
       try {
@@ -1529,15 +1527,15 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
     }
- 
+
     try {
       const fieldsToPatch: any = {};
       const queryParams: string[] = [];
- 
+
       for (const key of Object.keys(updatedFields)) {
         const val = updatedFields[key];
         queryParams.push(`updateMask.fieldPaths=${key}`);
- 
+
         if (val === null || val === undefined) {
           fieldsToPatch[key] = { nullValue: "NULL_VALUE" };
         } else if (typeof val === 'boolean') {
@@ -1571,22 +1569,22 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           fieldsToPatch[key] = { arrayValue: { values } };
         }
       }
- 
+
       if (apiKey) {
         queryParams.push(`key=${apiKey}`);
       }
- 
+
       // Add server-side bypass secret to fields and updateMask so that security rules can inspect it in request.resource.data
       fieldsToPatch['serverVerificationSecret'] = { stringValue: 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' };
       queryParams.push('updateMask.fieldPaths=serverVerificationSecret');
- 
+
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}?${queryParams.join('&')}`;
       console.log(`[Firestore PATCH] Patching URL: ${url}`);
- 
+
       const headers: any = {
         'Content-Type': 'application/json'
       };
- 
+
       const gcpToken = await getGCPMetadataToken();
       if (gcpToken) {
         headers['Authorization'] = `Bearer ${gcpToken}`;
@@ -1595,7 +1593,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         headers['Authorization'] = customAuthToken;
         console.log('[Firestore PATCH] Attaching client provided Custom Auth token.');
       }
- 
+
       const res = await fetch(url, {
         method: 'PATCH',
         headers,
@@ -1604,7 +1602,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }),
         signal: AbortSignal.timeout(4000)
       });
- 
+
       if (!res.ok) {
         const text = await res.text();
         if ((res.status === 403 || res.status === 401) && gcpToken) {
@@ -1614,14 +1612,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
         throw new Error(`PATCH request failed with status ${res.status}: ${text}`);
       }
- 
+
       return await res.json();
     } catch (err) {
       console.error('[Firestore PATCH] Error updating product:', err);
       throw err;
     }
   }
- 
+
   async function createBoostPurchaseFirestoreREST(purchaseData: any, customAuthToken?: string) {
     if (adminDb) {
       try {
@@ -1636,7 +1634,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
     }
- 
+
     try {
       const fields: any = {};
       for (const key of Object.keys(purchaseData)) {
@@ -1649,16 +1647,16 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           fields[key] = { stringValue: String(val) };
         }
       }
- 
+
       // Add server-side bypass secret to fields for security rules authorization
       fields['serverVerificationSecret'] = { stringValue: 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' };
- 
+
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/boost_purchases${apiKey ? `?key=${apiKey}` : ""}`;
       
       const headers: any = {
         'Content-Type': 'application/json'
       };
- 
+
       const gcpToken = await getGCPMetadataToken();
       if (gcpToken) {
         headers['Authorization'] = `Bearer ${gcpToken}`;
@@ -1667,14 +1665,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         headers['Authorization'] = customAuthToken;
         console.log('[Firestore POST] Attaching client provided Custom Auth token.');
       }
- 
+
       const res = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify({ fields }),
         signal: AbortSignal.timeout(4000)
       });
- 
+
       if (!res.ok) {
         const text = await res.text();
         if ((res.status === 403 || res.status === 401) && gcpToken) {
@@ -1688,7 +1686,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       console.error('[Firestore REST POST] Error creating boost purchase record:', err);
     }
   }
- 
+
   // Safe helper to verify administrator privileges by verifying JWT tokens or querying user settings from Firestore.
   async function verifyAdmin(authHeader: string | undefined): Promise<boolean> {
     if (!authHeader) return false;
@@ -1709,7 +1707,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         console.warn('[verifyAdmin] Admin SDK verification failed:', err);
       }
     }
- 
+
     // 2. Try REST API lookup (useful for local sandbox, or when Admin SDK is fallback)
     try {
       const token = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
@@ -1747,10 +1745,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } catch (err) {
       console.error('[verifyAdmin] REST verification failed:', err);
     }
- 
+
     return false;
   }
- 
+
   // Shared helper function to activate premium boost for a product
   async function activateBoostInternal(params: {
     productId: string;
@@ -1764,7 +1762,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     authHeader?: string;
   }) {
     const { productId, planId, paymentReference, paymentMethod, email, amountGHS, gatewayUsed, verifiedAmount, authHeader } = params;
- 
+
     const plans: Record<string, { days: number; price: number; name: string }> = {
       '3days': { days: 3, price: 1, name: '3 Days Boost' },
       '7days': { days: 7, price: 3, name: '7 Days Boost' },
@@ -1772,15 +1770,15 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       '30days': { days: 30, price: 12, name: '30 Days Boost' },
       '90days': { days: 90, price: 20, name: '90 Days Boost' }
     };
- 
+
     const plan = plans[planId];
     if (!plan) {
       throw new Error(`Invalid plan specified: ${planId}`);
     }
- 
+
     let finalUpdatedFields: any = null;
     let finalProductData: any = null;
- 
+
     if (adminDb) {
       try {
         console.log(`[Firebase Admin] Executing robust atomic transaction to activate boost for product: ${productId}`);
@@ -1797,17 +1795,17 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           await new Promise(resolve => setTimeout(resolve, retryDelayMs));
           docSnap = await docRef.get();
         }
- 
+
         if (!docSnap.exists) {
           throw new Error(`Product listing with ID ${productId} was not found on the database after ${maxRetries} retrieval attempts.`);
         }
- 
+
         await adminDb.runTransaction(async (transaction: any) => {
           const txDocSnap = await transaction.get(docRef);
           if (!txDocSnap.exists) {
             throw new Error(`Product listing with ID ${productId} was not found in transaction.`);
           }
- 
+
           const currentProductData = txDocSnap.data() || {};
           
           // Idempotency check inside transaction
@@ -1826,14 +1824,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             finalProductData = currentProductData;
             return;
           }
- 
+
           const txNow = new Date();
           let txStartDate = txNow.toISOString();
           let txEndDate = new Date(txNow.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
- 
+
           const txExistingStatus = currentProductData.boostStatus || false;
           const txExistingEndDateStr = currentProductData.boostEndDate;
- 
+
           if (txExistingStatus && txExistingEndDateStr) {
             const txExistingEndDate = new Date(txExistingEndDateStr);
             if (txExistingEndDate.getTime() > txNow.getTime()) {
@@ -1842,7 +1840,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               console.log(`[Transaction Boost Extend] Extending active boost for product ${productId} from ${txExistingEndDateStr} to ${txEndDate}`);
             }
           }
- 
+
           const txHistoryItem = {
             planId,
             planName: plan.name,
@@ -1854,9 +1852,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             paymentMethod: paymentMethod || 'momo',
             createdAt: txNow.toISOString()
           };
- 
+
           const newTxBoostHistory = [...txBoostHistory, txHistoryItem];
- 
+
           let txBoostPriorityLevel = 0;
           let txBoostPackagePrice = 0;
           if (planId === '90days') {
@@ -1875,13 +1873,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             txBoostPriorityLevel = 1;
             txBoostPackagePrice = 1;
           }
- 
+
           if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
             txBoostPackagePrice = 0;
           }
- 
+
           const txRemainingBoostTime = Math.max(0, new Date(txEndDate).getTime() - txNow.getTime());
- 
+
           const txTempProduct = {
             boostStatus: true,
             boostPlan: planId,
@@ -1890,7 +1888,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             viewsCount: currentProductData.viewsCount
           };
           const txPriorityScore = calculatePriorityScore(txTempProduct);
- 
+
           const txUpdatedFields = {
             boostStatus: true,
             boostPlan: planId,
@@ -1908,7 +1906,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             remainingBoostTime: txRemainingBoostTime,
             lastBoostPurchase: txNow.toISOString()
           };
- 
+
           transaction.update(docRef, txUpdatedFields);
           finalUpdatedFields = txUpdatedFields;
           finalProductData = currentProductData;
@@ -1923,7 +1921,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
     }
- 
+
     // Safe fallback if Admin transaction is not executed or fails
     if (!finalUpdatedFields) {
       let productData = await getRawProductFirestoreREST(productId);
@@ -1937,11 +1935,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         await new Promise(resolve => setTimeout(resolve, retryDelayMs));
         productData = await getRawProductFirestoreREST(productId);
       }
- 
+
       if (!productData) {
         throw new Error(`Product listing with ID ${productId} was not found.`);
       }
- 
+
       // Idempotency check fallback
       const boostHistory = Array.isArray(productData.boostHistory) ? productData.boostHistory : [];
       const isAlreadyProcessed = boostHistory.some((h: any) => h.paymentReference === paymentReference);
@@ -1960,10 +1958,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const now = new Date();
         let startDate = now.toISOString();
         let endDate = new Date(now.getTime() + (plan.days * 24 * 60 * 60 * 1000)).toISOString();
- 
+
         const existingStatus = productData.boostStatus || false;
         const existingEndDateStr = productData.boostEndDate;
- 
+
         if (existingStatus && existingEndDateStr) {
           const existingEndDate = new Date(existingEndDateStr);
           if (existingEndDate.getTime() > now.getTime()) {
@@ -1972,7 +1970,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             console.log(`[Boost Extend Fallback] Extending active boost for product ${productId} from ${existingEndDateStr} to ${endDate}`);
           }
         }
- 
+
         const historyItem = {
           planId,
           planName: plan.name,
@@ -1984,9 +1982,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           paymentMethod: paymentMethod || 'momo',
           createdAt: now.toISOString()
         };
- 
+
         const newBoostHistory = [...boostHistory, historyItem];
- 
+
         let boostPriorityLevel = 0;
         let boostPackagePrice = 0;
         if (planId === '90days') {
@@ -2005,11 +2003,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           boostPriorityLevel = 1;
           boostPackagePrice = 1;
         }
- 
+
         if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
           boostPackagePrice = 0;
         }
- 
+
         const remainingBoostTime = Math.max(0, new Date(endDate).getTime() - now.getTime());
         
         const tempProduct = {
@@ -2020,7 +2018,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           viewsCount: productData.viewsCount
         };
         const priorityScore = calculatePriorityScore(tempProduct);
- 
+
         finalUpdatedFields = {
           boostStatus: true,
           boostPlan: planId,
@@ -2038,14 +2036,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           remainingBoostTime,
           lastBoostPurchase: now.toISOString()
         };
- 
+
         await updateProductFirestoreREST(productId, finalUpdatedFields, authHeader);
         finalProductData = productData;
       }
     }
- 
+
     cachedProducts = null; // Clear products cache to reflect the new boost status immediately
- 
+
     // Fire-and-forget: this is a history/analytics record, not required for the boost
     // itself to be considered active. Awaiting it here was adding a 4th sequential
     // network round-trip to the critical path, which on serverless platforms with a
@@ -2067,24 +2065,24 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }, authHeader).catch((err: any) => {
       console.error('[Boost Purchase Log] Non-blocking history write failed (boost itself was still applied):', err?.message || err);
     });
- 
+
     return finalUpdatedFields;
   }
- 
+
   // POST endpoint to verify Mobile Money or Card payment and activate premium boost status
   app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "payment-verification"), async (req, res) => {
     const { paymentReference, productId, planId, paymentMethod, email, amountGHS } = req.body;
     const authHeader = req.headers.authorization;
- 
+
     if (!paymentReference || !productId || !planId) {
       return res.status(400).json({ success: false, error: "Missing required fields: paymentReference, productId, and planId are required." });
     }
- 
+
     try {
       let isVerified = false;
       let verifiedAmount = amountGHS || 1;
       let gatewayUsed = 'simulated';
- 
+
       let paystackSecret = process.env.PAYSTACK_SECRET_KEY;
       if (paystackSecret) {
         paystackSecret = paystackSecret.trim().replace(/^['"]|['"]$/g, '');
@@ -2093,7 +2091,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (flutterwaveSecret) {
         flutterwaveSecret = flutterwaveSecret.trim().replace(/^['"]|['"]$/g, '');
       }
- 
+
       if (paymentReference.startsWith('ADMIN_FREE_BOOST_')) {
         // Enforce admin privilege validation on free boost bypass
         const isAdmin = await verifyAdmin(authHeader);
@@ -2141,11 +2139,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           gatewayUsed = 'sandbox-simulator';
         }
       }
- 
+
       if (!isVerified) {
         return res.status(400).json({ success: false, error: "Payment verification failed or was cancelled by the provider." });
       }
- 
+
       // Execute shared boost activation pipeline
       const finalUpdatedFields = await activateBoostInternal({
         productId,
@@ -2158,7 +2156,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         verifiedAmount,
         authHeader
       });
- 
+
       return res.json({
         success: true,
         message: "Premium boost successfully verified and activated!",
@@ -2167,50 +2165,50 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           ...finalUpdatedFields
         }
       });
- 
+
     } catch (err: any) {
       console.error('[Verify Payment Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during verification." });
     }
   });
- 
+
   // Admin Boost Control API (for Vincent Asumadu, CEO & other administrators)
   // 1. Silently deactivates any user's boosted ad without banner or notification.
   // 2. Activates a premium boost for any user's ad for free.
   app.post('/api/admin/boost-control', async (req, res) => {
     const { productId, action, planId } = req.body;
     const authHeader = req.headers.authorization;
- 
+
     if (!productId || !action) {
       return res.status(400).json({ success: false, error: "Missing required parameters: productId and action are required." });
     }
- 
+
     if (action !== 'activate' && action !== 'deactivate') {
       return res.status(400).json({ success: false, error: "Invalid action. Must be 'activate' or 'deactivate'." });
     }
- 
+
     try {
       // Verify administrative privileges
       const isAdmin = await verifyAdmin(authHeader);
       if (!isAdmin) {
         return res.status(403).json({ success: false, error: "Access Denied: Administrative privileges required." });
       }
- 
+
       let updatedFields: any = {};
- 
+
       if (action === 'deactivate') {
         // Fetch current product data (only needed here - activateBoostInternal fetches its own copy for 'activate')
         const productData = await getRawProductFirestoreREST(productId);
         if (!productData) {
           return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
         }
- 
+
         // Silently deactivate boost
         const engagementScore = Number(productData.viewsCount || 0);
         const createdAtMs = productData.createdAt ? new Date(productData.createdAt).getTime() : 0;
         const freshnessFactor = createdAtMs / 1e12;
         const priorityScore = engagementScore + freshnessFactor;
- 
+
         updatedFields = {
           boostStatus: false,
           boostPlan: null,
@@ -2224,7 +2222,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           priorityScore,
           lastBoostedAt: null
         };
- 
+
         console.log(`[Admin Control] Deactivating boost for product ${productId} silently.`);
         // Update in Firestore
         await updateProductFirestoreREST(productId, updatedFields, authHeader);
@@ -2238,7 +2236,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (!planId) {
           return res.status(400).json({ success: false, error: "planId is required for activation." });
         }
- 
+
         const paymentReference = `ADMIN_FREE_BOOST_${Date.now()}`;
         updatedFields = await activateBoostInternal({
           productId,
@@ -2251,10 +2249,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           verifiedAmount: 0,
           authHeader
         });
- 
+
         console.log(`[Admin Control] Free boost activated for product ${productId} using plan ${planId} via internal boost pipeline.`);
       }
- 
+
       return res.json({
         success: true,
         message: action === 'deactivate' ? "Boost deactivated successfully!" : "Free boost activated successfully!",
@@ -2263,19 +2261,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           ...updatedFields
         }
       });
- 
+
     } catch (err: any) {
       console.error('[Admin Boost Control Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during admin boost control." });
     }
   });
- 
+
   // Background cron worker function to expire passes automatically
   async function runAutomaticBoostExpirationScan() {
     try {
       console.log('[Boost Expiration Job] Scanning Firestore for expired premium boosts...');
       let results: any[] = [];
- 
+
       if (adminDb) {
         try {
           const snapshot = await adminDb.collection("products")
@@ -2300,14 +2298,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       }
- 
+
       let expiredCount = 0;
- 
+
       if (adminDb && results.length > 0) {
         for (const product of results) {
           const productId = product.id;
           if (!productId) continue;
- 
+
           const endDateStr = product.boostEndDate;
           if (endDateStr && new Date(endDateStr).getTime() < Date.now()) {
             console.log(`[Boost Expiration Job] Found expired boost for product: "${product.title || productId}". Expiry was: ${endDateStr}`);
@@ -2347,7 +2345,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             }
           })
         });
- 
+
         if (!response.ok) {
           if (response.status === 429) {
             console.warn('[Boost Expiration Job] Firestore REST API returned 429 (Quota Exceeded). Skipping background scan.');
@@ -2356,7 +2354,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           console.warn(`[Boost Expiration Job] Firestore query returned status ${response.status}`);
           return;
         }
- 
+
         const data = await response.json();
         const rawResults = Array.isArray(data) ? data : [];
         
@@ -2366,10 +2364,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           const nameParts = doc.name ? doc.name.split('/') : [];
           const productId = nameParts[nameParts.length - 1];
           if (!productId) continue;
- 
+
           const fields = doc.fields || {};
           const endDateStr = fields.boostEndDate?.stringValue || '';
- 
+
           if (endDateStr && new Date(endDateStr).getTime() < Date.now()) {
             console.log(`[Boost Expiration Job] Found expired boost for product: "${fields.title?.stringValue || productId}". Expiry was: ${endDateStr}`);
             
@@ -2391,7 +2389,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       }
- 
+
       if (expiredCount > 0) {
         console.log(`[Boost Expiration Job] Successfully processed ${expiredCount} expired boosts.`);
       } else {
@@ -2401,7 +2399,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       console.error('[Boost Expiration Job] Error running boost expiration scan:', err);
     }
   }
- 
+
   // Secure API routes to trigger boost expiration scan on demand or via scheduled Cloud Scheduler
   app.post('/api/cron/expire-boosts', async (req, res) => {
     const authHeader = req.headers.authorization;
@@ -2409,7 +2407,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
       return res.status(401).json({ success: false, error: 'Unauthorized cron trigger' });
     }
- 
+
     console.log('[Cron Route] Triggering automatic boost expiration scan (POST)...');
     try {
       await runAutomaticBoostExpirationScan();
@@ -2418,14 +2416,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   });
- 
+
   app.get('/api/cron/expire-boosts', async (req, res) => {
     const cronSecret = process.env.CRON_SECRET;
     const querySecret = req.query.secret;
     if (cronSecret && querySecret !== cronSecret) {
       return res.status(401).json({ success: false, error: 'Unauthorized cron trigger' });
     }
- 
+
     console.log('[Cron Route] Triggering automatic boost expiration scan (GET)...');
     try {
       await runAutomaticBoostExpirationScan();
@@ -2434,7 +2432,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       res.status(500).json({ success: false, error: err?.message || String(err) });
     }
   });
- 
+
   app.get('/.well-known/api-catalog', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.json({
@@ -2452,13 +2450,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       ]
     });
   });
- 
+
   app.get('/.well-known/oauth-protected-resource', (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
     const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
     const origin = `${protocol}://${host}`;
- 
+
     res.setHeader('Content-Type', 'application/json');
     res.json({
       "resource": origin,
@@ -2472,13 +2470,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       ]
     });
   });
- 
+
   app.get('/.well-known/oauth-authorization-server', (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
     const host = cleanHostHeader(rawHost);
     const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
     const origin = `${protocol}://${host}`;
- 
+
     res.setHeader('Content-Type', 'application/json');
     res.json({
       "issuer": origin,
@@ -2497,7 +2495,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     });
   });
- 
+
   app.get('/auth.md', (req, res) => {
     const paths = [
       path.join(process.cwd(), 'public', 'auth.md'),
@@ -2518,19 +2516,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.send(content);
   });
- 
+
   app.post('/api/send-welcome-email', serverRateLimiter(5 * 60 * 1000, 3, "welcome-email"), async (req, res) => {
     const { email, username } = req.body;
     if (!email) {
       return res.status(400).json({ error: 'Email parameter is required.' });
     }
- 
+
     const cleanName = username || email.split('@')[0] || 'there';
     const escapedName = escapeHtml(cleanName);
- 
+
     try {
       const transporter = getMailTransporter();
- 
+
       // Run pre-flight network connection, handshake, and authentication diagnostic check
       if (process.env.SMTP_USER && process.env.SMTP_PASS) {
         console.log(`[Email Engine] Running pre-flight SMTP diagnostics for recipient: ${email}...`);
@@ -2591,19 +2589,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 </body>
 </html>`
       };
- 
+
       const info = await transporter.sendMail(mailOptions);
       console.log(`[Email Engine] Welcome email dispatched successfully for ${email}. MessageId: ${info.messageId || 'virtual'}`);
       
       if ((info as any).message) {
         console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
       }
- 
+
       return res.json({ success: true, messageId: info.messageId || 'virtual' });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       console.warn(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${email}:`, errMsg);
- 
+
       console.log(`[Email Engine] [Bypass] Gracefully bypassing SMTP issue for ${email}. Returning simulated delivery success.`);
       return res.json({
         success: true,
@@ -2613,7 +2611,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       });
     }
   });
- 
+
   // Dynamic robots.txt declaring active domain's sitemap.xml to speed up indexing on custom domains
   app.get(['/robots.txt', '/api/robots'], (req, res) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
@@ -2622,7 +2620,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.type('text/plain');
     res.send(`User-agent: *\nAllow: /\nDisallow: /settings\nDisallow: /dashboard\n\nContent-Signal: ai-train=no, search=yes, ai-input=no\n\nSitemap: ${protocol}://${host}/sitemap.xml`);
   });
- 
+
   // Dynamic Google XML Sitemap Index / Single Sitemap Router
   app.get(['/sitemap.xml', '/api/sitemap'], async (req, res) => {
     try {
@@ -2630,11 +2628,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const host = cleanHostHeader(rawHost);
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
- 
+
       const data = await getSitemapDataset();
       
       const totalUrlsCount = data.staticUrls.length + data.categoryUrls.length + data.productUrls.length + data.storeUrls.length;
- 
+
       // If total URLs count is within Google's limit for a single sitemap (< 45,000 for safety), serve it as a single sitemap
       if (totalUrlsCount < 45000) {
         const allUrls = [
@@ -2647,24 +2645,24 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         res.header('Content-Type', 'application/xml');
         return res.send(xml);
       }
- 
+
       // Otherwise, return a Sitemap Index
       const todayString = new Date().toISOString().split('T')[0];
       const sitemaps = [
         { loc: '/sitemap-static.xml', lastmod: todayString },
         { loc: '/sitemap-categories.xml', lastmod: todayString }
       ];
- 
+
       const productsPageCount = Math.ceil(data.productUrls.length / 40000);
       for (let i = 1; i <= productsPageCount; i++) {
         sitemaps.push({ loc: `/sitemap-products-${i}.xml`, lastmod: todayString });
       }
- 
+
       const storesPageCount = Math.ceil(data.storeUrls.length / 40000);
       for (let i = 1; i <= storesPageCount; i++) {
         sitemaps.push({ loc: `/sitemap-stores-${i}.xml`, lastmod: todayString });
       }
- 
+
       const xml = generateSitemapIndexXml(baseUrl, sitemaps);
       res.header('Content-Type', 'application/xml');
       return res.send(xml);
@@ -2673,7 +2671,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       res.status(500).send('Error generating sitemap');
     }
   });
- 
+
   // Dynamic Google XML Sitemap - Static URLs
   app.get(['/sitemap-static.xml', '/api/sitemap-static'], async (req, res) => {
     try {
@@ -2681,7 +2679,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const host = cleanHostHeader(rawHost);
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
- 
+
       const data = await getSitemapDataset();
       const xml = generateUrlSetXml(baseUrl, data.staticUrls);
       res.header('Content-Type', 'application/xml');
@@ -2691,7 +2689,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       res.status(500).send('Error');
     }
   });
- 
+
   // Dynamic Google XML Sitemap - Categories
   app.get(['/sitemap-categories.xml', '/api/sitemap-categories'], async (req, res) => {
     try {
@@ -2699,7 +2697,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const host = cleanHostHeader(rawHost);
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
- 
+
       const data = await getSitemapDataset();
       const xml = generateUrlSetXml(baseUrl, data.categoryUrls);
       res.header('Content-Type', 'application/xml');
@@ -2709,7 +2707,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       res.status(500).send('Error');
     }
   });
- 
+
   // Dynamic Google XML Sitemap - Products (Paginated)
   app.get(['/sitemap-products-:page(\\d+).xml', '/api/sitemap-products-:page(\\d+)'], async (req, res) => {
     try {
@@ -2718,14 +2716,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const host = cleanHostHeader(rawHost);
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
- 
+
       const data = await getSitemapDataset();
       
       const PAGE_SIZE = 40000;
       const startIndex = (page - 1) * PAGE_SIZE;
       const endIndex = page * PAGE_SIZE;
       const pageProducts = data.productUrls.slice(startIndex, endIndex);
- 
+
       const xml = generateUrlSetXml(baseUrl, pageProducts);
       res.header('Content-Type', 'application/xml');
       return res.send(xml);
@@ -2734,7 +2732,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       res.status(500).send('Error');
     }
   });
- 
+
   // Dynamic Google XML Sitemap - Stores (Paginated)
   app.get(['/sitemap-stores-:page(\\d+).xml', '/api/sitemap-stores-:page(\\d+)'], async (req, res) => {
     try {
@@ -2743,14 +2741,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const host = cleanHostHeader(rawHost);
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
- 
+
       const data = await getSitemapDataset();
       
       const PAGE_SIZE = 40000;
       const startIndex = (page - 1) * PAGE_SIZE;
       const endIndex = page * PAGE_SIZE;
       const pageStores = data.storeUrls.slice(startIndex, endIndex);
- 
+
       const xml = generateUrlSetXml(baseUrl, pageStores);
       res.header('Content-Type', 'application/xml');
       return res.send(xml);
@@ -2759,7 +2757,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       res.status(500).send('Error');
     }
   });
- 
+
   // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files
   app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 100, "image-proxy"), async (req, res) => {
     const { productId } = req.params;
@@ -2815,7 +2813,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (!isValid) {
           return res.status(403).send('Forbidden: Selected image URL fails SSRF safety check.');
         }
- 
+
         const imageRes = await fetch(imageUrl, { redirect: 'manual' });
         if (imageRes.status >= 300 && imageRes.status < 400) {
           console.warn('[SSRF Shield] Blocked redirect response on image proxy request');
@@ -2828,7 +2826,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           if (!allowedMimes.includes(contentType.toLowerCase())) {
             return res.redirect(fallbackUrl);
           }
- 
+
           const buffer = Buffer.from(await imageRes.arrayBuffer());
           res.set('Content-Type', contentType);
           res.set('Cache-Control', 'public, max-age=86400'); // Cache for day
@@ -2842,14 +2840,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     
     return res.redirect(fallbackUrl);
   });
- 
+
   if (process.env.NODE_ENV !== "production") {
     // Development middleware integration with Vite
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
- 
+
     app.use(async (req, res, next) => {
       const url = req.originalUrl || req.url || '/';
       
@@ -2883,7 +2881,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         let queryPrice = req.query.price as string;
         let queryImage = (req.query.image || req.query.img) as string;
         let queryDescription = req.query.description as string;
- 
+
         if (!productId) {
           // Attempt to extract product ID from pathname
           const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
@@ -2895,13 +2893,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             }
           }
         }
- 
+
         let sellerId = "";
         const sellerPathnameMatch = url.split('?')[0].match(/^\/sellers?\/([^\/]+)/);
         if (sellerPathnameMatch) {
           sellerId = sellerPathnameMatch[1];
         }
- 
+
         if (!productId) {
           try {
             const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -2976,7 +2974,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
       next();
     });
- 
+
     app.use(vite.middlewares);
   } else {
     // Production serving static files
@@ -2989,7 +2987,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
     })); // Do not auto-serve index.html to allow dynamic intercept
- 
+
     app.get('*', async (req, res) => {
       res.setHeader('Link', '</sitemap.xml>; rel="sitemap", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
       if (req.headers.accept?.includes('text/markdown')) {
@@ -3004,7 +3002,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let queryPrice = req.query.price as string;
       let queryImage = (req.query.image || req.query.img) as string;
       let queryDescription = req.query.description as string;
- 
+
       if (!productId) {
         // Attempt to extract product ID from pathname
         const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
@@ -3016,13 +3014,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       }
- 
+
       let sellerId = "";
       const sellerPathnameMatch = url.split('?')[0].match(/^\/sellers?\/([^\/]+)/);
       if (sellerPathnameMatch) {
         sellerId = sellerPathnameMatch[1];
       }
- 
+
       if (!productId) {
         try {
           const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -3095,7 +3093,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     });
   }
- 
+
   if (process.env.VERCEL) {
     console.log('[Vercel Serverless] Express app is loaded and ready.');
   } else {
@@ -3126,6 +3124,5 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     });
   }
 }
- 
+
 startServer();
- 
