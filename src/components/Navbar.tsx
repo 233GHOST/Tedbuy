@@ -548,7 +548,7 @@ export const Navbar: React.FC = () => {
                               >
                                 {/* Reporter avatar */}
                                 <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center text-slate-450 font-semibold select-none text-xs">
-                                  {notif.triggerUserPhoto && !String(notif.triggerUserPhoto).includes('1549399542-7e3f8b79c341') ? (
+                                  {notif.triggerUserPhoto && !notif.triggerUserPhoto.includes('1549399542-7e3f8b79c341') ? (
                                     <img src={notif.triggerUserPhoto} alt={notif.triggerUsername} className="w-full h-full object-cover" />
                                   ) : (
                                     <img
@@ -622,7 +622,7 @@ export const Navbar: React.FC = () => {
                   className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
                   title="Manage Profile Settings"
                 >
-                  {currentUser.photoUrl && !String(currentUser.photoUrl).includes('1549399542-7e3f8b79c341') ? (
+                  {currentUser.photoUrl && !currentUser.photoUrl.includes('1549399542-7e3f8b79c341') ? (
                     <img
                       src={currentUser.photoUrl}
                       alt={currentUser.username}

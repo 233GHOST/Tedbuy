@@ -74,31 +74,25 @@ export function createProductSelector() {
     const parsedExtraFilters: Record<string, string> = extraFilters || {};
 
     const filtered = products.filter(product => {
-      if (!product) return false;
-      const prodTitle = String(product.title || '');
-      const prodCategory = String(product.category || '');
-      const prodDesc = String(product.description || '');
-      const prodLocation = String(product.location || '');
-
       const matchesCategory = !category || 
-        prodCategory === category || 
-        (prodCategory && category && prodCategory.toLowerCase() === category.toLowerCase());
+        product.category === category || 
+        (product.category && category && product.category.toLowerCase() === category.toLowerCase());
         
       const matchesSearch = !queryText.trim() ||
-        prodTitle.toLowerCase().includes(queryText.toLowerCase()) ||
-        prodCategory.toLowerCase().includes(queryText.toLowerCase()) ||
-        prodDesc.toLowerCase().includes(queryText.toLowerCase()) ||
-        prodLocation.toLowerCase().includes(queryText.toLowerCase());
+        product.title.toLowerCase().includes(queryText.toLowerCase()) ||
+        (product.category && product.category.toLowerCase().includes(queryText.toLowerCase())) ||
+        product.description.toLowerCase().includes(queryText.toLowerCase()) ||
+        product.location.toLowerCase().includes(queryText.toLowerCase());
 
       let matchesRegion = true;
       if (region !== 'All') {
-        const prodRegion = getRegionForLocation(prodLocation);
+        const prodRegion = getRegionForLocation(product.location);
         matchesRegion = (prodRegion === region);
       }
 
       let matchesCity = true;
       if (city !== 'All') {
-        matchesCity = prodLocation.toLowerCase().includes(city.toLowerCase());
+        matchesCity = product.location.toLowerCase().includes(city.toLowerCase());
       }
 
       const numericPrice = parseNumericPrice(product.price);
@@ -137,8 +131,8 @@ export function createProductSelector() {
           } else {
             // Fallback for keyword correlation in Title & Description for backward compatibility
             const cleanVal = String(value).toLowerCase().trim();
-            const inTitle = prodTitle.toLowerCase().includes(cleanVal);
-            const inDesc = prodDesc.toLowerCase().includes(cleanVal);
+            const inTitle = product.title.toLowerCase().includes(cleanVal);
+            const inDesc = product.description.toLowerCase().includes(cleanVal);
             if (!inTitle && !inDesc) {
               matchesExtra = false;
               break;
