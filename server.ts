@@ -1786,8 +1786,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const docRef = adminDb.collection('products').doc(productId);
         let docSnap = await docRef.get();
         let retryCount = 0;
-        const maxRetries = 5;
-        const retryDelayMs = 1000;
+        const maxRetries = 2;
+        const retryDelayMs = 400;
         
         while (!docSnap.exists && retryCount < maxRetries) {
           retryCount++;
@@ -1926,8 +1926,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (!finalUpdatedFields) {
       let productData = await getRawProductFirestoreREST(productId);
       let retryCount = 0;
-      const maxRetries = 5;
-      const retryDelayMs = 1000;
+      const maxRetries = 2;
+      const retryDelayMs = 400;
       
       while (!productData && retryCount < maxRetries) {
         retryCount++;
@@ -2044,7 +2044,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     cachedProducts = null; // Clear products cache to reflect the new boost status immediately
 
-    await createBoostPurchaseFirestoreREST({
+    // Fire-and-forget: this is a history/analytics record, not required for the boost
+    // itself to be considered active. Awaiting it here was adding a 4th sequential
+    // network round-trip to the critical path, which on serverless platforms with a
+    // hard execution time limit (e.g. Vercel Hobby's 10s cap) could cause the whole
+    // request to be killed mid-response after the boost had already been applied.
+    createBoostPurchaseFirestoreREST({
       productId,
       sellerId: finalProductData.sellerId || '',
       sellerName: finalProductData.sellerName || '',
@@ -2057,7 +2062,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       paymentMethod: paymentMethod || 'momo',
       buyerEmail: email || '',
       createdAt: new Date().toISOString()
-    }, authHeader);
+    }, authHeader).catch((err: any) => {
+      console.error('[Boost Purchase Log] Non-blocking history write failed (boost itself was still applied):', err?.message || err);
+    });
 
     return finalUpdatedFields;
   }
