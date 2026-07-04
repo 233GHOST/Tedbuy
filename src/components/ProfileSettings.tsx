@@ -60,7 +60,7 @@ export const ProfileSettings: React.FC = () => {
       setPhotoUrl(currentUser.photoUrl);
       setRole(currentUser.role || 'both');
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');

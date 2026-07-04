@@ -191,9 +191,9 @@ export interface Review {
   productTitle?: string;
 }
 
-export function normalizeCategory(cat: string): Category {
+export function normalizeCategory(cat: any): Category {
   if (!cat) return 'Other';
-  const clean = cat.trim().toLowerCase();
+  const clean = String(cat).trim().toLowerCase();
   
   // High-priority exact or robust matching for Beauty and Care
   if (

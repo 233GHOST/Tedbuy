@@ -282,7 +282,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (filtered.length > 0) return filtered;
       }
     } catch {}
-    return SEED_PRODUCTS;
+    return [];
   });
   const [productLimit, setProductLimit] = useState(24);
   const [hasMoreProducts, setHasMoreProducts] = useState(true);
@@ -496,9 +496,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Fallback: search parameters (also checking inside hash query string if any)
-    let search = window.location?.search || '';
-    if (hash && typeof hash === 'string' && hash.includes('?')) {
-      search = hash.substring(hash.indexOf('?'));
+    let search = '';
+    try {
+      search = window?.location?.search || '';
+    } catch {
+      search = '';
+    }
+    if (hash && typeof hash === 'string' && typeof hash.indexOf === 'function') {
+      const qIdx = hash.indexOf('?');
+      if (qIdx !== -1) {
+        search = hash.substring(qIdx);
+      }
     }
     const params = new URLSearchParams(search);
     const qProductId = params.get('productId');
@@ -2468,8 +2476,8 @@ Tedbuy Support`;
       // Create notifications for followers and following users of the poster
       const notifyUsers = users.filter(u => {
         if (u.id === currentUser.id) return false;
-        const isFollowerOfPoster = u.followingSellers?.includes(currentUser.id);
-        const isFollowedByPoster = currentUser.followingSellers?.includes(u.id);
+        const isFollowerOfPoster = Array.isArray(u.followingSellers) && u.followingSellers.includes(currentUser.id);
+        const isFollowedByPoster = Array.isArray(currentUser.followingSellers) && currentUser.followingSellers.includes(u.id);
         return isFollowerOfPoster || isFollowedByPoster;
       });
 
@@ -2624,15 +2632,15 @@ Tedbuy Support`;
           if (currentUser) {
             const notifyTargetUsers = users.filter(u => {
               if (u.id === currentUser.id) return false;
-              const matchesSavedId = u.savedProductIds?.includes(id);
-              const matchesSellerId = u.followingSellers?.includes(localProduct.sellerId || '');
+              const matchesSavedId = Array.isArray(u.savedProductIds) && u.savedProductIds.includes(id);
+              const matchesSellerId = Array.isArray(u.followingSellers) && u.followingSellers.includes(localProduct ? (localProduct.sellerId || '') : '');
               return matchesSavedId || matchesSellerId;
             });
 
             // Dispatch notifications concurrently in a non-blocking asynchronous scope
             (async () => {
               const notifPromises = notifyTargetUsers.map(async (targetUser) => {
-                const isSaved = targetUser.savedProductIds?.includes(id);
+                const isSaved = Array.isArray(targetUser.savedProductIds) && targetUser.savedProductIds.includes(id);
                 const notifId = `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`;
                 const newNotification: AppNotification = {
                   id: notifId,
@@ -3314,7 +3322,7 @@ Tedbuy Support`;
   // Follow profiles / saved items in User Firestore document
   const followSeller = async (sellerId: string) => {
     if (!currentUser) return;
-    const following = currentUser.followingSellers || [];
+    const following = Array.isArray(currentUser.followingSellers) ? currentUser.followingSellers : [];
     if (!following.includes(sellerId)) {
       const updatedFollowing = [...following, sellerId];
       try {
@@ -3377,7 +3385,7 @@ Tedbuy Support`;
 
   const toggleSaveProduct = async (productId: string) => {
     if (!currentUser) return;
-    const saved = currentUser.savedProductIds || [];
+    const saved = Array.isArray(currentUser.savedProductIds) ? currentUser.savedProductIds : [];
     let updatedSaved: string[];
     let isAdding = false;
     if (saved.includes(productId)) {

@@ -873,11 +873,14 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       }
 
       if (errStr && typeof errStr === 'string') {
-        if (errStr.startsWith('FirebaseError: ')) {
+        if (typeof errStr.startsWith === 'function' && errStr.startsWith('FirebaseError: ')) {
           errStr = errStr.replace('FirebaseError: ', '');
         }
-        if (errStr.includes('[code=permission-denied]:')) {
-          errStr = errStr.substring(errStr.indexOf('[code=permission-denied]:') + '[code=permission-denied]:'.length).trim();
+        if (typeof errStr.includes === 'function' && errStr.includes('[code=permission-denied]:')) {
+          const codeIdx = errStr.indexOf('[code=permission-denied]:');
+          if (codeIdx !== -1) {
+            errStr = errStr.substring(codeIdx + '[code=permission-denied]:'.length).trim();
+          }
         }
       }
 
