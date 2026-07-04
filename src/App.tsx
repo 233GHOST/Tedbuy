@@ -1290,11 +1290,11 @@ const MarketplaceContent: React.FC = () => {
             </div>
             <div className="flex-1 space-y-1.5">
               <p className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5 font-sans">
-                {toast.message.toLowerCase().includes('delete') ? (
+                {String(toast.message || '').toLowerCase().includes('delete') ? (
                   <>Account Deleted 🔒</>
-                ) : toast.message.toLowerCase().includes('welcome') || toast.message.toLowerCase().includes('sign up') ? (
+                ) : String(toast.message || '').toLowerCase().includes('welcome') || String(toast.message || '').toLowerCase().includes('sign up') ? (
                   <>Welcome to TedBuy 🚀</>
-                ) : toast.message.toLowerCase().includes('store name') || toast.message.toLowerCase().includes('successfully changed') ? (
+                ) : String(toast.message || '').toLowerCase().includes('store name') || String(toast.message || '').toLowerCase().includes('successfully changed') ? (
                   <>Store Named Updated 📝</>
                 ) : toast.type === 'success' ? (
                   <>Success ✨</>
@@ -1304,7 +1304,7 @@ const MarketplaceContent: React.FC = () => {
                   <>Notification 🔔</>
                 )}
               </p>
-              <p className="text-[12px] text-slate-300 leading-relaxed font-medium">{toast.message}</p>
+              <p className="text-[12px] text-slate-300 leading-relaxed font-medium">{toast.message || ''}</p>
             </div>
             <button
               id="close-toast-btn"
@@ -1453,7 +1453,7 @@ const MarketplaceContent: React.FC = () => {
           }`}
         >
           <div className="relative flex flex-col items-center">
-            {currentUser && currentUser.photoUrl && !currentUser.photoUrl.includes('1549399542-7e3f8b79c341') ? (
+            {currentUser && currentUser.photoUrl && !String(currentUser.photoUrl).includes('1549399542-7e3f8b79c341') ? (
               <img
                 src={currentUser.photoUrl}
                 alt="Account Avatar"

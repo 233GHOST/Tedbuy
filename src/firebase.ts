@@ -51,11 +51,19 @@ const getResilientDb = () => {
       console.log('[Firestore] Initializing with clean in-memory cache to bypass Safari/IFrame restrictions.');
     }
 
-    return initializeFirestore(app, settings, dbId);
+    if (dbId) {
+      return initializeFirestore(app, settings, dbId);
+    } else {
+      return initializeFirestore(app, settings);
+    }
   } catch (err) {
     console.warn('[Firestore] Resistant initializeFirestore threw an exception (possibly because already initialized), falling back to standard getFirestore:', err);
     try {
-      return getFirestore(app);
+      if (dbId) {
+        return getFirestore(app, dbId);
+      } else {
+        return getFirestore(app);
+      }
     } catch (fallbackErr) {
       console.error('[Firestore] getFirestore fallback failed:', fallbackErr);
       throw fallbackErr;

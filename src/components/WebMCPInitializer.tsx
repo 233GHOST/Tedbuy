@@ -1,8 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 
 export const WebMCPInitializer: React.FC = () => {
   const { products } = useApp();
+  const productsRef = useRef(products);
+
+  // Keep ref updated with freshest products state
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   useEffect(() => {
     const nav = window.navigator as any;
@@ -29,7 +35,7 @@ export const WebMCPInitializer: React.FC = () => {
               },
               execute: async (args: { query: string; category?: string }) => {
                 const term = args.query.toLowerCase();
-                const matched = products.filter(p => {
+                const matched = productsRef.current.filter(p => {
                   const mTitle = p.title.toLowerCase().includes(term);
                   const mDesc = p.description.toLowerCase().includes(term);
                   const mCat = args.category ? p.category === args.category : true;
@@ -62,7 +68,7 @@ export const WebMCPInitializer: React.FC = () => {
                 required: ['productId'],
               },
               execute: async (args: { productId: string }) => {
-                const product = products.find(p => p.id === args.productId);
+                const product = productsRef.current.find(p => p.id === args.productId);
                 if (!product) {
                   return { success: false, error: 'Product listing not found.' };
                 }
@@ -88,7 +94,7 @@ export const WebMCPInitializer: React.FC = () => {
         console.error('WebMCP registration error:', err);
       }
     }
-  }, [products]);
+  }, []); // Run exactly once on mount to guarantee tools are present immediately on page load
 
   return null;
 };

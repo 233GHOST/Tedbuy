@@ -11,7 +11,7 @@ import admin from "firebase-admin";
 import { getApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
-import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml } from "./src/utils/sitemap.js";
+import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml, clearSitemapCache } from "./src/utils/sitemap.js";
 
 const lookupAsync = promisify(dns.lookup);
 
@@ -992,7 +992,7 @@ async function startServer() {
 
     // Always set the Link headers for agent discovery on all web routes
     if (isWebRoute) {
-      res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
+      res.setHeader('Link', '</sitemap.xml>; rel="sitemap", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
     }
 
     // Return HTML responses as markdown when agents request it
@@ -1066,6 +1066,104 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       ]
     });
+  });
+
+  app.get('/.well-known/oauth-protected-resource', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    res.header('Content-Type', 'application/json; charset=utf-8');
+    res.json({
+      "resource": `${protocol}://${host}/api`,
+      "authorization_servers": [`${protocol}://${host}`],
+      "scopes_supported": ["public", "read", "write"]
+    });
+  });
+
+  app.get('/.well-known/oauth-authorization-server', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    res.header('Content-Type', 'application/json; charset=utf-8');
+    res.json({
+      "issuer": `${protocol}://${host}`,
+      "authorization_endpoint": `${protocol}://${host}/login`,
+      "token_endpoint": `${protocol}://${host}/api/token`,
+      "jwks_uri": `${protocol}://${host}/api/jwks`,
+      "scopes_supported": ["public", "read"],
+      "response_types_supported": ["code", "token"],
+      "grant_types_supported": ["authorization_code", "client_credentials"],
+      "agent_auth": {
+        "register_uri": `${protocol}://${host}/api/agents/register`,
+        "supported_identity_types": ["individual", "organisation"],
+        "credential_types": ["api_key", "oauth2"],
+        "claim_uri": `${protocol}://${host}/api/agents/claim`,
+        "revocation_uri": `${protocol}://${host}/api/agents/revoke`
+      }
+    });
+  });
+
+  app.get('/.well-known/openid-configuration', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    res.header('Content-Type', 'application/json; charset=utf-8');
+    res.json({
+      "issuer": `${protocol}://${host}`,
+      "authorization_endpoint": `${protocol}://${host}/login`,
+      "token_endpoint": `${protocol}://${host}/api/token`,
+      "userinfo_endpoint": `${protocol}://${host}/api/userinfo`,
+      "jwks_uri": `${protocol}://${host}/api/jwks`,
+      "response_types_supported": ["code", "token"],
+      "subject_types_supported": ["public"],
+      "id_token_signing_alg_values_supported": ["RS256"]
+    });
+  });
+
+  app.get('/.well-known/api-catalog', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    res.header('Content-Type', 'application/json; charset=utf-8');
+    res.json({
+      "linkset": [
+        {
+          "anchor": `${protocol}://${host}/api`,
+          "rel": "service-desc",
+          "href": `${protocol}://${host}/docs/api-catalog.json`,
+          "type": "application/openapi+json"
+        },
+        {
+          "anchor": `${protocol}://${host}/api`,
+          "rel": "status",
+          "href": `${protocol}://${host}/api/health`,
+          "type": "application/json"
+        }
+      ]
+    });
+  });
+
+  app.get('/.well-known/agent-skills/index.json', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    res.header('Content-Type', 'application/json; charset=utf-8');
+    res.json({
+      "$schema": "https://agentskills.io/v0.2.0/schema.json",
+      "skills": [
+        {
+          "name": "TedBuy Product Search",
+          "type": "api",
+          "description": "Enables searching and categorizing live classified items listed across Ghana",
+          "url": `${protocol}://${host}/api/search`
+        }
+      ]
+    });
+  });
+
+  app.post('/api/sitemap/clear', (req, res) => {
+    clearSitemapCache();
+    res.json({ success: true, message: 'Sitemap cache cleared successfully' });
   });
 
   app.get('/api/health', (req, res) => {
@@ -2749,6 +2847,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const isHtmlRequest = !url.startsWith('/api/') && 
                             !url.includes('.') && 
                             (req.headers.accept?.includes('text/html') || 
+                             req.headers.accept?.includes('text/markdown') ||
                              url === '/' || 
                              url.startsWith('/?') || 
                              isCategorySlug ||
@@ -2760,7 +2859,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
                              url.includes('productId='));
                              
       if (req.method === 'GET' && isHtmlRequest) {
-        res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
+        res.setHeader('Link', '</sitemap.xml>; rel="sitemap", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
         if (req.headers.accept?.includes('text/markdown')) {
           res.setHeader('x-markdown-tokens', '1200');
           res.status(200).set({ "Content-Type": "text/markdown; charset=utf-8" }).end(systemMarkdown);
@@ -2874,13 +2973,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       index: false,
       setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html')) {
-          res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
+          res.setHeader('Link', '</sitemap.xml>; rel="sitemap", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
         }
       }
     })); // Do not auto-serve index.html to allow dynamic intercept
 
     app.get('*', async (req, res) => {
-      res.setHeader('Link', '</.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
+      res.setHeader('Link', '</sitemap.xml>; rel="sitemap", </.well-known/api-catalog>; rel="api-catalog", </auth.md>; rel="service-doc"');
       if (req.headers.accept?.includes('text/markdown')) {
         res.setHeader('x-markdown-tokens', '1200');
         res.status(200).set({ "Content-Type": "text/markdown; charset=utf-8" }).end(systemMarkdown);

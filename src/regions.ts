@@ -126,7 +126,10 @@ export const GHANA_REGIONS: RegionOption[] = [
  * Returns the region for a given city/location string by checking substrings.
  * E.g., "East Legon, Accra" -> "Greater Accra Region"
  */
-export function getRegionForLocation(location: string): string {
+export function getRegionForLocation(location: string | undefined | null): string {
+  if (!location || typeof location !== 'string') {
+    return 'Other Region';
+  }
   const norm = location.toLowerCase();
   
   // Quick checks first for dominant cities

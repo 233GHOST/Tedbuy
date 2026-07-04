@@ -312,3 +312,7 @@ export function generateSitemapIndexXml(baseUrl: string, sitemaps: { loc: string
   xml += `</sitemapindex>\n`;
   return xml;
 }
+
+export function clearSitemapCache(): void {
+  cachedData = null;
+}
