@@ -1,8 +1,8 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
+
 import dotenv from "dotenv";
 import net from "net";
 import dns from "dns";
@@ -2849,7 +2849,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   if (process.env.NODE_ENV !== "production") {
-    // Development middleware integration with Vite
+    // Development middleware integration with Vite.
+    // Dynamically imported here (not at module top-level) so that production
+    // runtimes - like this Vercel serverless function - never load vite or its
+    // rollup dependency at all. Loading it unconditionally at the top of this
+    // file was the actual cause of the "Cannot find module @rollup/rollup-linux-x64-gnu"
+    // crash: vite (and therefore rollup) was being pulled into every single
+    // production request, even though it's only ever needed for local dev.
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
