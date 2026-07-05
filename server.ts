@@ -7,10 +7,6 @@ import dotenv from "dotenv";
 import net from "net";
 import dns from "dns";
 import { promisify } from "util";
-import admin from "firebase-admin";
-import { getApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml, clearSitemapCache } from "./src/utils/sitemap.js";
 
 process.on('uncaughtException', (err) => {
@@ -205,31 +201,42 @@ if (process.env.VERCEL) {
   adminDb = null;
   isGCPServiceAccountAuthorized = false;
 } else if (isGCPServiceAccountAuthorized) {
-  try {
-    if (getApps().length === 0) {
-      initializeAdminApp({
-        projectId: projectId,
-      });
+  // Dynamically imported here (not at module top-level) so that environments which
+  // never use the Admin SDK - like this app's Vercel deployment - never load
+  // firebase-admin/app or firebase-admin/firestore at all. A transitive dependency
+  // of firebase-admin's auth module (jwks-rsa -> jose) can throw ERR_REQUIRE_ESM
+  // under certain Node/bundler combinations purely from being loaded, even if never
+  // actually called - so the safest fix is to not load it unless we're really going to use it.
+  (async () => {
+    try {
+      const { getApps, initializeApp: initializeAdminApp } = await import("firebase-admin/app");
+      const { getFirestore } = await import("firebase-admin/firestore");
+
+      if (getApps().length === 0) {
+        initializeAdminApp({
+          projectId: projectId,
+        });
+      }
+      const tempDb = getFirestore();
+      console.log('[Firebase Admin] Safe-initializing Firestore Admin client. Running permission pre-flight check...');
+
+      // Asynchronously test Admin SDK permissions without blocking server start.
+      tempDb.collection('products').limit(1).get()
+        .then(() => {
+          adminDb = tempDb;
+          console.log('[Firebase Admin] Permission pre-flight check passed. Service Account is fully authorized. Admin SDK activated.');
+        })
+        .catch((err: any) => {
+          console.warn('[Firebase Admin] Permission pre-flight check failed. Proactively falling back to REST API exclusively:', err.message || err);
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        });
+    } catch (err: any) {
+      console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
+      isGCPServiceAccountAuthorized = false;
+      adminDb = null;
     }
-    const tempDb = getFirestore();
-    console.log('[Firebase Admin] Safe-initializing Firestore Admin client. Running permission pre-flight check...');
-    
-    // Asynchronously test Admin SDK permissions without blocking server start.
-    tempDb.collection('products').limit(1).get()
-      .then(() => {
-        adminDb = tempDb;
-        console.log('[Firebase Admin] Permission pre-flight check passed. Service Account is fully authorized. Admin SDK activated.');
-      })
-      .catch((err: any) => {
-        console.warn('[Firebase Admin] Permission pre-flight check failed. Proactively falling back to REST API exclusively:', err.message || err);
-        isGCPServiceAccountAuthorized = false;
-        adminDb = null;
-      });
-  } catch (err: any) {
-    console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
-    isGCPServiceAccountAuthorized = false;
-    adminDb = null;
-  }
+  })();
 } else {
   console.log('[Firebase Admin] Non-GCP/Non-authorized environment. Proactively disabling Admin SDK to avoid timeouts. Using REST client exclusively.');
   adminDb = null;
@@ -1702,6 +1709,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (adminDb && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split('Bearer ')[1];
       try {
+        const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
         const decoded = await getAdminAuth().verifyIdToken(token);
         if (decoded.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
           return true;
@@ -3123,7 +3131,43 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             middleware.handle.stack.forEach((handler: any) => {
               if (handler.route) {
                 routes.push(`${Object.keys(handler.route.methods).join(',').toUpperCase()} ${handler.route.path}`);
-              }
+              }import express from "express";
+import path from "path";
+import fs from "fs";
+import nodemailer from "nodemailer";
+
+import dotenv from "dotenv";
+import net from "net";
+import dns from "dns";
+import { promisify } from "util";
+import admin from "firebase-admin";
+import { getApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAuth as getAdminAuth } from "firebase-admin/auth";
+import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml, clearSitemapCache } from "./src/utils/sitemap.js";
+
+process.on('uncaughtException', (err) => {
+  console.error('!!!!! [DIAGNOSTIC] uncaughtException !!!!!', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('!!!!! [DIAGNOSTIC] unhandledRejection !!!!!', reason);
+});
+
+const lookupAsync = promisify(dns.lookup);
+
+dotenv.config();
+
+export const app = express();
+
+// Set secure HTTP headers
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob: android-webview-video-poster:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https:;"
+  );
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+
             });
           }
         });
