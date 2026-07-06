@@ -1,22 +1,22 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, Suspense, lazy } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
 
-import { ProductDetail } from './components/ProductDetail';
-import { ChatInterface } from './components/ChatInterface';
-import { SellerDashboard } from './components/SellerDashboard';
-import { SellerProfilePage } from './components/SellerProfilePage';
-import { ProfileSettings } from './components/ProfileSettings';
-import { ListingModal } from './components/ListingModal';
-import { VideoAdsFeed } from './components/VideoAdsFeed';
+const ProductDetail = lazy(() => import('./components/ProductDetail').then(m => ({ default: m.ProductDetail })));
+const ChatInterface = lazy(() => import('./components/ChatInterface').then(m => ({ default: m.ChatInterface })));
+const SellerDashboard = lazy(() => import('./components/SellerDashboard').then(m => ({ default: m.SellerDashboard })));
+const SellerProfilePage = lazy(() => import('./components/SellerProfilePage').then(m => ({ default: m.SellerProfilePage })));
+const ProfileSettings = lazy(() => import('./components/ProfileSettings').then(m => ({ default: m.ProfileSettings })));
+const ListingModal = lazy(() => import('./components/ListingModal').then(m => ({ default: m.ListingModal })));
+const VideoAdsFeed = lazy(() => import('./components/VideoAdsFeed').then(m => ({ default: m.VideoAdsFeed })));
+const VerificationBlockModal = lazy(() => import('./components/VerificationBlockModal').then(m => ({ default: m.VerificationBlockModal })));
 
 import { Category, Product } from './types';
 import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
-import { VerificationBlockModal } from './components/VerificationBlockModal';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
 import { createProductSelector } from './utils/productSelector';
 import { DynamicCategoryFilters } from './components/DynamicCategoryFilters';
@@ -794,7 +794,13 @@ const MarketplaceContent: React.FC = () => {
             )}
 
             {homeViewMode === 'video-feed' ? (
-              <VideoAdsFeed />
+              <Suspense fallback={
+                <div className="flex items-center justify-center py-24">
+                  <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
+                </div>
+              }>
+                <VideoAdsFeed />
+              </Suspense>
             ) : (
               <>
                 {/* Category selection ribbon */}
@@ -1246,11 +1252,17 @@ const MarketplaceContent: React.FC = () => {
         )}
 
         {/* Dynamic sub screens */}
-        {currentView === 'product-detail' && <ProductDetail />}
-        {currentView === 'chats' && <ChatInterface />}
-        {currentView === 'my-dashboard' && <SellerDashboard />}
-        {currentView === 'seller-profile' && <SellerProfilePage />}
-        {currentView === 'profile-settings' && <ProfileSettings />}
+        <Suspense fallback={
+          <div className="flex items-center justify-center py-24">
+            <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
+          </div>
+        }>
+          {currentView === 'product-detail' && <ProductDetail />}
+          {currentView === 'chats' && <ChatInterface />}
+          {currentView === 'my-dashboard' && <SellerDashboard />}
+          {currentView === 'seller-profile' && <SellerProfilePage />}
+          {currentView === 'profile-settings' && <ProfileSettings />}
+        </Suspense>
       </main>
 
       {/* Persistent platform footer */}
@@ -1266,10 +1278,14 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       {/* Floating Create Listings form */}
-      <ListingModal
-        isOpen={isPostAdOpen}
-        onClose={() => setIsPostAdOpen(false)}
-      />
+      {isPostAdOpen && (
+        <Suspense fallback={null}>
+          <ListingModal
+            isOpen={isPostAdOpen}
+            onClose={() => setIsPostAdOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Floating Modern Toast Notification */}
       {toast && (
@@ -1479,7 +1495,11 @@ const MarketplaceContent: React.FC = () => {
         </button>
       </div>
 
-      <VerificationBlockModal />
+      {isVerificationBlockOpen && (
+        <Suspense fallback={null}>
+          <VerificationBlockModal />
+        </Suspense>
+      )}
       <WebMCPInitializer />
     </div>
   );
