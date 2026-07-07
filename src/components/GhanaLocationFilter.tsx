@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { GHANA_REGIONS, getRegionForLocation } from '../regions';
 import { Product } from '../types';
 import { MapPin, X, Navigation, Locate, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 
 interface GhanaLocationFilterProps {
   selectedRegion: string;
@@ -19,6 +20,8 @@ export const GhanaLocationFilter: React.FC<GhanaLocationFilterProps> = ({
   products
 }) => {
   const [isMobileExpanded, setIsMobileExpanded] = useState(false);
+  const { currentUser } = useApp();
+  const isAdmin = currentUser?.isAdmin;
 
   // Count products per region
   const regionCounts = React.useMemo(() => {
@@ -111,7 +114,7 @@ export const GhanaLocationFilter: React.FC<GhanaLocationFilterProps> = ({
               }}
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-350 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 cursor-pointer transition appearance-none"
             >
-              <option value="All">🇬🇭 All Regions ({regionCounts['All'] || 0})</option>
+              <option value="All">🇬🇭 All Regions{isAdmin ? ` (${regionCounts['All'] || 0})` : ''}</option>
               {GHANA_REGIONS.map(reg => {
                 const count = regionCounts[reg.name] || 0;
                 return (
