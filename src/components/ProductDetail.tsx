@@ -19,6 +19,7 @@ export const ProductDetail: React.FC = () => {
     followSeller,
     unfollowSeller,
     startChat,
+    reportProduct,
     setSelectedSellerId,
     toggleSaveProduct,
     setShowAuthModal,
@@ -48,6 +49,37 @@ export const ProductDetail: React.FC = () => {
   const [isAdminBoosting, setIsAdminBoosting] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [selectedFreePlan, setSelectedFreePlan] = useState('7days');
+
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('spam');
+  const [reportComment, setReportComment] = useState('');
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+
+  const handleOpenReportModal = () => {
+    if (!currentUser) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      showToast("Please sign in to report a listing.", "info");
+      return;
+    }
+    setReportReason('spam');
+    setReportComment('');
+    setIsReportModalOpen(true);
+  };
+
+  const handleReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!product) return;
+    setIsSubmittingReport(true);
+    try {
+      await reportProduct(product.id, reportReason, reportComment);
+      setIsReportModalOpen(false);
+    } catch (err: any) {
+      showToast(err.message || "Failed to submit report.", "error");
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  };
 
   const mediaGallery = product ? [
     ...product.images.map(url => ({ type: 'image' as const, url })),
@@ -1041,6 +1073,15 @@ export const ProductDetail: React.FC = () => {
                       <span>Message seller on whatsapp</span>
                     </button>
                   )}
+
+                  <button
+                    id="btn-report-listing"
+                    onClick={handleOpenReportModal}
+                    className="w-full py-3.5 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-700 font-bold rounded-2xl flex items-center justify-center gap-2 text-sm shadow-xs transition duration-200 cursor-pointer"
+                  >
+                    <ShieldAlert className="w-5 h-5 text-rose-600 animate-pulse" />
+                    <span>Report this Listing</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -1399,6 +1440,101 @@ export const ProductDetail: React.FC = () => {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Listing Modal */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" onClick={() => !isSubmittingReport && setIsReportModalOpen(false)}>
+          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-150 relative animate-scale-up text-left" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5 text-rose-700">
+                <ShieldAlert className="w-4.5 h-4.5 text-rose-600 animate-bounce" />
+                <span>Report Marketplace Ad</span>
+              </h3>
+              <button
+                onClick={() => !isSubmittingReport && setIsReportModalOpen(false)}
+                className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleReportSubmit} className="space-y-4 mt-4">
+              <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                Help us keep TedBuy secure. Your report is securely delivered straight to our admin inbox for swift moderation. Let us know why this ad is problematic:
+              </p>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Reason for report</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {[
+                    { value: 'spam', label: 'Spam, duplicate or fake listing' },
+                    { value: 'scam', label: 'Scam, fraudulent offer or suspicious activity' },
+                    { value: 'inappropriate', label: 'Inappropriate, abusive or illegal contents' },
+                    { value: 'wrong_category', label: 'Miscalibrated, misleading info or wrong category' },
+                    { value: 'other', label: 'Other issue (please specify below)' }
+                  ].map((option) => (
+                    <label
+                      key={option.value}
+                      className={`flex items-center gap-3 p-3 rounded-2xl border transition duration-150 cursor-pointer text-xs select-none ${
+                        reportReason === option.value
+                          ? 'bg-rose-50/50 border-rose-200 text-rose-900 font-bold shadow-3xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-650 hover:bg-slate-100 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="reportReason"
+                        value={option.value}
+                        checked={reportReason === option.value}
+                        onChange={() => setReportReason(option.value)}
+                        className="w-4 h-4 text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Additional Context (Optional)</label>
+                <textarea
+                  value={reportComment}
+                  onChange={(e) => setReportComment(e.target.value)}
+                  placeholder="Provide more specific details or context to help our moderation team make a decision..."
+                  maxLength={1000}
+                  rows={3}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 outline-none focus:ring-2 focus:ring-rose-200 focus:border-rose-400 transition"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isSubmittingReport}
+                  onClick={() => setIsReportModalOpen(false)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReport}
+                  className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl text-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
+                >
+                  {isSubmittingReport ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Submitting...</span>
+                    </>
+                  ) : (
+                    <span>Submit Report</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -14,7 +14,7 @@ const VideoAdsFeed = lazy(() => import('./components/VideoAdsFeed').then(m => ({
 const VerificationBlockModal = lazy(() => import('./components/VerificationBlockModal').then(m => ({ default: m.VerificationBlockModal })));
 
 import { Category, Product } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info, ShieldAlert } from 'lucide-react';
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
@@ -1267,12 +1267,56 @@ const MarketplaceContent: React.FC = () => {
 
       {/* Persistent platform footer */}
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
-        <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-8 mt-12 mb-16 md:mb-0">
-          <div className="max-w-7xl mx-auto px-4 text-center space-y-2">
-            <p className="font-sans font-bold text-slate-800">Tedbuy Marketplace &copy; 2026</p>
-            <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
-              Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
-            </p>
+        <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-10 mt-12 mb-16 md:mb-0">
+          <div className="max-w-7xl mx-auto px-4 space-y-8">
+            {/* Stay Safe on TedBuy Section */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-3xl p-6 md:p-8 max-w-4xl mx-auto text-left space-y-4">
+              <div className="flex items-center gap-2 text-slate-800 font-extrabold text-sm uppercase tracking-wider">
+                <ShieldAlert className="w-5 h-5 text-rose-600 animate-pulse" />
+                <span>Stay Safe on TedBuy</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                Tedbuy is committed to providing a secure P2P trading experience. Always protect yourself by adhering to these essential marketplace safety tips:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5 pt-2">
+                <div className="space-y-1 bg-white p-4 rounded-2xl border border-slate-150/70 shadow-3xs">
+                  <div className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-rose-50 text-rose-600 font-extrabold text-[10px]">1</span>
+                    <span>Meet in Public Places</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Always arrange to meet the other party in highly populated, well-lit public zones like malls, bank lobbies, or police stations.
+                  </p>
+                </div>
+
+                <div className="space-y-1 bg-white p-4 rounded-2xl border border-slate-150/70 shadow-3xs">
+                  <div className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-rose-50 text-rose-600 font-extrabold text-[10px]">2</span>
+                    <span>No Upfront Payments</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Never send money, deposits, or mobile money transfers before receiving and fully inspecting the physical item. Avoid advance fee requests.
+                  </p>
+                </div>
+
+                <div className="space-y-1 bg-white p-4 rounded-2xl border border-slate-150/70 shadow-3xs">
+                  <div className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-rose-50 text-rose-600 font-extrabold text-[10px]">3</span>
+                    <span>Inspect and Verify</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Examine the item carefully before closing the deal. Switch on electronics, verify phone serial numbers, and check for genuine condition.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center space-y-2 border-t border-slate-100 pt-6">
+              <p className="font-sans font-bold text-slate-800">Tedbuy Marketplace &copy; 2026</p>
+              <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
+                Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
+              </p>
+            </div>
           </div>
         </footer>
       )}

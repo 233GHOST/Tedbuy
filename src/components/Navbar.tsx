@@ -918,12 +918,7 @@ export const Navbar: React.FC = () => {
                       />
                     </div>
 
-                    <div className="flex items-center justify-between text-xs text-slate-600 px-1">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse animate-duration-1000"></span>
-                        Code expires in: <strong className="font-mono text-slate-900">{Math.floor(otpTimeRemaining / 60)}:{(otpTimeRemaining % 60).toString().padStart(2, '0')}</strong>
-                      </span>
-                      
+                    <div className="flex items-center justify-end text-xs text-slate-600 px-1">
                       {resendCooldown > 0 ? (
                         <span className="text-slate-400">Resend in {resendCooldown}s</span>
                       ) : (

@@ -112,6 +112,7 @@ interface AppContextType {
   chats: Chat[];
   messages: Message[];
   startChat: (productId: string, initialMessage?: string) => Promise<string>;
+  reportProduct: (productId: string, reason: string, comment?: string) => Promise<boolean>;
   sendMessage: (chatId: string, text: string, optionalSenderId?: string) => Promise<void>;
   markChatAsRead: (chatId: string) => Promise<void>;
   toggleMessageReadStatus: (messageId: string, read?: boolean) => Promise<void>;
@@ -2947,6 +2948,87 @@ Tedbuy Support`;
     }
   }, [products, currentUser?.id]);
 
+  const reportProduct = async (productId: string, reason: string, comment: string = '') => {
+    if (!currentUser) {
+      throw new Error("You must be logged in to report a listing.");
+    }
+
+    const product = products.find(p => p.id === productId);
+    if (!product) {
+      throw new Error("Product not found.");
+    }
+
+    const reportId = `report_${currentUser.id}_${productId}_${Date.now()}`;
+    const reportData = {
+      id: reportId,
+      productId: product.id,
+      productTitle: product.title,
+      reporterId: currentUser.id,
+      reporterName: currentUser.username,
+      reason,
+      comment,
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      // 1. Save to reports collection
+      await setDoc(doc(db, 'reports', reportId), cleanObject(reportData));
+
+      // 2. Locate or create support chat for the reporting user to send to admins inbox
+      let supportChat = chats.find(c => 
+        c.productId === 'support_welcome' && 
+        c.buyerId === currentUser.id && 
+        c.sellerId === 'user_ted_ceo_support'
+      );
+
+      let supportChatId = supportChat?.id;
+
+      if (!supportChatId) {
+        supportChatId = `chat_${currentUser.id}_user_ted_ceo_support_support_welcome_${Date.now()}`;
+        const newSupportChat: Chat = {
+          id: supportChatId,
+          productId: 'support_welcome',
+          productTitle: 'Tedbuy Support Desk',
+          productPrice: 'Direct Channel',
+          productImage: '/favicon.svg',
+          buyerId: currentUser.id,
+          sellerId: 'user_ted_ceo_support',
+          buyerName: currentUser.username,
+          sellerName: 'Tedbuy Support',
+          lastMessageText: `Report submitted for ${product.title}`,
+          lastMessageTime: new Date().toISOString(),
+          deliveredBySeller: false,
+          pickedUpByBuyer: false,
+          tradeStatus: 'pending',
+          adId: 'support_welcome',
+          adTitle: 'Tedbuy Support Desk',
+          adImage: '/favicon.svg',
+          adThumbnail: '/favicon.svg',
+          adType: 'image',
+          videoPoster: ''
+        };
+        await setDoc(doc(db, 'chats', supportChatId), cleanObject(newSupportChat));
+      }
+
+      // 3. Send message inside support chat
+      const reportMessageText = `⚠️ [Listing Report]
+• Listing: "${product.title}" (ID: ${product.id})
+• Category: ${product.category}
+• Seller: ${product.sellerName} (ID: ${product.sellerId})
+• Reporter: ${currentUser.username} (ID: ${currentUser.id})
+• Reason: ${reason}
+${comment ? `• Comments: "${comment}"` : ''}`;
+
+      await sendMessage(supportChatId, reportMessageText);
+
+      showToast("Report submitted successfully! Our moderators will review it shortly.", "success");
+      return true;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `reports/${reportId}`);
+      throw err;
+    }
+  };
+
   // Chats Operations
   const startChat = async (productId: string, initialMessage?: string) => {
     if (!currentUser) return '';
@@ -4196,6 +4278,7 @@ Tedbuy Support`;
       chats,
       messages,
       startChat,
+      reportProduct,
       sendMessage,
       markChatAsRead,
       toggleMessageReadStatus,

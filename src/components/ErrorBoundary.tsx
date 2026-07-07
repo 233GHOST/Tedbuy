@@ -23,6 +23,31 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[ErrorBoundary] Uncaught render crash:', error, errorInfo);
+
+    // Auto-recover from chunk loading or dynamic import failures
+    const isChunkError = 
+      error && error.message && (
+        error.message.includes('dynamically imported module') ||
+        error.message.includes('Importing a module script failed') ||
+        error.message.includes('ChunkLoadError') ||
+        error.message.includes('Loading chunk')
+      );
+
+    if (isChunkError) {
+      try {
+        const chunkErrorKey = 'tedbuy_chunk_reload_tried';
+        const lastReload = sessionStorage.getItem(chunkErrorKey);
+        const now = Date.now();
+        // Limit auto-reload to once per 15 seconds to prevent infinite reload loops
+        if (!lastReload || now - parseInt(lastReload, 10) > 15000) {
+          sessionStorage.setItem(chunkErrorKey, now.toString());
+          console.warn('[ErrorBoundary] Chunk loading failed. Attempting auto-heal page reload...');
+          window.location.reload();
+        }
+      } catch (e) {
+        console.error('[ErrorBoundary] Failed to auto-reload on chunk error:', e);
+      }
+    }
   }
 
   private handleReset = () => {
@@ -48,12 +73,6 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <p className="text-sm text-slate-500 mb-6 leading-relaxed">
               We encountered a temporary render-time issue or connection disruption. Don't worry, your data and saved preferences are preserved safely!
             </p>
-
-            {this.state.error && (
-              <div className="w-full bg-slate-50 text-slate-600 font-mono text-[10px] p-3 rounded-xl mb-6 text-left border border-slate-100 max-h-24 overflow-y-auto break-all">
-                <span className="font-bold text-slate-800">Error:</span> {this.state.error.message || 'Unknown render failure'}
-              </div>
-            )}
 
             <div className="flex flex-col sm:flex-row gap-3 w-full">
               <button

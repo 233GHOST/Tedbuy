@@ -150,9 +150,29 @@
         "username": { "type": "string", "description": "The case-preserved original display store name" }
       },
       "required": ["userId", "username"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "A moderation report filed against a listing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique report ID" },
+        "productId": { "type": "string", "description": "The reported listing ID" },
+        "productTitle": { "type": "string", "description": "The title of the reported listing" },
+        "reporterId": { "type": "string", "description": "The UID of the user filing the report" },
+        "reporterName": { "type": "string", "description": "Display name of the reporter" },
+        "reason": { "type": "string", "description": "Reason category (spam, scam, inappropriate, etc.)" },
+        "comment": { "type": "string", "description": "Optional comments from reporter" },
+        "createdAt": { "type": "string", "description": "ISO timestamp when report was filed" }
+      },
+      "required": ["id", "productId", "productTitle", "reporterId", "reporterName", "reason", "createdAt"]
     }
   },
   "firestore": {
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "User submitted reports against product listings"
+    },
     "/deletedEmails/{email}": {
       "schema": "DeletedEmail",
       "description": "Previously deleted user email identifiers"

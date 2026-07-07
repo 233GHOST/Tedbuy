@@ -249,5 +249,17 @@ service cloud.firestore {
                        incoming().get('serverVerificationSecret', '') == 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ';
       allow update, delete: if isAdmin();
     }
+
+    // 10. Reports Collection rules
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && 
+                    isOwner(incoming().get('reporterId', '')) && 
+                    isValidId(reportId) &&
+                    incoming().get('id', '') == reportId &&
+                    incoming().get('productId', '') is string &&
+                    incoming().get('reason', '') is string;
+      allow update, delete: if isAdmin();
+    }
   }
 }
