@@ -148,7 +148,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const seller = users?.find(u => u.id === product.sellerId);
   const isPrioSeller = seller && (
     (seller.visitCount && seller.visitCount >= 2) ||
-    (seller.totalStayTime && seller.totalStayTime >= 40) ||
     (seller.rapidPostScore && seller.rapidPostScore >= 2)
   );
 
@@ -683,14 +682,12 @@ export const VideoAdsFeed: React.FC = () => {
       const seller = users?.find(u => u.id === sellerId);
       if (!seller) return 0;
       const visitCount = seller.visitCount || 0;
-      const totalStayTime = seller.totalStayTime || 0;
       const rapidPostScore = seller.rapidPostScore || 0;
 
       const visitScore = visitCount * 50;
-      const stayScore = Math.floor(totalStayTime / 10) * 12;
       const postScore = rapidPostScore * 200;
 
-      return visitScore + stayScore + postScore;
+      return visitScore + postScore;
     };
 
     return [...filtered].sort((a, b) => {

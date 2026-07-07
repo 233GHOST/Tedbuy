@@ -84,6 +84,8 @@ interface AppContextType {
   users: User[];
   usersMap?: Map<string, User>;
   registerUser: (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => Promise<User>;
+  initiateRegistration: (username: string, email: string, phoneNumber: string, password: string, photoUrl?: string) => Promise<{ success: boolean; simulated?: boolean; debugOtp?: string; warning?: string; message?: string }>;
+  verifyAndCompleteRegistration: (email: string, otp: string) => Promise<{ success: boolean; user: User; simulatedMode: boolean; tempPassword?: string }>;
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   resetPasswordEmail: (email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
@@ -1118,7 +1120,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [currentUser?.id]);
 
-  // --- Dynamic Seller Activity & Stay Time Trackers ---
+  // --- Dynamic Seller Activity Trackers ---
   const hasCountedSessionVisit = useRef(false);
   useEffect(() => {
     if (currentUser && !hasCountedSessionVisit.current) {
@@ -1164,55 +1166,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentUserId]);
 
-  const localStayAccumulator = useRef(0);
   useEffect(() => {
     if (!currentUser) return;
     const interval = setInterval(() => {
-      localStayAccumulator.current += 10;
       const nowIso = new Date().toISOString();
       
-      // Update local state copy every 10s so ranking updates live
+      // Update local state copy every 30s
       setCurrentUserState(prev => {
         if (!prev) return null;
         return {
           ...prev,
-          totalStayTime: (prev.totalStayTime || 0) + 10,
           lastSeen: nowIso,
           isOnline: true
         };
       });
 
-      // Commit to Firestore every 30 seconds to minimize write overhead
-      if (localStayAccumulator.current >= 30) {
-        const incrementSec = localStayAccumulator.current;
-        localStayAccumulator.current = 0;
-        updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(incrementSec),
-          lastSeen: nowIso,
-          isOnline: true
-        }).catch(err => {
-          console.warn('[Tracking] Failed to write stay time to Firestore:', err);
-        });
-      }
-    }, 10000);
+      updateDoc(doc(db, 'users', currentUser.id), {
+        lastSeen: nowIso,
+        isOnline: true
+      }).catch(() => {});
+    }, 30000);
 
     return () => {
       clearInterval(interval);
       const nowIso = new Date().toISOString();
-      if (localStayAccumulator.current > 0) {
-        const remainingSec = localStayAccumulator.current;
-        localStayAccumulator.current = 0;
-        updateDoc(doc(db, 'users', currentUser.id), {
-          totalStayTime: increment(remainingSec),
-          lastSeen: nowIso,
-          isOnline: false
-        }).catch(() => {});
-      } else {
-        updateDoc(doc(db, 'users', currentUser.id), {
-          isOnline: false,
-          lastSeen: nowIso
-        }).catch(() => {});
-      }
+      updateDoc(doc(db, 'users', currentUser.id), {
+        isOnline: false,
+        lastSeen: nowIso
+      }).catch(() => {});
     };
   }, [currentUser?.id]);
 
@@ -1990,6 +1971,98 @@ Tedbuy Support`;
       throw error;
     }
   };
+
+  const initiateRegistration = useCallback(async (username: string, email: string, phoneNumber: string, password: string, photoUrl?: string) => {
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, email, phoneNumber, password, photoUrl })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to initiate registration.');
+      }
+      return data;
+    } catch (err: any) {
+      console.error('[initiateRegistration] Error:', err);
+      throw err;
+    }
+  }, []);
+
+  const verifyAndCompleteRegistration = useCallback(async (email: string, otp: string) => {
+    try {
+      const response = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, otp })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to verify code.');
+      }
+
+      const { user, simulatedMode, tempPassword } = data;
+
+      if (simulatedMode) {
+        console.log('[verifyAndCompleteRegistration] Sandbox mode active. Completing registration client-side.');
+        
+        const uid = user.id;
+        justRegisteredUserIds.current.add(uid);
+
+        // Save to Firestore
+        try {
+          await setDoc(doc(db, 'users', uid), user);
+          await setDoc(doc(db, 'storeNames', user.username.toLowerCase()), {
+            userId: uid,
+            username: user.username
+          });
+        } catch (dbErr) {
+          console.warn('[verifyAndCompleteRegistration] Firestore write failed in sandbox:', dbErr);
+        }
+
+        // Back up to localized database backups
+        try {
+          const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+          const userList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+          if (!userList.some(u => u.id === user.id)) {
+            userList.push(user);
+            safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(userList));
+            setUsers(userList);
+          }
+        } catch (_) {}
+
+        safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
+        setCurrentUserState(user);
+
+        // Welcome package
+        setupWelcomePackage(user).catch(err => {
+          console.warn('[Welcome Trigger] Sandbox welcome package failed:', err);
+        });
+
+      } else {
+        console.log('[verifyAndCompleteRegistration] Production user created backend-side. Signing in...');
+        
+        try {
+          justRegisteredUserIds.current.add(user.id);
+          await signInWithEmailAndPassword(auth, email, tempPassword);
+          console.log('[verifyAndCompleteRegistration] Production sign-in successful!');
+        } catch (signInErr) {
+          console.error('[verifyAndCompleteRegistration] Client sign-in failed after backend creation:', signInErr);
+          setCurrentUserState(user);
+        }
+      }
+
+      return data;
+    } catch (err: any) {
+      console.error('[verifyAndCompleteRegistration] Error:', err);
+      throw err;
+    }
+  }, []);
 
   const loginUser = async (identifier: string, password?: string) => {
     if (!password) {
@@ -4106,6 +4179,8 @@ Tedbuy Support`;
       users,
       usersMap,
       registerUser,
+      initiateRegistration,
+      verifyAndCompleteRegistration,
       loginUser,
       resetPasswordEmail,
       loginWithGoogle,

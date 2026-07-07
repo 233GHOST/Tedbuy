@@ -189,12 +189,11 @@ export const SellerDashboard: React.FC = () => {
           </span>
         </div>
         <div className="bg-slate-100 border border-slate-200 rounded-2xl p-4 shadow-3xs">
-          <span className="text-xs text-slate-500 block font-semibold uppercase tracking-wider">App Stay Time</span>
-          <span className="text-sm font-bold text-slate-800 flex items-center gap-1 mt-1">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
-            {currentUser.totalStayTime ? `${Math.floor(currentUser.totalStayTime / 60)}m ${currentUser.totalStayTime % 60}s` : 'Recording...'}
+          <span className="text-xs text-slate-500 block font-semibold uppercase tracking-wider">App Visits</span>
+          <span className="text-2xl font-extrabold text-slate-900 font-sans mt-1 block">
+            {currentUser.visitCount || 1} visits
           </span>
-          <span className="text-[10px] text-slate-400 block mt-0.5">({currentUser.visitCount || 1} App visits logged)</span>
+          <span className="text-[10px] text-slate-400 block mt-0.5">Total sessions tracked</span>
         </div>
         <div className="bg-slate-100 border border-slate-200 rounded-2xl p-4 shadow-3xs">
           <span className="text-xs text-slate-500 block font-semibold uppercase tracking-wider">Posting Speed Rank</span>

@@ -16,7 +16,6 @@ export interface User {
   authProvider?: string;
   fcmTokens?: string[];
   visitCount?: number;
-  totalStayTime?: number; // in seconds
   rapidPostScore?: number;
   lastLogin?: string; // ISO string
   lastSeen?: string; // ISO string

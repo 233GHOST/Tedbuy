@@ -29,7 +29,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const isSellerVerified = isUserVerified(seller);
   const isPrioSeller = !!(seller && (
     (seller.visitCount && seller.visitCount >= 2) ||
-    (seller.totalStayTime && seller.totalStayTime >= 40) ||
     (seller.rapidPostScore && seller.rapidPostScore >= 2)
   ));
 

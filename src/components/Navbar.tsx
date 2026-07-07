@@ -4,6 +4,7 @@ import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
+import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, validatePhoneSecure } from '../utils/registrationValidation';
 
 export const Navbar: React.FC = () => {
   const {
@@ -29,6 +30,8 @@ export const Navbar: React.FC = () => {
     authMode,
     setAuthMode,
     registerUser,
+    initiateRegistration,
+    verifyAndCompleteRegistration,
     loginUser,
     resetPasswordEmail,
     loginWithGoogle,
@@ -51,8 +54,10 @@ export const Navbar: React.FC = () => {
   const [registerPhoneInput, setRegisterPhoneInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [registerPasswordInput, setRegisterPasswordInput] = useState('');
+  const [registerConfirmPasswordInput, setRegisterConfirmPasswordInput] = useState('');
   const [loginPasswordInput, setLoginPasswordInput] = useState('');
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [registerPhotoUrlInput, setRegisterPhotoUrlInput] = useState('');
   const [resetEmailInput, setResetEmailInput] = useState('');
@@ -66,6 +71,13 @@ export const Navbar: React.FC = () => {
   const [isDesktopFocused, setIsDesktopFocused] = useState(false);
   const [isMobileFocused, setIsMobileFocused] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+
+  // Secure Registration OTP flow states
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpInput, setOtpInput] = useState('');
+  const [otpTimeRemaining, setOtpTimeRemaining] = useState(600); // 10 minutes (600 seconds)
+  const [resendCooldown, setResendCooldown] = useState(60); // 60 seconds resend interval
+  const [otpDebugCode, setOtpDebugCode] = useState('');
   const notificationsDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -103,53 +115,113 @@ export const Navbar: React.FC = () => {
         await resetPasswordEmail(cleanResetEmail);
         setPasswordResetSuccess(true);
       } else if (authMode === 'register') {
-        if (!agreeTermsInput) {
-          setAuthError('You must agree to the Terms of Service and Marketplace Policies to create an account.');
-          setIsAuthSubmitting(false);
-          return;
-        }
-        if (!usernameInput.trim()) {
-          setAuthError('Please enter a username.');
-          setIsAuthSubmitting(false);
-          return;
-        }
-        if (usernameInput.trim().length > 50) {
-          setAuthError('Username must be 50 characters or less.');
-          setIsAuthSubmitting(false);
-          return;
-        }
-        if (registerPhoneInput.trim().length > 25) {
-          setAuthError('Phone number must be 25 characters or less.');
-          setIsAuthSubmitting(false);
-          return;
-        }
-
         const cleanRegEmail = cleanEmailString(registerEmailInput);
-        if (!cleanRegEmail) {
-          setAuthError('Email address is required to register an account.');
-          setIsAuthSubmitting(false);
-          return;
+
+        if (isVerifyingOtp) {
+          // STEP 5 & 6: Validate OTP Code Input & Brute Force Check
+          const cleanOtp = otpInput.trim();
+          if (!cleanOtp || cleanOtp.length !== 6 || !/^\d+$/.test(cleanOtp)) {
+            setAuthError('Please enter a valid 6-digit verification code.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          try {
+            const verifyRes = await verifyAndCompleteRegistration(cleanRegEmail, cleanOtp);
+            if (verifyRes.success) {
+              showToast('Account registered and verified successfully! Welcome to TedBuy.', 'success');
+              setShowAuthModal(false);
+              
+              // Reset registration fields
+              setUsernameInput('');
+              setRegisterEmailInput('');
+              setRegisterPhoneInput('');
+              setRegisterPasswordInput('');
+              setRegisterConfirmPasswordInput('');
+              setRegisterPhotoUrlInput('');
+              setAgreeTermsInput(false);
+              setIsVerifyingOtp(false);
+              setOtpInput('');
+              setOtpDebugCode('');
+            }
+          } catch (verifyErr: any) {
+            setAuthError(verifyErr?.message || 'Verification failed. Please check your code and try again.');
+          }
+        } else {
+          // STEP 1 & 2: First step of registration - validation & OTP initiation
+          if (!agreeTermsInput) {
+            setAuthError('You must agree to the Terms of Service and Marketplace Policies to create an account.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          // Secure client-side validations
+          const usernameCheck = validateUsernameSecure(usernameInput);
+          if (!usernameCheck.isValid) {
+            setAuthError(usernameCheck.error || 'Invalid username.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          if (!cleanRegEmail) {
+            setAuthError('Email address is required to register.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+          const emailCheck = validateEmailSecure(cleanRegEmail);
+          if (!emailCheck.isValid) {
+            setAuthError(emailCheck.error || 'Invalid email address.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          const phoneCheck = validatePhoneSecure(registerPhoneInput);
+          if (!phoneCheck.isValid) {
+            setAuthError(phoneCheck.error || 'Invalid phone number.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          const passwordCheck = validatePasswordStrength(registerPasswordInput);
+          if (!passwordCheck.isValid) {
+            setAuthError(passwordCheck.error || 'Weak password.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          if (registerPasswordInput !== registerConfirmPasswordInput) {
+            setAuthError('Passwords do not match.');
+            setIsAuthSubmitting(false);
+            return;
+          }
+
+          // Initiate secure OTP registration
+          try {
+            const initRes = await initiateRegistration(
+              usernameInput.trim(),
+              cleanRegEmail,
+              registerPhoneInput.trim(),
+              registerPasswordInput,
+              registerPhotoUrlInput || undefined
+            );
+
+            if (initRes.success) {
+              setIsVerifyingOtp(true);
+              setOtpTimeRemaining(600); // 10 minutes countdown
+              setResendCooldown(60); // 60 seconds resend cooldown
+              
+              if (initRes.simulated && initRes.debugOtp) {
+                setOtpDebugCode(initRes.debugOtp);
+                setOtpInput(initRes.debugOtp); // Auto-populate for tester convenience
+                showToast('Offline Sandbox Mode Active. Verification code generated.', 'info');
+              } else {
+                showToast('A 6-digit verification code has been sent to your email address.', 'success');
+              }
+            }
+          } catch (initErr: any) {
+            setAuthError(initErr?.message || 'Failed to initiate registration. Please try again.');
+          }
         }
-        if (!registerPasswordInput || registerPasswordInput.length < 6) {
-          setAuthError('Password must be at least 6 characters long.');
-          setIsAuthSubmitting(false);
-          return;
-        }
-        
-        await registerUser(
-          usernameInput.trim(),
-          cleanRegEmail,
-          registerPhoneInput.trim() || undefined,
-          registerPasswordInput,
-          registerPhotoUrlInput || undefined
-        );
-        setShowAuthModal(false);
-        setUsernameInput('');
-        setRegisterEmailInput('');
-        setRegisterPhoneInput('');
-        setRegisterPasswordInput('');
-        setRegisterPhotoUrlInput('');
-        setAgreeTermsInput(false);
       } else {
         const cleanLoginId = cleanEmailString(loginIdentifierInput);
         if (!cleanLoginId) {
@@ -227,8 +299,35 @@ export const Navbar: React.FC = () => {
       setGoogleLinkingData(null);
       setLinkPasswordInput('');
       setAuthError('');
+      setIsVerifyingOtp(false);
+      setOtpInput('');
+      setOtpDebugCode('');
+      setRegisterConfirmPasswordInput('');
     }
   }, [showAuthModal, setGoogleLinkingData]);
+
+  // Secure countdown timers for Registration OTP verification
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isVerifyingOtp && showAuthModal) {
+      interval = setInterval(() => {
+        setOtpTimeRemaining((prev) => {
+          if (prev <= 1) {
+            setAuthError('Your verification code has expired. Please go back and request a new code.');
+            return 0;
+          }
+          return prev - 1;
+        });
+        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    } else {
+      setOtpTimeRemaining(600); // Reset to 10 minutes
+      setResendCooldown(60); // Reset to 60 seconds
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isVerifyingOtp, showAuthModal]);
 
   // Calculate unread chat badges with an optimized single-pass memoized filter
   const unreadCount = useMemo(() => {
@@ -789,175 +888,311 @@ export const Navbar: React.FC = () => {
 
             <form onSubmit={handleAuthSubmit} className="space-y-4">
               {authMode === 'register' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Username / Store Name *</label>
-                    <input
-                      type="text"
-                      id="auth-username-input"
-                      required
-                      value={usernameInput}
-                      onChange={(e) => setUsernameInput(e.target.value)}
-                      placeholder="e.g. Ama's Boutique, David Apparels"
-                      className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Email Address *</label>
-                    <input
-                      type="email"
-                      id="auth-email-input"
-                      required
-                      value={registerEmailInput}
-                      onChange={(e) => setRegisterEmailInput(e.target.value)}
-                      placeholder="name@example.com"
-                      className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number <span className="text-slate-500 text-[10px] font-normal">(Optional)</span></label>
-                    <input
-                      type="text"
-                      id="auth-phone-input"
-                      value={registerPhoneInput}
-                      onChange={(e) => setRegisterPhoneInput(e.target.value)}
-                      placeholder=""
-                      className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 inline-block mb-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.2">Account Password *</label>
-                    <div className="relative">
-                      <input
-                        type={showRegisterPassword ? 'text' : 'password'}
-                        id="auth-password-input"
-                        required
-                        value={registerPasswordInput}
-                        onChange={(e) => setRegisterPasswordInput(e.target.value)}
-                        placeholder="Minimum 6 characters"
-                        className="w-full pl-3.5 pr-10 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 mb-3"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowRegisterPassword(!showRegisterPassword)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 cursor-pointer bg-transparent border-0 p-0"
-                        title={showRegisterPassword ? 'Hide Password' : 'Show Password'}
-                      >
-                        {showRegisterPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
-                      </button>
+                isVerifyingOtp ? (
+                  <div className="space-y-5 animate-fade-in">
+                    <div className="text-center">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 mb-3 text-orange-600">
+                        <PlusCircle className="h-6 w-6" />
+                      </div>
+                      <h3 className="text-lg font-extrabold text-slate-900">Verify your Email</h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        We sent a 6-digit verification code to <span className="font-bold text-slate-800">{registerEmailInput.trim().toLowerCase()}</span>.
+                      </p>
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5 flex justify-between items-center">
-                      <span>Profile Picture (Optional)</span>
-                      <span className="text-[10px] text-slate-400 font-normal">Click to select photo</span>
-                    </label>
-                    <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                      <div className="relative shrink-0">
-                        {registerPhotoUrlInput ? (
-                          <img
-                            src={registerPhotoUrlInput}
-                            className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs"
-                            alt="Registration avatar"
-                          />
-                        ) : (
-                          <img
-                            src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
-                            className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs shrink-0"
-                            alt="Default Registration Avatar"
-                          />
-                        )}
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5 text-center">
+                        Enter 6-Digit Code *
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        required
+                        value={otpInput}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                          setOtpInput(val);
+                        }}
+                        placeholder="000000"
+                        className="w-full text-center tracking-[0.5em] font-mono text-2xl px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-300"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-slate-600 px-1">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse animate-duration-1000"></span>
+                        Code expires in: <strong className="font-mono text-slate-900">{Math.floor(otpTimeRemaining / 60)}:{(otpTimeRemaining % 60).toString().padStart(2, '0')}</strong>
+                      </span>
+                      
+                      {resendCooldown > 0 ? (
+                        <span className="text-slate-400">Resend in {resendCooldown}s</span>
+                      ) : (
                         <button
                           type="button"
-                          onClick={() => {
-                            const el = document.getElementById('register-avatar-file');
-                            el?.click();
-                          }}
-                          className="absolute -bottom-1 -right-1 w-5 h-5 bg-slate-900 border border-white rounded-full text-white flex items-center justify-center shadow-xs hover:bg-slate-805 cursor-pointer"
-                          title="Click to select file"
-                        >
-                          <span className="text-xs font-bold leading-none">+</span>
-                        </button>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <input
-                          type="file"
-                          id="register-avatar-file"
-                          accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const validation = validateImageFile(file);
-                              if (!validation.isValid) {
-                                setAuthError(validation.error || 'Invalid photo format.');
-                                return;
+                          onClick={async () => {
+                            setAuthError('');
+                            setResendCooldown(60);
+                            try {
+                              const initRes = await initiateRegistration(
+                                usernameInput.trim(),
+                                registerEmailInput.trim().toLowerCase(),
+                                registerPhoneInput.trim(),
+                                registerPasswordInput,
+                                registerPhotoUrlInput || undefined
+                              );
+                              if (initRes.success) {
+                                setOtpTimeRemaining(600);
+                                if (initRes.simulated && initRes.debugOtp) {
+                                  setOtpDebugCode(initRes.debugOtp);
+                                  setOtpInput(initRes.debugOtp);
+                                  showToast('New verification code auto-populated!', 'info');
+                                } else {
+                                  showToast('Verification code resent to your email.', 'success');
+                                }
                               }
-                              try {
-                                const optimized = await compressImage(file, 600, 600, 0.82);
-                                setRegisterPhotoUrlInput(optimized);
-                              } catch (err) {
-                                console.error('Failed to compress registration avatar:', err);
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  if (typeof reader.result === 'string') {
-                                    setRegisterPhotoUrlInput(reader.result);
-                                  }
-                                };
-                                reader.readAsDataURL(file);
-                              }
+                            } catch (err: any) {
+                              setAuthError(err?.message || 'Failed to resend code.');
                             }
                           }}
-                        />
-                        <p className="text-[11px] font-bold text-slate-800 leading-none mb-1">Upload custom photo</p>
-                        <p className="text-[10px] text-slate-500 leading-tight">Select any PNG, JPG, or WEBP picture from your computer or phone.</p>
+                          className="font-extrabold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer bg-transparent border-0 p-0 focus:outline-none text-xs"
+                        >
+                          Resend Code
+                        </button>
+                      )}
+                    </div>
+
+                    {otpDebugCode && (
+                      <div className="bg-amber-50 border border-amber-200 text-amber-850 p-3 rounded-xl text-center text-xs space-y-1">
+                        <span className="font-extrabold text-amber-900 block">Debug Sandbox Helper</span>
+                        <span>OTP Code: <strong className="font-mono bg-white px-2 py-0.5 rounded border border-amber-300 select-all">{otpDebugCode}</strong></span>
+                        <p className="text-[10px] text-amber-600 leading-tight">SMTP is simulated in offline/sandbox mode. Real dispatch bypassed for testing convenience.</p>
                       </div>
+                    )}
+
+                    <div className="flex flex-col gap-2.5 pt-2">
+                      <button
+                        type="submit"
+                        disabled={isAuthSubmitting || otpTimeRemaining <= 0}
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-sm font-bold text-white transition duration-150 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isAuthSubmitting ? (
+                          <>
+                            <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent inline-block"></span>
+                            <span>Verifying Code...</span>
+                          </>
+                        ) : (
+                          <span>Verify & Create Account</span>
+                        )}
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsVerifyingOtp(false);
+                          setOtpInput('');
+                          setOtpDebugCode('');
+                          setAuthError('');
+                        }}
+                        className="w-full py-2.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition duration-150 cursor-pointer text-center bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200"
+                      >
+                        &larr; Change Email / Go Back
+                      </button>
                     </div>
                   </div>
-
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowTermsModal(true)}
-                      className="w-full text-left flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl transition duration-150 cursor-pointer text-slate-700 group hover:bg-slate-100/60 shadow-3xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-bold text-slate-800">Read Marketplace Terms & Safety Policies</span>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Username / Store Name *</label>
+                      <input
+                        type="text"
+                        id="auth-username-input"
+                        required
+                        value={usernameInput}
+                        onChange={(e) => setUsernameInput(e.target.value)}
+                        placeholder="e.g. Ama's Boutique, David Apparels"
+                        className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Email Address *</label>
+                      <input
+                        type="email"
+                        id="auth-email-input"
+                        required
+                        value={registerEmailInput}
+                        onChange={(e) => setRegisterEmailInput(e.target.value)}
+                        placeholder="name@example.com"
+                        className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number *</label>
+                      <input
+                        type="text"
+                        id="auth-phone-input"
+                        required
+                        value={registerPhoneInput}
+                        onChange={(e) => setRegisterPhoneInput(e.target.value)}
+                        placeholder="e.g. 0241234567 or +233241234567"
+                        className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 inline-block mb-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Account Password *</label>
+                      <div className="relative">
+                        <input
+                          type={showRegisterPassword ? 'text' : 'password'}
+                          id="auth-password-input"
+                          required
+                          value={registerPasswordInput}
+                          onChange={(e) => setRegisterPasswordInput(e.target.value)}
+                          placeholder="Minimum 8 characters with upper, lower, number, symbol"
+                          className="w-full pl-3.5 pr-10 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 mb-3"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRegisterPassword(!showRegisterPassword)}
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 cursor-pointer bg-transparent border-0 p-0"
+                          title={showRegisterPassword ? 'Hide Password' : 'Show Password'}
+                        >
+                          {showRegisterPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                        </button>
                       </div>
-                      <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider group-hover:text-indigo-700 shrink-0 bg-indigo-50 group-hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">Read &rarr;</span>
-                    </button>
-                  </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Confirm Password *</label>
+                      <div className="relative">
+                        <input
+                          type={showRegisterConfirmPassword ? 'text' : 'password'}
+                          id="auth-confirm-password-input"
+                          required
+                          value={registerConfirmPasswordInput}
+                          onChange={(e) => setRegisterConfirmPasswordInput(e.target.value)}
+                          placeholder="Re-enter your password"
+                          className="w-full pl-3.5 pr-10 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400 mb-3"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRegisterConfirmPassword(!showRegisterConfirmPassword)}
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 cursor-pointer bg-transparent border-0 p-0"
+                          title={showRegisterConfirmPassword ? 'Hide Password' : 'Show Password'}
+                        >
+                          {showRegisterConfirmPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5 flex justify-between items-center">
+                        <span>Profile Picture (Optional)</span>
+                        <span className="text-[10px] text-slate-400 font-normal">Click to select photo</span>
+                      </label>
+                      <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                        <div className="relative shrink-0">
+                          {registerPhotoUrlInput ? (
+                            <img
+                              src={registerPhotoUrlInput}
+                              className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs"
+                              alt="Registration avatar"
+                            />
+                          ) : (
+                            <img
+                              src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                              className="w-12 h-12 rounded-full object-cover border border-slate-300 shadow-3xs shrink-0"
+                              alt="Default Registration Avatar"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById('register-avatar-file');
+                              el?.click();
+                            }}
+                            className="absolute -bottom-1 -right-1 w-5 h-5 bg-slate-900 border border-white rounded-full text-white flex items-center justify-center shadow-xs hover:bg-slate-805 cursor-pointer"
+                            title="Click to select file"
+                          >
+                            <span className="text-xs font-bold leading-none">+</span>
+                          </button>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <input
+                            type="file"
+                            id="register-avatar-file"
+                            accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const validation = validateImageFile(file);
+                                if (!validation.isValid) {
+                                  setAuthError(validation.error || 'Invalid photo format.');
+                                  return;
+                                }
+                                try {
+                                  const optimized = await compressImage(file, 600, 600, 0.82);
+                                  setRegisterPhotoUrlInput(optimized);
+                                } catch (err) {
+                                  console.error('Failed to compress registration avatar:', err);
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    if (typeof reader.result === 'string') {
+                                      setRegisterPhotoUrlInput(reader.result);
+                                    }
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }
+                            }}
+                          />
+                          <p className="text-[11px] font-bold text-slate-800 leading-none mb-1">Upload custom photo</p>
+                          <p className="text-[10px] text-slate-500 leading-tight">Select any PNG, JPG, or WEBP picture from your computer or phone.</p>
+                        </div>
+                      </div>
+                    </div>
 
-                  <div className="flex items-start gap-3 pt-2.5 border-t border-slate-100 mt-4 animate-fade-in">
-                    <input
-                      type="checkbox"
-                      id="auth-agree-terms"
-                      required
-                      checked={agreeTermsInput}
-                      onChange={(e) => setAgreeTermsInput(e.target.checked)}
-                      className="mt-0.5 w-4.5 h-4.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900 cursor-pointer accent-slate-900"
-                    />
-                    <label htmlFor="auth-agree-terms" className="text-xs text-slate-600 leading-tight select-none cursor-pointer">
-                      I have read and I agree to the{' '}
+                    <div className="mt-3">
                       <button
                         type="button"
                         onClick={() => setShowTermsModal(true)}
-                        className="font-extrabold text-slate-950 hover:text-indigo-600 underline focus:outline-none cursor-pointer inline"
+                        className="w-full text-left flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl transition duration-150 cursor-pointer text-slate-700 group hover:bg-slate-100/60 shadow-3xs"
                       >
-                        Terms of Service
-                      </button>{' '}
-                      and{' '}
-                      <button
-                        type="button"
-                        onClick={() => setShowTermsModal(true)}
-                        className="font-extrabold text-slate-950 hover:text-indigo-600 underline focus:outline-none cursor-pointer inline"
-                      >
-                        Marketplace Policies
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-slate-800">Read Marketplace Terms & Safety Policies</span>
+                        </div>
+                        <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider group-hover:text-indigo-700 shrink-0 bg-indigo-50 group-hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">Read &rarr;</span>
                       </button>
-                      . *
-                    </label>
-                  </div>
-                </>
+                    </div>
+
+                    <div className="flex items-start gap-3 pt-2.5 border-t border-slate-100 mt-4 animate-fade-in">
+                      <input
+                        type="checkbox"
+                        id="auth-agree-terms"
+                        required
+                        checked={agreeTermsInput}
+                        onChange={(e) => setAgreeTermsInput(e.target.checked)}
+                        className="mt-0.5 w-4.5 h-4.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900 cursor-pointer accent-slate-900"
+                      />
+                      <label htmlFor="auth-agree-terms" className="text-xs text-slate-600 leading-tight select-none cursor-pointer">
+                        I have read and I agree to the{' '}
+                        <button
+                          type="button"
+                          onClick={() => setShowTermsModal(true)}
+                          className="font-extrabold text-slate-950 hover:text-indigo-600 underline focus:outline-none cursor-pointer inline"
+                        >
+                          Terms of Service
+                        </button>{' '}
+                        and{' '}
+                        <button
+                          type="button"
+                          onClick={() => setShowTermsModal(true)}
+                          className="font-extrabold text-slate-950 hover:text-indigo-600 underline focus:outline-none cursor-pointer inline"
+                        >
+                          Marketplace Policies
+                        </button>
+                        . *
+                      </label>
+                    </div>
+                  </>
+                )
               )}
 
               {authMode === 'login' && (
@@ -1054,7 +1289,7 @@ export const Navbar: React.FC = () => {
                 </div>
               )}
 
-              {!passwordResetSuccess && (
+              {!passwordResetSuccess && (!isVerifyingOtp || authMode !== 'register') && (
                 <button
                   type="submit"
                   id="auth-submit-btn"
@@ -1081,7 +1316,7 @@ export const Navbar: React.FC = () => {
               )}
             </form>
 
-            {(authMode === 'login' || authMode === 'register') && (
+            {(authMode === 'login' || (authMode === 'register' && !isVerifyingOtp)) && (
               <>
                 <div className="relative my-4 flex items-center justify-center text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">
                   <div className="absolute inset-0 flex items-center">
@@ -1129,33 +1364,35 @@ export const Navbar: React.FC = () => {
               </>
             )}
 
-            <div className="border-t border-slate-200 mt-5 pt-4 text-center">
-              <button
-                onClick={() => {
-                  if (authMode === 'forgot-password') {
-                    setAuthMode('login');
-                  } else {
-                    setAuthMode(authMode === 'login' ? 'register' : 'login');
-                  }
-                  setAuthError('');
-                  setRegisterPasswordInput('');
-                  setLoginPasswordInput('');
-                  setPasswordResetSuccess(false);
-                  setAgreeTermsInput(false);
-                }}
-                className="text-sm text-slate-600 hover:underline hover:text-slate-900 font-semibold py-1"
-              >
-                {authMode === 'forgot-password' ? (
-                  <span>Cancel and return to sign in</span>
-                ) : authMode === 'login' ? (
-                  <span className="text-slate-650 font-medium text-sm">
-                    Don't have an account yet? <strong className="font-black text-blue-600 hover:text-blue-700 transition-all text-[15px] sm:text-base tracking-tight ml-1 block sm:inline mt-1 sm:mt-0 no-underline">Create account now</strong>
-                  </span>
-                ) : (
-                  <span className="text-sm">Already have an account? Sign in here</span>
-                )}
-              </button>
-            </div>
+            {!isVerifyingOtp && (
+              <div className="border-t border-slate-200 mt-5 pt-4 text-center">
+                <button
+                  onClick={() => {
+                    if (authMode === 'forgot-password') {
+                      setAuthMode('login');
+                    } else {
+                      setAuthMode(authMode === 'login' ? 'register' : 'login');
+                    }
+                    setAuthError('');
+                    setRegisterPasswordInput('');
+                    setLoginPasswordInput('');
+                    setPasswordResetSuccess(false);
+                    setAgreeTermsInput(false);
+                  }}
+                  className="text-sm text-slate-600 hover:underline hover:text-slate-900 font-semibold py-1"
+                >
+                  {authMode === 'forgot-password' ? (
+                    <span>Cancel and return to sign in</span>
+                  ) : authMode === 'login' ? (
+                    <span className="text-slate-650 font-medium text-sm">
+                      Don't have an account yet? <strong className="font-black text-blue-600 hover:text-blue-700 transition-all text-[15px] sm:text-base tracking-tight ml-1 block sm:inline mt-1 sm:mt-0 no-underline">Create account now</strong>
+                    </span>
+                  ) : (
+                    <span className="text-sm">Already have an account? Sign in here</span>
+                  )}
+                </button>
+              </div>
+            )}
           </>
         )}
           </div>

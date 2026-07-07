@@ -193,14 +193,11 @@ export function createProductSelector() {
           } catch (_) {}
         }
 
-        // Recent app usage: visits & stay (Max 30 pts)
+        // Recent app usage: visits (Max 30 pts)
         const visits = seller.visitCount || 0;
-        const visitsScore = Math.min(15, visits * 1); // 1 pt per visit, max 15
+        const visitsScore = Math.min(30, visits * 2); // 2 pts per visit, max 30
 
-        const staySeconds = seller.totalStayTime || 0;
-        const stayScore = Math.min(15, Math.floor(staySeconds / 30) * 1); // 1 pt per 30s stay, max 15
-
-        sellerActivityScore += visitsScore + stayScore;
+        sellerActivityScore += visitsScore;
       }
 
       // 2. Popularity Score (30% weight)
