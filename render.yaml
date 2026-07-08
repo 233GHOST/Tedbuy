@@ -11,8 +11,8 @@ services:
       - key: PORT
         value: 3000
       - key: PAYSTACK_SECRET_KEY
-        sync: true # Prompts you to enter your private key in the Render dashboard
+        sync: false # Prompts you to enter your private key in the Render dashboard
       - key: VITE_PAYSTACK_PUBLIC_KEY
-        sync: true # Prompts you to enter your public key in the Render dashboard
+        sync: false # Prompts you to enter your public key in the Render dashboard
       - key: CRON_SECRET
-        sync: true # Prompts you to enter a custom cron secret for secure triggers
+        generateValue: true # Generates a secure random secret automatically
