@@ -1332,7 +1332,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       } catch (_) {}
 
-      return pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return pList.sort((a, b) => {
+        const dateA = typeof a?.createdAt === 'string' ? a.createdAt : '';
+        const dateB = typeof b?.createdAt === 'string' ? b.createdAt : '';
+        return dateB.localeCompare(dateA);
+      });
     };
 
     // Load listings via the server's cached /api/products endpoint instead of a
@@ -1358,15 +1362,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!data || !Array.isArray(data.products)) throw new Error('Malformed /api/products response');
 
         const sorted = processProductList(data.products as Product[]);
-        setProducts(sorted);
-        setIsProductsLoading(false);
-        setProductsLoadError(false);
-        setHasMoreProducts(false);
-
-        try {
-          safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
-        } catch (err) {
-          console.warn('Could not save product backups to local storage:', err);
+        
+        // If we received an empty array from the server (possibly due to an error fallback),
+        // let's try to retain the client-side backup if we already have it.
+        if (sorted.length > 0) {
+          setProducts(sorted);
+          setIsProductsLoading(false);
+          setProductsLoadError(false);
+          setHasMoreProducts(false);
+          try {
+            safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+          } catch (err) {
+            console.warn('Could not save product backups to local storage:', err);
+          }
+        } else {
+          // If we have nothing from server, attempt client local storage recovery
+          try {
+            const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
+            if (savedListStr) {
+              const parsed = JSON.parse(savedListStr) as Product[];
+              const filtered = parsed.filter(isRealProduct);
+              if (filtered.length > 0) {
+                setProducts(filtered);
+                setIsProductsLoading(false);
+                setProductsLoadError(false);
+                setHasMoreProducts(false);
+                return;
+              }
+            }
+          } catch (restoreErr) {
+            console.warn('Could not restore cached products:', restoreErr);
+          }
+          // True empty state
+          setProducts([]);
+          setIsProductsLoading(false);
+          setProductsLoadError(true);
         }
       } catch (error) {
         if (!active) return;
@@ -1387,16 +1417,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
             });
             const sorted = processProductList(rawList);
-            setProducts(sorted);
-            setIsProductsLoading(false);
-            setProductsLoadError(false);
-            setHasMoreProducts(false);
-            try {
-              safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
-            } catch (err) {
-              console.warn('Could not save product backups to local storage:', err);
+            if (sorted.length > 0) {
+              setProducts(sorted);
+              setIsProductsLoading(false);
+              setProductsLoadError(false);
+              setHasMoreProducts(false);
+              try {
+                safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
+              } catch (err) {
+                console.warn('Could not save product backups to local storage:', err);
+              }
+              return;
             }
-            return;
           } catch (getDocsErr) {
             console.error('[Product Loading] Direct Firestore fallback also failed:', getDocsErr);
           }
@@ -1671,7 +1703,11 @@ Tedbuy Support`;
             id: docSnap.id || data.id
           } as Review);
         });
-        const sorted = rList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const sorted = rList.sort((a, b) => {
+          const dateA = typeof a?.createdAt === 'string' ? a.createdAt : '';
+          const dateB = typeof b?.createdAt === 'string' ? b.createdAt : '';
+          return dateB.localeCompare(dateA);
+        });
         setReviews(sorted);
         try {
           safeLocalStorage.setItem('tedbuy_local_reviews_backup', JSON.stringify(sorted));
@@ -1711,7 +1747,11 @@ Tedbuy Support`;
     const chatMap = new Map<string, Chat>();
 
     const updateCombined = () => {
-      const combined = Array.from(chatMap.values()).sort((a, b) => b.lastMessageTime.localeCompare(a.lastMessageTime));
+      const combined = Array.from(chatMap.values()).sort((a, b) => {
+        const timeA = typeof a?.lastMessageTime === 'string' ? a.lastMessageTime : '';
+        const timeB = typeof b?.lastMessageTime === 'string' ? b.lastMessageTime : '';
+        return timeB.localeCompare(timeA);
+      });
       setChats(combined);
       try {
         safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(combined));
@@ -1804,7 +1844,11 @@ Tedbuy Support`;
     const qAdminRecipient = isAdminUser ? query(collection(db, 'messages'), where('recipientId', '==', 'user_ted_ceo_support')) : null;
 
     const updateCombined = () => {
-      const sorted = (Array.from(msgMapRef.current.values()) as Message[]).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const sorted = (Array.from(msgMapRef.current.values()) as Message[]).sort((a, b) => {
+        const dateA = typeof a?.createdAt === 'string' ? a.createdAt : '';
+        const dateB = typeof b?.createdAt === 'string' ? b.createdAt : '';
+        return dateA.localeCompare(dateB);
+      });
       setMessages(sorted);
       try {
         safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(sorted));
@@ -4236,7 +4280,11 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
           } catch (_) {}
         }
       });
-      const sorted = pList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const sorted = pList.sort((a, b) => {
+        const dateA = typeof a?.createdAt === 'string' ? a.createdAt : '';
+        const dateB = typeof b?.createdAt === 'string' ? b.createdAt : '';
+        return dateB.localeCompare(dateA);
+      });
       setProducts(sorted);
     } catch (err) {
       console.error('Error manually refreshing products:', err);
