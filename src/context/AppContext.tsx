@@ -1422,8 +1422,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // If the server injected initial product data (see server.ts's SSR homepage
     // injection), use it immediately instead of waiting on our own first fetch -
     // this is what actually makes the app show real listings on first paint,
-    // matching how the pre-rendered HTML already looks. We still start polling
-    // normally afterward to keep data fresh.
+    // matching how the pre-rendered HTML already looks. This is only a small
+    // subset (matching what's visibly rendered server-side), so we immediately
+    // kick off a normal background fetch for the complete catalog right after,
+    // instead of waiting the full poll interval.
     const injected = (window as any).__INITIAL_PRODUCTS__;
     if (Array.isArray(injected) && injected.length > 0) {
       try {
@@ -1431,12 +1433,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setProducts(sorted);
         setIsProductsLoading(false);
         setProductsLoadError(false);
-        setHasMoreProducts(false);
+        setHasMoreProducts(true);
         try {
           safeLocalStorage.setItem('tedbuy_local_products_backup', JSON.stringify(sorted));
         } catch (err) {
           console.warn('Could not save product backups to local storage:', err);
         }
+        // Fill in the rest of the catalog promptly (non-blocking - the subset
+        // above is already visible to the user right now).
+        fetchProductsOnce(false);
       } catch (err) {
         console.warn('[Product Loading] Failed to process server-injected initial products, falling back to fetch:', err);
         fetchProductsOnce(true);
