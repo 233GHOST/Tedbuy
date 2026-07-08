@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: tedbuy
+    env: node
+    plan: free # Deploys on Render's free tier
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: PAYSTACK_SECRET_KEY
+        sync: true # Prompts you to enter your private key in the Render dashboard
+      - key: VITE_PAYSTACK_PUBLIC_KEY
+        sync: true # Prompts you to enter your public key in the Render dashboard
+      - key: CRON_SECRET
+        sync: true # Prompts you to enter a custom cron secret for secure triggers
