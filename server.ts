@@ -1393,7 +1393,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               limit: 300
             }
           }),
-          signal: AbortSignal.timeout(5000)
+          signal: AbortSignal.timeout(10000)
         });
 
         if (!response.ok) {
@@ -1449,6 +1449,26 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       // Process the products list (runtime expiration, priority scores, extra sorting fields)
       productsList = productsList.map((result: any) => {
+        // Optimize images payload size: if the first image is a base64 string,
+        // we replace it with a lightweight proxy delivery URL: `/api/products/${result.id}/image`
+        // and discard other images to save tons of bandwidth and avoid database quota/timeout errors.
+        if (Array.isArray(result.images) && result.images.length > 0) {
+          const firstImage = result.images[0];
+          if (firstImage && firstImage.startsWith('data:')) {
+            const ext = firstImage.includes('png') ? 'png' : firstImage.includes('webp') ? 'webp' : 'jpg';
+            result.images = [`/api/products/${result.id}/image.${ext}`];
+          } else {
+            result.images = [firstImage || ''];
+          }
+        } else {
+          result.images = [];
+        }
+
+        if (result.image && result.image.startsWith('data:')) {
+          const ext = result.image.includes('png') ? 'png' : result.image.includes('webp') ? 'webp' : 'jpg';
+          result.image = `/api/products/${result.id}/image.${ext}`;
+        }
+
         // Dynamic runtime expiration guard
         if (result.boostStatus && result.boostEndDate && new Date(result.boostEndDate).getTime() < Date.now()) {
           result.boostStatus = false;
