@@ -1435,18 +1435,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         // Restore local backup if we still have nothing to show
-        if (products.length === 0) {
-          try {
-            const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
-            if (savedListStr) {
-              const parsed = JSON.parse(savedListStr) as Product[];
-              setProducts(parsed.filter(isRealProduct));
+        let restoredCount = 0;
+        try {
+          const savedListStr = safeLocalStorage.getItem('tedbuy_local_products_backup');
+          if (savedListStr) {
+            const parsed = JSON.parse(savedListStr) as Product[];
+            const filtered = parsed.filter(isRealProduct);
+            restoredCount = filtered.length;
+            if (restoredCount > 0) {
+              setProducts(filtered);
             }
-          } catch (restoreErr) {
-            console.warn('Could not restore cached products:', restoreErr);
           }
-          setProductsLoadError(products.length === 0);
+        } catch (restoreErr) {
+          console.warn('Could not restore cached products:', restoreErr);
         }
+        setProductsLoadError(restoredCount === 0);
         setIsProductsLoading(false);
       }
     };
