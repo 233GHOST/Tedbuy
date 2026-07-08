@@ -1523,32 +1523,39 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         return scoreB - scoreA;
       });
 
-      // Update the cache
-      cachedProducts = {
-        data: productsList,
-        timestamp: Date.now()
-      };
+      // Update the cache only if we actually fetched products to prevent blowing away the backup
+      if (productsList && productsList.length > 0) {
+        cachedProducts = {
+          data: productsList,
+          timestamp: Date.now()
+        };
 
-      // Persist the cache to file asynchronously (non-blocking)
-      fs.writeFile(CACHE_FILE_PATH, JSON.stringify({ data: productsList, timestamp: Date.now() }), 'utf-8', (err) => {
-        if (err) console.error('[Products Cache] Failed to write cache to file:', err);
-      });
+        // Persist the cache to file asynchronously (non-blocking)
+        fs.writeFile(CACHE_FILE_PATH, JSON.stringify({ data: productsList, timestamp: Date.now() }), 'utf-8', (err) => {
+          if (err) console.error('[Products Cache] Failed to write cache to file:', err);
+          else console.log(`[Products Cache] Successfully persisted ${productsList.length} products to file cache.`);
+        });
+      } else {
+        console.warn('[Products Data] Fetched products list was empty. Retaining previous cache to prevent data loss.');
+      }
 
-      return { products: productsList };
+      return { products: (cachedProducts && cachedProducts.data) || [] };
     } catch (error: any) {
       console.warn('[Products Data] Failed to fetch layout products (gracefully falling back):', error?.message || error);
 
-      // Attempt file cache fallback if memory cache is not available
-      if (!cachedProducts) {
+      // Attempt file cache fallback if memory cache is not available or empty
+      if (!cachedProducts || !cachedProducts.data || cachedProducts.data.length === 0) {
         try {
           if (fs.existsSync(CACHE_FILE_PATH)) {
+            console.log('[Products Cache] Memory cache is missing or empty. Reading backup from file...');
             const rawCache = fs.readFileSync(CACHE_FILE_PATH, 'utf-8');
             const parsed = JSON.parse(rawCache);
-            if (parsed && Array.isArray(parsed.data)) {
+            if (parsed && Array.isArray(parsed.data) && parsed.data.length > 0) {
               cachedProducts = {
                 data: parsed.data,
                 timestamp: parsed.timestamp || Date.now()
               };
+              console.log(`[Products Cache] Successfully recovered ${cachedProducts.data.length} products from disk cache on exception.`);
             }
           }
         } catch (e: any) {
