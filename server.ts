@@ -1392,7 +1392,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               ],
               limit: 300
             }
-          })
+          }),
+          signal: AbortSignal.timeout(5000)
         });
 
         if (!response.ok) {

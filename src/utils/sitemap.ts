@@ -125,7 +125,8 @@ async function fetchSitemapDataset(): Promise<CachedSitemapData> {
           },
           limit: 100000 // Support massive scale up to 100k
         }
-      })
+      }),
+      signal: AbortSignal.timeout(6000)
     });
 
     if (response.ok) {
@@ -180,7 +181,8 @@ async function fetchSitemapDataset(): Promise<CachedSitemapData> {
           },
           limit: 100000
         }
-      })
+      }),
+      signal: AbortSignal.timeout(6000)
     });
 
     if (response.ok) {
