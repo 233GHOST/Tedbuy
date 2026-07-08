@@ -640,13 +640,19 @@ function renderProductGridSSR(products: any[], limit = 24): string {
     </style>`;
 }
 
-function injectInitialProductsData(html: string, products: any[]): string {
+function injectInitialProductsData(html: string, products: any[], limit = 24): string {
+  // Only embed the subset actually rendered in the SSR grid below, not the full
+  // (up to 300-item) dataset - the client's normal polling picks up the rest
+  // within ~30 seconds of mount, and this keeps every homepage response small
+  // regardless of total catalog size.
+  const subset = (products || []).slice(0, limit);
+
   // JSON.stringify output can legally contain "</script>" inside string values
   // (e.g. a malicious or copy-pasted product description) which would prematurely
   // terminate the script tag, so this is escaped defensively.
-  const json = JSON.stringify(products || []).replace(/<\/script/gi, '<\\/script');
+  const json = JSON.stringify(subset).replace(/<\/script/gi, '<\\/script');
   const dataScript = `<script>window.__INITIAL_PRODUCTS__ = ${json};</script>\n`;
-  const ssrGrid = renderProductGridSSR(products);
+  const ssrGrid = renderProductGridSSR(subset, limit);
 
   return html
     .replace('<div id="root"></div>', `<div id="root">${ssrGrid}</div>`)
@@ -3620,6 +3626,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             console.warn('[SSR] Failed to inject homepage product data (non-fatal, client will fetch normally):', ssrErr?.message || ssrErr);
           }
         }
+        // Critical: allow this dynamically-generated page to be cached at Vercel's
+        // edge, matching the same window as /api/products. Without this, every
+        // single visit, bot crawl, and social-media link-preview fetch bypasses
+        // the CDN entirely and hits the origin function directly - this alone
+        // caused a large, unnecessary spike in origin bandwidth usage.
+        res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=120');
         res.status(200).set({ "Content-Type": "text/html" }).end(template);
       } catch (err) {
         console.error('Error serving index.html in production:', err);
