@@ -180,8 +180,24 @@ if (fs.existsSync(firebaseConfigPath)) {
 // Initialize Firebase Admin SDK safely
 let adminDb: any = null;
 let cachedProducts: { data: any[]; timestamp: number } | null = null;
+let isRevalidating = false;
+let lastFirestore429Time = 0;
+const DEBOUNCE_429_RETRY_MS = 600000; // 10 minutes cooling down after a 429
+let activeFetchPromise: Promise<any[]> | null = null;
+// In-memory caches for crawler/metadata requests to prevent Firestore 429/RESOURCE_EXHAUSTED
+const productDataCache = new Map<string, { data: any; timestamp: number }>();
+const sellerDataCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 300000; // 5 minutes cache TTL to dramatically reduce read operations and quota usage
 const CACHE_FILE_PATH = path.join(process.cwd(), 'products_cache.json');
+const IMAGES_CACHE_DIR = path.join(process.cwd(), 'images_cache');
+if (!fs.existsSync(IMAGES_CACHE_DIR)) {
+  try {
+    fs.mkdirSync(IMAGES_CACHE_DIR, { recursive: true });
+    console.log(`[Images Cache] Created cache directory: ${IMAGES_CACHE_DIR}`);
+  } catch (err) {
+    console.error('[Images Cache] Failed to create images cache directory:', err);
+  }
+}
 
 try {
   if (fs.existsSync(CACHE_FILE_PATH)) {
@@ -193,6 +209,35 @@ try {
         timestamp: parsed.timestamp || Date.now()
       };
       console.log(`[Products Cache] Successfully loaded ${cachedProducts.data.length} products from file-based cache.`);
+      
+      // Warm up images_cache on disk and productDataCache in-memory on startup
+      for (const result of cachedProducts.data) {
+        if (!result || !result.id) continue;
+        let firstImage = (Array.isArray(result.images) && result.images.length > 0) ? result.images[0] : null;
+        if (!firstImage && result.image) {
+          firstImage = result.image;
+        }
+        if (firstImage && firstImage.startsWith('data:')) {
+          try {
+            const ext = firstImage.includes('png') ? 'png' : firstImage.includes('webp') ? 'webp' : 'jpg';
+            const cacheFilePath = path.join(IMAGES_CACHE_DIR, `${result.id}.txt`);
+            if (!fs.existsSync(cacheFilePath)) {
+              fs.writeFileSync(cacheFilePath, firstImage, 'utf-8');
+            }
+            productDataCache.set(result.id, {
+              data: {
+                title: result.title || '',
+                description: result.description || '',
+                price: result.price || 'Negotiable',
+                image: firstImage
+              },
+              timestamp: Date.now()
+            });
+          } catch (err) {
+            // Ignore error writing cache on boot
+          }
+        }
+      }
     }
   } else {
     // Initialize the file-based cache as empty to ensure zero fake data from the start
@@ -279,10 +324,6 @@ async function getGCPMetadataToken() {
   return null;
 }
 
-// In-memory caches for crawler/metadata requests to prevent Firestore 429/RESOURCE_EXHAUSTED
-const productDataCache = new Map<string, { data: any; timestamp: number }>();
-const sellerDataCache = new Map<string, { data: any; timestamp: number }>();
-
 // REST API helper to fetch product info directly from Firestore
 async function getProductData(productId: string) {
   const now = Date.now();
@@ -290,6 +331,66 @@ async function getProductData(productId: string) {
   if (cached && (now - cached.timestamp < 120000)) {
     console.log(`[Meta Crawler] Serving product ${productId} from memory cache`);
     return cached.data;
+  }
+
+  // 1. Check if the product is in our cachedProducts list first!
+  // This completely avoids hitting the Firestore REST API and provides the real title/description/price/image.
+  if (cachedProducts && Array.isArray(cachedProducts.data)) {
+    const foundProduct = cachedProducts.data.find((p: any) => p && (p.id === productId || p._id === productId));
+    if (foundProduct) {
+      console.log(`[Products Cache] Found product ${productId} in list cache.`);
+      let primaryImage = '';
+      if (Array.isArray(foundProduct.images) && foundProduct.images.length > 0) {
+        primaryImage = foundProduct.images[0];
+      } else if (foundProduct.image) {
+        primaryImage = foundProduct.image;
+      }
+
+      // If the image is a proxy URL, try to load the base64 from disk cache
+      if (primaryImage && primaryImage.startsWith('/api/products/')) {
+        const diskFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
+        if (fs.existsSync(diskFile)) {
+          try {
+            const diskBase64 = fs.readFileSync(diskFile, 'utf-8');
+            if (diskBase64 && diskBase64.startsWith('data:')) {
+              primaryImage = diskBase64;
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+
+      const result = {
+        title: foundProduct.title || '',
+        description: foundProduct.description || '',
+        price: foundProduct.price || 'Negotiable',
+        image: primaryImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80'
+      };
+      productDataCache.set(productId, { data: result, timestamp: now });
+      return result;
+    }
+  }
+
+  // 2. Check local images_cache on disk next
+  const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
+  if (fs.existsSync(imageCacheFile)) {
+    try {
+      const base64Data = fs.readFileSync(imageCacheFile, 'utf-8');
+      if (base64Data && base64Data.startsWith('data:')) {
+        console.log(`[Images Cache] Serving product image for ${productId} from disk cache`);
+        const result = {
+          title: '',
+          description: '',
+          price: 'Negotiable',
+          image: base64Data
+        };
+        productDataCache.set(productId, { data: result, timestamp: now });
+        return result;
+      }
+    } catch (diskErr) {
+      console.warn(`[Images Cache] Failed to read cached image for ${productId} from disk:`, diskErr);
+    }
   }
 
   try {
@@ -1308,240 +1409,395 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     return boostBase + remainingTimeFactor + engagementFactor + freshnessFactor;
   }
 
+  // Client optimizer to translate heavy base64 strings into lightweight local proxies on-the-fly
+  function optimizeProductsForClient(products: any[]): any[] {
+    if (!Array.isArray(products)) return [];
+    return products.map((result: any) => {
+      if (!result) return null;
+      // Copy to prevent mutating the original memory/file cache source
+      const optimized = { ...result };
+
+      let firstImage = (Array.isArray(optimized.images) && optimized.images.length > 0) ? optimized.images[0] : null;
+      if (!firstImage && optimized.image && optimized.image.startsWith('data:')) {
+        firstImage = optimized.image;
+      }
+
+      if (firstImage && firstImage.startsWith('data:')) {
+        const ext = firstImage.includes('png') ? 'png' : firstImage.includes('webp') ? 'webp' : 'jpg';
+
+        // Write to images_cache on disk asynchronously on client demand if missing
+        try {
+          const cacheFilePath = path.join(IMAGES_CACHE_DIR, `${optimized.id}.txt`);
+          if (!fs.existsSync(cacheFilePath)) {
+            fs.writeFileSync(cacheFilePath, firstImage, 'utf-8');
+            console.log(`[Images Cache] Auto-generated disk file for ${optimized.id} on client demand`);
+          }
+
+          // Warm up productDataCache in memory
+          if (!productDataCache.has(optimized.id)) {
+            productDataCache.set(optimized.id, {
+              data: {
+                title: optimized.title || '',
+                description: optimized.description || '',
+                price: optimized.price || 'Negotiable',
+                image: firstImage
+              },
+              timestamp: Date.now()
+            });
+          }
+        } catch (err) {
+          console.error(`[Images Cache] Failed to write client demand cache for ${optimized.id}:`, err);
+        }
+
+        optimized.images = [`/api/products/${optimized.id}/image.${ext}`];
+        optimized.image = `/api/products/${optimized.id}/image.${ext}`;
+      } else {
+        if (Array.isArray(optimized.images) && optimized.images.length > 0) {
+          optimized.images = [optimized.images[0] || ''];
+        } else {
+          optimized.images = [];
+        }
+      }
+      return optimized;
+    }).filter(Boolean);
+  }
+
+  function getStaticFallbackProducts() {
+    return [
+      {
+        id: 'fb-iphone15',
+        title: 'iPhone 15 Pro Max - 256GB (Super Clean)',
+        description: 'Brand new condition iPhone 15 Pro Max. Titanium grey, factory unlocked, 256GB storage space. Comes with original box, receipt, and 1 year active warranty.',
+        price: 12500,
+        category: 'Phones',
+        location: 'Accra, Greater Accra',
+        sellerId: 'fallback-seller-1',
+        sellerName: 'Kelvin Nkrumah',
+        createdAt: new Date().toISOString(),
+        images: ['https://images.unsplash.com/photo-1695048133142-1a20484d2569?q=80&w=600&auto=format&fit=crop'],
+        likesCount: 18,
+        viewsCount: 245,
+        isApproved: true,
+        condition: 'New'
+      },
+      {
+        id: 'fb-macbookm3',
+        title: 'MacBook Pro 14" M3 Pro (18GB/512GB)',
+        description: 'Apple MacBook Pro 14-inch with powerful M3 Pro chip, 18GB Unified Memory, and 512GB SSD storage. Space Black colorway. Super clean with 100% battery capacity.',
+        price: 24000,
+        category: 'Laptops',
+        location: 'Kumasi, Ashanti',
+        sellerId: 'fallback-seller-2',
+        sellerName: 'Abena Mensah',
+        createdAt: new Date(Date.now() - 3600000).toISOString(),
+        images: ['https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=600&auto=format&fit=crop'],
+        likesCount: 11,
+        viewsCount: 130,
+        isApproved: true,
+        condition: 'Refurbished'
+      },
+      {
+        id: 'fb-nikeair',
+        title: 'Nike Air Max 270 (Size 43) - Original',
+        description: 'Original Nike Air Max 270 running shoes, comfortable mesh build, classic black and white color scheme. Worn only twice, practically brand new.',
+        price: 850,
+        category: 'Fashion',
+        location: 'Tema, Greater Accra',
+        sellerId: 'fallback-seller-3',
+        sellerName: 'Emmanuel Osei',
+        createdAt: new Date(Date.now() - 7200000).toISOString(),
+        images: ['https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=600&auto=format&fit=crop'],
+        likesCount: 22,
+        viewsCount: 310,
+        isApproved: true,
+        condition: 'Used - Like New'
+      }
+    ];
+  }
+
+  async function fetchFromFirestoreDirect(): Promise<any[]> {
+    let productsList: any[] = [];
+    let adminFetchedSuccessfully = false;
+
+    if (adminDb) {
+      try {
+        console.log(`[Products Data] Fetching products via Firebase Admin SDK`);
+        const snapshot = await adminDb.collection("products")
+          .orderBy("createdAt", "desc")
+          .limit(300)
+          .get();
+
+        const serializeAdminData = (data: any): any => {
+          if (!data) return data;
+          if (data instanceof Date) {
+            return data.toISOString();
+          }
+          if (data && typeof data.toDate === 'function') {
+            return data.toDate().toISOString();
+          }
+          if (Array.isArray(data)) {
+            return data.map(item => serializeAdminData(item));
+          }
+          if (typeof data === 'object') {
+            const serialized: any = {};
+            for (const key of Object.keys(data)) {
+              serialized[key] = serializeAdminData(data[key]);
+            }
+            return serialized;
+          }
+          return data;
+        };
+
+        productsList = snapshot.docs.map((docSnap: any) => {
+          const rawData = docSnap.data();
+          const result = serializeAdminData(rawData);
+          result.id = docSnap.id;
+          return result;
+        });
+        adminFetchedSuccessfully = true;
+      } catch (adminErr: any) {
+        console.warn('[Products Data] Admin SDK fetch warning (graceful fall back to REST):', adminErr?.message || adminErr);
+        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
+          isGCPServiceAccountAuthorized = false;
+          adminDb = null;
+        }
+      }
+    }
+
+    if (!adminFetchedSuccessfully) {
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+      const response = await fetch(firestoreUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          structuredQuery: {
+            from: [
+              {
+                collectionId: "products",
+                allDescendants: false
+              }
+            ],
+            orderBy: [
+              {
+                field: {
+                  fieldPath: "createdAt"
+                },
+                direction: "DESCENDING"
+              }
+            ],
+            limit: 300
+          }
+        }),
+        signal: AbortSignal.timeout(10000)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Firestore REST API returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      const results = Array.isArray(data) ? data : [];
+
+      productsList = results
+        .filter((item: any) => item && item.document)
+        .map((item: any) => {
+          try {
+            const doc = item.document;
+            const fields = doc.fields || {};
+            const result: any = {};
+
+            const parseVal = (val: any): any => {
+              if (!val) return undefined;
+              if ('stringValue' in val) return val.stringValue;
+              if ('integerValue' in val) return parseInt(val.integerValue, 10);
+              if ('doubleValue' in val) return parseFloat(val.doubleValue);
+              if ('booleanValue' in val) return val.booleanValue;
+              if ('arrayValue' in val) {
+                const arr = val.arrayValue?.values || [];
+                return arr.map((sub: any) => parseVal(sub));
+              }
+              if ('mapValue' in val) {
+                const mapFields = val.mapValue?.fields || {};
+                const mapResult: any = {};
+                for (const k of Object.keys(mapFields)) {
+                  mapResult[k] = parseVal(mapFields[k]);
+                }
+                return mapResult;
+              }
+              return undefined;
+            };
+
+            for (const key of Object.keys(fields)) {
+              result[key] = parseVal(fields[key]);
+            }
+
+            const nameParts = doc.name ? doc.name.split('/') : [];
+            result.id = nameParts[nameParts.length - 1] || '';
+            return result;
+          } catch (err) {
+            console.error('[Products Data] Error parsing document:', err);
+            return null;
+          }
+        })
+        .filter(Boolean);
+    }
+
+    // Process the products list (runtime expiration, priority scores, extra sorting fields)
+    productsList = productsList.map((result: any) => {
+      if (result.boostStatus && result.boostEndDate && new Date(result.boostEndDate).getTime() < Date.now()) {
+        result.boostStatus = false;
+        result.boostPriority = 0;
+        result.priorityScore = 0;
+        result.boostPriorityLevel = 0;
+        result.remainingBoostTime = 0;
+      }
+
+      result.priorityScore = calculatePriorityScore(result);
+
+      if (result.boostStatus) {
+        const now = new Date();
+        const endDate = result.boostEndDate ? new Date(result.boostEndDate) : now;
+        result.remainingBoostTime = Math.max(0, endDate.getTime() - now.getTime());
+
+        const planId = result.boostPlan;
+        if (planId === '90days') {
+          result.boostPriorityLevel = 5;
+          result.boostPackagePrice = 20;
+        } else if (planId === '30days') {
+          result.boostPriorityLevel = 4;
+          result.boostPackagePrice = 12;
+        } else if (planId === '14days') {
+          result.boostPriorityLevel = 3;
+          result.boostPackagePrice = 7;
+        } else if (planId === '7days') {
+          result.boostPriorityLevel = 2;
+          result.boostPackagePrice = 3;
+        } else if (planId === '3days') {
+          result.boostPriorityLevel = 1;
+          result.boostPackagePrice = 1;
+        } else {
+          result.boostPriorityLevel = 0;
+          result.boostPackagePrice = 0;
+        }
+      } else {
+        result.remainingBoostTime = 0;
+        result.boostPriorityLevel = 0;
+        result.boostPackagePrice = 0;
+      }
+
+      return result;
+    });
+
+    // Perform sort
+    productsList.sort((a: any, b: any) => {
+      const scoreA = typeof a.priorityScore === 'number' ? a.priorityScore : 0;
+      const scoreB = typeof b.priorityScore === 'number' ? b.priorityScore : 0;
+      return scoreB - scoreA;
+    });
+
+    // Update the cache only if we actually fetched products
+    if (productsList && productsList.length > 0) {
+      cachedProducts = {
+        data: productsList,
+        timestamp: Date.now()
+      };
+
+      // Persist cache to file asynchronously
+      fs.writeFile(CACHE_FILE_PATH, JSON.stringify({ data: productsList, timestamp: Date.now() }), 'utf-8', (err) => {
+        if (err) console.error('[Products Cache] Failed to write cache to file:', err);
+        else console.log(`[Products Cache] Successfully persisted ${productsList.length} products to file cache.`);
+      });
+    }
+
+    return productsList;
+  }
+
+  async function triggerBackgroundRevalidation(): Promise<void> {
+    if (activeFetchPromise) {
+      await activeFetchPromise;
+      return;
+    }
+
+    activeFetchPromise = fetchFromFirestoreDirect();
+    try {
+      const list = await activeFetchPromise;
+      if (list && list.length > 0) {
+        lastFirestore429Time = 0; // reset 429 cooldown on successful fetch
+        console.log(`[Products Data] Background revalidation succeeded. Cache updated with ${list.length} products.`);
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Quota exceeded')) {
+        lastFirestore429Time = Date.now();
+        console.warn(`[Products Data] Background revalidation hit rate limits (429). Setting cooling down cooldown.`);
+      } else {
+        console.warn(`[Products Data] Background revalidation failed:`, errMsg);
+      }
+    } finally {
+      activeFetchPromise = null;
+    }
+  }
+
   // Shared products-fetching logic, used both by the /api/products route and
   // by the SSR homepage injection below, so both paths hit the exact same
   // in-memory/file cache and never duplicate a Firestore fetch unnecessarily.
   async function getProductsListData(): Promise<{ products: any[]; isStale?: boolean; isFallback?: boolean }> {
     const now = Date.now();
+
+    // 1. If we have cached products, and they are still fresh, return them immediately
     if (cachedProducts && cachedProducts.data.length > 0 && (now - cachedProducts.timestamp < CACHE_TTL_MS)) {
-      console.log(`[Products Data] Serving ${cachedProducts.data.length} products from in-memory cache.`);
-      return { products: cachedProducts.data };
+      console.log(`[Products Data] Serving ${cachedProducts.data.length} products from in-memory cache (fresh).`);
+      return { products: optimizeProductsForClient(cachedProducts.data) };
     }
 
-    try {
-      let productsList: any[] = [];
-      let adminFetchedSuccessfully = false;
-
-      if (adminDb) {
-        try {
-          console.log(`[Products Data] Fetching products via Firebase Admin SDK`);
-          const snapshot = await adminDb.collection("products")
-            .orderBy("createdAt", "desc")
-            .limit(300)
-            .get();
-
-          const serializeAdminData = (data: any): any => {
-            if (!data) return data;
-            if (data instanceof Date) {
-              return data.toISOString();
-            }
-            if (data && typeof data.toDate === 'function') {
-              return data.toDate().toISOString();
-            }
-            if (Array.isArray(data)) {
-              return data.map(item => serializeAdminData(item));
-            }
-            if (typeof data === 'object') {
-              const serialized: any = {};
-              for (const key of Object.keys(data)) {
-                serialized[key] = serializeAdminData(data[key]);
-              }
-              return serialized;
-            }
-            return data;
-          };
-
-          productsList = snapshot.docs.map((docSnap: any) => {
-            const rawData = docSnap.data();
-            const result = serializeAdminData(rawData);
-            result.id = docSnap.id;
-            return result;
-          });
-          adminFetchedSuccessfully = true;
-        } catch (adminErr: any) {
-          console.warn('[Products Data] Admin SDK fetch warning (graceful fall back to REST):', adminErr?.message || adminErr);
-          if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
-            isGCPServiceAccountAuthorized = false;
-            adminDb = null;
-          }
-        }
-      }
-
-      if (!adminFetchedSuccessfully) {
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-        const response = await fetch(firestoreUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [
-                {
-                  collectionId: "products",
-                  allDescendants: false
-                }
-              ],
-              orderBy: [
-                {
-                  field: {
-                    fieldPath: "createdAt"
-                  },
-                  direction: "DESCENDING"
-                }
-              ],
-              limit: 300
-            }
-          }),
-          signal: AbortSignal.timeout(10000)
+    // 2. If we have cached products, but they are expired (stale), serve them immediately
+    // and trigger an asynchronous background revalidation to update the cache in a non-blocking way.
+    if (cachedProducts && cachedProducts.data.length > 0) {
+      const isCoolingDown = (now - lastFirestore429Time) < DEBOUNCE_429_RETRY_MS;
+      if (!isRevalidating && !isCoolingDown) {
+        console.log(`[Products Data] Cache is expired. Triggering background revalidation...`);
+        isRevalidating = true;
+        triggerBackgroundRevalidation().catch(err => {
+          console.error('[Products Data] Background revalidation failed:', err);
+        }).finally(() => {
+          isRevalidating = false;
         });
-
-        if (!response.ok) {
-          throw new Error(`Firestore REST API returned ${response.status}`);
-        }
-
-        const data = await response.json();
-        const results = Array.isArray(data) ? data : [];
-
-        productsList = results
-          .filter((item: any) => item && item.document)
-          .map((item: any) => {
-            try {
-              const doc = item.document;
-              const fields = doc.fields || {};
-              const result: any = {};
-
-              const parseVal = (val: any): any => {
-                if (!val) return undefined;
-                if ('stringValue' in val) return val.stringValue;
-                if ('integerValue' in val) return parseInt(val.integerValue, 10);
-                if ('doubleValue' in val) return parseFloat(val.doubleValue);
-                if ('booleanValue' in val) return val.booleanValue;
-                if ('arrayValue' in val) {
-                  const arr = val.arrayValue?.values || [];
-                  return arr.map((sub: any) => parseVal(sub));
-                }
-                if ('mapValue' in val) {
-                  const mapFields = val.mapValue?.fields || {};
-                  const mapResult: any = {};
-                  for (const k of Object.keys(mapFields)) {
-                    mapResult[k] = parseVal(mapFields[k]);
-                  }
-                  return mapResult;
-                }
-                return undefined;
-              };
-
-              for (const key of Object.keys(fields)) {
-                result[key] = parseVal(fields[key]);
-              }
-
-              const nameParts = doc.name ? doc.name.split('/') : [];
-              result.id = nameParts[nameParts.length - 1] || '';
-              return result;
-            } catch (err) {
-              console.error('[Products Data] Error parsing document:', err);
-              return null;
-            }
-          })
-          .filter(Boolean);
-      }
-
-      // Process the products list (runtime expiration, priority scores, extra sorting fields)
-      productsList = productsList.map((result: any) => {
-        // Optimize images payload size: if the first image is a base64 string,
-        // we replace it with a lightweight proxy delivery URL: `/api/products/${result.id}/image`
-        // and discard other images to save tons of bandwidth and avoid database quota/timeout errors.
-        if (Array.isArray(result.images) && result.images.length > 0) {
-          const firstImage = result.images[0];
-          if (firstImage && firstImage.startsWith('data:')) {
-            const ext = firstImage.includes('png') ? 'png' : firstImage.includes('webp') ? 'webp' : 'jpg';
-            result.images = [`/api/products/${result.id}/image.${ext}`];
-          } else {
-            result.images = [firstImage || ''];
-          }
-        } else {
-          result.images = [];
-        }
-
-        if (result.image && result.image.startsWith('data:')) {
-          const ext = result.image.includes('png') ? 'png' : result.image.includes('webp') ? 'webp' : 'jpg';
-          result.image = `/api/products/${result.id}/image.${ext}`;
-        }
-
-        // Dynamic runtime expiration guard
-        if (result.boostStatus && result.boostEndDate && new Date(result.boostEndDate).getTime() < Date.now()) {
-          result.boostStatus = false;
-          result.boostPriority = 0;
-          result.priorityScore = 0;
-          result.boostPriorityLevel = 0;
-          result.remainingBoostTime = 0;
-        }
-
-        // Calculate precise priority score on-the-fly based on all 4 priority levels
-        result.priorityScore = calculatePriorityScore(result);
-
-        // Populate additional sorting fields
-        if (result.boostStatus) {
-          const now = new Date();
-          const endDate = result.boostEndDate ? new Date(result.boostEndDate) : now;
-          result.remainingBoostTime = Math.max(0, endDate.getTime() - now.getTime());
-
-          const planId = result.boostPlan;
-          if (planId === '90days') {
-            result.boostPriorityLevel = 5;
-            result.boostPackagePrice = 20;
-          } else if (planId === '30days') {
-            result.boostPriorityLevel = 4;
-            result.boostPackagePrice = 12;
-          } else if (planId === '14days') {
-            result.boostPriorityLevel = 3;
-            result.boostPackagePrice = 7;
-          } else if (planId === '7days') {
-            result.boostPriorityLevel = 2;
-            result.boostPackagePrice = 3;
-          } else if (planId === '3days') {
-            result.boostPriorityLevel = 1;
-            result.boostPackagePrice = 1;
-          } else {
-            result.boostPriorityLevel = 0;
-            result.boostPackagePrice = 0;
-          }
-        } else {
-          result.remainingBoostTime = 0;
-          result.boostPriorityLevel = 0;
-          result.boostPackagePrice = 0;
-        }
-
-        return result;
-      });
-
-      // Perform a robust, highly stable descending sort based on the composite priority score
-      productsList.sort((a: any, b: any) => {
-        const scoreA = typeof a.priorityScore === 'number' ? a.priorityScore : 0;
-        const scoreB = typeof b.priorityScore === 'number' ? b.priorityScore : 0;
-        return scoreB - scoreA;
-      });
-
-      // Update the cache only if we actually fetched products to prevent blowing away the backup
-      if (productsList && productsList.length > 0) {
-        cachedProducts = {
-          data: productsList,
-          timestamp: Date.now()
-        };
-
-        // Persist the cache to file asynchronously (non-blocking)
-        fs.writeFile(CACHE_FILE_PATH, JSON.stringify({ data: productsList, timestamp: Date.now() }), 'utf-8', (err) => {
-          if (err) console.error('[Products Cache] Failed to write cache to file:', err);
-          else console.log(`[Products Cache] Successfully persisted ${productsList.length} products to file cache.`);
-        });
+      } else if (isCoolingDown) {
+        console.log(`[Products Data] Skipping background revalidation (Firestore 429 rate limit cooling down).`);
       } else {
-        console.warn('[Products Data] Fetched products list was empty. Retaining previous cache to prevent data loss.');
+        console.log(`[Products Data] Background revalidation already in progress.`);
       }
 
-      return { products: (cachedProducts && cachedProducts.data) || [] };
+      // Serve stale cache instantly
+      return { products: optimizeProductsForClient(cachedProducts.data), isStale: true };
+    }
+
+    // 3. If we don't have any cached products at all (e.g. initial empty boot or empty cache file),
+    // we must perform a blocking fetch. Use activeFetchPromise to deduplicate concurrent requests.
+    if (activeFetchPromise) {
+      console.log(`[Products Data] Awaiting active concurrent fetch promise...`);
+      try {
+        const list = await activeFetchPromise;
+        return { products: optimizeProductsForClient(list) };
+      } catch (err: any) {
+        // Fall through to fallback
+      }
+    }
+
+    console.log(`[Products Data] Cache is empty on boot. Performing a blocking fetch to Firestore...`);
+    activeFetchPromise = fetchFromFirestoreDirect();
+    try {
+      const list = await activeFetchPromise;
+      return { products: optimizeProductsForClient(list) };
     } catch (error: any) {
-      console.warn('[Products Data] Failed to fetch layout products (gracefully falling back):', error?.message || error);
+      const errMsg = error?.message || String(error);
+      console.warn('[Products Data] Failed to fetch layout products (gracefully falling back):', errMsg);
+
+      if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Quota exceeded')) {
+        lastFirestore429Time = Date.now();
+      }
 
       // Attempt file cache fallback if memory cache is not available or empty
       if (!cachedProducts || !cachedProducts.data || cachedProducts.data.length === 0) {
@@ -1563,68 +1819,20 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
 
-      // Fallback: If we have stale cache, return it so the site keeps working flawlessly
+      // Fallback: If we recovered stale cache, return it so the site keeps working flawlessly
       if (cachedProducts && cachedProducts.data && cachedProducts.data.length > 0) {
         // Extend the stale cache's TTL so we do not spam Firestore on subsequent immediate page refreshes
         cachedProducts.timestamp = Date.now();
         console.warn(`[Products Data] Serving cached products (${cachedProducts.data.length} items) to prevent further Firestore rate limits.`);
-        return { products: cachedProducts.data, isStale: true };
+        return { products: optimizeProductsForClient(cachedProducts.data), isStale: true };
       }
 
       // If no cached products are available, return a professional set of default fallback products
-      // so the app stays fully loaded, populated, and functional under any REST API 429 rate-limiting.
       console.warn('[Products Data] Firestore failed and no cached products available. Serving high-quality static fallbacks.');
-      const fallbackList = [
-        {
-          id: 'fb-iphone15',
-          title: 'iPhone 15 Pro Max - 256GB (Super Clean)',
-          description: 'Brand new condition iPhone 15 Pro Max. Titanium grey, factory unlocked, 256GB storage space. Comes with original box, receipt, and 1 year active warranty.',
-          price: 12500,
-          category: 'Phones',
-          location: 'Accra, Greater Accra',
-          sellerId: 'fallback-seller-1',
-          sellerName: 'Kelvin Nkrumah',
-          createdAt: new Date().toISOString(),
-          images: ['https://images.unsplash.com/photo-1695048133142-1a20484d2569?q=80&w=600&auto=format&fit=crop'],
-          likesCount: 18,
-          viewsCount: 245,
-          isApproved: true,
-          condition: 'New'
-        },
-        {
-          id: 'fb-macbookm3',
-          title: 'MacBook Pro 14" M3 Pro (18GB/512GB)',
-          description: 'Apple MacBook Pro 14-inch with powerful M3 Pro chip, 18GB Unified Memory, and 512GB SSD storage. Space Black colorway. Super clean with 100% battery capacity.',
-          price: 24000,
-          category: 'Laptops',
-          location: 'Kumasi, Ashanti',
-          sellerId: 'fallback-seller-2',
-          sellerName: 'Abena Mensah',
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-          images: ['https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=600&auto=format&fit=crop'],
-          likesCount: 11,
-          viewsCount: 130,
-          isApproved: true,
-          condition: 'Refurbished'
-        },
-        {
-          id: 'fb-nikeair',
-          title: 'Nike Air Max 270 (Size 43) - Original',
-          description: 'Original Nike Air Max 270 running shoes, comfortable mesh build, classic black and white color scheme. Worn only twice, practically brand new.',
-          price: 850,
-          category: 'Fashion',
-          location: 'Tema, Greater Accra',
-          sellerId: 'fallback-seller-3',
-          sellerName: 'Emmanuel Osei',
-          createdAt: new Date(Date.now() - 7200000).toISOString(),
-          images: ['https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=600&auto=format&fit=crop'],
-          likesCount: 22,
-          viewsCount: 310,
-          isApproved: true,
-          condition: 'Used - Like New'
-        }
-      ];
-      return { products: fallbackList, isFallback: true };
+      const fallbackList = getStaticFallbackProducts();
+      return { products: optimizeProductsForClient(fallbackList), isFallback: true };
+    } finally {
+      activeFetchPromise = null;
     }
   }
 
@@ -3360,6 +3568,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const product = await getProductData(productId);
         if (product && product.image) {
           imageUrl = product.image;
+          
+          // Save to images_cache on disk on-the-fly if it was fetched from firestore
+          if (imageUrl.startsWith('data:')) {
+            const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
+            if (!fs.existsSync(imageCacheFile)) {
+              try {
+                fs.writeFileSync(imageCacheFile, imageUrl, 'utf-8');
+                console.log(`[Images Cache] Saved image for ${productId} to disk cache on-the-fly`);
+              } catch (diskErr) {
+                console.error(`[Images Cache] Failed to save image for ${productId} to disk:`, diskErr);
+              }
+            }
+          }
         }
       } catch (err) {
         console.error('Error in secure image endpoint fetching product data:', err);
