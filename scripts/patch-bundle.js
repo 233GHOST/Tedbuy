@@ -20,14 +20,14 @@ files.forEach(file => {
     const filePath = path.join(assetsDir, file);
     let code = fs.readFileSync(filePath, 'utf8');
     
-    // Look for: function Ee(n){if(n.indexOf("-")===-1)
-    // We replace: `function Ee(n){if(n.indexOf("-")` with `function Ee(n){if(!n||typeof n.indexOf!=="function"||n.indexOf("-")`
-    if (code.includes('function Ee(n){if(n.indexOf("-")')) {
-      console.log(`[Bundle Patcher] Patching function Ee(n) in ${file}...`);
-      code = code.replace(
-        'function Ee(n){if(n.indexOf("-")',
-        'function Ee(n){if(!n||typeof n.indexOf!=="function"||n.indexOf("-")'
-      );
+    // Look for: function XX(n){if(n.indexOf("-")
+    // We replace it with: function XX(n){if(!n||typeof n.indexOf!=="function"||n.indexOf("-")
+    const regex = /function\s+([a-zA-Z0-9_$]+)\s*\(\s*([a-zA-Z0-9_$]+)\s*\)\s*\{\s*if\s*\(\s*\2\.indexOf\s*\(\s*["']-["']\s*\)/g;
+    if (regex.test(code)) {
+      console.log(`[Bundle Patcher] Patching custom element check in ${file}...`);
+      code = code.replace(regex, (match, fnName, paramName) => {
+        return `function ${fnName}(${paramName}){if(!${paramName}||typeof ${paramName}.indexOf!=="function"||${paramName}.indexOf("-")`;
+      });
       fs.writeFileSync(filePath, code, 'utf8');
       patchCount++;
     }

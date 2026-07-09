@@ -1,9 +1,16 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, getFirestore, setLogLevel } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
+
+// Silence internal Firestore connection warnings in sandboxed preview environment
+try {
+  setLogLevel('silent');
+} catch (e) {
+  console.warn('[Firestore] Failed to set log level to silent:', e);
+}
 
 // Resilient initialization of Firestore with multi-tab offline cache
 const getResilientDb = () => {
