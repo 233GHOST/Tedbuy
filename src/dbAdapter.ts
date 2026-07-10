@@ -1,6 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import * as firestore from 'firebase/firestore';
-import { db as firebaseDb } from './firebase';
 
 // -------------------------------------------------------------
 // Initialize Supabase Client if credentials are provided
@@ -19,9 +17,9 @@ export const supabase = isSupabaseActive
   : null;
 
 if (isSupabaseActive) {
-  console.log('[Supabase Adapter] Active! Routing all client database calls to Supabase (PostgreSQL).');
+  console.log('[Supabase Adapter] Active! Routing all client database calls to Supabase (PostgreSQL) exclusively.');
 } else {
-  console.log('[Supabase Adapter] Inactive. Falling back to Google Firestore client SDK.');
+  console.warn('[Supabase Adapter] Inactive. Supabase credentials are not detected!');
 }
 
 // Map Firestore collection paths to Supabase table names
@@ -194,9 +192,6 @@ export interface AdapterQuery {
 }
 
 export function collection(dbInstance: any, path: string): any {
-  if (!isSupabaseActive) {
-    return firestore.collection(firebaseDb, path);
-  }
   return {
     __isAdapterRef: true,
     type: 'collection',
@@ -205,15 +200,6 @@ export function collection(dbInstance: any, path: string): any {
 }
 
 export function doc(dbInstanceOrRef: any, pathOrId?: string, id?: string): any {
-  if (!isSupabaseActive) {
-    // If it's called with doc(db, 'collection', 'id') or doc(collectionRef, 'id')
-    if (dbInstanceOrRef && dbInstanceOrRef.__isAdapterRef === undefined) {
-      return firestore.doc(firebaseDb, pathOrId as string, id as string);
-    } else {
-      return firestore.doc(dbInstanceOrRef, pathOrId as string);
-    }
-  }
-
   let fullPath = '';
   let docId = '';
 
@@ -237,22 +223,18 @@ export function doc(dbInstanceOrRef: any, pathOrId?: string, id?: string): any {
 
 // Query constraints
 export function where(field: string, op: string, value: any) {
-  if (!isSupabaseActive) return firestore.where(field, op as any, value);
   return { type: 'where', field, op, value };
 }
 
 export function orderBy(field: string, direction: 'asc' | 'desc' = 'asc') {
-  if (!isSupabaseActive) return firestore.orderBy(field, direction);
   return { type: 'orderBy', field, direction };
 }
 
 export function limit(n: number) {
-  if (!isSupabaseActive) return firestore.limit(n);
   return { type: 'limit', n };
 }
 
 export function query(ref: any, ...constraints: any[]): any {
-  if (!isSupabaseActive) return firestore.query(ref, ...constraints);
   return {
     __isAdapterQuery: true,
     ref,
@@ -261,7 +243,6 @@ export function query(ref: any, ...constraints: any[]): any {
 }
 
 export function increment(n: number) {
-  if (!isSupabaseActive) return firestore.increment(n);
   return { __isIncrement: true, value: n };
 }
 
@@ -270,31 +251,29 @@ export function increment(n: number) {
 // -------------------------------------------------------------
 export async function getDoc(docRef: any): Promise<any> {
   if (!isSupabaseActive) {
-    return firestore.getDoc(docRef);
+    throw new Error('[Supabase getDoc] Supabase integration is inactive.');
   }
 
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
 
-  try {
-    const { data, error } = await supabase!
-      .from(table)
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
+  const { data, error } = await supabase!
+    .from(table)
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
 
-    if (error) throw error;
-
-    return {
-      id,
-      exists: () => !!data,
-      data: () => data || null
-    };
-  } catch (err: any) {
-    console.warn(`[Supabase getDoc Fallback] Error fetching from table ${table} for id ${id}, falling back to Firestore:`, err?.message || err);
-    return firestore.getDoc(docRef);
+  if (error) {
+    console.error(`[Supabase getDoc] Error fetching from table ${table} for id ${id}:`, error);
+    throw error;
   }
+
+  return {
+    id,
+    exists: () => !!data,
+    data: () => data || null
+  };
 }
 
 // Helper to build a Supabase query from Adapter query or collection ref
@@ -320,7 +299,6 @@ function buildSupabaseQuery(table: string, constraints: any[] = []) {
       } else if (op === 'in') {
         q = q.in(field, Array.isArray(value) ? value : [value]);
       } else if (op === 'array-contains') {
-        // Handle jsonb containment query
         q = q.contains(field, JSON.stringify([value]));
       }
     } else if (c.type === 'orderBy') {
@@ -336,7 +314,7 @@ function buildSupabaseQuery(table: string, constraints: any[] = []) {
 
 export async function getDocs(queryOrRef: any): Promise<any> {
   if (!isSupabaseActive) {
-    return firestore.getDocs(queryOrRef);
+    throw new Error('[Supabase getDocs] Supabase integration is inactive.');
   }
 
   const isQuery = queryOrRef.__isAdapterQuery;
@@ -344,162 +322,124 @@ export async function getDocs(queryOrRef: any): Promise<any> {
   const table = mapPathToTable(ref.path);
   const constraints = isQuery ? queryOrRef.constraints : [];
 
-  try {
-    const q = buildSupabaseQuery(table, constraints);
-    const { data, error } = await q;
+  const q = buildSupabaseQuery(table, constraints);
+  const { data, error } = await q;
 
-    if (error) throw error;
-
-    const docs = (data || []).map((item: any) => ({
-      id: item.id,
-      exists: () => true,
-      data: () => item
-    }));
-
-    return {
-      docs,
-      forEach: (cb: any) => docs.forEach(cb),
-      size: docs.length,
-      empty: docs.length === 0,
-      metadata: { fromCache: false, hasPendingWrites: false }
-    };
-  } catch (err: any) {
-    console.warn(`[Supabase getDocs Fallback] Error listing from table ${table}, falling back to Firestore:`, err?.message || err);
-    return firestore.getDocs(queryOrRef);
+  if (error) {
+    console.error(`[Supabase getDocs] Error querying table ${table}:`, error);
+    throw error;
   }
+
+  const docs = (data || []).map((item: any) => ({
+    id: item.id,
+    exists: () => true,
+    data: () => item
+  }));
+
+  return {
+    docs,
+    forEach: (cb: any) => docs.forEach(cb),
+    size: docs.length,
+    empty: docs.length === 0,
+    metadata: { fromCache: false, hasPendingWrites: false }
+  };
 }
 
 export async function setDoc(docRef: any, data: any, options?: any): Promise<void> {
   if (!isSupabaseActive) {
-    try {
-      await firestore.setDoc(docRef, data, options);
-    } catch (fsErr: any) {
-      console.warn(`[Supabase setDoc Backup] Backup write to Firestore failed:`, fsErr?.message || fsErr);
-    }
-    return;
+    throw new Error('[Supabase setDoc] Supabase integration is inactive.');
   }
 
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
 
-  try {
-    let payload = { id, ...data };
-    
-    // Process increments and nested values
-    payload = sanitizePayload(payload);
+  let payload = { id, ...data };
+  
+  // Process increments and nested values
+  payload = sanitizePayload(payload);
 
-    if (options?.merge) {
-      // Fetch existing row first to merge properly
-      const { data: existing } = await supabase!
-        .from(table)
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
-
-      payload = { ...existing, ...payload };
-    }
-
-    payload = transformForSupabaseClient(table, payload, id);
-
-    const { error } = await supabase!
+  if (options?.merge) {
+    // Fetch existing row first to merge properly
+    const { data: existing } = await supabase!
       .from(table)
-      .upsert(payload);
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
 
-    if (error) throw error;
-  } catch (err: any) {
-    console.error(`[Supabase setDoc] Error setting row in table ${table} for id ${id}:`, err?.message || err);
-    console.error(`[Supabase setDoc Action Required] Row-Level Security (RLS) is likely enabled on table "${table}" or tables/policies are missing in your Supabase instance.
-To resolve this immediately:
-1. Go to your Supabase Dashboard -> SQL Editor.
-2. Run this command:
-   ALTER TABLE public.${table} DISABLE ROW LEVEL SECURITY;
-3. Or re-run the full script in 'supabase_schema.sql' to reset and disable RLS.`);
+    payload = { ...existing, ...payload };
+  }
+
+  payload = transformForSupabaseClient(table, payload, id);
+
+  const { error } = await supabase!
+    .from(table)
+    .upsert(payload);
+
+  if (error) {
+    console.error(`[Supabase setDoc] Error setting row in table ${table} for id ${id}:`, error);
+    throw error;
   }
 }
 
 export async function updateDoc(docRef: any, data: any): Promise<void> {
   if (!isSupabaseActive) {
-    try {
-      await firestore.updateDoc(docRef, data);
-    } catch (fsErr: any) {
-      console.warn(`[Supabase updateDoc Backup] Backup update to Firestore failed:`, fsErr?.message || fsErr);
-    }
-    return;
+    throw new Error('[Supabase updateDoc] Supabase integration is inactive.');
   }
 
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
 
-  try {
-    let payload = sanitizePayload({ ...data });
+  let payload = sanitizePayload({ ...data });
 
-    // Handle increments inline
-    for (const [key, val] of Object.entries(payload)) {
-      if (val && typeof val === 'object' && (val as any).__isIncrement) {
-        const { data: current } = await supabase!
-          .from(table)
-          .select(key)
-          .eq('id', id)
-          .maybeSingle();
-        const currentNum = (current && current[key]) || 0;
-        payload[key] = currentNum + (val as any).value;
-      }
+  // Handle increments inline
+  for (const [key, val] of Object.entries(payload)) {
+    if (val && typeof val === 'object' && (val as any).__isIncrement) {
+      const { data: current } = await supabase!
+        .from(table)
+        .select(key)
+        .eq('id', id)
+        .maybeSingle();
+      const currentNum = (current && current[key]) || 0;
+      payload[key] = currentNum + (val as any).value;
     }
+  }
 
-    payload = filterTableColumns(table, payload);
+  payload = filterTableColumns(table, payload);
 
-    if (Object.keys(payload).length === 0) {
-      return;
-    }
+  if (Object.keys(payload).length === 0) {
+    return;
+  }
 
-    const { error } = await supabase!
-      .from(table)
-      .update(payload)
-      .eq('id', id);
+  const { error } = await supabase!
+    .from(table)
+    .update(payload)
+    .eq('id', id);
 
-    if (error) throw error;
-  } catch (err: any) {
-    console.error(`[Supabase updateDoc] Error updating row in table ${table} for id ${id}:`, err?.message || err);
-    console.error(`[Supabase updateDoc Action Required] Row-Level Security (RLS) is likely enabled on table "${table}" or tables/policies are missing in your Supabase instance.
-To resolve this immediately:
-1. Go to your Supabase Dashboard -> SQL Editor.
-2. Run this command:
-   ALTER TABLE public.${table} DISABLE ROW LEVEL SECURITY;
-3. Or re-run the full script in 'supabase_schema.sql' to reset and disable RLS.`);
+  if (error) {
+    console.error(`[Supabase updateDoc] Error updating row in table ${table} for id ${id}:`, error);
+    throw error;
   }
 }
 
 export async function deleteDoc(docRef: any): Promise<void> {
   if (!isSupabaseActive) {
-    try {
-      await firestore.deleteDoc(docRef);
-    } catch (fsErr: any) {
-      console.warn(`[Supabase deleteDoc Backup] Backup deletion in Firestore failed:`, fsErr?.message || fsErr);
-    }
-    return;
+    throw new Error('[Supabase deleteDoc] Supabase integration is inactive.');
   }
 
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
 
-  try {
-    const { error } = await supabase!
-      .from(table)
-      .delete()
-      .eq('id', id);
+  const { error } = await supabase!
+    .from(table)
+    .delete()
+    .eq('id', id);
 
-    if (error) throw error;
-  } catch (err: any) {
-    console.error(`[Supabase deleteDoc] Error deleting row from table ${table} for id ${id}:`, err?.message || err);
-    console.error(`[Supabase deleteDoc Action Required] Row-Level Security (RLS) is likely enabled on table "${table}" or tables/policies are missing in your Supabase instance.
-To resolve this immediately:
-1. Go to your Supabase Dashboard -> SQL Editor.
-2. Run this command:
-   ALTER TABLE public.${table} DISABLE ROW LEVEL SECURITY;
-3. Or re-run the full script in 'supabase_schema.sql' to reset and disable RLS.`);
+  if (error) {
+    console.error(`[Supabase deleteDoc] Error deleting row from table ${table} for id ${id}:`, error);
+    throw error;
   }
 }
 
@@ -507,10 +447,6 @@ To resolve this immediately:
 // Atomic Transactions & Batched Writes
 // -------------------------------------------------------------
 export function writeBatch(dbInstance?: any): any {
-  if (!isSupabaseActive) {
-    return firestore.writeBatch(firebaseDb);
-  }
-
   const operations: Array<() => Promise<void>> = [];
 
   return {
@@ -547,7 +483,8 @@ export function onSnapshot(
   onError?: (error: any) => void
 ): () => void {
   if (!isSupabaseActive) {
-    return firestore.onSnapshot(queryOrDocRef, onNext, onError);
+    if (onError) onError(new Error('[Supabase onSnapshot] Supabase integration is inactive.'));
+    return () => {};
   }
 
   const isDoc = queryOrDocRef.type === 'doc' || (queryOrDocRef.path && queryOrDocRef.path.split('/').length > 1);
@@ -566,16 +503,16 @@ export function onSnapshot(
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error }) => {
-        if (!active) return;
-        if (error) {
-          if (onError) onError(error);
-          return;
-        }
-        onNext({
-          id,
-          exists: () => !!data,
-          data: () => data || null
-        });
+         if (!active) return;
+         if (error) {
+           if (onError) onError(error);
+           return;
+         }
+         onNext({
+           id,
+           exists: () => !!data,
+           data: () => data || null
+         });
       });
 
     // 2. Postgres real-time updates subscription with fully unique channel name to prevent collisions

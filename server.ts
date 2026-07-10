@@ -291,22 +291,14 @@ if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
 
 let isGCPServiceAccountAuthorized = process.env.K_SERVICE !== undefined || process.env.GOOGLE_APPLICATION_CREDENTIALS !== undefined || parsedServiceAccountJson !== null;
 
-// On Vercel, always disable Firebase Admin SDK to prevent metadata server hangs and timeouts.
-if (process.env.VERCEL) {
-  console.log('[Firebase Admin] Detected Vercel serverless environment. Force-disabling Admin SDK and using REST fallbacks.');
-  adminDb = null;
-  isGCPServiceAccountAuthorized = false;
-} else if (isGCPServiceAccountAuthorized) {
-  // Dynamically imported here (not at module top-level) so that environments which
-  // never use the Admin SDK - like this app's Vercel deployment - never load
-  // firebase-admin/app or firebase-admin/firestore at all. A transitive dependency
-  // of firebase-admin's auth module (jwks-rsa -> jose) can throw ERR_REQUIRE_ESM
-  // under certain Node/bundler combinations purely from being loaded, even if never
-  // actually called - so the safest fix is to not load it unless we're really going to use it.
+// Routing database operations exclusively to Supabase. Disabling Firestore Admin client, keeping Auth token verification active.
+console.log('[Firebase Admin] Routing database operations exclusively to Supabase. Disabling Firestore Admin client, keeping Auth token verification active.');
+adminDb = null;
+
+if (isGCPServiceAccountAuthorized) {
   (async () => {
     try {
       const { getApps, initializeApp: initializeAdminApp, cert } = await import("firebase-admin/app");
-      const { getFirestore } = await import("firebase-admin/firestore");
 
       if (getApps().length === 0) {
         if (parsedServiceAccountJson) {
@@ -320,29 +312,11 @@ if (process.env.VERCEL) {
           });
         }
       }
-      const tempDb = getFirestore();
-      console.log('[Firebase Admin] Safe-initializing Firestore Admin client. Running permission pre-flight check...');
-
-      // Asynchronously test Admin SDK permissions without blocking server start.
-      tempDb.collection('products').limit(1).get()
-        .then(() => {
-          adminDb = tempDb;
-          console.log('[Firebase Admin] Permission pre-flight check passed. Service Account is fully authorized. Admin SDK activated.');
-        })
-        .catch((err: any) => {
-          console.warn('[Firebase Admin] Permission pre-flight check failed. Proactively falling back to REST API exclusively:', err.message || err);
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        });
+      console.log('[Firebase Admin] App successfully initialized for admin auth token verification.');
     } catch (err: any) {
-      console.warn('[Firebase Admin] Not using Admin SDK (falling back to REST):', err.message || err);
-      isGCPServiceAccountAuthorized = false;
-      adminDb = null;
+      console.warn('[Firebase Admin] Failed to initialize Firebase Admin app for verification:', err.message || err);
     }
   })();
-} else {
-  console.log('[Firebase Admin] Non-GCP/Non-authorized environment. Proactively disabling Admin SDK to avoid timeouts. Using REST client exclusively.');
-  adminDb = null;
 }
 
 // Dynamically fetch GCP service account token if running on Cloud Run
@@ -438,71 +412,36 @@ async function getProductData(productId: string) {
   }
 
   try {
-    if (adminDb) {
-      try {
-        console.log(`[Meta Crawler] Fetching product ${productId} via Firebase Admin SDK`);
-        const docSnap = await adminDb.collection('products').doc(productId).get();
-        if (docSnap.exists) {
-          const data = docSnap.data();
-          const title = data.title || '';
-          const description = data.description || '';
-          const priceValue = data.price || 'Negotiable';
-          const images = data.images || [];
-          const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+    if (backendSupabase) {
+      console.log(`[Meta Crawler] Fetching product ${productId} via Supabase`);
+      const { data, error } = await backendSupabase
+        .from('products')
+        .select('*')
+        .eq('id', productId)
+        .maybeSingle();
 
-          const result = {
-            title,
-            description,
-            price: priceValue,
-            image: primaryImage
-          };
-          productDataCache.set(productId, { data: result, timestamp: now });
-          return result;
-        }
-        productDataCache.set(productId, { data: null, timestamp: now });
-        return null;
-      } catch (adminErr: any) {
-        console.warn('[Meta Crawler] Admin SDK getProductData failed, falling back to REST:', adminErr?.message || adminErr);
-        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        }
+      if (!error && data) {
+        const title = data.title || '';
+        const description = data.description || '';
+        const priceValue = data.price || 'Negotiable';
+        const images = Array.isArray(data.images) ? data.images : [];
+        const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+
+        const result = {
+          title,
+          description,
+          price: priceValue,
+          image: primaryImage
+        };
+        productDataCache.set(productId, { data: result, timestamp: now });
+        return result;
       }
     }
-
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
-    console.log(`[Meta Crawler] Fetching product from Firestore REST URL: ${url}`);
     
-    const res = await fetch(url);
-    if (!res.ok) {
-      console.warn(`[Meta Crawler] Firestore product fetch failed for ${productId} with status: ${res.status}`);
-      const errText = await res.text();
-      console.warn(`[Meta Crawler] Response error payload:`, errText);
-      return null;
-    }
-    const data = await res.json();
-    
-    // Parse response
-    const fields = data.fields || {};
-    const title = fields.title?.stringValue || '';
-    const description = fields.description?.stringValue || '';
-    const priceValue = fields.price?.stringValue || fields.price?.integerValue || fields.price?.doubleValue || 'Negotiable';
-    const imagesVal = fields.images?.arrayValue?.values || [];
-    const images = imagesVal.map((v: any) => v.stringValue).filter(Boolean);
-    const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
-
-    console.log(`[Meta Crawler] Successfully fetched product data for ${productId}: "${title}", Price: "${priceValue}", Image starting with: ${primaryImage.slice(0, 50)}...`);
-
-    const result = {
-      title,
-      description,
-      price: priceValue,
-      image: primaryImage
-    };
-    productDataCache.set(productId, { data: result, timestamp: now });
-    return result;
+    productDataCache.set(productId, { data: null, timestamp: now });
+    return null;
   } catch (err) {
-    console.error('[Meta Crawler] Error fetching product data from Firestore REST:', err);
+    console.error('[Meta Crawler] Error fetching product data from Supabase:', err);
     return null;
   }
 }
@@ -877,73 +816,12 @@ async function getSellerData(sellerId: string) {
         return result;
       }
     } catch (sbErr: any) {
-      console.warn(`[Supabase Server] Fetch seller ${sellerId} failed, falling back to Firebase:`, sbErr?.message || sbErr);
+      console.warn(`[Supabase Server] Fetch seller ${sellerId} failed:`, sbErr?.message || sbErr);
     }
   }
 
-  try {
-    if (adminDb) {
-      try {
-        console.log(`[Meta Crawler] Fetching seller ${sellerId} via Firebase Admin SDK`);
-        const docSnap = await adminDb.collection('users').doc(sellerId).get();
-        if (docSnap.exists) {
-          const data = docSnap.data();
-          const username = data.username || '';
-          const role = data.role || 'seller';
-          const photoUrl = data.photoUrl || '';
-          const isVerified = data.emailVerified || false;
-
-          const result = {
-            username,
-            role,
-            photoUrl,
-            isVerified
-          };
-          sellerDataCache.set(sellerId, { data: result, timestamp: now });
-          return result;
-        }
-        sellerDataCache.set(sellerId, { data: null, timestamp: now });
-        return null;
-      } catch (adminErr: any) {
-        console.warn('[Meta Crawler] Admin SDK getSellerData failed, falling back to REST:', adminErr?.message || adminErr);
-        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        }
-      }
-    }
-
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${sellerId}${apiKey ? `?key=${apiKey}` : ""}`;
-    console.log(`[Meta Crawler] Fetching seller from Firestore REST URL: ${url}`);
-    
-    const res = await fetch(url);
-    if (!res.ok) {
-      console.warn(`[Meta Crawler] Firestore seller fetch failed for ${sellerId} with status: ${res.status}`);
-      return null;
-    }
-    const data = await res.json();
-    
-    // Parse response
-    const fields = data.fields || {};
-    const username = fields.username?.stringValue || '';
-    const role = fields.role?.stringValue || 'seller';
-    const photoUrl = fields.photoUrl?.stringValue || '';
-    const isVerified = fields.emailVerified?.booleanValue || false;
-
-    console.log(`[Meta Crawler] Successfully fetched seller data for ${sellerId}: "${username}"`);
-
-    const result = {
-      username,
-      role,
-      photoUrl,
-      isVerified
-    };
-    sellerDataCache.set(sellerId, { data: result, timestamp: now });
-    return result;
-  } catch (err) {
-    console.error('[Meta Crawler] Error fetching seller data from Firestore REST:', err);
-    return null;
-  }
+  sellerDataCache.set(sellerId, { data: null, timestamp: now });
+  return null;
 }
 
 function injectSellerMetaTags(html: string, seller: { username: string; role: string; photoUrl: string; isVerified: boolean }, shareUrl: string, host: string, protocol: string, sellerId: string): string {
@@ -1584,11 +1462,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
   async function fetchFromFirestoreDirect(): Promise<any[]> {
     let productsList: any[] = [];
-    let adminFetchedSuccessfully = false;
 
     if (backendSupabase) {
-      const maxRetries = 2;
-      let delayMs = 1500;
       // Deliberately exclude the full `images`/`videos` JSONB columns here -- they can hold
       // base64-encoded image data (observed up to ~1MB per product), and pulling that across
       // up to 300 rows in one query is what was blowing Supabase's statement timeout. The grid
@@ -1603,172 +1478,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
         'paymentStatus', 'paymentReference', 'visitCount', 'isApproved'
       ].join(',');
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          console.log(`[Products Data] Fetching products via backend Supabase (PostgreSQL)... (Attempt ${attempt}/${maxRetries})`);
-          const { data, error } = await backendSupabase
-            .from('products')
-            .select(LIST_VIEW_COLUMNS)
-            .order('createdAt', { ascending: false })
-            .limit(300);
-
-          if (error) throw error;
-          if (data) {
-            console.log(`[Products Data] Successfully loaded ${data.length} products from Supabase!`);
-            // Reshape into the `images: [...]` array shape the rest of the app expects,
-            // using just the single thumbnail for list/grid rendering.
-            return data.map((row: any) => ({
-              ...row,
-              images: row.thumbnail ? [row.thumbnail] : [],
-              thumbnail: undefined
-            }));
-          }
-        } catch (sbErr: any) {
-          console.log(`[Products Data] Supabase fetch attempt ${attempt} status:`, sbErr?.message || sbErr);
-          const errMsg = String(sbErr?.message || sbErr);
-          const isStatementTimeout = errMsg.includes('canceling statement') || errMsg.includes('statement timeout');
-          const isConnectionTimeout = errMsg.includes('timeout') || errMsg.includes('cancel');
-
-          if (isStatementTimeout) {
-            console.log('[Products Data] Hard statement timeout detected. Skipping retries; falling back immediately.');
-            break;
-          }
-
-          if (attempt < maxRetries && isConnectionTimeout) {
-            console.log(`[Products Data] Connection might be busy or waking up. Retrying in ${delayMs / 1000}s...`);
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-            delayMs *= 1.5;
-          } else {
-            console.log('[Products Data] Supabase fetch inactive, falling back to Firebase/REST:', sbErr?.message || sbErr);
-            break;
-          }
-        }
-      }
-    }
-
-    if (adminDb) {
       try {
-        console.log(`[Products Data] Fetching products via Firebase Admin SDK`);
-        const snapshot = await adminDb.collection("products")
-          .orderBy("createdAt", "desc")
-          .limit(300)
-          .get();
+        console.log(`[Products Data] Fetching products via backend Supabase (PostgreSQL)...`);
+        const { data, error } = await backendSupabase
+          .from('products')
+          .select(LIST_VIEW_COLUMNS)
+          .order('createdAt', { ascending: false })
+          .limit(300);
 
-        const serializeAdminData = (data: any): any => {
-          if (!data) return data;
-          if (data instanceof Date) {
-            return data.toISOString();
-          }
-          if (data && typeof data.toDate === 'function') {
-            return data.toDate().toISOString();
-          }
-          if (Array.isArray(data)) {
-            return data.map(item => serializeAdminData(item));
-          }
-          if (typeof data === 'object') {
-            const serialized: any = {};
-            for (const key of Object.keys(data)) {
-              serialized[key] = serializeAdminData(data[key]);
-            }
-            return serialized;
-          }
-          return data;
-        };
-
-        productsList = snapshot.docs.map((docSnap: any) => {
-          const rawData = docSnap.data();
-          const result = serializeAdminData(rawData);
-          result.id = docSnap.id;
-          return result;
-        });
-        adminFetchedSuccessfully = true;
-      } catch (adminErr: any) {
-        console.warn('[Products Data] Admin SDK fetch warning (graceful fall back to REST):', adminErr?.message || adminErr);
-        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
+        if (error) throw error;
+        if (data) {
+          console.log(`[Products Data] Successfully loaded ${data.length} products from Supabase!`);
+          // Reshape into the `images: [...]` array shape the rest of the app expects,
+          // using just the single thumbnail for list/grid rendering.
+          productsList = data.map((row: any) => ({
+            ...row,
+            images: row.thumbnail ? [row.thumbnail] : [],
+            thumbnail: undefined
+          }));
         }
+      } catch (sbErr: any) {
+        console.error(`[Products Data] Supabase fetch failed:`, sbErr?.message || sbErr);
       }
-    }
-
-    if (!adminFetchedSuccessfully) {
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-      const response = await fetch(firestoreUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          structuredQuery: {
-            from: [
-              {
-                collectionId: "products",
-                allDescendants: false
-              }
-            ],
-            orderBy: [
-              {
-                field: {
-                  fieldPath: "createdAt"
-                },
-                direction: "DESCENDING"
-              }
-            ],
-            limit: 300
-          }
-        }),
-        signal: AbortSignal.timeout(10000)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Firestore REST API returned ${response.status}`);
-      }
-
-      const data = await response.json();
-      const results = Array.isArray(data) ? data : [];
-
-      productsList = results
-        .filter((item: any) => item && item.document)
-        .map((item: any) => {
-          try {
-            const doc = item.document;
-            const fields = doc.fields || {};
-            const result: any = {};
-
-            const parseVal = (val: any): any => {
-              if (!val) return undefined;
-              if ('stringValue' in val) return val.stringValue;
-              if ('integerValue' in val) return parseInt(val.integerValue, 10);
-              if ('doubleValue' in val) return parseFloat(val.doubleValue);
-              if ('booleanValue' in val) return val.booleanValue;
-              if ('arrayValue' in val) {
-                const arr = val.arrayValue?.values || [];
-                return arr.map((sub: any) => parseVal(sub));
-              }
-              if ('mapValue' in val) {
-                const mapFields = val.mapValue?.fields || {};
-                const mapResult: any = {};
-                for (const k of Object.keys(mapFields)) {
-                  mapResult[k] = parseVal(mapFields[k]);
-                }
-                return mapResult;
-              }
-              return undefined;
-            };
-
-            for (const key of Object.keys(fields)) {
-              result[key] = parseVal(fields[key]);
-            }
-
-            const nameParts = doc.name ? doc.name.split('/') : [];
-            result.id = nameParts[nameParts.length - 1] || '';
-            return result;
-          } catch (err) {
-            console.error('[Products Data] Error parsing document:', err);
-            return null;
-          }
-        })
-        .filter(Boolean);
     }
 
     // Process the products list (runtime expiration, priority scores, extra sorting fields)
@@ -1981,70 +1712,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           .maybeSingle();
         if (!error && data) return data;
       } catch (sbErr: any) {
-        console.warn(`[Supabase Server] Fetch product ${productId} failed, falling back to Firebase:`, sbErr?.message || sbErr);
+        console.warn(`[Supabase Server] Fetch product ${productId} failed:`, sbErr?.message || sbErr);
       }
     }
-
-    if (adminDb) {
-      try {
-        console.log(`[Firebase Admin] Fetching product ${productId} with administrative privileges`);
-        const docSnap = await adminDb.collection('products').doc(productId).get();
-        if (docSnap.exists) {
-          return docSnap.data();
-        }
-        return null;
-      } catch (adminErr: any) {
-        console.warn('[Firebase Admin] Fetching product failed with Admin SDK, falling back to REST API:', adminErr?.message || adminErr);
-        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        }
-      }
-    }
-
-    try {
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
-      const res = await fetch(url, {
-        signal: AbortSignal.timeout(4000)
-      });
-      if (!res.ok) {
-        if (res.status === 404) return null;
-        throw new Error(`Fetch product document failed with status: ${res.status}`);
-      }
-      const data = await res.json();
-      const fields = data.fields || {};
-      
-      const parseVal = (val: any): any => {
-        if (!val) return undefined;
-        if ('stringValue' in val) return val.stringValue;
-        if ('integerValue' in val) return parseInt(val.integerValue, 10);
-        if ('doubleValue' in val) return parseFloat(val.doubleValue);
-        if ('booleanValue' in val) return val.booleanValue;
-        if ('timestampValue' in val) return val.timestampValue;
-        if ('arrayValue' in val) {
-          const arr = val.arrayValue?.values || [];
-          return arr.map((sub: any) => parseVal(sub));
-        }
-        if ('mapValue' in val) {
-          const mapFields = val.mapValue?.fields || {};
-          const mapResult: any = {};
-          for (const k of Object.keys(mapFields)) {
-            mapResult[k] = parseVal(mapFields[k]);
-          }
-          return mapResult;
-        }
-        return undefined;
-      };
-
-      const result: any = {};
-      for (const key of Object.keys(fields)) {
-        result[key] = parseVal(fields[key]);
-      }
-      return result;
-    } catch (err) {
-      console.error('[Firestore REST] Error getting raw product:', err);
-      return null;
-    }
+    return null;
   }
 
   async function updateProductFirestoreREST(productId: string, updatedFields: any, customAuthToken?: string) {
@@ -2065,114 +1736,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
         throw error;
       } catch (sbErr: any) {
-        console.warn(`[Supabase Server] Failed to update product ${productId} in Supabase, falling back:`, sbErr?.message || sbErr);
+        console.warn(`[Supabase Server] Failed to update product ${productId} in Supabase:`, sbErr?.message || sbErr);
       }
     }
-
-    if (adminDb) {
-      try {
-        console.log(`[Firebase Admin] Updating product ${productId} with administrative privileges`);
-        await adminDb.collection('products').doc(productId).update(updatedFields);
-        return { name: `projects/${projectId}/databases/(default)/documents/products/${productId}` };
-      } catch (adminErr: any) {
-        console.warn('[Firebase Admin] Product update failed with Admin SDK, falling back to REST API:', adminErr?.message || adminErr);
-        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        }
-      }
-    }
-
-    try {
-      const fieldsToPatch: any = {};
-      const queryParams: string[] = [];
-
-      for (const key of Object.keys(updatedFields)) {
-        const val = updatedFields[key];
-        queryParams.push(`updateMask.fieldPaths=${key}`);
-
-        if (val === null || val === undefined) {
-          fieldsToPatch[key] = { nullValue: "NULL_VALUE" };
-        } else if (typeof val === 'boolean') {
-          fieldsToPatch[key] = { booleanValue: val };
-        } else if (typeof val === 'number') {
-          if (Number.isInteger(val)) {
-            fieldsToPatch[key] = { integerValue: val.toString() };
-          } else {
-            fieldsToPatch[key] = { doubleValue: val };
-          }
-        } else if (typeof val === 'string') {
-          fieldsToPatch[key] = { stringValue: val };
-        } else if (Array.isArray(val)) {
-          const values = val.map((item: any) => {
-            if (item && typeof item === 'object') {
-              const mapFields: any = {};
-              for (const subKey of Object.keys(item)) {
-                const subVal = item[subKey];
-                if (typeof subVal === 'boolean') {
-                  mapFields[subKey] = { booleanValue: subVal };
-                } else if (typeof subVal === 'number') {
-                  mapFields[subKey] = Number.isInteger(subVal) ? { integerValue: subVal.toString() } : { doubleValue: subVal };
-                } else {
-                  mapFields[subKey] = { stringValue: String(subVal) };
-                }
-              }
-              return { mapValue: { fields: mapFields } };
-            }
-            return { stringValue: String(item) };
-          });
-          fieldsToPatch[key] = { arrayValue: { values } };
-        }
-      }
-
-      if (apiKey) {
-        queryParams.push(`key=${apiKey}`);
-      }
-
-      // Add server-side bypass secret to fields and updateMask so that security rules can inspect it in request.resource.data
-      fieldsToPatch['serverVerificationSecret'] = { stringValue: 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' };
-      queryParams.push('updateMask.fieldPaths=serverVerificationSecret');
-
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}?${queryParams.join('&')}`;
-      console.log(`[Firestore PATCH] Patching URL: ${url}`);
-
-      const headers: any = {
-        'Content-Type': 'application/json'
-      };
-
-      const gcpToken = await getGCPMetadataToken();
-      if (gcpToken) {
-        headers['Authorization'] = `Bearer ${gcpToken}`;
-        console.log('[Firestore PATCH] Attaching GCP Service Account token for administrative authorization.');
-      } else if (customAuthToken) {
-        headers['Authorization'] = customAuthToken;
-        console.log('[Firestore PATCH] Attaching client provided Custom Auth token.');
-      }
-
-      const res = await fetch(url, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({
-          fields: fieldsToPatch
-        }),
-        signal: AbortSignal.timeout(4000)
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        if ((res.status === 403 || res.status === 401) && gcpToken) {
-          console.warn('[Firestore PATCH] 403/401 Forbidden with GCP Service Account token. Disabling GCP Service Account administrative privileges.');
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        }
-        throw new Error(`PATCH request failed with status ${res.status}: ${text}`);
-      }
-
-      return await res.json();
-    } catch (err) {
-      console.error('[Firestore PATCH] Error updating product:', err);
-      throw err;
-    }
+    return null;
   }
 
   async function createBoostPurchaseFirestoreREST(purchaseData: any, customAuthToken?: string) {
@@ -2196,73 +1763,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
         throw error;
       } catch (sbErr: any) {
-        console.warn('[Supabase Server] Creating boost purchase in Supabase failed, falling back:', sbErr?.message || sbErr);
+        console.warn('[Supabase Server] Creating boost purchase in Supabase failed:', sbErr?.message || sbErr);
       }
-    }
-
-    if (adminDb) {
-      try {
-        console.log('[Firebase Admin] Creating boost purchase with administrative privileges');
-        await adminDb.collection('boost_purchases').add(purchaseData);
-        return;
-      } catch (adminErr: any) {
-        console.warn('[Firebase Admin] Creating boost purchase failed with Admin SDK, checking fallback:', adminErr.message || adminErr);
-        if (String(adminErr).includes('PERMISSION_DENIED') || String(adminErr).includes('permission')) {
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        }
-      }
-    }
-
-    try {
-      const fields: any = {};
-      for (const key of Object.keys(purchaseData)) {
-        const val = purchaseData[key];
-        if (typeof val === 'number') {
-          fields[key] = Number.isInteger(val) ? { integerValue: val.toString() } : { doubleValue: val };
-        } else if (typeof val === 'boolean') {
-          fields[key] = { booleanValue: val };
-        } else {
-          fields[key] = { stringValue: String(val) };
-        }
-      }
-
-      // Add server-side bypass secret to fields for security rules authorization
-      fields['serverVerificationSecret'] = { stringValue: 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' };
-
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/boost_purchases${apiKey ? `?key=${apiKey}` : ""}`;
-      
-      const headers: any = {
-        'Content-Type': 'application/json'
-      };
-
-      const gcpToken = await getGCPMetadataToken();
-      if (gcpToken) {
-        headers['Authorization'] = `Bearer ${gcpToken}`;
-        console.log('[Firestore POST] Attaching GCP Service Account token for administrative authorization.');
-      } else if (customAuthToken) {
-        headers['Authorization'] = customAuthToken;
-        console.log('[Firestore POST] Attaching client provided Custom Auth token.');
-      }
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ fields }),
-        signal: AbortSignal.timeout(4000)
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        if ((res.status === 403 || res.status === 401) && gcpToken) {
-          console.warn('[Firestore POST] 403/401 Forbidden with GCP Service Account token. Disabling GCP Service Account administrative privileges.');
-          isGCPServiceAccountAuthorized = false;
-          adminDb = null;
-        }
-        throw new Error(`POST request failed with status ${res.status}: ${text}`);
-      }
-    } catch (err) {
-      console.error('[Firestore REST POST] Error creating boost purchase record:', err);
     }
   }
 

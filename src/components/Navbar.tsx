@@ -754,24 +754,7 @@ export const Navbar: React.FC = () => {
                   </button>
                 </div>
                 
-                {/* Mobile sign out button */}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await logoutUser();
-                      showToast('Logged out successfully', 'success');
-                      setCurrentView('browse');
-                    } catch (err) {
-                      showToast('Failed to log out', 'error');
-                    }
-                  }}
-                  className="md:hidden px-2.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-lg transition shrink-0 cursor-pointer text-xs flex items-center gap-1 border border-slate-750"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Sign Out</span>
-                </button>
+
               </>
             ) : (
               <button
