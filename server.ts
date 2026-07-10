@@ -379,15 +379,23 @@ async function getProductData(productId: string) {
         }
       }
 
-      const result = {
-        title: foundProduct.title || '',
-        description: foundProduct.description || '',
-        price: foundProduct.price || 'Negotiable',
-        image: primaryImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80',
-        category: foundProduct.category || ''
-      };
-      productDataCache.set(productId, { data: result, timestamp: now });
-      return result;
+      // CRITICAL BUG FIX: If primaryImage is still a proxy URL (meaning we do not have the real image data on disk yet),
+      // we must NOT return the proxy URL. Otherwise, the image delivery proxy endpoint will get its own proxy URL
+      // in a circular reference and fail to deliver the actual image, falling back to Unsplash placeholders.
+      // Instead, we skip this list cache and let it fall through to query the database directly!
+      if (!primaryImage || primaryImage.startsWith('/api/products/')) {
+        console.log(`[Products Cache] Cached product found for ${productId}, but image is a proxy URL and not found on disk. Falling through to DB...`);
+      } else {
+        const result = {
+          title: foundProduct.title || '',
+          description: foundProduct.description || '',
+          price: foundProduct.price || 'Negotiable',
+          image: primaryImage,
+          category: foundProduct.category || ''
+        };
+        productDataCache.set(productId, { data: result, timestamp: now });
+        return result;
+      }
     }
   }
 
@@ -1474,7 +1482,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       // on the detail page via getRawProductFirestoreREST, which is unaffected by this.
       const LIST_VIEW_COLUMNS = [
         'id', 'title', 'description', 'price', 'category', 'location',
-        'thumbnail:images->0', 'brand', 'condition', 'negotiable',
+        'brand', 'condition', 'negotiable',
         'sellerId', 'sellerName', 'createdAt', 'viewsCount', 'likesCount',
         'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
         'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
@@ -1482,46 +1490,48 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'videos'
       ].join(',');
       try {
-        console.log(`[Products Data] [Stage 1] Fetching up to 50 products with thumbnails from backend Supabase (PostgreSQL)...`);
+        console.log(`[Products Data] [Stage 1] Fetching up to 150 products from backend Supabase (PostgreSQL)...`);
         const { data, error } = await backendSupabase
           .from('products')
           .select(LIST_VIEW_COLUMNS)
           .order('createdAt', { ascending: false })
-          .limit(50);
+          .limit(150);
 
         if (error) throw error;
         if (data) {
-          console.log(`[Products Data] [Stage 1] Successfully loaded ${data.length} products from Supabase!`);
+          console.log(`[Products Data] [Stage 1] Successfully loaded ${data.length} products from Supabase instantly!`);
           productsList = data.map((row: any) => ({
             ...row,
-            images: row.thumbnail ? [row.thumbnail] : [`/api/products/${row.id}/image.jpg`],
+            images: [`/api/products/${row.id}/image.jpg`],
+            videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
             thumbnail: undefined
           }));
         }
       } catch (sbErr: any) {
         const errMsg = sbErr?.message || String(sbErr);
-        console.warn(`[Products Data] [Stage 1] Supabase fetch failed or timed out: ${errMsg}. Retrying Stage 2 with smaller limit...`);
+        console.warn(`[Products Data] [Stage 1] Supabase fetch failed: ${errMsg}. Retrying Stage 2 with smaller limit...`);
         
         try {
-          // Stage 2: Try a smaller limit of 20 to avoid processing too many TOAST-decompressions on the server.
+          // Stage 2: Try a smaller limit of 50
           const { data, error } = await backendSupabase
             .from('products')
             .select(LIST_VIEW_COLUMNS)
             .order('createdAt', { ascending: false })
-            .limit(20);
+            .limit(50);
 
           if (error) throw error;
           if (data) {
             console.log(`[Products Data] [Stage 2] Successfully loaded ${data.length} products from Supabase with smaller limit!`);
             productsList = data.map((row: any) => ({
               ...row,
-              images: row.thumbnail ? [row.thumbnail] : [`/api/products/${row.id}/image.jpg`],
+              images: [`/api/products/${row.id}/image.jpg`],
+              videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
               thumbnail: undefined
             }));
           }
         } catch (sbErr2: any) {
           const errMsg2 = sbErr2?.message || String(sbErr2);
-          console.warn(`[Products Data] [Stage 2] Supabase fetch failed or timed out: ${errMsg2}. Retrying Stage 3 with no-image fallback...`);
+          console.warn(`[Products Data] [Stage 2] Supabase fetch failed: ${errMsg2}. Retrying Stage 3 with no-image fallback...`);
           
           try {
             // Stage 3: Fetch columns excluding the images entirely. This is guaranteed to be sub-millisecond as it doesn't read TOAST table.
@@ -1547,6 +1557,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               productsList = data.map((row: any) => ({
                 ...row,
                 images: [`/api/products/${row.id}/image.jpg`],
+                videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
                 thumbnail: undefined
               }));
             }
@@ -3980,6 +3991,62 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
     
     return res.redirect(fallbackUrl);
+  });
+
+  // Dynamic video delivery endpoint to stream base64 video uploads as binary MP4 streams on-the-fly
+  app.get(['/api/products/:productId/video', '/api/products/:productId/video.mp4'], serverRateLimiter(60 * 1000, 100, "video-proxy"), async (req, res) => {
+    const { productId } = req.params;
+    if (!productId) {
+      return res.status(400).send('Missing product ID');
+    }
+
+    try {
+      const product = await getRawProductFirestoreREST(productId);
+      if (!product) {
+        return res.status(404).send('Product not found');
+      }
+
+      const videoUrl = (Array.isArray(product.videos) && product.videos.length > 0) ? product.videos[0] : null;
+      if (!videoUrl) {
+        return res.status(404).send('No video associated with this product');
+      }
+
+      if (videoUrl.startsWith('data:')) {
+        const parts = videoUrl.split(';base64,');
+        if (parts.length === 2) {
+          const mimeType = parts[0].replace('data:', '') || 'video/mp4'; // e.g., video/mp4
+          const base64Data = parts[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+
+          res.set('Content-Type', mimeType);
+          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+          return res.send(buffer);
+        }
+      } else if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
+        // Direct stream proxy for external video URLs
+        const isValid = await validateImageUrlSecurely(videoUrl);
+        if (!isValid) {
+          return res.status(403).send('Forbidden: Selected video URL fails SSRF safety check.');
+        }
+
+        const videoRes = await fetch(videoUrl, { redirect: 'manual' });
+        if (videoRes.status >= 300 && videoRes.status < 400) {
+          return res.status(400).send('SSRF Security Error: Redirects are not allowed.');
+        }
+
+        if (videoRes.ok) {
+          const contentType = videoRes.headers.get('content-type') || 'video/mp4';
+          const buffer = Buffer.from(await videoRes.arrayBuffer());
+          res.set('Content-Type', contentType);
+          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+          return res.send(buffer);
+        }
+      }
+      return res.status(404).send('Video source invalid or unavailable');
+    } catch (err) {
+      console.error('Error in secure video proxy endpoint:', err);
+      return res.status(500).send('Internal Server Error');
+    }
   });
 
   if (process.env.NODE_ENV !== "production") {
