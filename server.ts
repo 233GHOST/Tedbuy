@@ -1479,7 +1479,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
         'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
         'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
-        'paymentStatus', 'paymentReference', 'visitCount', 'isApproved'
+        'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'videos'
       ].join(',');
       try {
         console.log(`[Products Data] [Stage 1] Fetching up to 50 products with thumbnails from backend Supabase (PostgreSQL)...`);
@@ -1532,7 +1532,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
               'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
               'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
-              'paymentStatus', 'paymentReference', 'visitCount', 'isApproved'
+              'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'videos'
             ].join(',');
             
             const { data, error } = await backendSupabase
