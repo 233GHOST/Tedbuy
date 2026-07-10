@@ -425,17 +425,17 @@ async function getGCPMetadataToken() {
 }
 
 // REST API helper to fetch product info directly from Firestore
-async function getProductData(productId: string) {
+async function getProductData(productId: string, bypassListCache: boolean = false) {
   const now = Date.now();
   const cached = productDataCache.get(productId);
-  if (cached && (now - cached.timestamp < 120000)) {
+  if (!bypassListCache && cached && (now - cached.timestamp < 120000)) {
     console.log(`[Meta Crawler] Serving product ${productId} from memory cache`);
     return cached.data;
   }
 
   // 1. Check if the product is in our cachedProducts list first!
   // This completely avoids hitting the Firestore REST API and provides the real title/description/price/image.
-  if (cachedProducts && Array.isArray(cachedProducts.data)) {
+  if (!bypassListCache && cachedProducts && Array.isArray(cachedProducts.data)) {
     const foundProduct = cachedProducts.data.find((p: any) => p && (p.id === productId || p._id === productId));
     if (foundProduct) {
       console.log(`[Products Cache] Found product ${productId} in list cache.`);
@@ -483,25 +483,27 @@ async function getProductData(productId: string) {
   }
 
   // 2. Check local images_cache on disk next
-  const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
-  if (fs.existsSync(imageCacheFile)) {
-    try {
-      const base64Data = fs.readFileSync(imageCacheFile, 'utf-8');
-      if (base64Data && base64Data.startsWith('data:')) {
-        console.log(`[Images Cache] Serving product image for ${productId} from disk cache`);
-        const result = {
-          title: '',
-          description: '',
-          price: 'Negotiable',
-          image: base64Data,
-          images: [base64Data],
-          category: ''
-        };
-        productDataCache.set(productId, { data: result, timestamp: now });
-        return result;
+  if (!bypassListCache) {
+    const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
+    if (fs.existsSync(imageCacheFile)) {
+      try {
+        const base64Data = fs.readFileSync(imageCacheFile, 'utf-8');
+        if (base64Data && base64Data.startsWith('data:')) {
+          console.log(`[Images Cache] Serving product image for ${productId} from disk cache`);
+          const result = {
+            title: '',
+            description: '',
+            price: 'Negotiable',
+            image: base64Data,
+            images: [base64Data],
+            category: ''
+          };
+          productDataCache.set(productId, { data: result, timestamp: now });
+          return result;
+        }
+      } catch (diskErr) {
+        console.warn(`[Images Cache] Failed to read cached image for ${productId} from disk:`, diskErr);
       }
-    } catch (diskErr) {
-      console.warn(`[Images Cache] Failed to read cached image for ${productId} from disk:`, diskErr);
     }
   }
 
@@ -4133,7 +4135,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     // 5. Fetch from firestore if not cached on disk
     if (!originalBuffer && !imageUrl && productId) {
       try {
-        const product = await getProductData(productId);
+        const product = await getProductData(productId, idx > 0);
         if (product) {
           // Determine which image URL/base64 to use based on index
           let targetImageUrl = '';
