@@ -742,7 +742,6 @@ export const Navbar: React.FC = () => {
                     onClick={async () => {
                       try {
                         await logoutUser();
-                        showToast('Logged out successfully', 'success');
                       } catch (err) {
                         showToast('Failed to log out', 'error');
                       }
