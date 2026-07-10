@@ -383,7 +383,8 @@ async function getProductData(productId: string) {
         title: foundProduct.title || '',
         description: foundProduct.description || '',
         price: foundProduct.price || 'Negotiable',
-        image: primaryImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80'
+        image: primaryImage || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80',
+        category: foundProduct.category || ''
       };
       productDataCache.set(productId, { data: result, timestamp: now });
       return result;
@@ -401,7 +402,8 @@ async function getProductData(productId: string) {
           title: '',
           description: '',
           price: 'Negotiable',
-          image: base64Data
+          image: base64Data,
+          category: ''
         };
         productDataCache.set(productId, { data: result, timestamp: now });
         return result;
@@ -431,7 +433,8 @@ async function getProductData(productId: string) {
           title,
           description,
           price: priceValue,
-          image: primaryImage
+          image: primaryImage,
+          category: data.category || ''
         };
         productDataCache.set(productId, { data: result, timestamp: now });
         return result;
@@ -1479,26 +1482,78 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'paymentStatus', 'paymentReference', 'visitCount', 'isApproved'
       ].join(',');
       try {
-        console.log(`[Products Data] Fetching products via backend Supabase (PostgreSQL)...`);
+        console.log(`[Products Data] [Stage 1] Fetching up to 50 products with thumbnails from backend Supabase (PostgreSQL)...`);
         const { data, error } = await backendSupabase
           .from('products')
           .select(LIST_VIEW_COLUMNS)
           .order('createdAt', { ascending: false })
-          .limit(300);
+          .limit(50);
 
         if (error) throw error;
         if (data) {
-          console.log(`[Products Data] Successfully loaded ${data.length} products from Supabase!`);
-          // Reshape into the `images: [...]` array shape the rest of the app expects,
-          // using just the single thumbnail for list/grid rendering.
+          console.log(`[Products Data] [Stage 1] Successfully loaded ${data.length} products from Supabase!`);
           productsList = data.map((row: any) => ({
             ...row,
-            images: row.thumbnail ? [row.thumbnail] : [],
+            images: row.thumbnail ? [row.thumbnail] : [`/api/products/${row.id}/image.jpg`],
             thumbnail: undefined
           }));
         }
       } catch (sbErr: any) {
-        console.error(`[Products Data] Supabase fetch failed:`, sbErr?.message || sbErr);
+        const errMsg = sbErr?.message || String(sbErr);
+        console.warn(`[Products Data] [Stage 1] Supabase fetch failed or timed out: ${errMsg}. Retrying Stage 2 with smaller limit...`);
+        
+        try {
+          // Stage 2: Try a smaller limit of 20 to avoid processing too many TOAST-decompressions on the server.
+          const { data, error } = await backendSupabase
+            .from('products')
+            .select(LIST_VIEW_COLUMNS)
+            .order('createdAt', { ascending: false })
+            .limit(20);
+
+          if (error) throw error;
+          if (data) {
+            console.log(`[Products Data] [Stage 2] Successfully loaded ${data.length} products from Supabase with smaller limit!`);
+            productsList = data.map((row: any) => ({
+              ...row,
+              images: row.thumbnail ? [row.thumbnail] : [`/api/products/${row.id}/image.jpg`],
+              thumbnail: undefined
+            }));
+          }
+        } catch (sbErr2: any) {
+          const errMsg2 = sbErr2?.message || String(sbErr2);
+          console.warn(`[Products Data] [Stage 2] Supabase fetch failed or timed out: ${errMsg2}. Retrying Stage 3 with no-image fallback...`);
+          
+          try {
+            // Stage 3: Fetch columns excluding the images entirely. This is guaranteed to be sub-millisecond as it doesn't read TOAST table.
+            const SAFE_COLUMNS = [
+              'id', 'title', 'description', 'price', 'category', 'location',
+              'brand', 'condition', 'negotiable',
+              'sellerId', 'sellerName', 'createdAt', 'viewsCount', 'likesCount',
+              'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
+              'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
+              'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
+              'paymentStatus', 'paymentReference', 'visitCount', 'isApproved'
+            ].join(',');
+            
+            const { data, error } = await backendSupabase
+              .from('products')
+              .select(SAFE_COLUMNS)
+              .order('createdAt', { ascending: false })
+              .limit(300);
+
+            if (error) throw error;
+            if (data) {
+              console.log(`[Products Data] [Stage 3] Successfully loaded ${data.length} products WITHOUT images (safe fallback, mapping proxy URLs)!`);
+              productsList = data.map((row: any) => ({
+                ...row,
+                images: [`/api/products/${row.id}/image.jpg`],
+                thumbnail: undefined
+              }));
+            }
+          } catch (sbErr3: any) {
+            console.error(`[Products Data] [Stage 3] Safe Supabase fetch fallback failed completely:`, sbErr3?.message || sbErr3);
+          }
+        }
       }
     }
 
@@ -3527,31 +3582,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const cleanName = username || email.split('@')[0] || 'there';
     const escapedName = escapeHtml(cleanName);
 
-    try {
-      const transporter = getMailTransporter();
-
-      // Run pre-flight network connection, handshake, and authentication diagnostic check
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        console.log(`[Email Engine] Running pre-flight SMTP diagnostics for recipient: ${email}...`);
-        const diagResult = await diagnoseSMTPAndVerify(transporter);
-        if (!diagResult.success) {
-          console.warn(`[Email Engine] Pre-flight SMTP block: Diagnostics failed prior to dispatch to ${email}. Gracefully bypassing to simulate success.`);
-          return res.json({
-            success: true,
-            messageId: 'simulated_delivery_bypass_id',
-            simulated: true,
-            warning: 'SMTP pre-flight diagnostic failed or host is offline. Onboarding flow completed with simulation.'
-          });
-        }
-      }
-      
-      const mailOptions = {
-        from: '"Tedbuy" <info@tedbuy.store>',
-        to: email,
-        replyTo: 'info@tedbuy.store',
-        subject: 'Welcome to Tedbuy Ghana',
-        text: `Welcome to Tedbuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on Tedbuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nTedbuy Support`,
-        html: `<!DOCTYPE html>
+    const subject = 'Welcome to Tedbuy Ghana';
+    const textContent = `Welcome to Tedbuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on Tedbuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nTedbuy Support`;
+    
+    const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -3588,17 +3622,93 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     </div>
   </div>
 </body>
-</html>`
+</html>`;
+
+    // 1. Try Brevo REST API if configured
+    const brevoApiKey = process.env.BREVO_API_KEY;
+    if (brevoApiKey) {
+      console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${email}`);
+      try {
+        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info@tedbuy.store';
+        const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
+
+        const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'api-key': brevoApiKey,
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({
+            sender: {
+              name: senderName,
+              email: senderEmail
+            },
+            to: [
+              {
+                email: email.trim(),
+                name: cleanName
+              }
+            ],
+            replyTo: {
+              email: senderEmail,
+              name: senderName
+            },
+            subject: subject,
+            htmlContent: htmlContent,
+            textContent: textContent
+          })
+        });
+
+        if (brevoResponse.ok) {
+          const result = await brevoResponse.json();
+          console.log(`[Email Engine] Brevo REST API sent successfully. Message ID: ${result.messageId || 'unknown'}`);
+          return res.json({ success: true, messageId: result.messageId || 'brevo-rest-id', provider: 'brevo-rest' });
+        } else {
+          const errText = await brevoResponse.text();
+          throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
+        }
+      } catch (brevoErr: any) {
+        console.warn(`[Email Engine] Brevo REST API delivery failed, falling back to SMTP/Simulation:`, brevoErr?.message || brevoErr);
+      }
+    }
+
+    // 2. Fall back to standard SMTP Transporter
+    try {
+      const transporter = getMailTransporter();
+
+      // Run pre-flight network connection, handshake, and authentication diagnostic check
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        console.log(`[Email Engine] Running pre-flight SMTP diagnostics for recipient: ${email}...`);
+        const diagResult = await diagnoseSMTPAndVerify(transporter);
+        if (!diagResult.success) {
+          console.warn(`[Email Engine] Pre-flight SMTP block: Diagnostics failed prior to dispatch to ${email}. Gracefully bypassing to simulate success.`);
+          return res.json({
+            success: true,
+            messageId: 'simulated_delivery_bypass_id',
+            simulated: true,
+            warning: 'SMTP pre-flight diagnostic failed or host is offline. Onboarding flow completed with simulation.'
+          });
+        }
+      }
+      
+      const mailOptions = {
+        from: '"Tedbuy" <info@tedbuy.store>',
+        to: email,
+        replyTo: 'info@tedbuy.store',
+        subject: subject,
+        text: textContent,
+        html: htmlContent
       };
 
       const info = await transporter.sendMail(mailOptions);
-      console.log(`[Email Engine] Welcome email dispatched successfully for ${email}. MessageId: ${info.messageId || 'virtual'}`);
+      console.log(`[Email Engine] Welcome email dispatched successfully via SMTP for ${email}. MessageId: ${info.messageId || 'virtual'}`);
       
       if ((info as any).message) {
         console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
       }
 
-      return res.json({ success: true, messageId: info.messageId || 'virtual' });
+      return res.json({ success: true, messageId: info.messageId || 'virtual', provider: 'smtp' });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       console.warn(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${email}:`, errMsg);
@@ -3759,25 +3869,36 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
+  function getCategoryFallbackUrl(cat: string): string {
+    if (!cat) return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+    const lower = cat.toLowerCase();
+    if (lower.includes('phone') || lower.includes('mobile')) return 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('electronic') || lower.includes('tv') || lower.includes('audio') || lower.includes('camera')) return 'https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('laptop') || lower.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('fashion') || lower.includes('wear') || lower.includes('clothes')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('vehicle') || lower.includes('car')) return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('beauty')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('game') || lower.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('appliance') || lower.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=600&q=80';
+    return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+  }
+
   // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files
   app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 100, "image-proxy"), async (req, res) => {
     const { productId } = req.params;
     const queryImageUrl = req.query.image as string;
-    const fallbackUrl = 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&w=1200&h=630&q=80';
-    
-    if (!productId && !queryImageUrl) {
-      return res.redirect(fallbackUrl);
-    }
     
     let imageUrl = queryImageUrl;
+    let category = '';
     if (!imageUrl && productId) {
       try {
         const product = await getProductData(productId);
-        if (product && product.image) {
+        if (product) {
           imageUrl = product.image;
+          category = product.category || '';
           
           // Save to images_cache on disk on-the-fly if it was fetched from firestore
-          if (imageUrl.startsWith('data:')) {
+          if (imageUrl && imageUrl.startsWith('data:')) {
             const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
             if (!fs.existsSync(imageCacheFile)) {
               try {
@@ -3792,6 +3913,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       } catch (err) {
         console.error('Error in secure image endpoint fetching product data:', err);
       }
+    }
+    
+    const fallbackUrl = getCategoryFallbackUrl(category);
+    
+    if (!productId && !queryImageUrl) {
+      return res.redirect(fallbackUrl);
     }
     
     if (!imageUrl) {

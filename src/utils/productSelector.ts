@@ -306,69 +306,77 @@ export function createProductSelector() {
       const scoresA = scoringMap.get(a.id) || { rankingScore: 0 };
       const scoresB = scoringMap.get(b.id) || { rankingScore: 0 };
 
-      // Boosted listings must always appear above all normal listings under default sort
-      if (sortByPrice === 'default') {
-        const boostA = isBoostActive(a);
-        const boostB = isBoostActive(b);
-        if (boostA && !boostB) return -1;
-        if (!boostA && boostB) return 1;
+      const boostA = isBoostActive(a);
+      const boostB = isBoostActive(b);
 
-        if (boostA && boostB) {
-          // PRIORITY LEVEL 1: BOOST PACKAGE VALUE (GHS price / level)
-          // Package hierarchy: GH₵20 > GH₵12 > GH₵7 > GH₵3 > GH₵1
-          const getBoostPriorityLevel = (planId?: string): number => {
-            if (!planId) return 0;
-            if (planId === '90days') return 5; // GH₵20
-            if (planId === '30days') return 4; // GH₵12
-            if (planId === '14days') return 3; // GH₵7
-            if (planId === '7days') return 2;  // GH₵3
-            if (planId === '3days') return 1;  // GH₵1
-            return 0;
-          };
+      // Boosted listings must always appear above all normal listings under all sorting and filtering
+      if (boostA && !boostB) return -1;
+      if (!boostA && boostB) return 1;
 
-          const levelA = getBoostPriorityLevel(a.boostPlan);
-          const levelB = getBoostPriorityLevel(b.boostPlan);
-          if (levelA !== levelB) {
-            return levelB - levelA; // Higher price/level package first
-          }
-
-          // PRIORITY LEVEL 2: REMAINING BOOST TIME
-          // Sort by highest remaining duration: boostEndDate - Current Time
-          const timeA = a.boostEndDate ? new Date(a.boostEndDate).getTime() : 0;
-          const timeB = b.boostEndDate ? new Date(b.boostEndDate).getTime() : 0;
-          if (timeA !== timeB) {
-            return timeB - timeA; // Longest remaining duration first
-          }
-
-          // PRIORITY LEVEL 3: EXISTING ENGAGEMENT SCORE
-          if (scoresA.rankingScore !== scoresB.rankingScore) {
-            return scoresB.rankingScore - scoresA.rankingScore; // Higher engagement first
-          }
-
-          // PRIORITY LEVEL 4: NEWEST LISTING
-          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return dateB - dateA; // Newest first
+      // If both are boosted:
+      if (boostA && boostB) {
+        // If sorting by price explicitly, sort within boosted group by price
+        if (sortByPrice === 'asc') {
+          const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
+          if (diff !== 0) return diff;
+        } else if (sortByPrice === 'desc') {
+          const diff = parseNumericPrice(b.price) - parseNumericPrice(a.price);
+          if (diff !== 0) return diff;
         }
+
+        // Default prioritization for boosted listings (or for price-sort ties within boosted listings)
+        // PRIORITY LEVEL 1: BOOST PACKAGE VALUE (GHS price / level)
+        // Package hierarchy: GH₵20 > GH₵12 > GH₵7 > GH₵3 > GH₵1
+        const getBoostPriorityLevel = (planId?: string): number => {
+          if (!planId) return 0;
+          if (planId === '90days') return 5; // GH₵20
+          if (planId === '30days') return 4; // GH₵12
+          if (planId === '14days') return 3; // GH₵7
+          if (planId === '7days') return 2;  // GH₵3
+          if (planId === '3days') return 1;  // GH₵1
+          return 0;
+        };
+
+        const levelA = getBoostPriorityLevel(a.boostPlan);
+        const levelB = getBoostPriorityLevel(b.boostPlan);
+        if (levelA !== levelB) {
+          return levelB - levelA; // Higher price/level package first
+        }
+
+        // PRIORITY LEVEL 2: REMAINING BOOST TIME
+        const timeA = a.boostEndDate ? new Date(a.boostEndDate).getTime() : 0;
+        const timeB = b.boostEndDate ? new Date(b.boostEndDate).getTime() : 0;
+        if (timeA !== timeB) {
+          return timeB - timeA; // Longest remaining duration first
+        }
+
+        // PRIORITY LEVEL 3: EXISTING ENGAGEMENT SCORE
+        if (scoresA.rankingScore !== scoresB.rankingScore) {
+          return scoresB.rankingScore - scoresA.rankingScore;
+        }
+
+        // PRIORITY LEVEL 4: NEWEST LISTING
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
       }
 
+      // If both are normal (not boosted):
       // Under explicit price sorting, sort primarily by price and fallback to rankingScore for tie breaking
       if (sortByPrice === 'asc') {
         const diff = parseNumericPrice(a.price) - parseNumericPrice(b.price);
         if (diff !== 0) return diff;
-        return scoresB.rankingScore - scoresA.rankingScore;
       } else if (sortByPrice === 'desc') {
         const diff = parseNumericPrice(b.price) - parseNumericPrice(a.price);
         if (diff !== 0) return diff;
-        return scoresB.rankingScore - scoresA.rankingScore;
       }
 
-      // Otherwise if sortByPrice === 'default', sort primarily by smart rankingScore!
+      // Default: sort by smart rankingScore!
       if (scoresA.rankingScore !== scoresB.rankingScore) {
         return scoresB.rankingScore - scoresA.rankingScore;
       }
 
-      // Break ties using the user's date-based preferences (newest vs oldest)
+      // Break ties using user's date-based preferences
       const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       if (sortByAds === 'newest') {

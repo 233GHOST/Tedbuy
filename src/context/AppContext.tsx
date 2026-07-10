@@ -1598,8 +1598,7 @@ Tedbuy Support`;
       console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
     }
 
-    // 5. Send Welcome Email synchronously via server SMTP (SUSPENDED FOR NOW: as requested by the user to avoid repetitive welcome emails for already created accounts)
-    /*
+    // 5. Send Welcome Email synchronously via server SMTP / Brevo REST
     try {
       const emailResponse = await fetch('/api/send-welcome-email', {
         method: 'POST',
@@ -1631,9 +1630,8 @@ Tedbuy Support`;
         console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
       }
     } catch (emailErr) {
-      console.warn('[Welcome Trigger] Backend SMTP call failed:', emailErr);
+      console.warn('[Welcome Trigger] Backend welcome email call failed:', emailErr);
     }
-    */
 
     // 6. Keep active runtime state in-sync with welcomeSent: true
     setCurrentUserState(prev => {

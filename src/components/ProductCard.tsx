@@ -3,6 +3,7 @@ import { Product, isUserVerified, User } from '../types';
 import { useApp } from '../context/AppContext';
 import { MapPin, Eye, Calendar, Tag, Bookmark, Video, Flame } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
+import { isBoostActive } from '../utils/dateParser';
 
 interface ProductCardProps {
   product: Product;
@@ -27,10 +28,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   // O(1) user profile resolution utilizing pre-mapped dictionary or array fallback
   const seller = usersMap ? usersMap.get(product.sellerId) : users?.find(u => u.id === product.sellerId);
   const isSellerVerified = isUserVerified(seller);
-  const isPrioSeller = !!(seller && (
-    (seller.visitCount && seller.visitCount >= 2) ||
-    (seller.rapidPostScore && seller.rapidPostScore >= 2)
-  ));
+  const isPrioSeller = isBoostActive(product);
 
   const handleDetailsClick = () => {
     setSelectedProductId(product.id);
