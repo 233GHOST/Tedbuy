@@ -1696,6 +1696,51 @@ Tedbuy Support`;
     }
   }, [currentView, selectedProductId, products]);
 
+  // Fetch complete product details with all images when a specific product is opened in product-detail view
+  useEffect(() => {
+    if (!selectedProductId || currentView !== 'product-detail') return;
+
+    let isSubscribed = true;
+
+    const loadFullProductDetail = async () => {
+      try {
+        console.log(`[AppContext] Fetching full product detail for ${selectedProductId}...`);
+        const res = await fetch(`/api/products/${selectedProductId}`);
+        if (!res.ok) throw new Error(`Server returned status ${res.status}`);
+        const data = await res.json();
+        
+        if (isSubscribed && data && data.success && data.product) {
+          const fullProduct = data.product;
+          
+          setProducts(prevProducts => 
+            prevProducts.map(p => {
+              if (p.id === selectedProductId) {
+                return {
+                  ...p,
+                  ...fullProduct,
+                  // Ensure we use the full images array fetched from backend
+                  images: Array.isArray(fullProduct.images) && fullProduct.images.length > 0 
+                    ? fullProduct.images 
+                    : p.images
+                };
+              }
+              return p;
+            })
+          );
+          console.log(`[AppContext] Successfully loaded full product detail with ${fullProduct.images?.length || 0} images.`);
+        }
+      } catch (err) {
+        console.warn(`[AppContext] Failed to load full product detail for ${selectedProductId}:`, err);
+      }
+    };
+
+    loadFullProductDetail();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [selectedProductId, currentView]);
+
   // 3. Real-time Reviews Synchronization (Optimized to Fetch Once on Mount)
   useEffect(() => {
     const timer = setTimeout(async () => {

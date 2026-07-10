@@ -1880,6 +1880,32 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     res.json({ success: true, products: result.products, ...(result.isStale ? { isStale: true } : {}), ...(result.isFallback ? { isFallback: true } : {}) });
   });
 
+  app.get('/api/products/:productId', serverRateLimiter(60 * 1000, 200, "product-detail"), async (req, res) => {
+    const { productId } = req.params;
+    if (!productId) {
+      return res.status(400).json({ success: false, error: 'Missing product ID' });
+    }
+
+    try {
+      const product = await getRawProductFirestoreREST(productId);
+      if (!product) {
+        return res.status(404).json({ success: false, error: 'Product not found' });
+      }
+
+      // Run it through optimizeProductsForClient to translate heavy base64 strings into optimized local proxy URLs!
+      const optimizedList = optimizeProductsForClient([product]);
+      const optimized = optimizedList && optimizedList.length > 0 ? optimizedList[0] : null;
+      if (!optimized) {
+        return res.status(504).json({ success: false, error: 'Optimization failed' });
+      }
+
+      return res.json({ success: true, product: optimized });
+    } catch (err: any) {
+      console.error(`[Product Detail API] Error fetching product ${productId}:`, err);
+      return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+    }
+  });
+
   // Firestore REST helpers for Boost Ad System
   async function getRawProductFirestoreREST(productId: string) {
     if (backendSupabase) {
