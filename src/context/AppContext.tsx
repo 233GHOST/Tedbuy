@@ -1645,7 +1645,12 @@ Tedbuy Support`;
   useEffect(() => {
     if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
     
-    // Welcome message triggers when a new account is created or when a user logs in (if not already sent)
+    // Ensure welcome messages are only sent to users who just registered an account, NOT users signing into an existing account.
+    if (!justRegisteredUserIds.current.has(currentUser.id)) {
+      console.log(`[Welcome Trigger] Skipped welcome package dispatch for existing user sign-in: ${currentUser.username}`);
+      return;
+    }
+    
     setupWelcomePackage(currentUser);
   }, [currentUser]);
 
