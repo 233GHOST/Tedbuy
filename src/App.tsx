@@ -1270,42 +1270,42 @@ const MarketplaceContent: React.FC = () => {
         <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-10 mt-12 mb-16 md:mb-0">
           <div className="max-w-7xl mx-auto px-4 space-y-8">
             {/* Stay Safe on TedBuy Section */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-3xl p-6 md:p-8 max-w-4xl mx-auto text-left space-y-4">
-              <div className="flex items-center gap-2 text-slate-800 font-extrabold text-sm uppercase tracking-wider">
-                <ShieldAlert className="w-5 h-5 text-rose-600 animate-pulse" />
-                <span>Stay Safe on TedBuy</span>
+            <div className="bg-amber-50/80 border-2 border-amber-400/80 border-l-rose-500 border-l-8 rounded-3xl p-6 md:p-8 max-w-4xl mx-auto text-left space-y-5 shadow-sm relative overflow-hidden">
+              <div className="flex items-center gap-2.5 text-rose-700 font-black text-sm md:text-base uppercase tracking-widest">
+                <ShieldAlert className="w-6 h-6 text-rose-600 animate-pulse shrink-0" />
+                <span>CRITICAL SAFETY ADVISORY — STAY SAFE ON TEDBUY</span>
               </div>
-              <p className="text-xs text-slate-500 leading-relaxed font-sans">
-                Tedbuy is committed to providing a secure P2P trading experience. Always protect yourself by adhering to these essential marketplace safety tips:
+              <p className="text-xs text-amber-950 font-semibold leading-relaxed font-sans">
+                Tedbuy is committed to providing a secure P2P trading experience. To guarantee your financial and personal safety, you MUST strictly adhere to these essential marketplace guidelines at all times:
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5 pt-2">
-                <div className="space-y-1 bg-white p-4 rounded-2xl border border-slate-150/70 shadow-3xs">
-                  <div className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-rose-50 text-rose-600 font-extrabold text-[10px]">1</span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-1">
+                <div className="space-y-2.5 bg-white p-5 rounded-2xl border-2 border-amber-300/40 shadow-xs hover:border-rose-400/30 transition-all duration-200">
+                  <div className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-extrabold text-xs shadow-xs shrink-0">1</span>
                     <span>Meet in Public Places</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Always arrange to meet the other party in highly populated, well-lit public zones like malls, bank lobbies, or police stations.
+                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                    Always arrange to meet the other party in <strong className="text-rose-700 font-extrabold">highly populated, well-lit public zones</strong> like shopping malls, bank lobbies, or police stations. Never meet in private or secluded areas.
                   </p>
                 </div>
 
-                <div className="space-y-1 bg-white p-4 rounded-2xl border border-slate-150/70 shadow-3xs">
-                  <div className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-rose-50 text-rose-600 font-extrabold text-[10px]">2</span>
+                <div className="space-y-2.5 bg-white p-5 rounded-2xl border-2 border-amber-300/40 shadow-xs hover:border-rose-400/30 transition-all duration-200">
+                  <div className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-extrabold text-xs shadow-xs shrink-0">2</span>
                     <span>No Upfront Payments</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Never send money, deposits, or mobile money transfers before receiving and fully inspecting the physical item. Avoid advance fee requests.
+                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                    <strong className="text-rose-700 font-extrabold">Never send money, deposits, or mobile money transfers</strong> before receiving and fully inspecting the physical item. Reject all requests for advance fees or booking deposits.
                   </p>
                 </div>
 
-                <div className="space-y-1 bg-white p-4 rounded-2xl border border-slate-150/70 shadow-3xs">
-                  <div className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-rose-50 text-rose-600 font-extrabold text-[10px]">3</span>
+                <div className="space-y-2.5 bg-white p-5 rounded-2xl border-2 border-amber-300/40 shadow-xs hover:border-rose-400/30 transition-all duration-200">
+                  <div className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-extrabold text-xs shadow-xs shrink-0">3</span>
                     <span>Inspect and Verify</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Examine the item carefully before closing the deal. Switch on electronics, verify phone serial numbers, and check for genuine condition.
+                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                    <strong className="text-rose-700 font-extrabold">Examine the item carefully</strong> before closing the deal. Switch on electronics, verify phone serial numbers, run diagnostics, and confirm authentic physical quality in person.
                   </p>
                 </div>
               </div>

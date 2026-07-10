@@ -246,6 +246,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                     alt=""
                     aria-hidden="true"
                     loading="lazy"
+                    decoding="async"
                     className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
                     style={{ filter: 'blur(10px)', transform: 'scale(1.1)' }}
                   />
