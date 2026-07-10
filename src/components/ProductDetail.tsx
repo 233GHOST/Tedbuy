@@ -7,6 +7,7 @@ import { isUserVerified, calculateTrustScore } from '../types';
 import { slugify } from '../utils/slugify';
 import { auth } from '../firebase';
 import { isBoostActive, parseDate } from '../utils/dateParser';
+import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -82,7 +83,7 @@ export const ProductDetail: React.FC = () => {
   };
 
   const mediaGallery = product ? [
-    ...product.images.map(url => ({ type: 'image' as const, url })),
+    ...product.images.map(url => ({ type: 'image' as const, url: getOptimizedImageUrl(url, 800) })),
     ...(product.videos || []).map(url => ({ type: 'video' as const, url }))
   ] : [];
 

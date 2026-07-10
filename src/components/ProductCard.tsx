@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { MapPin, Eye, Calendar, Tag, Bookmark, Video, Flame } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 import { isBoostActive } from '../utils/dateParser';
+import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 
 interface ProductCardProps {
   product: Product;
@@ -126,12 +127,12 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
     return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
   };
 
-  const initialSrc = product.images?.[0] || getCategoryPlaceholder(product.category);
+  const initialSrc = getOptimizedImageUrl(product.images?.[0] || getCategoryPlaceholder(product.category), 400);
   const [imgSrc, setImgSrc] = React.useState<string>(initialSrc);
   const [processedVideoUrl, setProcessedVideoUrl] = React.useState<string>('');
 
   React.useEffect(() => {
-    setImgSrc(product.images?.[0] || getCategoryPlaceholder(product.category));
+    setImgSrc(getOptimizedImageUrl(product.images?.[0] || getCategoryPlaceholder(product.category), 400));
   }, [product.images, product.category]);
 
   React.useEffect(() => {

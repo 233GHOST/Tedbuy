@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
+import sharp from "sharp";
 
 import dotenv from "dotenv";
 import net from "net";
@@ -231,6 +232,51 @@ function setBinaryImageInCache(productId: string, buffer: Buffer, mimeType: stri
   binaryImageMemoryCache.set(productId, { buffer, mimeType });
   binaryCacheKeys.push(productId);
 }
+
+// Blazing-fast dynamic image optimization using Sharp
+async function optimizeImageBuffer(
+  buffer: Buffer,
+  width?: number,
+  height?: number,
+  quality: number = 80,
+  format: string = 'webp'
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  try {
+    let pipeline = sharp(buffer);
+    
+    // Auto-rotate based on EXIF metadata if present
+    pipeline = pipeline.rotate();
+
+    // Resize if width or height is defined
+    if (width || height) {
+      pipeline = pipeline.resize({
+        width: width ? parseInt(String(width), 10) : undefined,
+        height: height ? parseInt(String(height), 10) : undefined,
+        fit: 'cover',
+        withoutEnlargement: true
+      });
+    }
+
+    // Convert format & compress
+    const fmt = format.toLowerCase();
+    if (fmt === 'avif') {
+      pipeline = pipeline.avif({ quality });
+    } else if (fmt === 'png') {
+      pipeline = pipeline.png({ quality });
+    } else if (fmt === 'jpeg' || fmt === 'jpg') {
+      pipeline = pipeline.jpeg({ quality });
+    } else {
+      pipeline = pipeline.webp({ quality });
+    }
+
+    const outputBuffer = await pipeline.toBuffer();
+    const mimeType = `image/${fmt === 'jpg' ? 'jpeg' : fmt}`;
+    return { buffer: outputBuffer, mimeType };
+  } catch (err) {
+    console.error('[Sharp Optimization] Failed to optimize image buffer, returning original:', err);
+    return { buffer, mimeType: 'image/jpeg' };
+  }
+}
 const sellerDataCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 300000; // 5 minutes cache TTL to dramatically reduce read operations and quota usage
 const CACHE_FILE_PATH = path.join(process.cwd(), 'products_cache.json');
@@ -427,6 +473,7 @@ async function getProductData(productId: string) {
           description: foundProduct.description || '',
           price: foundProduct.price || 'Negotiable',
           image: primaryImage,
+          images: foundProduct.images || [],
           category: foundProduct.category || ''
         };
         productDataCache.set(productId, { data: result, timestamp: now });
@@ -447,6 +494,7 @@ async function getProductData(productId: string) {
           description: '',
           price: 'Negotiable',
           image: base64Data,
+          images: [base64Data],
           category: ''
         };
         productDataCache.set(productId, { data: result, timestamp: now });
@@ -478,6 +526,7 @@ async function getProductData(productId: string) {
           description,
           price: priceValue,
           image: primaryImage,
+          images: data.images || [],
           category: data.category || ''
         };
         productDataCache.set(productId, { data: result, timestamp: now });
@@ -1409,66 +1458,76 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       // Copy to prevent mutating the original memory/file cache source
       const optimized = { ...result };
 
-      let firstImage = (Array.isArray(optimized.images) && optimized.images.length > 0) ? optimized.images[0] : null;
-      if (!firstImage && optimized.image && optimized.image.startsWith('data:')) {
-        firstImage = optimized.image;
+      let imgs = Array.isArray(optimized.images) ? [...optimized.images] : [];
+      if (imgs.length === 0 && optimized.image) {
+        imgs = [optimized.image];
       }
 
-      if (firstImage && firstImage.startsWith('data:')) {
-        const ext = firstImage.includes('png') ? 'png' : firstImage.includes('webp') ? 'webp' : 'jpg';
+      optimized.images = imgs.map((img: string, idx: number) => {
+        if (!img) return '';
+        
+        if (img.startsWith('data:')) {
+          const ext = img.includes('png') ? 'png' : img.includes('webp') ? 'webp' : 'jpg';
+          const imageKey = idx === 0 ? optimized.id : `${optimized.id}_img${idx}`;
 
-        // Write to images_cache on disk asynchronously on client demand if missing
-        try {
-          const cacheFilePath = path.join(IMAGES_CACHE_DIR, `${optimized.id}.txt`);
-          if (!fs.existsSync(cacheFilePath)) {
-            fs.writeFileSync(cacheFilePath, firstImage, 'utf-8');
-            console.log(`[Images Cache] Auto-generated disk file for ${optimized.id} on client demand`);
-          }
-
-          // Warm up high-performance binary cache and pre-decode base64 on client demand
+          // Write to images_cache on disk asynchronously on client demand if missing
           try {
-            const parts = firstImage.split(';base64,');
-            if (parts.length === 2) {
-              const mimeType = parts[0].replace('data:', '');
-              const buffer = Buffer.from(parts[1], 'base64');
-              setBinaryImageInCache(optimized.id, buffer, mimeType);
-
-              const binFile = path.join(IMAGES_CACHE_DIR, `${optimized.id}.bin`);
-              const mimeFile = path.join(IMAGES_CACHE_DIR, `${optimized.id}.mime`);
-              if (!fs.existsSync(binFile)) {
-                fs.writeFileSync(binFile, buffer);
-                fs.writeFileSync(mimeFile, mimeType, 'utf-8');
-              }
+            const cacheFilePath = path.join(IMAGES_CACHE_DIR, `${imageKey}.txt`);
+            if (!fs.existsSync(cacheFilePath)) {
+              fs.writeFileSync(cacheFilePath, img, 'utf-8');
+              console.log(`[Images Cache] Auto-generated disk file for ${imageKey} on client demand`);
             }
-          } catch (decodeErr) {
-            console.error(`[Images Cache] Failed to pre-decode binary for ${optimized.id}:`, decodeErr);
+
+            // Warm up high-performance binary cache and pre-decode base64 on client demand
+            try {
+              const parts = img.split(';base64,');
+              if (parts.length === 2) {
+                const mimeType = parts[0].replace('data:', '');
+                const buffer = Buffer.from(parts[1], 'base64');
+                setBinaryImageInCache(imageKey, buffer, mimeType);
+
+                const binFile = path.join(IMAGES_CACHE_DIR, `${imageKey}.bin`);
+                const mimeFile = path.join(IMAGES_CACHE_DIR, `${imageKey}.mime`);
+                if (!fs.existsSync(binFile)) {
+                  fs.writeFileSync(binFile, buffer);
+                  fs.writeFileSync(mimeFile, mimeType, 'utf-8');
+                }
+              }
+            } catch (decodeErr) {
+              console.error(`[Images Cache] Failed to pre-decode binary for ${imageKey}:`, decodeErr);
+            }
+
+            // Warm up productDataCache in memory for index 0
+            if (idx === 0 && !productDataCache.has(optimized.id)) {
+              productDataCache.set(optimized.id, {
+                data: {
+                  title: optimized.title || '',
+                  description: optimized.description || '',
+                  price: optimized.price || 'Negotiable',
+                  image: img
+                },
+                timestamp: Date.now()
+              });
+            }
+          } catch (err) {
+            console.error(`[Images Cache] Failed to write client demand cache for ${imageKey}:`, err);
           }
 
-          // Warm up productDataCache in memory
-          if (!productDataCache.has(optimized.id)) {
-            productDataCache.set(optimized.id, {
-              data: {
-                title: optimized.title || '',
-                description: optimized.description || '',
-                price: optimized.price || 'Negotiable',
-                image: firstImage
-              },
-              timestamp: Date.now()
-            });
-          }
-        } catch (err) {
-          console.error(`[Images Cache] Failed to write client demand cache for ${optimized.id}:`, err);
-        }
-
-        optimized.images = [`/api/products/${optimized.id}/image.${ext}`];
-        optimized.image = `/api/products/${optimized.id}/image.${ext}`;
-      } else {
-        if (Array.isArray(optimized.images) && optimized.images.length > 0) {
-          optimized.images = [optimized.images[0] || ''];
+          return idx === 0 
+            ? `/api/products/${optimized.id}/image.${ext}`
+            : `/api/products/${optimized.id}/image.${ext}?idx=${idx}`;
         } else {
-          optimized.images = [];
+          return img;
         }
+      }).filter(Boolean);
+
+      // Populate optimized.image with the primary optimized image url
+      if (optimized.images.length > 0) {
+        optimized.image = optimized.images[0];
+      } else {
+        optimized.image = '';
       }
+
       return optimized;
     }).filter(Boolean);
   }
@@ -3949,33 +4008,83 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
   }
 
-  // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files
+  function getUrlHash(url: string): string {
+    let hash = 0;
+    for (let i = 0; i < url.length; i++) {
+      const char = url.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return 'ext_' + Math.abs(hash).toString(36);
+  }  // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files with on-the-fly Sharp optimization
   app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 300, "image-proxy"), async (req, res) => {
     const { productId } = req.params;
     const queryImageUrl = req.query.image as string;
-    
+    const idx = req.query.idx !== undefined ? parseInt(req.query.idx as string, 10) : 0;
+
+    // Parse and normalize optimization query parameters to maximize cache effectiveness
+    const w = req.query.w ? parseInt(req.query.w as string, 10) : undefined;
+    const h = req.query.h ? parseInt(req.query.h as string, 10) : undefined;
+    const q = req.query.q ? parseInt(req.query.q as string, 10) : 80;
+    const fmt = (req.query.fmt as string || 'webp').toLowerCase();
+
+    let width = w;
+    if (width !== undefined) {
+      const standardWidths = [100, 200, 400, 600, 800, 1200];
+      width = standardWidths.find(sw => sw >= width!) || 1200;
+    }
+    let height = h;
+    if (height !== undefined) {
+      const standardHeights = [100, 150, 300, 450, 600, 900];
+      height = standardHeights.find(sh => sh >= height!) || 900;
+    }
+    let quality = q;
+    if (quality < 1 || quality > 100) quality = 80;
+    const format = ['webp', 'avif', 'png', 'jpeg', 'jpg'].includes(fmt) ? fmt : 'webp';
+
+    const resolvedProductId = (idx && idx > 0) ? `${productId}_img${idx}` : productId;
+    const imageId = resolvedProductId || (queryImageUrl ? getUrlHash(queryImageUrl) : null);
+    const cacheKey = imageId ? `${imageId}_w${width || 'auto'}_h${height || 'auto'}_q${quality}_${format}` : null;
+
     // 1. FAST PATH: Serve directly from high-performance in-memory binary cache (sub-millisecond, zero CPU/Disk overhead)
-    if (productId && !queryImageUrl) {
-      const memCached = binaryImageMemoryCache.get(productId);
+    if (cacheKey) {
+      const memCached = binaryImageMemoryCache.get(cacheKey);
       if (memCached) {
         res.set('Content-Type', memCached.mimeType);
-        res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
         return res.send(memCached.buffer);
       }
       
       // 2. SEMI-FAST PATH: Serve from high-performance binary disk cache
-      const binFile = path.join(IMAGES_CACHE_DIR, `${productId}.bin`);
-      const mimeFile = path.join(IMAGES_CACHE_DIR, `${productId}.mime`);
+      const binFile = path.join(IMAGES_CACHE_DIR, `${cacheKey}.bin`);
+      const mimeFile = path.join(IMAGES_CACHE_DIR, `${cacheKey}.mime`);
       if (fs.existsSync(binFile) && fs.existsSync(mimeFile)) {
         try {
           const buffer = fs.readFileSync(binFile);
           const mimeType = fs.readFileSync(mimeFile, 'utf-8').trim();
-          setBinaryImageInCache(productId, buffer, mimeType);
+          setBinaryImageInCache(cacheKey, buffer, mimeType);
           res.set('Content-Type', mimeType);
-          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+          res.set('Cache-Control', 'public, max-age=31536000, immutable');
           return res.send(buffer);
         } catch (binErr) {
-          console.warn(`[Images Cache] Failed to read binary cache for ${productId}:`, binErr);
+          console.warn(`[Images Cache] Failed to read optimized disk cache for ${cacheKey}:`, binErr);
+        }
+      }
+    }
+
+    // 3. Resolve the original un-optimized buffer
+    let originalBuffer: Buffer | null = null;
+    let originalMimeType = 'image/jpeg';
+
+    if (imageId) {
+      const origBinFile = path.join(IMAGES_CACHE_DIR, `${imageId}.bin`);
+      const origMimeFile = path.join(IMAGES_CACHE_DIR, `${imageId}.mime`);
+      if (fs.existsSync(origBinFile) && fs.existsSync(origMimeFile)) {
+        try {
+          originalBuffer = fs.readFileSync(origBinFile);
+          originalMimeType = fs.readFileSync(origMimeFile, 'utf-8').trim();
+        } catch (readErr) {
+          console.warn(`[Images Cache] Failed to read original cache for ${imageId}:`, readErr);
         }
       }
     }
@@ -3983,35 +4092,41 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     let imageUrl = queryImageUrl;
     let category = '';
 
-    // 3. Check if we have the Base64 text file cached on disk. 
-    // This completely bypasses calling getProductData which has DB queries.
-    if (!imageUrl && productId) {
-      const txtFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
+    // 4. Check if we have the original base64 on disk
+    if (!originalBuffer && !imageUrl && productId) {
+      const txtFile = path.join(IMAGES_CACHE_DIR, `${resolvedProductId}.txt`);
       if (fs.existsSync(txtFile)) {
         try {
           imageUrl = fs.readFileSync(txtFile, 'utf-8');
         } catch (txtErr) {
-          console.warn(`[Images Cache] Failed to read txt cache for ${productId}:`, txtErr);
+          console.warn(`[Images Cache] Failed to read txt cache for ${resolvedProductId}:`, txtErr);
         }
       }
     }
     
-    if (!imageUrl && productId) {
+    // 5. Fetch from firestore if not cached on disk
+    if (!originalBuffer && !imageUrl && productId) {
       try {
         const product = await getProductData(productId);
         if (product) {
-          imageUrl = product.image;
+          // Determine which image URL/base64 to use based on index
+          let targetImageUrl = '';
+          if (product.images && Array.isArray(product.images) && product.images.length > idx) {
+            targetImageUrl = product.images[idx];
+          } else {
+            targetImageUrl = product.image || '';
+          }
+          
+          imageUrl = targetImageUrl;
           category = product.category || '';
           
-          // Save to images_cache on disk on-the-fly if it was fetched from firestore
           if (imageUrl && imageUrl.startsWith('data:')) {
-            const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
+            const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${resolvedProductId}.txt`);
             if (!fs.existsSync(imageCacheFile)) {
               try {
                 fs.writeFileSync(imageCacheFile, imageUrl, 'utf-8');
-                console.log(`[Images Cache] Saved image for ${productId} to disk cache on-the-fly`);
               } catch (diskErr) {
-                console.error(`[Images Cache] Failed to save image for ${productId} to disk:`, diskErr);
+                console.error(`[Images Cache] Failed to save image for ${resolvedProductId} to disk:`, diskErr);
               }
             }
           }
@@ -4023,50 +4138,43 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     
     const fallbackUrl = getCategoryFallbackUrl(category);
     
-    if (!productId && !queryImageUrl) {
+    if (!originalBuffer && !productId && !queryImageUrl) {
       return res.redirect(fallbackUrl);
     }
     
-    if (!imageUrl) {
+    if (!originalBuffer && !imageUrl) {
       return res.redirect(fallbackUrl);
     }
     
-    if (imageUrl.startsWith('data:')) {
+    if (!originalBuffer && imageUrl && imageUrl.startsWith('data:')) {
       try {
         const parts = imageUrl.split(';base64,');
         if (parts.length === 2) {
-          const mimeType = parts[0].replace('data:', ''); // e.g., image/jpeg or image/png
+          originalMimeType = parts[0].replace('data:', '');
           
-          // Strict mime validation for proxy output
           const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-          if (!allowedMimes.includes(mimeType.toLowerCase())) {
+          if (!allowedMimes.includes(originalMimeType.toLowerCase())) {
             return res.redirect(fallbackUrl);
           }
           
           const base64Data = parts[1];
-          const buffer = Buffer.from(base64Data, 'base64');
+          originalBuffer = Buffer.from(base64Data, 'base64');
 
-          // Promote to binary caches for subsequent lightning-fast requests!
+          // Save original to disk binary cache
           if (productId) {
             try {
-              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.bin`), buffer);
-              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.mime`), mimeType, 'utf-8');
-              setBinaryImageInCache(productId, buffer, mimeType);
-              console.log(`[Images Cache] Promoted ${productId} to high-performance binary cache on-the-fly`);
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${resolvedProductId}.bin`), originalBuffer);
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${resolvedProductId}.mime`), originalMimeType, 'utf-8');
+              setBinaryImageInCache(resolvedProductId, originalBuffer, originalMimeType);
             } catch (cacheWriteErr) {
-              console.error(`[Images Cache] Error writing binary cache for ${productId}:`, cacheWriteErr);
+              console.error(`[Images Cache] Error writing original binary cache for ${resolvedProductId}:`, cacheWriteErr);
             }
           }
-          
-          res.set('Content-Type', mimeType);
-          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-          return res.send(buffer);
         }
       } catch (err) {
         console.error('Error parsing base64 image in endpoint:', err);
       }
-    } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-      // Direct stream proxy for external URLs to ensure social media crawlers fetch the image reliably without blocking redirects
+    } else if (!originalBuffer && imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
       try {
         const isValid = await validateImageUrlSecurely(imageUrl);
         if (!isValid) {
@@ -4079,38 +4187,59 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           return res.status(400).send('SSRF Security Error: Redirects are not allowed.');
         }
         if (imageRes.ok) {
-          const contentType = imageRes.headers.get('content-type') || 'image/jpeg';
+          originalMimeType = imageRes.headers.get('content-type') || 'image/jpeg';
           
           const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-          if (!allowedMimes.includes(contentType.toLowerCase())) {
+          if (!allowedMimes.includes(originalMimeType.toLowerCase())) {
             return res.redirect(fallbackUrl);
           }
 
-          const buffer = Buffer.from(await imageRes.arrayBuffer());
+          originalBuffer = Buffer.from(await imageRes.arrayBuffer());
 
-          // Cache external image as binary for subsequent instant loads!
-          if (productId) {
+          // Save original to disk binary cache
+          if (imageId) {
             try {
-              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.bin`), buffer);
-              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.mime`), contentType, 'utf-8');
-              setBinaryImageInCache(productId, buffer, contentType);
-              console.log(`[Images Cache] Saved external image ${productId} directly as high-performance binary`);
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${imageId}.bin`), originalBuffer);
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${imageId}.mime`), originalMimeType, 'utf-8');
+              setBinaryImageInCache(imageId, originalBuffer, originalMimeType);
             } catch (cacheWriteErr) {
-              console.error(`[Images Cache] Error writing binary cache for external image ${productId}:`, cacheWriteErr);
+              console.error(`[Images Cache] Error writing original binary cache for external image ${imageId}:`, cacheWriteErr);
             }
           }
-
-          res.set('Content-Type', contentType);
-          res.set('Cache-Control', 'public, max-age=86400'); // Cache for day
-          return res.send(buffer);
         }
       } catch (error) {
         console.error('Error proxying external product image securely:', error);
       }
+    }
+
+    if (!originalBuffer) {
       return res.redirect(fallbackUrl);
     }
-    
-    return res.redirect(fallbackUrl);
+
+    // 6. DYNAMICALLY OPTIMIZE USING SHARP ENGINE!
+    try {
+      const optimized = await optimizeImageBuffer(originalBuffer, width, height, quality, format);
+
+      // Save optimized buffer to disk and in-memory caches
+      if (cacheKey) {
+        try {
+          fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${cacheKey}.bin`), optimized.buffer);
+          fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${cacheKey}.mime`), optimized.mimeType, 'utf-8');
+          setBinaryImageInCache(cacheKey, optimized.buffer, optimized.mimeType);
+        } catch (writeErr) {
+          console.error(`[Images Cache] Failed to write optimized cache for ${cacheKey}:`, writeErr);
+        }
+      }
+
+      res.set('Content-Type', optimized.mimeType);
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      return res.send(optimized.buffer);
+    } catch (optErr) {
+      console.error('[Sharp] Failed to optimize and convert image:', optErr);
+      res.set('Content-Type', originalMimeType);
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.send(originalBuffer);
+    }
   });
 
   // Dynamic video delivery endpoint to stream base64 video uploads as binary MP4 streams on-the-fly

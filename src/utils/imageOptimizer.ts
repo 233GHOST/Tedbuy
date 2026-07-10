@@ -86,3 +86,68 @@ export const compressImage = async (file: File, maxWidth = 900, maxHeight = 900,
     reader.readAsDataURL(finalFile);
   });
 };
+
+/**
+ * Generates an optimized image URL with dynamic resizing, compression, and WebP format selection.
+ * Handles both local proxy endpoints and external CDN-supported URLs (like Unsplash).
+ */
+export const getOptimizedImageUrl = (
+  url: string,
+  width?: number,
+  quality: number = 80,
+  format: string = 'webp'
+): string => {
+  if (!url) return '';
+
+  // 1. If it is already a base64 string, return it directly as we cannot optimize base64 client-side on-the-fly easily
+  if (url.startsWith('data:')) {
+    return url;
+  }
+
+  // 2. Unsplash Native CDN Optimization (extremely performant, auto WebP/AVIF selection)
+  if (url.includes('images.unsplash.com')) {
+    let optimized = url;
+    // Replace width
+    if (width !== undefined) {
+      if (optimized.includes('w=')) {
+        optimized = optimized.replace(/([?&])w=\d+/g, `$1w=${width}`);
+      } else {
+        optimized += (optimized.includes('?') ? '&' : '?') + `w=${width}`;
+      }
+    }
+    // Replace quality
+    if (optimized.includes('q=')) {
+      optimized = optimized.replace(/([?&])q=\d+/g, `$1q=${quality}`);
+    } else {
+      optimized += `&q=${quality}`;
+    }
+    // Set auto-format
+    if (!optimized.includes('auto=')) {
+      optimized += '&auto=format';
+    }
+    return optimized;
+  }
+
+  // 3. Local API Image Optimizer Routing (Sharp-powered on backend)
+  if (url.startsWith('/api/products/')) {
+    const baseUrl = url.split('?')[0];
+    const params = new URLSearchParams();
+    if (width !== undefined) params.set('w', String(width));
+    params.set('q', String(quality));
+    params.set('fmt', format);
+    return `${baseUrl}?${params.toString()}`;
+  }
+
+  // 4. External URL Proxy Routing
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    const params = new URLSearchParams();
+    params.set('image', url);
+    if (width !== undefined) params.set('w', String(width));
+    params.set('q', String(quality));
+    params.set('fmt', format);
+    return `/api/products/optimized/image?${params.toString()}`;
+  }
+
+  return url;
+};
+

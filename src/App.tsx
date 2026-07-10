@@ -20,6 +20,7 @@ import { getRegionForLocation } from './regions';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
 import { createProductSelector } from './utils/productSelector';
 import { DynamicCategoryFilters } from './components/DynamicCategoryFilters';
+import { getOptimizedImageUrl } from './utils/imageOptimizer';
 
 const selectProducts = createProductSelector();
 
@@ -76,6 +77,38 @@ const MarketplaceContent: React.FC = () => {
     blockedActionType,
     setBlockedActionType
   } = useApp();
+
+  const [isBottomNavVisible, setIsBottomNavVisible] = useState(true);
+
+  // Hide bottom navigation on scroll down, show on scroll up for mobile devices
+  React.useEffect(() => {
+    let lastScrollY = window.scrollY;
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          // Threshold of 12px scroll to prevent jittering on mobile/elastic scroll
+          if (Math.abs(currentScrollY - lastScrollY) > 12) {
+            if (currentScrollY > lastScrollY && currentScrollY > 60) {
+              setIsBottomNavVisible(false);
+            } else {
+              setIsBottomNavVisible(true);
+            }
+          }
+          lastScrollY = Math.max(0, currentScrollY);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
 
   // Toast automatic dismiss timer
   React.useEffect(() => {
@@ -441,12 +474,15 @@ const MarketplaceContent: React.FC = () => {
     itemsToPrefetch.forEach((product) => {
       if (product.images && product.images.length > 0) {
         const coverImage = product.images[0];
-        // Only trigger prefetch if we haven't already prefetched this image URL/base64 string
-        if (coverImage && !prefetchedImagesRef.current.has(coverImage)) {
-          prefetchedImagesRef.current.add(coverImage);
-          const img = new Image();
-          img.src = coverImage;
-          prefetchedCount++;
+        if (coverImage) {
+          const optimizedUrl = getOptimizedImageUrl(coverImage, 400);
+          // Only trigger prefetch if we haven't already prefetched this image URL/base64 string
+          if (!prefetchedImagesRef.current.has(optimizedUrl)) {
+            prefetchedImagesRef.current.add(optimizedUrl);
+            const img = new Image();
+            img.src = optimizedUrl;
+            prefetchedCount++;
+          }
         }
       }
     });
@@ -1379,7 +1415,9 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
-      <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around transition-colors duration-200 ${
+      <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around transition-all duration-300 transform ${
+        isBottomNavVisible ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
+      } ${
         isVideoFeedMobile
           ? 'bg-slate-900/95 border-t border-slate-950/80 text-white'
           : 'bg-white/95 border-t border-slate-200/80'

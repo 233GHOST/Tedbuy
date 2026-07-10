@@ -4,6 +4,7 @@ import { Product } from '../types';
 import { X, Sparkles, Check, CreditCard, Phone, ShieldCheck, AlertCircle, TrendingUp, Clock, ArrowRight, Info } from 'lucide-react';
 import { isBoostActive, parseDate } from '../utils/dateParser';
 import { auth } from '../firebase';
+import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 
 interface BoostModalProps {
   isOpen: boolean;
@@ -290,7 +291,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
           <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 flex gap-3.5 items-center">
             {product.images && product.images.length > 0 ? (
               <img 
-                src={product.images[0]} 
+                src={getOptimizedImageUrl(product.images[0], 100)} 
                 alt={product.title} 
                 className="w-14 h-14 rounded-xl object-cover border border-slate-200"
               />
