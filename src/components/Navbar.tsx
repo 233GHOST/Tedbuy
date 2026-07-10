@@ -708,35 +708,71 @@ export const Navbar: React.FC = () => {
 
             {/* Account Info Or Auth Trigger */}
             {currentUser ? (
-              <div className="hidden md:flex items-center gap-2 pl-2 border-l border-slate-800 font-sans">
-                <div 
-                  onClick={() => setCurrentView('profile-settings')}
-                  className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
-                  title="Manage Profile Settings"
-                >
-                  {currentUser.photoUrl && !String(currentUser.photoUrl).includes('1549399542-7e3f8b79c341') ? (
-                    <img
-                      src={currentUser.photoUrl}
-                      alt={currentUser.username}
-                      className="w-8 h-8 rounded-full border border-slate-700 object-cover"
-                    />
-                  ) : (
-                    <img
-                      src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
-                      alt={currentUser.username}
-                      className="w-8 h-8 rounded-full border border-slate-700 object-cover shrink-0"
-                    />
-                  )}
-                  <div className="flex flex-col text-left hidden lg:block leading-none">
-                    <span className="text-xs font-semibold text-white block truncate max-w-[90px]">
-                      {currentUser.username}
-                    </span>
-                    <span className="text-[9px] text-slate-400 font-mono font-medium mt-0.5">
-                      Since {currentUser.joinDate}
-                    </span>
+              <>
+                <div className="hidden md:flex items-center gap-3 pl-2 border-l border-slate-800 font-sans">
+                  <div 
+                    onClick={() => setCurrentView('profile-settings')}
+                    className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition shrink-0"
+                    title="Manage Profile Settings"
+                  >
+                    {currentUser.photoUrl && !String(currentUser.photoUrl).includes('1549399542-7e3f8b79c341') ? (
+                      <img
+                        src={currentUser.photoUrl}
+                        alt={currentUser.username}
+                        className="w-8 h-8 rounded-full border border-slate-700 object-cover"
+                      />
+                    ) : (
+                      <img
+                        src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+                        alt={currentUser.username}
+                        className="w-8 h-8 rounded-full border border-slate-700 object-cover shrink-0"
+                      />
+                    )}
+                    <div className="flex flex-col text-left hidden lg:block leading-none">
+                      <span className="text-xs font-semibold text-white block truncate max-w-[90px]">
+                        {currentUser.username}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-mono font-medium mt-0.5">
+                        Since {currentUser.joinDate}
+                      </span>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await logoutUser();
+                        showToast('Logged out successfully', 'success');
+                      } catch (err) {
+                        showToast('Failed to log out', 'error');
+                      }
+                    }}
+                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg transition shrink-0 cursor-pointer"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              </div>
+                
+                {/* Mobile sign out button */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await logoutUser();
+                      showToast('Logged out successfully', 'success');
+                      setCurrentView('browse');
+                    } catch (err) {
+                      showToast('Failed to log out', 'error');
+                    }
+                  }}
+                  className="md:hidden px-2.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-lg transition shrink-0 cursor-pointer text-xs flex items-center gap-1 border border-slate-750"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Sign Out</span>
+                </button>
+              </>
             ) : (
               <button
                 id="nav-sign-in"

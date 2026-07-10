@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
+import { isSupabaseActive } from '../dbAdapter';
 
 export const ProfileSettings: React.FC = () => {
   const { 
@@ -127,6 +128,11 @@ export const ProfileSettings: React.FC = () => {
   const [adminProgress, setAdminProgress] = useState({ current: 0, total: 0 });
   const [onlyUnsentEmails, setOnlyUnsentEmails] = useState(true);
 
+  // Supabase migration states
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationLog, setMigrationLog] = useState<string | null>(null);
+  const [migrationStats, setMigrationStats] = useState<any>(null);
+
   // Admin Store Manager States
   const [storeSearch, setStoreSearch] = useState('');
   const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
@@ -155,6 +161,109 @@ export const ProfileSettings: React.FC = () => {
       setAdminLog(`Failed: ${err?.message || 'SMTP or network error occurred.'}`);
     } finally {
       setIsAdminRunning(false);
+    }
+  };
+
+  const handleMigrateToSupabase = async () => {
+    if (isMigrating) return;
+    setIsMigrating(true);
+    setMigrationLog('Initiating secure client-driven data migration pipeline...');
+    setMigrationStats(null);
+    try {
+      const { collection, getDocs } = await import('firebase/firestore');
+      const idToken = await auth.currentUser?.getIdToken();
+
+      const collectionsToMigrate = [
+        { firestoreName: 'users', supabaseName: 'users' },
+        { firestoreName: 'products', supabaseName: 'products' },
+        { firestoreName: 'chats', supabaseName: 'chats' },
+        { firestoreName: 'messages', supabaseName: 'messages' },
+        { firestoreName: 'reviews', supabaseName: 'reviews' },
+        { firestoreName: 'notifications', supabaseName: 'notifications' },
+        { firestoreName: 'storeNames', supabaseName: 'store_names' },
+        { firestoreName: 'boost_purchases', supabaseName: 'boost_purchases' },
+        { firestoreName: 'boostPurchases', supabaseName: 'boost_purchases' },
+      ];
+
+      const stats: any = {};
+
+      for (const mapping of collectionsToMigrate) {
+        if (stats[mapping.supabaseName]) {
+          continue; // skip redundant tables mapping to same target table
+        }
+
+        stats[mapping.supabaseName] = { fetched: 0, migrated: 0, failed: 0, errors: [] };
+        
+        setMigrationLog(`Syncing collection: "${mapping.firestoreName}" to "${mapping.supabaseName}"...`);
+        
+        let docsSnapshot;
+        try {
+          const colRef = collection(db, mapping.firestoreName);
+          docsSnapshot = await getDocs(colRef);
+        } catch (fetchErr: any) {
+          console.warn(`[Client Migration] Failed fetching ${mapping.firestoreName}:`, fetchErr);
+          stats[mapping.supabaseName].errors.push(`Fetch failed: ${fetchErr.message || fetchErr}`);
+          continue;
+        }
+
+        const size = docsSnapshot.size;
+        stats[mapping.supabaseName].fetched = size;
+        
+        if (size === 0) {
+          setMigrationLog(`Collection "${mapping.firestoreName}" is empty. Skipping.`);
+          continue;
+        }
+
+        setMigrationLog(`Fetched ${size} items from "${mapping.firestoreName}". Sending to Supabase in batches...`);
+
+        // Convert documents to simple structures
+        const documentsList: any[] = [];
+        docsSnapshot.forEach(docSnap => {
+          documentsList.push({
+            id: docSnap.id,
+            data: docSnap.data()
+          });
+        });
+
+        // Batch upsert in chunks of 50
+        const chunkSize = 50;
+        for (let i = 0; i < documentsList.length; i += chunkSize) {
+          const chunk = documentsList.slice(i, i + chunkSize);
+          
+          setMigrationLog(`Sending chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(documentsList.length / chunkSize)} for "${mapping.firestoreName}"...`);
+
+          const response = await fetch('/api/admin/upsert-collection', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': idToken ? `Bearer ${idToken}` : '',
+            },
+            body: JSON.stringify({
+              table: mapping.supabaseName,
+              documents: chunk
+            })
+          });
+
+          const resData = await response.json();
+          if (!response.ok) {
+            console.error(`[Client Migration] Chunk upsert failed for table "${mapping.supabaseName}":`, resData.error);
+            stats[mapping.supabaseName].failed += chunk.length;
+            stats[mapping.supabaseName].errors.push(`Upsert chunk error: ${resData.error || 'Server error'}`);
+          } else {
+            stats[mapping.supabaseName].migrated += resData.count || chunk.length;
+          }
+        }
+      }
+
+      setMigrationLog('Firestore to Supabase cloud sync finished successfully!');
+      setMigrationStats(stats);
+      showToast('Successfully migrated all collections directly to Supabase!', 'success');
+    } catch (err: any) {
+      console.error('[Client Migration Exception]:', err);
+      setMigrationLog(`Migration failed: ${err.message || err}`);
+      showToast(err.message || 'Data migration failed', 'error');
+    } finally {
+      setIsMigrating(false);
     }
   };
 
@@ -873,6 +982,77 @@ export const ProfileSettings: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Supabase Migration Control Command */}
+                <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-slate-800 rounded-lg text-orange-400">
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-200">Supabase Migration Hub</span>
+                    </div>
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      isSupabaseActive 
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSupabaseActive ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`}></span>
+                      {isSupabaseActive ? 'Supabase Active' : 'Supabase Offline'}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-350 leading-relaxed">
+                    Instantly sync all current data collections (Users, Product listings, Chats, Messages, Reviews, Notifications, Store unique keys, and Boost history) from the legacy Firestore database into the newly connected Supabase PostgreSQL cloud tables.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleMigrateToSupabase}
+                    disabled={isMigrating || !isSupabaseActive}
+                    className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-amber-600 hover:bg-amber-500 text-white font-black text-xs rounded-2xl shadow-md select-none transition duration-150 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {isMigrating ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                        <span>Syncing Data Collections...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        <span>Perform Comprehensive Supabase Cloud Sync</span>
+                      </>
+                    )}
+                  </button>
+
+                  {(isMigrating || migrationLog) && (
+                    <div className="rounded-2xl bg-slate-950 p-4 border border-slate-850 font-mono text-[11px] leading-relaxed mt-2 text-left space-y-3">
+                      <div className="flex justify-between text-slate-450 text-[10px] uppercase font-bold font-sans tracking-wide">
+                        <span>Migration Output Log</span>
+                        {isMigrating && <span className="animate-pulse text-amber-400">Syncing...</span>}
+                      </div>
+                      <div className="text-slate-300 whitespace-pre-wrap select-all font-mono text-xs max-h-40 overflow-y-auto">
+                        {migrationLog}
+                      </div>
+
+                      {migrationStats && (
+                        <div className="pt-2 border-t border-slate-800 space-y-1.5 font-sans">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wide block">Migration Summary Metrics:</span>
+                          <div className="grid grid-cols-2 gap-2 text-[10px]">
+                            {Object.entries(migrationStats).map(([coll, data]: [string, any]) => (
+                              <div key={coll} className="bg-slate-900 rounded-lg p-2 border border-slate-850 flex justify-between items-center">
+                                <span className="font-bold text-slate-300 font-mono text-[9px]">{coll}</span>
+                                <span className={data.errors && data.errors.length > 0 ? "text-rose-400" : "text-emerald-400"}>
+                                  {data.migrated} / {data.fetched} OK
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

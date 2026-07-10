@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import nodemailer from "nodemailer";
+import { createClient } from "@supabase/supabase-js";
 
 import dotenv from "dotenv";
 import net from "net";
@@ -36,8 +37,20 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// Global middleware to handle parsing or payload too large errors as JSON instead of HTML
+app.use((err: any, req: any, res: any, next: any) => {
+  if (err) {
+    console.error('[Express Parser/Payload Error]:', err.message);
+    return res.status(err.status || 400).json({
+      success: false,
+      error: err.message || 'Invalid request payload or too large.'
+    });
+  }
+  next();
+});
 
 // --- SERVER-SIDE IP RATE LIMITER IMPLEMENTATION ---
 const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
@@ -179,6 +192,18 @@ if (fs.existsSync(firebaseConfigPath)) {
 
 // Initialize Firebase Admin SDK safely
 let adminDb: any = null;
+
+// Initialize backend Supabase client if configured
+const sbUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const sbKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const isSbUrlValid = typeof sbUrl === 'string' && (sbUrl.startsWith('http://') || sbUrl.startsWith('https://'));
+const backendSupabase = sbUrl && sbKey && isSbUrlValid ? createClient(sbUrl, sbKey) : null;
+
+if (backendSupabase) {
+  console.log('[Supabase Server] Initialized backend Supabase client successfully!');
+} else {
+  console.log('[Supabase Server] Credentials not detected. Server-side Supabase client inactive.');
+}
 let cachedProducts: { data: any[]; timestamp: number } | null = null;
 let isRevalidating = false;
 let lastFirestore429Time = 0;
@@ -812,6 +837,29 @@ async function getSellerData(sellerId: string) {
   if (cached && (now - cached.timestamp < 120000)) {
     console.log(`[Meta Crawler] Serving seller ${sellerId} from memory cache`);
     return cached.data;
+  }
+
+  if (backendSupabase) {
+    try {
+      console.log(`[Supabase Server] Fetching seller ${sellerId} from Supabase...`);
+      const { data, error } = await backendSupabase
+        .from('users')
+        .select('*')
+        .eq('id', sellerId)
+        .maybeSingle();
+      if (!error && data) {
+        const result = {
+          username: data.username || '',
+          role: data.role || 'seller',
+          photoUrl: data.photoUrl || '',
+          isVerified: data.emailVerified || false
+        };
+        sellerDataCache.set(sellerId, { data: result, timestamp: now });
+        return result;
+      }
+    } catch (sbErr: any) {
+      console.warn(`[Supabase Server] Fetch seller ${sellerId} failed, falling back to Firebase:`, sbErr?.message || sbErr);
+    }
   }
 
   try {
@@ -1519,6 +1567,46 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     let productsList: any[] = [];
     let adminFetchedSuccessfully = false;
 
+    if (backendSupabase) {
+      const maxRetries = 2;
+      let delayMs = 1500;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`[Products Data] Fetching products via backend Supabase (PostgreSQL)... (Attempt ${attempt}/${maxRetries})`);
+          const { data, error } = await backendSupabase
+            .from('products')
+            .select('*')
+            .order('createdAt', { ascending: false })
+            .limit(300);
+
+          if (error) throw error;
+          if (data) {
+            console.log(`[Products Data] Successfully loaded ${data.length} products from Supabase!`);
+            return data;
+          }
+        } catch (sbErr: any) {
+          console.log(`[Products Data] Supabase fetch attempt ${attempt} status:`, sbErr?.message || sbErr);
+          const errMsg = String(sbErr?.message || sbErr);
+          const isStatementTimeout = errMsg.includes('canceling statement') || errMsg.includes('statement timeout');
+          const isConnectionTimeout = errMsg.includes('timeout') || errMsg.includes('cancel');
+
+          if (isStatementTimeout) {
+            console.log('[Products Data] Hard statement timeout detected. Skipping retries; falling back immediately.');
+            break;
+          }
+
+          if (attempt < maxRetries && isConnectionTimeout) {
+            console.log(`[Products Data] Connection might be busy or waking up. Retrying in ${delayMs / 1000}s...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            delayMs *= 1.5;
+          } else {
+            console.log('[Products Data] Supabase fetch inactive, falling back to Firebase/REST:', sbErr?.message || sbErr);
+            break;
+          }
+        }
+      }
+    }
+
     if (adminDb) {
       try {
         console.log(`[Products Data] Fetching products via Firebase Admin SDK`);
@@ -1844,6 +1932,20 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
   // Firestore REST helpers for Boost Ad System
   async function getRawProductFirestoreREST(productId: string) {
+    if (backendSupabase) {
+      try {
+        console.log(`[Supabase Server] Fetching product ${productId} from Supabase...`);
+        const { data, error } = await backendSupabase
+          .from('products')
+          .select('*')
+          .eq('id', productId)
+          .maybeSingle();
+        if (!error && data) return data;
+      } catch (sbErr: any) {
+        console.warn(`[Supabase Server] Fetch product ${productId} failed, falling back to Firebase:`, sbErr?.message || sbErr);
+      }
+    }
+
     if (adminDb) {
       try {
         console.log(`[Firebase Admin] Fetching product ${productId} with administrative privileges`);
@@ -1907,6 +2009,27 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   }
 
   async function updateProductFirestoreREST(productId: string, updatedFields: any, customAuthToken?: string) {
+    if (backendSupabase) {
+      try {
+        console.log(`[Supabase Server] Updating product ${productId} in Supabase...`);
+        const payload: any = {};
+        for (const [k, v] of Object.entries(updatedFields)) {
+          payload[k] = v === undefined ? null : v;
+        }
+        const { error } = await backendSupabase
+          .from('products')
+          .update(payload)
+          .eq('id', productId);
+        if (!error) {
+          console.log(`[Supabase Server] Successfully updated product ${productId}`);
+          return { name: `projects/${projectId}/databases/(default)/documents/products/${productId}` };
+        }
+        throw error;
+      } catch (sbErr: any) {
+        console.warn(`[Supabase Server] Failed to update product ${productId} in Supabase, falling back:`, sbErr?.message || sbErr);
+      }
+    }
+
     if (adminDb) {
       try {
         console.log(`[Firebase Admin] Updating product ${productId} with administrative privileges`);
@@ -2014,6 +2137,30 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   }
 
   async function createBoostPurchaseFirestoreREST(purchaseData: any, customAuthToken?: string) {
+    if (backendSupabase) {
+      try {
+        console.log('[Supabase Server] Creating boost purchase record in Supabase...');
+        const { error } = await backendSupabase
+          .from('boost_purchases')
+          .insert({
+            id: purchaseData.id || `boost_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+            productId: purchaseData.productId,
+            userId: purchaseData.userId,
+            amount: purchaseData.amount,
+            currency: purchaseData.currency || 'GHS',
+            status: purchaseData.status,
+            createdAt: purchaseData.createdAt || new Date().toISOString()
+          });
+        if (!error) {
+          console.log('[Supabase Server] Successfully saved boost purchase record.');
+          return;
+        }
+        throw error;
+      } catch (sbErr: any) {
+        console.warn('[Supabase Server] Creating boost purchase in Supabase failed, falling back:', sbErr?.message || sbErr);
+      }
+    }
+
     if (adminDb) {
       try {
         console.log('[Firebase Admin] Creating boost purchase with administrative privileges');
@@ -2662,13 +2809,437 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
+  // Helper to transform Firestore models to Supabase compatible column values
+  function transformForSupabase(table: string, data: any, docId: string): any {
+    const result: any = { ...data };
+    if (!result.id) {
+      result.id = docId;
+    }
+    
+    // Clean undefined values to null recursively or set defaults
+    for (const [k, v] of Object.entries(result)) {
+      if (v === undefined) {
+        result[k] = null;
+      }
+    }
+
+    if (table === 'users') {
+      if (!result.username) {
+        result.username = result.email ? result.email.split('@')[0] : 'User_' + docId.substring(0, 5);
+      }
+      result.emailVerified = result.emailVerified === true;
+      result.isGoogleAuth = result.isGoogleAuth === true;
+      result.isAdmin = result.isAdmin === true;
+      result.welcomeSent = result.welcomeSent === true;
+      if (result.followingSellers && typeof result.followingSellers === 'string') {
+        try { result.followingSellers = JSON.parse(result.followingSellers); } catch (_) { result.followingSellers = []; }
+      }
+      if (!Array.isArray(result.followingSellers)) result.followingSellers = [];
+      if (result.savedProductIds && typeof result.savedProductIds === 'string') {
+        try { result.savedProductIds = JSON.parse(result.savedProductIds); } catch (_) { result.savedProductIds = []; }
+      }
+      if (!Array.isArray(result.savedProductIds)) result.savedProductIds = [];
+    } else if (table === 'products') {
+      result.negotiable = result.negotiable === true;
+      result.boostStatus = result.boostStatus === true;
+      result.isApproved = result.isApproved !== false; // default true
+      result.viewsCount = Number(result.viewsCount) || 0;
+      result.likesCount = Number(result.likesCount) || 0;
+      result.boostPriority = Number(result.boostPriority) || 0;
+      result.priorityScore = Number(result.priorityScore) || 0;
+      result.boostPriorityLevel = Number(result.boostPriorityLevel) || 0;
+      result.boostPackagePrice = Number(result.boostPackagePrice) || 0;
+      result.remainingBoostTime = Number(result.remainingBoostTime) || 0;
+      result.boostAmount = Number(result.boostAmount) || 0;
+      result.visitCount = Number(result.visitCount) || 0;
+      
+      if (result.images && typeof result.images === 'string') {
+        try { result.images = JSON.parse(result.images); } catch (_) { result.images = []; }
+      }
+      if (!Array.isArray(result.images)) result.images = [];
+      if (result.videos && typeof result.videos === 'string') {
+        try { result.videos = JSON.parse(result.videos); } catch (_) { result.videos = []; }
+      }
+      if (!Array.isArray(result.videos)) result.videos = [];
+      if (result.likedUserIds && typeof result.likedUserIds === 'string') {
+        try { result.likedUserIds = JSON.parse(result.likedUserIds); } catch (_) { result.likedUserIds = []; }
+      }
+      if (!Array.isArray(result.likedUserIds)) result.likedUserIds = [];
+      if (result.boostHistory && typeof result.boostHistory === 'string') {
+        try { result.boostHistory = JSON.parse(result.boostHistory); } catch (_) { result.boostHistory = []; }
+      }
+      if (!Array.isArray(result.boostHistory)) result.boostHistory = [];
+    } else if (table === 'messages') {
+      result.read = result.read === true;
+    } else if (table === 'reviews') {
+      result.rating = Number(result.rating) || 5;
+    } else if (table === 'notifications') {
+      result.read = result.read === true;
+    } else if (table === 'boost_purchases') {
+      result.amount = Number(result.amount) || 0;
+    }
+
+    // Allowed columns in our PostgreSQL schema to prevent "column does not exist" errors
+    const TABLE_COLUMNS: Record<string, Set<string>> = {
+      users: new Set([
+        'id', 'username', 'email', 'phoneNumber', 'whatsAppNumber', 'role', 
+        'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 
+        'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'createdAt'
+      ]),
+      products: new Set([
+        'id', 'title', 'description', 'price', 'category', 'location', 
+        'images', 'videos', 'brand', 'condition', 'negotiable', 'sellerId', 
+        'sellerName', 'createdAt', 'viewsCount', 'likesCount', 'likedUserIds', 
+        'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
+        'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice', 
+        'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase', 
+        'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved'
+      ]),
+      chats: new Set([
+        'id', 'productId', 'productTitle', 'productPrice', 'productImage', 
+        'buyerId', 'buyerName', 'sellerId', 'sellerName', 'lastMessageText', 
+        'lastMessageTime', 'tradeStatus', 'adId', 'adTitle', 'adImage', 
+        'adThumbnail', 'adType'
+      ]),
+      messages: new Set([
+        'id', 'chatId', 'senderId', 'recipientId', 'text', 'createdAt', 'read'
+      ]),
+      reviews: new Set([
+        'id', 'buyerId', 'buyerName', 'sellerId', 'rating', 'comment', 'productTitle', 'createdAt'
+      ]),
+      notifications: new Set([
+        'id', 'userId', 'title', 'message', 'type', 'read', 'createdAt', 'relatedId'
+      ]),
+      store_names: new Set([
+        'id', 'userId', 'username'
+      ]),
+      boost_purchases: new Set([
+        'id', 'productId', 'userId', 'amount', 'currency', 'status', 'createdAt'
+      ])
+    };
+
+    const allowed = TABLE_COLUMNS[table];
+    if (allowed) {
+      const filtered: any = {};
+      for (const [key, value] of Object.entries(result)) {
+        if (allowed.has(key)) {
+          filtered[key] = value;
+        }
+      }
+      return filtered;
+    }
+
+    return result;
+  }
+
+  // Admin Supabase Database Migration API
+  app.post('/api/admin/migrate-to-supabase', async (req, res) => {
+    const authHeader = req.headers.authorization;
+
+    // Helper to fetch with exponential backoff retry for Firestore REST API
+    async function fetchWithRetry(url: string, options: RequestInit = {}, maxRetries = 5, initialDelay = 1000): Promise<Response> {
+      let delay = initialDelay;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const response = await fetch(url, options);
+          if (response.status === 429) {
+            console.warn(`[Fetch Retry] Received 429 Rate Limit on attempt ${attempt}/${maxRetries} for URL ${url}. Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2.5; // Exponential backoff
+            continue;
+          }
+          if (response.status >= 500 && attempt < maxRetries) {
+            console.warn(`[Fetch Retry] Received ${response.status} Server Error on attempt ${attempt}/${maxRetries}. Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2;
+            continue;
+          }
+          return response;
+        } catch (err: any) {
+          if (attempt === maxRetries) {
+            throw err;
+          }
+          console.warn(`[Fetch Retry] Fetch exception on attempt ${attempt}/${maxRetries}: ${err.message || err}. Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2;
+        }
+      }
+      throw new Error(`Fetch failed after ${maxRetries} attempts`);
+    }
+
+    try {
+      // 1. Verify admin privilege
+      const isAdmin = await verifyAdmin(authHeader);
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: "Access Denied: Administrative privileges required." });
+      }
+
+      // 2. Ensure Supabase backend client is active
+      if (!backendSupabase) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Supabase integration is not active. Please set valid VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your settings." 
+        });
+      }
+
+      console.log('[Supabase Migration] Starting data migration from Firestore to Supabase...');
+      const stats: any = {};
+
+      const collectionsToMigrate = [
+        { firestore: 'users', supabase: 'users' },
+        { firestore: 'products', supabase: 'products' },
+        { firestore: 'chats', supabase: 'chats' },
+        { firestore: 'messages', supabase: 'messages' },
+        { firestore: 'reviews', supabase: 'reviews' },
+        { firestore: 'notifications', supabase: 'notifications' },
+        { firestore: 'storeNames', supabase: 'store_names' },
+        { firestore: 'boost_purchases', supabase: 'boost_purchases' },
+        { firestore: 'boostPurchases', supabase: 'boost_purchases' },
+      ];
+
+      for (const mapping of collectionsToMigrate) {
+        // Skip if stats already loaded this target table under a different firestore name
+        if (stats[mapping.supabase]) {
+          console.log(`[Supabase Migration] Skipping redundant pass for target table: ${mapping.supabase}`);
+          continue;
+        }
+
+        stats[mapping.supabase] = { fetched: 0, migrated: 0, failed: 0, errors: [] };
+
+        let documents: any[] = [];
+        let fetchedSize = 0;
+
+        if (adminDb) {
+          try {
+            console.log(`[Supabase Migration] Fetching all documents from Firestore collection: "${mapping.firestore}" via Admin SDK...`);
+            const snapshot = await adminDb.collection(mapping.firestore).get();
+            if (!snapshot.empty) {
+              fetchedSize = snapshot.size;
+              snapshot.forEach((doc: any) => {
+                documents.push({ id: doc.id, data: doc.data() });
+              });
+            }
+          } catch (adminErr: any) {
+            console.warn(`[Supabase Migration] Admin SDK fetch failed for "${mapping.firestore}", trying REST fallback:`, adminErr.message || adminErr);
+          }
+        }
+
+        // Fallback to REST API if Admin SDK is inactive or failed
+        if (documents.length === 0) {
+          try {
+            console.log(`[Supabase Migration] Fetching documents from Firestore collection: "${mapping.firestore}" via REST API fallback...`);
+            const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+            const response = await fetchWithRetry(firestoreUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                structuredQuery: {
+                  from: [
+                    {
+                      collectionId: mapping.firestore,
+                      allDescendants: false
+                    }
+                  ],
+                  limit: 5000
+                }
+              })
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              const results = Array.isArray(data) ? data : [];
+              const parsedDocs = results
+                .filter((item: any) => item && item.document)
+                .map((item: any) => {
+                  const doc = item.document;
+                  const fields = doc.fields || {};
+                  const result: any = {};
+                  
+                  const parseVal = (val: any): any => {
+                    if (!val) return undefined;
+                    if ('stringValue' in val) return val.stringValue;
+                    if ('integerValue' in val) return parseInt(val.integerValue, 10);
+                    if ('doubleValue' in val) return parseFloat(val.doubleValue);
+                    if ('booleanValue' in val) return val.booleanValue;
+                    if ('arrayValue' in val) {
+                      const arr = val.arrayValue?.values || [];
+                      return arr.map((sub: any) => parseVal(sub));
+                    }
+                    if ('mapValue' in val) {
+                      const mapFields = val.mapValue?.fields || {};
+                      const mapResult: any = {};
+                      for (const k of Object.keys(mapFields)) {
+                        mapResult[k] = parseVal(mapFields[k]);
+                      }
+                      return mapResult;
+                    }
+                    return undefined;
+                  };
+
+                  for (const key of Object.keys(fields)) {
+                    result[key] = parseVal(fields[key]);
+                  }
+
+                  const nameParts = doc.name ? doc.name.split('/') : [];
+                  const id = nameParts[nameParts.length - 1] || '';
+                  return { id, data: result };
+                });
+
+              documents = parsedDocs;
+              fetchedSize = parsedDocs.length;
+            } else {
+              const errMsg = `REST API returned status ${response.status}`;
+              stats[mapping.supabase].errors.push(`REST API failed: ${errMsg}`);
+              console.error(`[Supabase Migration] REST API failed for "${mapping.firestore}":`, errMsg);
+            }
+          } catch (restErr: any) {
+            stats[mapping.supabase].errors.push(`REST API exception: ${restErr.message || restErr}`);
+            console.error(`[Supabase Migration] REST API exception for "${mapping.firestore}":`, restErr);
+          }
+        }
+
+        if (documents.length === 0) {
+          console.log(`[Supabase Migration] No documents found or fetched for Firestore collection "${mapping.firestore}".`);
+          continue;
+        }
+
+        try {
+          stats[mapping.supabase].fetched += fetchedSize;
+          const payloads: any[] = [];
+
+          for (const doc of documents) {
+            try {
+              const transformed = transformForSupabase(mapping.supabase, doc.data, doc.id);
+              payloads.push(transformed);
+            } catch (err: any) {
+              stats[mapping.supabase].failed++;
+              stats[mapping.supabase].errors.push(`Doc ID ${doc.id} transform failed: ${err.message || err}`);
+            }
+          }
+
+          if (payloads.length > 0) {
+            console.log(`[Supabase Migration] Upserting ${payloads.length} records into Supabase table: "${mapping.supabase}"...`);
+            const batchSize = 100;
+            for (let i = 0; i < payloads.length; i += batchSize) {
+              const batch = payloads.slice(i, i + batchSize);
+              const { error } = await backendSupabase
+                .from(mapping.supabase)
+                .upsert(batch, { onConflict: 'id' });
+
+              if (error) {
+                console.error(`[Supabase Migration] Upsert batch failed for table "${mapping.supabase}":`, error);
+                throw error;
+              }
+            }
+            stats[mapping.supabase].migrated += payloads.length;
+          }
+        } catch (err: any) {
+          console.error(`[Supabase Migration] Error migrating collection "${mapping.firestore}":`, err);
+          stats[mapping.supabase].errors.push(err.message || String(err));
+        }
+
+        // Delay between collections to avoid hitting Firestore rate limits (HTTP 429)
+        console.log(`[Supabase Migration] Completed collection "${mapping.firestore}". Pausing 1000ms before next...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      console.log('[Supabase Migration] Migration job complete! Stats:', stats);
+      cachedProducts = null; // Invalidate the product cache so listings show up instantly
+      return res.json({
+        success: true,
+        message: "Data migration completed successfully!",
+        stats
+      });
+
+    } catch (err: any) {
+      console.error('[Supabase Migration Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error during data migration." });
+    }
+  });
+
+  // Batch Upsert Collection API for Client-Driven Migration
+  app.post('/api/admin/upsert-collection', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const { table, documents } = req.body;
+
+    if (!table || !Array.isArray(documents)) {
+      return res.status(400).json({ success: false, error: "Missing 'table' or 'documents' list." });
+    }
+
+    try {
+      // 1. Verify admin privilege
+      const isAdmin = await verifyAdmin(authHeader);
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: "Access Denied: Administrative privileges required." });
+      }
+
+      if (!backendSupabase) {
+        return res.status(500).json({ success: false, error: "Supabase client is not initialized on the server." });
+      }
+
+      console.log(`[Client Migration] Upserting ${documents.length} records into "${table}"...`);
+
+      const payloads: any[] = [];
+      for (const doc of documents) {
+        if (!doc.id || !doc.data) continue;
+        const transformed = transformForSupabase(table, doc.data, doc.id);
+        payloads.push(transformed);
+      }
+
+      if (payloads.length > 0) {
+        // Chunk upserts in batches of 100
+        const chunkSize = 100;
+        for (let i = 0; i < payloads.length; i += chunkSize) {
+          const chunk = payloads.slice(i, i + chunkSize);
+          const { error } = await backendSupabase
+            .from(table)
+            .upsert(chunk);
+
+          if (error) {
+            console.error(`[Client Migration] Error upserting chunk to "${table}":`, error);
+            return res.status(500).json({ success: false, error: `Database upsert failed: ${error.message}` });
+          }
+        }
+      }
+
+      if (table === 'products') {
+        cachedProducts = null; // Invalidate cache
+      }
+
+      return res.json({ success: true, count: payloads.length });
+
+    } catch (err: any) {
+      console.error('[Client Migration Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error." });
+    }
+  });
+
   // Background cron worker function to expire passes automatically
   async function runAutomaticBoostExpirationScan() {
     try {
-      console.log('[Boost Expiration Job] Scanning Firestore for expired premium boosts...');
+      console.log('[Boost Expiration Job] Scanning database for expired premium boosts...');
       let results: any[] = [];
 
-      if (adminDb) {
+      if (backendSupabase) {
+        try {
+          console.log('[Boost Expiration Job] Scanning Supabase for active premium boosts...');
+          const { data, error } = await backendSupabase
+            .from('products')
+            .select('*')
+            .eq('boostStatus', true);
+
+          if (error) throw error;
+          if (data) {
+            results = data;
+          }
+        } catch (sbErr: any) {
+          console.warn('[Boost Expiration Job] Supabase scan failed, checking Admin SDK:', sbErr?.message || sbErr);
+        }
+      }
+
+      if (results.length === 0 && adminDb) {
         try {
           const snapshot = await adminDb.collection("products")
             .where("boostStatus", "==", true)
@@ -2945,18 +3516,33 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       // 2. Duplicate checks in Firestore and Auth
       // A. Check storeNames (username reservation)
       let storeNameTaken = false;
-      try {
-        if (adminDb) {
-          const storeDoc = await adminDb.collection('storeNames').doc(cleanUsername.toLowerCase()).get();
-          if (storeDoc.exists) storeNameTaken = true;
-        } else {
-          // REST Fallback for storeNames check
-          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/storeNames/${encodeURIComponent(cleanUsername.toLowerCase())}${apiKey ? `?key=${apiKey}` : ""}`;
-          const response = await fetch(url);
-          if (response.ok) storeNameTaken = true;
+      if (backendSupabase) {
+        try {
+          const { data, error } = await backendSupabase
+            .from('store_names')
+            .select('*')
+            .eq('id', cleanUsername.toLowerCase())
+            .maybeSingle();
+          if (!error && data) storeNameTaken = true;
+        } catch (err) {
+          console.warn('[Register Check] Supabase storeNames check failed, falling back:', err);
         }
-      } catch (err) {
-        console.warn('[Register Check] Error checking storeNames:', err);
+      }
+
+      if (!storeNameTaken) {
+        try {
+          if (adminDb) {
+            const storeDoc = await adminDb.collection('storeNames').doc(cleanUsername.toLowerCase()).get();
+            if (storeDoc.exists) storeNameTaken = true;
+          } else {
+            // REST Fallback for storeNames check
+            const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/storeNames/${encodeURIComponent(cleanUsername.toLowerCase())}${apiKey ? `?key=${apiKey}` : ""}`;
+            const response = await fetch(url);
+            if (response.ok) storeNameTaken = true;
+          }
+        } catch (err) {
+          console.warn('[Register Check] Error checking storeNames:', err);
+        }
       }
 
       if (storeNameTaken) {
@@ -2967,13 +3553,36 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let emailTaken = false;
       let phoneTaken = false;
 
+      if (backendSupabase) {
+        try {
+          const { data: emailMatch, error: emailErr } = await backendSupabase
+            .from('users')
+            .select('*')
+            .eq('email', cleanEmail)
+            .maybeSingle();
+          if (!emailErr && emailMatch) emailTaken = true;
+
+          const { data: phoneMatch, error: phoneErr } = await backendSupabase
+            .from('users')
+            .select('*')
+            .eq('phoneNumber', cleanPhone)
+            .maybeSingle();
+          if (!phoneErr && phoneMatch) phoneTaken = true;
+        } catch (err) {
+          console.warn('[Register Check] Supabase email/phone check failed, falling back:', err);
+        }
+      }
+
       try {
         if (adminDb) {
-          const emailSnap = await adminDb.collection('users').where('email', '==', cleanEmail).limit(1).get();
-          if (!emailSnap.empty) emailTaken = true;
-
-          const phoneSnap = await adminDb.collection('users').where('phoneNumber', '==', cleanPhone).limit(1).get();
-          if (!phoneSnap.empty) phoneTaken = true;
+          if (!emailTaken) {
+            const emailSnap = await adminDb.collection('users').where('email', '==', cleanEmail).limit(1).get();
+            if (!emailSnap.empty) emailTaken = true;
+          }
+          if (!phoneTaken) {
+            const phoneSnap = await adminDb.collection('users').where('phoneNumber', '==', cleanPhone).limit(1).get();
+            if (!phoneSnap.empty) phoneTaken = true;
+          }
         } else {
           // REST Fallback querying
           const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
@@ -3275,6 +3884,40 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       };
 
       // Proactively sync user profile and store name mapping to Firestore atomically
+      if (backendSupabase) {
+        try {
+          console.log(`[Supabase Server] Saving verified user profile and reserving store name in Supabase...`);
+          const { error: userErr } = await backendSupabase
+            .from('users')
+            .upsert({
+              id: uid,
+              username: session.username,
+              email: session.email,
+              phoneNumber: session.phoneNumber || null,
+              role: 'both',
+              joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+              photoUrl: session.photoUrl || null,
+              followingSellers: [],
+              savedProductIds: [],
+              emailVerified: true
+            });
+          if (userErr) throw userErr;
+
+          const { error: storeErr } = await backendSupabase
+            .from('store_names')
+            .upsert({
+              id: session.username.toLowerCase(),
+              userId: uid,
+              username: session.username
+            });
+          if (storeErr) throw storeErr;
+
+          console.log(`[Supabase Server] Successfully persisted user profile and reserved store name for ${session.username}`);
+        } catch (sbErr: any) {
+          console.warn('[Supabase Server] Failed to persist user/store_name to Supabase:', sbErr?.message || sbErr);
+        }
+      }
+
       try {
         if (adminDb) {
           const batch = adminDb.batch();

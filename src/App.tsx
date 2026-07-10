@@ -4,11 +4,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
 
+import { ProfileSettings } from './components/ProfileSettings';
+import { ChatInterface } from './components/ChatInterface';
+import { SellerDashboard } from './components/SellerDashboard';
+import { SellerProfilePage } from './components/SellerProfilePage';
 const ProductDetail = lazy(() => import('./components/ProductDetail').then(m => ({ default: m.ProductDetail })));
-const ChatInterface = lazy(() => import('./components/ChatInterface').then(m => ({ default: m.ChatInterface })));
-const SellerDashboard = lazy(() => import('./components/SellerDashboard').then(m => ({ default: m.SellerDashboard })));
-const SellerProfilePage = lazy(() => import('./components/SellerProfilePage').then(m => ({ default: m.SellerProfilePage })));
-const ProfileSettings = lazy(() => import('./components/ProfileSettings').then(m => ({ default: m.ProfileSettings })));
 const ListingModal = lazy(() => import('./components/ListingModal').then(m => ({ default: m.ListingModal })));
 const VideoAdsFeed = lazy(() => import('./components/VideoAdsFeed').then(m => ({ default: m.VideoAdsFeed })));
 const VerificationBlockModal = lazy(() => import('./components/VerificationBlockModal').then(m => ({ default: m.VerificationBlockModal })));

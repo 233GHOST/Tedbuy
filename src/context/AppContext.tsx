@@ -34,7 +34,7 @@ import {
   increment,
   orderBy,
   limit
-} from 'firebase/firestore';
+} from '../dbAdapter';
 import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener, requestFcmToken } from '../firebase';
 import { slugify } from '../utils/slugify';
 import { getAuthErrorMessage, toUserFriendlyError } from '../utils/authErrorHelper';

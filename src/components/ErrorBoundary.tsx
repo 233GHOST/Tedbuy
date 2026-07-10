@@ -1,5 +1,7 @@
 import React, { ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Home, LogOut } from 'lucide-react';
+import { auth } from '../firebase';
+import { signOut } from 'firebase/auth';
 
 interface Props {
   children?: ReactNode;
@@ -50,6 +52,24 @@ export class ErrorBoundary extends React.Component<Props, State> {
     }
   }
 
+  private handleEmergencyLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.error('[ErrorBoundary] Emergency logout failed:', e);
+    }
+    try {
+      localStorage.removeItem('tedbuy_simulated_mode');
+      localStorage.removeItem('tedbuy_simulated_user');
+      localStorage.removeItem('tedbuy_local_created_products');
+      localStorage.removeItem('tedbuy_local_products_overrides');
+    } catch (e) {
+      console.error('[ErrorBoundary] LocalStorage clear failed:', e);
+    }
+    this.setState({ hasError: false, error: null });
+    window.location.href = '/';
+  };
+
   private handleReset = () => {
     // Attempt resetting error state and reload
     this.setState({ hasError: false, error: null });
@@ -74,27 +94,40 @@ export class ErrorBoundary extends React.Component<Props, State> {
               We encountered a temporary render-time issue or connection disruption. Don't worry, your data and saved preferences are preserved safely!
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-3 w-full">
-              <button
-                type="button"
-                onClick={this.handleReset}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition shadow-sm active:scale-95 duration-100 cursor-pointer text-sm"
-              >
-                <RefreshCw className="w-4 h-4" />
-                <span>Try Again</span>
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => {
-                  this.setState({ hasError: false, error: null });
-                  window.location.href = '/';
-                }}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 font-semibold rounded-xl transition active:scale-95 duration-100 cursor-pointer text-sm"
-              >
-                <Home className="w-4 h-4" />
-                <span>Go Home</span>
-              </button>
+            <div className="flex flex-col gap-3 w-full">
+              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={this.handleReset}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition shadow-sm active:scale-95 duration-100 cursor-pointer text-sm"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Try Again</span>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    this.setState({ hasError: false, error: null });
+                    window.location.href = '/';
+                  }}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 font-semibold rounded-xl transition active:scale-95 duration-100 cursor-pointer text-sm"
+                >
+                  <Home className="w-4 h-4" />
+                  <span>Go Home</span>
+                </button>
+              </div>
+
+              {auth.currentUser && (
+                <button
+                  type="button"
+                  onClick={this.handleEmergencyLogout}
+                  className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-semibold rounded-xl transition active:scale-95 duration-100 cursor-pointer text-sm"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out of Account</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
