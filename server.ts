@@ -211,6 +211,26 @@ const DEBOUNCE_429_RETRY_MS = 600000; // 10 minutes cooling down after a 429
 let activeFetchPromise: Promise<any[]> | null = null;
 // In-memory caches for crawler/metadata requests to prevent Firestore 429/RESOURCE_EXHAUSTED
 const productDataCache = new Map<string, { data: any; timestamp: number }>();
+
+// High-performance binary image caching system to load images instantly
+const binaryImageMemoryCache = new Map<string, { buffer: Buffer; mimeType: string }>();
+const binaryCacheKeys: string[] = [];
+const MAX_BINARY_MEM_CACHE_SIZE = 1000; // Keep up to 1000 images in memory to guarantee blazing fast performance
+
+function setBinaryImageInCache(productId: string, buffer: Buffer, mimeType: string) {
+  if (binaryImageMemoryCache.has(productId)) {
+    binaryImageMemoryCache.set(productId, { buffer, mimeType });
+    return;
+  }
+  if (binaryCacheKeys.length >= MAX_BINARY_MEM_CACHE_SIZE) {
+    const oldestKey = binaryCacheKeys.shift();
+    if (oldestKey) {
+      binaryImageMemoryCache.delete(oldestKey);
+    }
+  }
+  binaryImageMemoryCache.set(productId, { buffer, mimeType });
+  binaryCacheKeys.push(productId);
+}
 const sellerDataCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 300000; // 5 minutes cache TTL to dramatically reduce read operations and quota usage
 const CACHE_FILE_PATH = path.join(process.cwd(), 'products_cache.json');
@@ -249,6 +269,22 @@ try {
             if (!fs.existsSync(cacheFilePath)) {
               fs.writeFileSync(cacheFilePath, firstImage, 'utf-8');
             }
+
+            // Warm up high-performance binary cache and pre-decode base64 on boot
+            const parts = firstImage.split(';base64,');
+            if (parts.length === 2) {
+              const mimeType = parts[0].replace('data:', '');
+              const buffer = Buffer.from(parts[1], 'base64');
+              setBinaryImageInCache(result.id, buffer, mimeType);
+
+              const binFile = path.join(IMAGES_CACHE_DIR, `${result.id}.bin`);
+              const mimeFile = path.join(IMAGES_CACHE_DIR, `${result.id}.mime`);
+              if (!fs.existsSync(binFile)) {
+                fs.writeFileSync(binFile, buffer);
+                fs.writeFileSync(mimeFile, mimeType, 'utf-8');
+              }
+            }
+
             productDataCache.set(result.id, {
               data: {
                 title: result.title || '',
@@ -1387,6 +1423,25 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           if (!fs.existsSync(cacheFilePath)) {
             fs.writeFileSync(cacheFilePath, firstImage, 'utf-8');
             console.log(`[Images Cache] Auto-generated disk file for ${optimized.id} on client demand`);
+          }
+
+          // Warm up high-performance binary cache and pre-decode base64 on client demand
+          try {
+            const parts = firstImage.split(';base64,');
+            if (parts.length === 2) {
+              const mimeType = parts[0].replace('data:', '');
+              const buffer = Buffer.from(parts[1], 'base64');
+              setBinaryImageInCache(optimized.id, buffer, mimeType);
+
+              const binFile = path.join(IMAGES_CACHE_DIR, `${optimized.id}.bin`);
+              const mimeFile = path.join(IMAGES_CACHE_DIR, `${optimized.id}.mime`);
+              if (!fs.existsSync(binFile)) {
+                fs.writeFileSync(binFile, buffer);
+                fs.writeFileSync(mimeFile, mimeType, 'utf-8');
+              }
+            }
+          } catch (decodeErr) {
+            console.error(`[Images Cache] Failed to pre-decode binary for ${optimized.id}:`, decodeErr);
           }
 
           // Warm up productDataCache in memory
@@ -3895,12 +3950,52 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   }
 
   // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files
-  app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 100, "image-proxy"), async (req, res) => {
+  app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 300, "image-proxy"), async (req, res) => {
     const { productId } = req.params;
     const queryImageUrl = req.query.image as string;
     
+    // 1. FAST PATH: Serve directly from high-performance in-memory binary cache (sub-millisecond, zero CPU/Disk overhead)
+    if (productId && !queryImageUrl) {
+      const memCached = binaryImageMemoryCache.get(productId);
+      if (memCached) {
+        res.set('Content-Type', memCached.mimeType);
+        res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+        return res.send(memCached.buffer);
+      }
+      
+      // 2. SEMI-FAST PATH: Serve from high-performance binary disk cache
+      const binFile = path.join(IMAGES_CACHE_DIR, `${productId}.bin`);
+      const mimeFile = path.join(IMAGES_CACHE_DIR, `${productId}.mime`);
+      if (fs.existsSync(binFile) && fs.existsSync(mimeFile)) {
+        try {
+          const buffer = fs.readFileSync(binFile);
+          const mimeType = fs.readFileSync(mimeFile, 'utf-8').trim();
+          setBinaryImageInCache(productId, buffer, mimeType);
+          res.set('Content-Type', mimeType);
+          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+          return res.send(buffer);
+        } catch (binErr) {
+          console.warn(`[Images Cache] Failed to read binary cache for ${productId}:`, binErr);
+        }
+      }
+    }
+
     let imageUrl = queryImageUrl;
     let category = '';
+
+    // 3. Check if we have the Base64 text file cached on disk. 
+    // This completely bypasses calling getProductData which has DB queries.
+    if (!imageUrl && productId) {
+      const txtFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
+      if (fs.existsSync(txtFile)) {
+        try {
+          imageUrl = fs.readFileSync(txtFile, 'utf-8');
+        } catch (txtErr) {
+          console.warn(`[Images Cache] Failed to read txt cache for ${productId}:`, txtErr);
+        }
+      }
+    }
+    
     if (!imageUrl && productId) {
       try {
         const product = await getProductData(productId);
@@ -3950,6 +4045,18 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           
           const base64Data = parts[1];
           const buffer = Buffer.from(base64Data, 'base64');
+
+          // Promote to binary caches for subsequent lightning-fast requests!
+          if (productId) {
+            try {
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.bin`), buffer);
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.mime`), mimeType, 'utf-8');
+              setBinaryImageInCache(productId, buffer, mimeType);
+              console.log(`[Images Cache] Promoted ${productId} to high-performance binary cache on-the-fly`);
+            } catch (cacheWriteErr) {
+              console.error(`[Images Cache] Error writing binary cache for ${productId}:`, cacheWriteErr);
+            }
+          }
           
           res.set('Content-Type', mimeType);
           res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
@@ -3980,6 +4087,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
 
           const buffer = Buffer.from(await imageRes.arrayBuffer());
+
+          // Cache external image as binary for subsequent instant loads!
+          if (productId) {
+            try {
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.bin`), buffer);
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.mime`), contentType, 'utf-8');
+              setBinaryImageInCache(productId, buffer, contentType);
+              console.log(`[Images Cache] Saved external image ${productId} directly as high-performance binary`);
+            } catch (cacheWriteErr) {
+              console.error(`[Images Cache] Error writing binary cache for external image ${productId}:`, cacheWriteErr);
+            }
+          }
+
           res.set('Content-Type', contentType);
           res.set('Cache-Control', 'public, max-age=86400'); // Cache for day
           return res.send(buffer);
