@@ -282,9 +282,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       const tempVideo = document.createElement('video');
       tempVideo.src = url;
       tempVideo.onloadedmetadata = () => {
-        setVideoDuration(tempVideo.duration || 10);
+        setVideoDuration(tempVideo.duration || 30);
         setTrimStart(0);
-        setTrimEnd(Math.min(10, tempVideo.duration || 10));
+        setTrimEnd(Math.min(30, tempVideo.duration || 30));
       };
       
       return () => {
@@ -295,7 +295,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setOversizedVideoUrl('');
       setVideoDuration(0);
       setTrimStart(0);
-      setTrimEnd(10);
+      setTrimEnd(30);
     }
   }, [oversizedVideoFile]);
 
@@ -320,7 +320,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       }
 
       try {
-        const compressed = await compressImage(file);
+        const compressed = await compressImage(file, 1920, 1920, 0.85);
         setImages(prev => [...prev, compressed]);
       } catch (err) {
         console.error('Failed to compress image:', err);
@@ -430,10 +430,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return;
     }
     
-    // If the video is oversized (> 730KB), set the oversized file and prompt the user
-    if (file.size > 730 * 1024) {
+    // If the video is oversized (> 30MB), set the oversized file and prompt the user
+    if (file.size > 30 * 1024 * 1024) {
       setOversizedVideoFile(file);
-      setErrorMsg(`"${file.name}" is too large (${(file.size / 1024).toFixed(0)}KB). The maximum allowed for database storage is 730KB. Use our built-in optimizer below to compress it to fit precisely.`);
+      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). The maximum allowed for database storage is 30MB. Use our built-in optimizer below to compress it to fit precisely.`);
       return;
     }
 
@@ -450,8 +450,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         return;
       }
       
-      if (duration > 10) {
-        setErrorMsg(`"${file.name}" is too long (${duration.toFixed(1)}s). Videos must be 10 seconds or less to ensure fast loading times and stay within the database size limit. Please trim or record a shorter clip.`);
+      if (duration > 30) {
+        setErrorMsg(`"${file.name}" is too long (${duration.toFixed(1)}s). Videos must be 30 seconds or less to ensure fast loading times. Please trim or record a shorter clip.`);
         return;
       }
 
@@ -568,15 +568,15 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       }
 
       // Calculate the absolute highest possible bitrate dynamically based on the clip's duration
-      // to squeeze the maximum possible visual output under the 730KB base64 capacity limit
+      // to squeeze the maximum possible visual output under the 30MB base64 capacity limit
       const totalToRecord = trimEnd - trimStart || 5;
-      const targetBinaryBytes = 520 * 1024; // 520 KB raw binary (converts to ~700 KB base64, safe margin)
+      const targetBinaryBytes = 20 * 1024 * 1024; // 20 MB raw binary (safe margin under 30MB)
       const targetBits = targetBinaryBytes * 8;
       let calculatedBps = Math.floor(targetBits / totalToRecord);
       
-      // Cap bitrate between 350,000 bps (already much cleaner than previous 150,000) and 1,200,000 bps
-      if (calculatedBps < 350000) calculatedBps = 350000;
-      if (calculatedBps > 1200000) calculatedBps = 1200000;
+      // Cap bitrate between 1,500,000 bps and 8,000,000 bps for crisp, gorgeous high-resolution output
+      if (calculatedBps < 1500000) calculatedBps = 1500000;
+      if (calculatedBps > 8000000) calculatedBps = 8000000;
 
       const recorderOptions = {
         mimeType: chosenMime,
@@ -776,8 +776,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       negotiable
     });
     const payloadBytes = payloadForCheck.length;
-    if (payloadBytes > 1010000) {
-      return setErrorMsg(`The total media size is too large (${(payloadBytes / 1024).toFixed(0)}KB). Our database has a strict 1MB size limit. Please remove some images or upload a smaller, highly-compressed video under 730KB.`);
+    if (payloadBytes > 50 * 1024 * 1024) {
+      return setErrorMsg(`The total media size is too large (${(payloadBytes / (1024 * 1024)).toFixed(1)}MB). The maximum allowed size per post is 50MB. Please remove some images or upload a smaller, more compressed video.`);
     }
 
     if (isSubmitting) return;
@@ -887,11 +887,11 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       const friendlyErr = toUserFriendlyError(errStr);
       let finalMsg = `Submission failed: ${friendlyErr}`;
       if (isPermissionDenied || friendlyErr.toLowerCase().includes('temporarily unavailable') || friendlyErr.toLowerCase().includes('permission')) {
-        finalMsg += ' (Your session might have expired. Please try logging out and back in, check that you are editing your own items, and ensure images are compressed under 730KB).';
+        finalMsg += ' (Your session might have expired. Please try logging out and back in, check that you are editing your own items, and ensure images are compressed under 50MB).';
       } else if (friendlyErr.toLowerCase().includes('connect') || friendlyErr.toLowerCase().includes('internet')) {
         finalMsg += ' (Please check your internet connection and try again).';
       } else {
-        finalMsg += ' (Try using smaller images or a highly compressed video under 730KB to fit our database size limits).';
+        finalMsg += ' (Try using smaller images or a more compressed video to fit our 50MB size limits).';
       }
       setErrorMsg(finalMsg);
       showToast(finalMsg, "error");
@@ -1276,7 +1276,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             <span className="text-[10px] font-black tracking-wider uppercase text-slate-200">Video Snippet Trimmer</span>
                           </div>
                           <span className="text-[9px] font-mono text-emerald-400 font-bold bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-900/30">
-                            Max 10s Limit
+                            Max 30s Limit
                           </span>
                         </div>
 
@@ -1410,7 +1410,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 )}
 
                 <p className="text-[10px] text-slate-400 mt-2">
-                  **Tip**: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 730KB due to database size limitations) showing proof of functionality or live product demo.
+                  **Tip**: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 30MB) showing proof of functionality or live product demo.
                 </p>
               </div>
             )}

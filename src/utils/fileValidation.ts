@@ -30,12 +30,12 @@ export function validateImageFile(file: File): { isValid: boolean; error?: strin
     };
   }
 
-  // 4. Enforce strict maximum file size limit (10MB limit)
-  const maxBytes = 10 * 1024 * 1024; // 10MB
+  // 4. Enforce strict maximum file size limit (50MB limit)
+  const maxBytes = 50 * 1024 * 1024; // 50MB
   if (file.size > maxBytes) {
     return {
       isValid: false,
-      error: 'The selected picture is too large. Please upload an image smaller than 10MB.'
+      error: 'The selected picture is too large. Please upload an image smaller than 50MB.'
     };
   }
 

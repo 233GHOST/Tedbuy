@@ -674,10 +674,6 @@ export const ProfileSettings: React.FC = () => {
 
             {/* Tedbuy PWA Install Options */}
             <div className="w-full pt-4 mt-3 border-t border-slate-200/60 flex flex-col items-center text-center gap-3">
-              <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1">
-                <Smartphone className="w-4 h-4 text-slate-500" />
-                Tedbuy PWA Application
-              </span>
               
               {isStandalone ? (
                 <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-2.5 text-left">
