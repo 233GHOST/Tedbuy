@@ -711,7 +711,7 @@ export const ProfileSettings: React.FC = () => {
                       className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
                     >
                       <Share className="w-3.5 h-3.5" />
-                      <span>Install on iPhone</span>
+                      <span>Add to Home Screen</span>
                     </button>
                   ) : (
                     <div className="w-full bg-amber-50 border border-amber-150 rounded-xl p-2.5 text-left flex items-start gap-2">
