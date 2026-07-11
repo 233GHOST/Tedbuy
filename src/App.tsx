@@ -1396,13 +1396,20 @@ const MarketplaceContent: React.FC = () => {
             if (homeViewMode === 'video-feed') {
               setHomeViewMode('grid');
             }
-            setTimeout(() => {
-              const inputEl = document.getElementById('hero-search-input');
+            // Ultra-robust polling focus helper to ensure the input gets focused when it renders
+            let attempts = 0;
+            const interval = setInterval(() => {
+              const inputEl = document.getElementById('hero-search-input') || document.getElementById('header-search-bar');
               if (inputEl) {
                 inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 inputEl.focus();
+                clearInterval(interval);
               }
-            }, 150);
+              attempts++;
+              if (attempts > 12) {
+                clearInterval(interval);
+              }
+            }, 40);
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse' && searchQuery

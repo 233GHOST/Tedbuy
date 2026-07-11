@@ -345,8 +345,10 @@ export const Navbar: React.FC = () => {
 
   return (
     <>
-      {!showAuthModal && !(currentView === 'browse' && homeViewMode === 'video-feed') && (
-        <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-950 text-white shadow-md">
+      {!showAuthModal && (
+        <header className={`sticky top-0 z-40 bg-slate-900 border-b border-slate-950 text-white shadow-md ${
+          currentView === 'browse' && homeViewMode === 'video-feed' ? 'hidden md:block' : ''
+        }`}>
 
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -373,8 +375,8 @@ export const Navbar: React.FC = () => {
             </div>
           </div>
 
-          {/* Search bar inside header (shown only when user is not on home Browse view) */}
-          {currentView !== 'browse' && (
+          {/* Search bar inside header (shown only when user is not on home Browse view, or when in watch video feed mode) */}
+          {(currentView !== 'browse' || homeViewMode === 'video-feed') && (
             <div className="flex-1 max-w-lg relative hidden md:block">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-5 w-5 text-slate-400" />
@@ -387,8 +389,16 @@ export const Navbar: React.FC = () => {
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
                   setCurrentView('browse');
+                  if (homeViewMode === 'video-feed') {
+                    setHomeViewMode('grid');
+                  }
                 }}
-                onFocus={() => setIsDesktopFocused(true)}
+                onFocus={() => {
+                  setIsDesktopFocused(true);
+                  if (homeViewMode === 'video-feed') {
+                    setHomeViewMode('grid');
+                  }
+                }}
                 onBlur={() => setTimeout(() => setIsDesktopFocused(false), 200)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
