@@ -85,32 +85,14 @@ export const PWAInstallPrompt: React.FC = () => {
                   <Smartphone className="w-6 h-6 text-teal-400" />
                 </div>
 
-                <div className="flex-1 min-w-0 pr-4">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold font-mono tracking-wider text-teal-400 bg-teal-400/10 px-2 py-0.5 rounded-full uppercase">
-                      PWA App
-                    </span>
-                    <span className="flex items-center gap-0.5 text-[10px] font-mono text-slate-400">
-                      <Zap className="w-3 h-3 text-amber-400" /> Fast & Light
-                    </span>
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-100 mt-1">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-bold text-slate-100">
                     Install Tedbuy App
                   </h3>
                   <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                     Add Tedbuy to your Home Screen for full screen mode, offline messaging, and instant updates!
                   </p>
                 </div>
-
-                {/* Dismiss Button */}
-                <button
-                  type="button"
-                  onClick={handleDismiss}
-                  className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
-                  title="Dismiss"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               </div>
 
               {/* Action Buttons */}

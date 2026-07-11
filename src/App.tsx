@@ -572,7 +572,7 @@ const MarketplaceContent: React.FC = () => {
         ? 'bg-slate-950 h-[100dvh] overflow-hidden pb-0'
         : 'bg-slate-50 min-h-screen pb-16 md:pb-0'
     }`}>
-      {!(currentView === 'browse' && homeViewMode === 'video-feed') && <Navbar />}
+      <Navbar />
 
       {currentUser && !currentUser.emailVerified && (
         <div id="unverified-email-banner" className="bg-amber-500 text-amber-950 px-4 py-2.5 text-xs font-semibold flex flex-col md:flex-row items-center justify-between gap-3 shadow-inner border-b border-amber-600/35 relative z-30">

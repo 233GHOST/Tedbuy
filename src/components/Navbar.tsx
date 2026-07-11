@@ -15,6 +15,7 @@ export const Navbar: React.FC = () => {
     logoutUser,
     setCurrentView,
     currentView,
+    homeViewMode,
     setHomeViewMode,
     switchUserSimulated,
     resetChats,
@@ -344,7 +345,7 @@ export const Navbar: React.FC = () => {
 
   return (
     <>
-      {!showAuthModal && (
+      {!showAuthModal && !(currentView === 'browse' && homeViewMode === 'video-feed') && (
         <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-950 text-white shadow-md">
 
 
