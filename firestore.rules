@@ -33,6 +33,15 @@ service cloud.firestore {
       );
     }
 
+    function isEmailVerifiedOwner(email) {
+      return isSignedIn() &&
+             request.auth.token != null &&
+             "email" in request.auth.token &&
+             "email_verified" in request.auth.token &&
+             request.auth.token.email_verified == true &&
+             request.auth.token.email.lower() == email.lower();
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -67,7 +76,7 @@ service cloud.firestore {
                     isValidUser(incoming()) &&
                     incoming().get('id', userId) == existing().get('id', userId) &&
                     (incoming().get('isAdmin', false) == existing().get('isAdmin', false) || isAdmin());
-      allow delete: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow delete: if isSignedIn() && (isOwner(userId) || isAdmin() || isEmailVerifiedOwner(existing().get('email', '')));
     }
 
     // 2. Products Collection rules
@@ -95,6 +104,12 @@ service cloud.firestore {
                             'boostAmount', 'boostPackagePrice', 'boostPriorityLevel', 
                             'remainingBoostTime', 'lastBoostPurchase'
                           ])
+                        ) ||
+                        // Allow updating sellerId if migrating account (changing from old UID to new UID of same verified email)
+                        (
+                          exists(/databases/$(database)/documents/users/$(existing().get('sellerId', ''))) &&
+                          isEmailVerifiedOwner(get(/databases/$(database)/documents/users/$(existing().get('sellerId', ''))).data.get('email', '')) &&
+                          isOwner(incoming().get('sellerId', ''))
                         ) ||
                         // Allow clearing/expiring boosts (e.g. background job setting boostStatus to false)
                         (
@@ -239,7 +254,13 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn() && incoming().get('userId', '') == request.auth.uid;
       allow update: if isSignedIn() && existing().get('userId', '') == request.auth.uid && incoming().get('userId', '') == request.auth.uid;
-      allow delete: if isAdmin() || (isSignedIn() && existing().get('userId', '') == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && (
+        existing().get('userId', '') == request.auth.uid ||
+        (
+          exists(/databases/$(database)/documents/users/$(existing().get('userId', ''))) &&
+          isEmailVerifiedOwner(get(/databases/$(database)/documents/users/$(existing().get('userId', ''))).data.get('email', ''))
+        )
+      ));
     }
 
     // 9. Boost Purchases Collection rules

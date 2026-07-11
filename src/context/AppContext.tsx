@@ -833,8 +833,124 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
 
               if (existingUserWithEmail && existingUserId) {
-                console.log(`[Google Sign-In Collision] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Postponing to let Google login / linking flow handle credentials.`);
-                return;
+                console.log(`[Google Account Merge] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Merging profile dynamically into Google UID: "${firebaseUser.uid}" so user keeps all products and settings...`);
+                
+                const mergedUser: User = {
+                  ...existingUserWithEmail,
+                  id: firebaseUser.uid,
+                  emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
+                  photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
+                  isGoogleAuth: true,
+                  authProvider: 'google.com'
+                };
+
+                try {
+                  const batch = writeBatch(db);
+                  
+                  // 1. Create the new user document under Google UID
+                  batch.set(doc(db, 'users', firebaseUser.uid), cleanObject(mergedUser));
+                  
+                  // 2. Delete the old user document
+                  batch.delete(doc(db, 'users', existingUserId));
+                  
+                  // 3. Update the storeName mapping pointing to the new UID if a username exists
+                  if (mergedUser.username) {
+                    const storeNameLower = mergedUser.username.trim().toLowerCase();
+                    // First delete old, then set new
+                    batch.delete(doc(db, 'storeNames', storeNameLower));
+                    batch.set(doc(db, 'storeNames', storeNameLower), {
+                      userId: firebaseUser.uid,
+                      username: mergedUser.username.trim()
+                    });
+                  }
+
+                  await batch.commit();
+                  console.log('[Google Account Merge] Profile base data and storeName successfully migrated.');
+
+                  // Instant prime of state so that UI displays their old account instantly
+                  if (active) {
+                    setCurrentUserState(mergedUser);
+                    showToast("Logged in successfully! Your existing profile was linked to your Google account. 🎉", "success");
+                  }
+
+                  // 4. Asynchronously cascade the ID change to related collections in the background
+                  const cascadeUpdates = async () => {
+                    try {
+                      const cascadeBatch = writeBatch(db);
+                      let cascadeCount = 0;
+
+                      // Products migration (update sellerId)
+                      const prodsSnap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', existingUserId)));
+                      prodsSnap.forEach(pDoc => {
+                        cascadeBatch.update(doc(db, 'products', pDoc.id), { sellerId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      // Reviews from or to this user
+                      const reviewsFromSnap = await getDocs(query(collection(db, 'reviews'), where('buyerId', '==', existingUserId)));
+                      reviewsFromSnap.forEach(rDoc => {
+                        cascadeBatch.update(doc(db, 'reviews', rDoc.id), { buyerId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      const reviewsToSnap = await getDocs(query(collection(db, 'reviews'), where('sellerId', '==', existingUserId)));
+                      reviewsToSnap.forEach(rDoc => {
+                        cascadeBatch.update(doc(db, 'reviews', rDoc.id), { sellerId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      // Chats where this user is buyer or seller
+                      const chatsBuyerSnap = await getDocs(query(collection(db, 'chats'), where('buyerId', '==', existingUserId)));
+                      chatsBuyerSnap.forEach(cDoc => {
+                        cascadeBatch.update(doc(db, 'chats', cDoc.id), { buyerId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      const chatsSellerSnap = await getDocs(query(collection(db, 'chats'), where('sellerId', '==', existingUserId)));
+                      chatsSellerSnap.forEach(cDoc => {
+                        cascadeBatch.update(doc(db, 'chats', cDoc.id), { sellerId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      // Messages where this user is sender or recipient
+                      const msgsSenderSnap = await getDocs(query(collection(db, 'messages'), where('senderId', '==', existingUserId)));
+                      msgsSenderSnap.forEach(mDoc => {
+                        cascadeBatch.update(doc(db, 'messages', mDoc.id), { senderId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      const msgsRecipientSnap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', existingUserId)));
+                      msgsRecipientSnap.forEach(mDoc => {
+                        cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      // Notifications to this user
+                      const notificationsSnap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', existingUserId)));
+                      notificationsSnap.forEach(nDoc => {
+                        cascadeBatch.update(doc(db, 'notifications', nDoc.id), { userId: firebaseUser.uid });
+                        cascadeCount++;
+                      });
+
+                      if (cascadeCount > 0) {
+                        await cascadeBatch.commit();
+                        console.log(`[Google Account Merge] Cascaded ID update to ${cascadeCount} related documents.`);
+                      }
+                    } catch (cascadeErr) {
+                      console.warn('[Google Account Merge] Error performing background cascade ID update:', cascadeErr);
+                    }
+                  };
+
+                  cascadeUpdates();
+                  return;
+                } catch (mergeErr) {
+                  console.error('[Google Account Merge] Failed to merge account details client-side:', mergeErr);
+                  // Dynamic local fallback so user is logged in even if Firestore write fails momentarily
+                  if (active) {
+                    setCurrentUserState(mergedUser);
+                  }
+                  return;
+                }
               } else {
                 // Create the user document in Firestore asynchronously if first time
                 const newUser: User = {
@@ -2298,33 +2414,10 @@ Tedbuy Support`;
         if (googleUser && googleUser.email) {
           const emailClean = googleUser.email.trim().toLowerCase();
 
-          // Check in Firestore if an existing user has this email under a DIFFERENT uid
-          const q = query(collection(db, 'users'), where('email', '==', emailClean));
-          const snap = await getDocs(q);
-          const foundDoc = snap.docs.find(d => d.id !== googleUser.uid);
-          if (foundDoc) {
-            // A different existing user document has this email!
-            // We must link this Google sign-in to that existing account
-            const googleCred = GoogleAuthProvider.credentialFromResult(result);
-            setGoogleLinkingData({
-              email: googleUser.email,
-              credential: googleCred,
-              targetUid: foundDoc.id,
-              googleUserToSignOut: googleUser
-            });
-            // Immediately sign out to prevent a temporary duplicate Auth session
-            await signOut(auth);
-            throw { code: 'auth/account-exists-with-different-credential', message: 'An account with this email already exists inside Tedbuy. Please enter your password to link Google with your existing profile.' };
-          } else {
-            // Check if document exists for current Google uid
-            const userRef = doc(db, 'users', googleUser.uid);
-            const userSnap = await getDoc(userRef);
-            if (!userSnap.exists()) {
-              // No toast notification on sign in/up
-            } else {
-              // No toast notification on sign in
-            }
-          }
+          // Just let the Google Sign-In succeed. The onAuthStateChanged listener
+          // will detect any existing email collision and automatically perform
+          // a secure client-side merge/migration of the Firestore profile and listings!
+          console.log('[Google Sign-In] Successful sign-in as ' + emailClean + '. Session initialization in progress.');
         }
       } catch (popupErr: any) {
         if (popupErr?.code === 'auth/account-exists-with-different-credential') {
