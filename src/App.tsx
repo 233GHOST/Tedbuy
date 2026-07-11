@@ -3,6 +3,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
+import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 
 import { ProfileSettings } from './components/ProfileSettings';
 import { ChatInterface } from './components/ChatInterface';
@@ -799,6 +800,8 @@ const MarketplaceContent: React.FC = () => {
               </div>
             </div>
             )}
+
+            {homeViewMode !== 'video-feed' && <PWAInstallPrompt />}
 
             {/* View Mode Switching Tabs (Standard Grid vs Live Video Ads Feed) */}
             {homeViewMode !== 'video-feed' && (

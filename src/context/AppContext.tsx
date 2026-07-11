@@ -204,6 +204,12 @@ interface AppContextType {
   productLimit: number;
   hasMoreProducts: boolean;
   loadMoreProducts: () => void;
+  deferredPrompt: any;
+  setDeferredPrompt: React.Dispatch<React.SetStateAction<any>>;
+  canInstall: boolean;
+  setCanInstall: (val: boolean) => void;
+  triggerPWAInstall: () => Promise<void>;
+  isStandalone: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -414,6 +420,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [productsLoadError, setProductsLoadError] = useState(false);
   const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
+
+  // PWA states
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [canInstall, setCanInstall] = useState<boolean>(false);
+  const [isStandalone, setIsStandalone] = useState<boolean>(false);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -3356,6 +3367,83 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     };
   }, [processOfflineQueue]);
 
+  // PWA Install Prompt Listener
+  useEffect(() => {
+    // 1. Check if already installed in standalone mode
+    const checkStandalone = () => {
+      const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || 
+                               (navigator as any).standalone === true;
+      setIsStandalone(isStandaloneMode);
+    };
+
+    checkStandalone();
+    
+    // Listen for changes to display mode
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const handleDisplayModeChange = (e: MediaQueryListEvent) => {
+      setIsStandalone(e.matches);
+    };
+
+    try {
+      mediaQuery.addEventListener('change', handleDisplayModeChange);
+    } catch (_) {
+      try {
+        mediaQuery.addListener(handleDisplayModeChange);
+      } catch (_) {}
+    }
+
+    // 2. Capture beforeinstallprompt event
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setCanInstall(true);
+      console.log('[PWA] beforeinstallprompt event successfully captured.');
+    };
+
+    // 3. Capture appinstalled event
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setCanInstall(false);
+      setIsStandalone(true);
+      showToast('Tedbuy has been successfully installed to your device! 🎉 Enjoy lightning fast access.', 'success');
+      console.log('[PWA] App was successfully installed.');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      try {
+        mediaQuery.removeEventListener('change', handleDisplayModeChange);
+      } catch (_) {
+        try {
+          mediaQuery.removeListener(handleDisplayModeChange);
+        } catch (_) {}
+      }
+    };
+  }, [showToast]);
+
+  const triggerPWAInstall = async () => {
+    if (!deferredPrompt) {
+      console.warn('[PWA] No deferred prompt available for installation.');
+      return;
+    }
+    try {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      console.log(`[PWA] Installation prompt user choice: ${choiceResult.outcome}`);
+      if (choiceResult.outcome === 'accepted') {
+        showToast('Thank you for adding Tedbuy to your device! 🚀', 'success');
+      }
+      setDeferredPrompt(null);
+      setCanInstall(false);
+    } catch (err) {
+      console.error('[PWA] Error triggering install prompt:', err);
+    }
+  };
+
   const sendMessage = async (chatId: string, text: string, optionalSenderId?: string) => {
     const sender = optionalSenderId ? users.find(u => u.id === optionalSenderId) : currentUser;
     if (!sender) return;
@@ -4514,7 +4602,13 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       clearAllNotifications,
       productLimit,
       hasMoreProducts,
-      loadMoreProducts
+      loadMoreProducts,
+      deferredPrompt,
+      setDeferredPrompt,
+      canInstall,
+      setCanInstall,
+      triggerPWAInstall,
+      isStandalone
     }}>
       {children}
     </AppContext.Provider>

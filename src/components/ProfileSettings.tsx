@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -25,7 +25,10 @@ export const ProfileSettings: React.FC = () => {
     followSeller,
     unfollowSeller,
     setSelectedSellerId,
-    setDashboardTab
+    setDashboardTab,
+    canInstall,
+    triggerPWAInstall,
+    isStandalone
   } = useApp();
 
   if (!currentUser) {
@@ -70,6 +73,15 @@ export const ProfileSettings: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletePasswordText, setDeletePasswordText] = useState('');
+
+  // Settings PWA states
+  const [showiOSSettingsGuide, setShowiOSSettingsGuide] = useState(false);
+  const [isIOSDevice, setIsIOSDevice] = useState(false);
+
+  useEffect(() => {
+    const userAgent = window.navigator.userAgent || window.navigator.vendor || (window as any).opera;
+    setIsIOSDevice(/iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream);
+  }, []);
 
   // Settings sub tabs and sections
   const [settingsTab, setSettingsTab] = useState<'profile' | 'more'>(() => {
@@ -656,6 +668,59 @@ export const ProfileSettings: React.FC = () => {
                   <p className="text-[10px] text-amber-600 mt-1 leading-snug">
                     Complete your profile above to obtain automatic verification.
                   </p>
+                </div>
+              )}
+            </div>
+
+            {/* Tedbuy PWA Install Options */}
+            <div className="w-full pt-4 mt-3 border-t border-slate-200/60 flex flex-col items-center text-center gap-3">
+              <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1">
+                <Smartphone className="w-4 h-4 text-slate-500" />
+                Tedbuy PWA Application
+              </span>
+              
+              {isStandalone ? (
+                <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center gap-2.5 text-left">
+                  <div className="w-7 h-7 rounded-lg bg-teal-500/10 flex items-center justify-center text-teal-600 shrink-0">
+                    <Check className="w-4 h-4 stroke-[3]" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">App Installed & Active</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">You are currently running Tedbuy in native app standalone mode.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex flex-col items-center">
+                  <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">
+                    Install Tedbuy to your home screen for lightweight, offline-ready app access that starts in one tap.
+                  </p>
+                  
+                  {canInstall ? (
+                    <button
+                      type="button"
+                      onClick={triggerPWAInstall}
+                      className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Install Application</span>
+                    </button>
+                  ) : isIOSDevice ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowiOSSettingsGuide(true)}
+                      className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                    >
+                      <Share className="w-3.5 h-3.5" />
+                      <span>Install on iPhone</span>
+                    </button>
+                  ) : (
+                    <div className="w-full bg-amber-50 border border-amber-150 rounded-xl p-2.5 text-left flex items-start gap-2">
+                      <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-amber-700 leading-normal">
+                        To install, tap your browser's menu (Share, <strong className="font-bold">⋮</strong>, or <strong className="font-bold">➕</strong>) and select <strong className="font-black">Add to Home Screen</strong>.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1565,6 +1630,85 @@ export const ProfileSettings: React.FC = () => {
                 className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-2xl transition shadow-md hover:shadow-lg cursor-pointer"
               >
                 Yes, Decisively Delete
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* iOS Manual Installation Guide Modal in Settings */}
+      {showiOSSettingsGuide && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 font-sans">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white text-slate-900 border border-slate-200 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative text-left"
+          >
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setShowiOSSettingsGuide(false)}
+              className="absolute top-4 right-4 p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-900 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center">
+              <div className="mx-auto w-12 h-12 rounded-2xl bg-teal-500/10 flex items-center justify-center mb-4">
+                <Smartphone className="w-6 h-6 text-teal-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">
+                Add Tedbuy to iPhone
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Follow these simple steps in Safari to install Tedbuy as a mobile app:
+              </p>
+            </div>
+
+            {/* Steps */}
+            <div className="space-y-4 my-6">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-mono shrink-0">
+                  1
+                </div>
+                <div className="text-xs text-slate-700">
+                  <p className="font-semibold text-slate-900">Open Safari browser</p>
+                  <p className="text-slate-500 mt-0.5">Please verify you are currently inside Safari. It won't work inside some sub-browsers.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-mono shrink-0">
+                  2
+                </div>
+                <div className="text-xs text-slate-700">
+                  <p className="font-semibold text-slate-900 flex items-center gap-1">
+                    Tap the <strong className="text-teal-600 flex items-center gap-0.5"><Share className="w-3.5 h-3.5 inline" /> Share</strong> button
+                  </p>
+                  <p className="text-slate-500 mt-0.5">Found at the bottom toolbar on iPhone or top toolbar on iPad.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-mono shrink-0">
+                  3
+                </div>
+                <div className="text-xs text-slate-700">
+                  <p className="font-semibold text-slate-900 flex items-center gap-1">
+                    Choose <strong className="text-teal-600 flex items-center gap-0.5"><PlusSquare className="w-3.5 h-3.5 inline" /> Add to Home Screen</strong>
+                  </p>
+                  <p className="text-slate-500 mt-0.5">Scroll sharing option panel down and select "Add to Home Screen" to install.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-2 pt-4 border-t border-slate-100 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setShowiOSSettingsGuide(false)}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Got It
               </button>
             </div>
           </motion.div>
