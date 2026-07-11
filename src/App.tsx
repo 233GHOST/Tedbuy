@@ -678,117 +678,52 @@ const MarketplaceContent: React.FC = () => {
                   )}
 
                   {/* Enhanced Autocomplete Suggestion Dropdown Panel */}
-                  {isSearchFocused && (
+                  {isSearchFocused && filteredRecentSearches.length > 0 && (
                     <div className="absolute left-0 right-0 mt-3 bg-white border-2 border-slate-900 shadow-[0_20px_50px_rgba(15,23,42,0.22)] rounded-3xl z-50 overflow-hidden divide-y divide-slate-100 max-h-[420px] overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-205 ring-4 ring-slate-950/5">
                       {/* Recent Search Terms */}
-                      {filteredRecentSearches.length > 0 && (
-                        <div className="p-4">
-                          <div className="flex items-center justify-between text-xs font-black text-slate-800 uppercase tracking-widest mb-3 px-1">
-                            <span className="flex items-center gap-1.5 text-slate-900">
-                              <History className="w-4 h-4 text-slate-800 stroke-[2.2]" /> Recent Searches
-                            </span>
-                            <button
+                      <div className="p-4">
+                        <div className="flex items-center justify-between text-xs font-black text-slate-800 uppercase tracking-widest mb-3 px-1">
+                          <span className="flex items-center gap-1.5 text-slate-900">
+                            <History className="w-4 h-4 text-slate-800 stroke-[2.2]" /> Recent Searches
+                          </span>
+                          <button
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setRecentSearches([]);
+                              localStorage.removeItem('tedbuy_recent_searches');
+                            }}
+                            className="text-xs text-rose-600 hover:text-rose-800 font-black hover:underline outline-none cursor-pointer transition"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2 px-1">
+                          {filteredRecentSearches.map((term, idx) => (
+                            <div
+                              key={idx}
                               onMouseDown={(e) => {
                                 e.preventDefault();
-                                setRecentSearches([]);
-                                localStorage.removeItem('tedbuy_recent_searches');
+                                setSearchQuery(term);
+                                saveSearchTerm(term);
+                                setIsSearchFocused(false);
                               }}
-                              className="text-xs text-rose-600 hover:text-rose-800 font-black hover:underline outline-none cursor-pointer transition"
+                              className="group inline-flex items-center gap-2 pl-3.5 pr-2 py-2 bg-slate-50 hover:bg-slate-900 border border-slate-200/80 hover:border-slate-900 rounded-xl cursor-pointer transition-all duration-150 text-left text-xs font-bold text-slate-800 hover:text-white shadow-3xs hover:shadow-xs active:scale-95"
                             >
-                              Clear All
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap gap-2 px-1">
-                            {filteredRecentSearches.map((term, idx) => (
-                              <div
-                                key={idx}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  setSearchQuery(term);
-                                  saveSearchTerm(term);
-                                  setIsSearchFocused(false);
-                                }}
-                                className="group inline-flex items-center gap-2 pl-3.5 pr-2 py-2 bg-slate-50 hover:bg-slate-900 border border-slate-200/80 hover:border-slate-900 rounded-xl cursor-pointer transition-all duration-150 text-left text-xs font-bold text-slate-800 hover:text-white shadow-3xs hover:shadow-xs active:scale-95"
-                              >
-                                <span className="flex items-center gap-2">
-                                  <Search className="w-3.5 h-3.5 text-slate-450 group-hover:text-slate-350 transition-colors" />
-                                  <span className="truncate max-w-[150px]">{term}</span>
-                                </span>
-                                <button
-                                  onMouseDown={(e) => removeRecentSearch(term, e)}
-                                  className="text-slate-400 group-hover:text-slate-300 hover:text-rose-500 p-1 rounded-md transition hover:bg-white/10"
-                                  title="Remove keyword"
-                                >
-                                  <X className="w-3 h-3 stroke-[2.5]" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Suggested categories list */}
-                      {filteredCategories.length > 0 && (
-                        <div className="p-4 bg-slate-50/50">
-                          <div className="text-xs font-black text-slate-805 uppercase tracking-widest mb-3 px-1 flex items-center gap-1.5">
-                            <Sparkles className="w-4 h-4 text-amber-500 fill-amber-100" />
-                            Suggested Categories
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            {filteredCategories.map((cat, idx) => (
+                              <span className="flex items-center gap-2">
+                                <Search className="w-3.5 h-3.5 text-slate-450 group-hover:text-slate-350 transition-colors" />
+                                <span className="truncate max-w-[150px]">{term}</span>
+                              </span>
                               <button
-                                key={idx}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  setSelectedCategory(cat);
-                                  setSearchQuery('');
-                                  setIsSearchFocused(false);
-                                  if (currentView !== 'browse') setCurrentView('browse');
-                                }}
-                                className="flex items-center gap-2 px-3.5 py-2.5 bg-white hover:bg-slate-900 border border-slate-200 hover:border-slate-900 text-slate-800 hover:text-white rounded-xl transition-all duration-150 text-left text-xs font-extrabold outline-none cursor-pointer shadow-3xs hover:shadow-xs hover:-translate-y-0.5"
+                                onMouseDown={(e) => removeRecentSearch(term, e)}
+                                className="text-slate-400 group-hover:text-slate-300 hover:text-rose-500 p-1 rounded-md transition hover:bg-white/10"
+                                title="Remove keyword"
                               >
-                                <span className="text-lg select-none filter drop-shadow-3xs shrink-0">{CATEGORY_ICONS[cat] || '📦'}</span>
-                                <span className="truncate">{cat}</span>
+                                <X className="w-3 h-3 stroke-[2.5]" />
                               </button>
-                            ))}
-                          </div>
+                            </div>
+                          ))}
                         </div>
-                      )}
-
-                      {/* Popular Search Suggestions */}
-                      {filteredPopularKeywords.length > 0 && (
-                        <div className="p-4">
-                          <div className="text-xs font-black text-slate-805 uppercase tracking-widest mb-3 px-1 flex items-center gap-1.5">
-                            <TrendingUp className="w-4 h-4 text-emerald-500" />
-                            Popular Searches
-                          </div>
-                          <div className="flex flex-wrap gap-2 px-1">
-                            {filteredPopularKeywords.map((keyword, idx) => (
-                              <button
-                                key={idx}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  setSearchQuery(keyword);
-                                  saveSearchTerm(keyword);
-                                  setIsSearchFocused(false);
-                                  if (currentView !== 'browse') setCurrentView('browse');
-                                }}
-                                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-900 border border-slate-200/80 hover:border-slate-900 rounded-xl text-xs font-extrabold text-slate-800 hover:text-white transition-all duration-150 outline-none cursor-pointer shadow-3xs hover:shadow-xs active:scale-95"
-                              >
-                                <TrendingUp className="w-3.5 h-3.5 text-slate-450 group-hover:text-slate-350" />
-                                <span>{keyword}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {filteredRecentSearches.length === 0 && filteredCategories.length === 0 && filteredPopularKeywords.length === 0 && (
-                        <div className="p-8 text-center text-sm font-bold text-slate-500 bg-slate-50/50 flex flex-col items-center justify-center gap-1.5">
-                          <span className="text-lg">🔍</span>
-                          <span>Try searching for "phones", "laptops", or "fashion"!</span>
-                        </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </div>
