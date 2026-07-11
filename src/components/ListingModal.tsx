@@ -320,7 +320,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       }
 
       try {
-        const compressed = await compressImage(file, 1920, 1920, 0.85);
+        const compressed = await compressImage(file, 1200, 1200, 0.80);
         setImages(prev => [...prev, compressed]);
       } catch (err) {
         console.error('Failed to compress image:', err);
@@ -430,10 +430,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return;
     }
     
-    // If the video is oversized (> 30MB), set the oversized file and prompt the user
-    if (file.size > 30 * 1024 * 1024) {
+    // If the video is oversized (> 6MB), set the oversized file and prompt the user to compress it
+    if (file.size > 6 * 1024 * 1024) {
       setOversizedVideoFile(file);
-      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). The maximum allowed for database storage is 30MB. Use our built-in optimizer below to compress it to fit precisely.`);
+      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). To ensure smooth uploading to our Supabase database, videos larger than 6MB must be optimized. Use our built-in high-quality compressor below.`);
       return;
     }
 
@@ -471,7 +471,19 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
     tempVideo.onerror = () => {
       window.URL.revokeObjectURL(tempVideo.src);
-      setErrorMsg(`Could not process format for "${file.name}". Please ensure it is a web-compatible format (e.g. MP4, WEBM or standard MOV).`);
+      console.warn(`Could not read video metadata for "${file.name}". Attempting direct upload fallback.`);
+      
+      // Fallback: convert directly to base64 if it's within size limit
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setVideos([reader.result]);
+          setOversizedVideoFile(null);
+          const blobUrl = URL.createObjectURL(file);
+          setVideoPreviewUrl(blobUrl);
+        }
+      };
+      reader.readAsDataURL(file);
     };
 
     tempVideo.src = URL.createObjectURL(file);
@@ -568,15 +580,15 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       }
 
       // Calculate the absolute highest possible bitrate dynamically based on the clip's duration
-      // to squeeze the maximum possible visual output under the 30MB base64 capacity limit
+      // to squeeze the maximum possible visual output under the 6MB base64 capacity limit
       const totalToRecord = trimEnd - trimStart || 5;
-      const targetBinaryBytes = 20 * 1024 * 1024; // 20 MB raw binary (safe margin under 30MB)
+      const targetBinaryBytes = 5 * 1024 * 1024; // 5 MB raw binary (perfectly safe under Supabase/PostgREST HTTP payload limits)
       const targetBits = targetBinaryBytes * 8;
       let calculatedBps = Math.floor(targetBits / totalToRecord);
       
-      // Cap bitrate between 1,500,000 bps and 8,000,000 bps for crisp, gorgeous high-resolution output
-      if (calculatedBps < 1500000) calculatedBps = 1500000;
-      if (calculatedBps > 8000000) calculatedBps = 8000000;
+      // Cap bitrate between 600,000 bps and 2,500,000 bps for a great balance of clarity and compact file size
+      if (calculatedBps < 600000) calculatedBps = 600000;
+      if (calculatedBps > 2500000) calculatedBps = 2500000;
 
       const recorderOptions = {
         mimeType: chosenMime,
