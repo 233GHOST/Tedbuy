@@ -1658,10 +1658,10 @@ export const ProfileSettings: React.FC = () => {
                 <Smartphone className="w-6 h-6 text-teal-600" />
               </div>
               <h3 className="text-lg font-bold text-slate-900">
-                Add Tedbuy to iPhone
+                Add Tedbuy to iPhone / iPad
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Follow these simple steps in Safari to install Tedbuy as a mobile app:
+                Follow these simple steps to install Tedbuy directly to your Home Screen:
               </p>
             </div>
 
@@ -1672,8 +1672,8 @@ export const ProfileSettings: React.FC = () => {
                   1
                 </div>
                 <div className="text-xs text-slate-700">
-                  <p className="font-semibold text-slate-900">Open Safari browser</p>
-                  <p className="text-slate-500 mt-0.5">Please verify you are currently inside Safari. It won't work inside some sub-browsers.</p>
+                  <p className="font-semibold text-slate-900">Open your browser menu</p>
+                  <p className="text-slate-500 mt-0.5">Tap the share icon or menu option button inside your browser app (Safari, Chrome, Firefox, etc.).</p>
                 </div>
               </div>
 
@@ -1683,21 +1683,9 @@ export const ProfileSettings: React.FC = () => {
                 </div>
                 <div className="text-xs text-slate-700">
                   <p className="font-semibold text-slate-900 flex items-center gap-1">
-                    Tap the <strong className="text-teal-600 flex items-center gap-0.5"><Share className="w-3.5 h-3.5 inline" /> Share</strong> button
-                  </p>
-                  <p className="text-slate-500 mt-0.5">Found at the bottom toolbar on iPhone or top toolbar on iPad.</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-mono shrink-0">
-                  3
-                </div>
-                <div className="text-xs text-slate-700">
-                  <p className="font-semibold text-slate-900 flex items-center gap-1">
                     Choose <strong className="text-teal-600 flex items-center gap-0.5"><PlusSquare className="w-3.5 h-3.5 inline" /> Add to Home Screen</strong>
                   </p>
-                  <p className="text-slate-500 mt-0.5">Scroll sharing option panel down and select "Add to Home Screen" to install.</p>
+                  <p className="text-slate-500 mt-0.5">Scroll down menu options and select "Add to Home Screen" or "Install App".</p>
                 </div>
               </div>
             </div>

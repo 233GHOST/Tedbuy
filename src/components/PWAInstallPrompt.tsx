@@ -144,10 +144,10 @@ export const PWAInstallPrompt: React.FC = () => {
                   <Smartphone className="w-6 h-6 text-teal-400" />
                 </div>
                 <h3 className="text-lg font-bold text-slate-100">
-                  Add Tedbuy to iPhone
+                  Add Tedbuy to iPhone / iPad
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Follow these simple steps in Safari to install Tedbuy directly to your Home Screen:
+                  Follow these simple steps to install Tedbuy directly to your Home Screen:
                 </p>
               </div>
 
@@ -158,8 +158,8 @@ export const PWAInstallPrompt: React.FC = () => {
                     1
                   </div>
                   <div className="text-xs text-slate-300">
-                    <p className="font-semibold text-slate-200">Open in Safari</p>
-                    <p className="text-slate-400 mt-0.5">Make sure you are browsing inside the Safari browser app.</p>
+                    <p className="font-semibold text-slate-200">Open your browser menu</p>
+                    <p className="text-slate-400 mt-0.5">Tap the share icon or menu button in your browser (Safari, Chrome, Firefox, etc.).</p>
                   </div>
                 </div>
 
@@ -169,21 +169,9 @@ export const PWAInstallPrompt: React.FC = () => {
                   </div>
                   <div className="text-xs text-slate-300">
                     <p className="font-semibold text-slate-200 flex items-center gap-1.5">
-                      Tap the <strong className="text-teal-400 flex items-center gap-0.5"><Share className="w-4 h-4 inline" /> Share</strong> icon
+                      Find <strong className="text-teal-400 flex items-center gap-0.5"><PlusSquare className="w-4 h-4 inline" /> Add to Home Screen</strong>
                     </p>
-                    <p className="text-slate-400 mt-0.5">Found at the bottom menu (iPhone) or top bar (iPad).</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center text-xs font-mono shrink-0">
-                    3
-                  </div>
-                  <div className="text-xs text-slate-300">
-                    <p className="font-semibold text-slate-200 flex items-center gap-1.5">
-                      Tap <strong className="text-teal-400 flex items-center gap-0.5"><PlusSquare className="w-4 h-4 inline" /> Add to Home Screen</strong>
-                    </p>
-                    <p className="text-slate-400 mt-0.5">Scroll down options to choose "Add to Home Screen".</p>
+                    <p className="text-slate-400 mt-0.5">Scroll through the menu options to find "Add to Home Screen" or "Install App".</p>
                   </div>
                 </div>
               </div>
