@@ -801,8 +801,6 @@ const MarketplaceContent: React.FC = () => {
             </div>
             )}
 
-            {homeViewMode !== 'video-feed' && <PWAInstallPrompt />}
-
             {/* View Mode Switching Tabs (Standard Grid vs Live Video Ads Feed) */}
             {homeViewMode !== 'video-feed' && (
               <div className="bg-slate-200/50 p-1 rounded-2xl font-sans max-w-sm border border-slate-250/60 flex mb-8">
@@ -1586,6 +1584,7 @@ const MarketplaceContent: React.FC = () => {
         </Suspense>
       )}
       <WebMCPInitializer />
+      <PWAInstallPrompt />
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -1658,10 +1658,10 @@ export const ProfileSettings: React.FC = () => {
                 <Smartphone className="w-6 h-6 text-teal-600" />
               </div>
               <h3 className="text-lg font-bold text-slate-900">
-                Add Tedbuy to iPhone / iPad
+                Add Tedbuy to Home Screen
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Follow these simple steps to install Tedbuy directly to your Home Screen:
+                Follow these simple steps in your browser to install Tedbuy as a mobile app:
               </p>
             </div>
 
@@ -1672,8 +1672,10 @@ export const ProfileSettings: React.FC = () => {
                   1
                 </div>
                 <div className="text-xs text-slate-700">
-                  <p className="font-semibold text-slate-900">Open your browser menu</p>
-                  <p className="text-slate-500 mt-0.5">Tap the share icon or menu option button inside your browser app (Safari, Chrome, Firefox, etc.).</p>
+                  <p className="font-semibold text-slate-900 flex items-center gap-1">
+                    Tap on the 3 dots ( <MoreVertical className="w-3.5 h-3.5 inline text-teal-600" /> ) menu
+                  </p>
+                  <p className="text-slate-500 mt-0.5">Found in your browser's top-right or bottom toolbar.</p>
                 </div>
               </div>
 
@@ -1683,9 +1685,21 @@ export const ProfileSettings: React.FC = () => {
                 </div>
                 <div className="text-xs text-slate-700">
                   <p className="font-semibold text-slate-900 flex items-center gap-1">
-                    Choose <strong className="text-teal-600 flex items-center gap-0.5"><PlusSquare className="w-3.5 h-3.5 inline" /> Add to Home Screen</strong>
+                    Tap the <strong className="text-teal-600 flex items-center gap-0.5"><Share className="w-3.5 h-3.5 inline" /> Share</strong> button
                   </p>
-                  <p className="text-slate-500 mt-0.5">Scroll down menu options and select "Add to Home Screen" or "Install App".</p>
+                  <p className="text-slate-500 mt-0.5">Choose the share option from the browser menu or toolbar.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center text-xs font-mono shrink-0">
+                  3
+                </div>
+                <div className="text-xs text-slate-700">
+                  <p className="font-semibold text-slate-900 flex items-center gap-1">
+                    Tap on <strong className="text-teal-600 flex items-center gap-0.5"><PlusSquare className="w-3.5 h-3.5 inline" /> Add to Home Screen</strong>
+                  </p>
+                  <p className="text-slate-500 mt-0.5">Scroll down the options until you see "Add to Home Screen" to install.</p>
                 </div>
               </div>
             </div>
