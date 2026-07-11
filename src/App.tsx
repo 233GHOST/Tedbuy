@@ -1390,10 +1390,11 @@ const MarketplaceContent: React.FC = () => {
         {/* Search Tab */}
         <button
           onClick={() => {
-            // Scroll to the top of the page instantly so that the search bar is in the viewport
-            if (currentView === 'browse' && homeViewMode === 'grid') {
-              window.scrollTo({ top: 0, behavior: 'auto' });
-            }
+            // Reset saved scroll position so the restore-scroll effect doesn't override us and scroll down
+            sessionStorage.setItem('tedbuy_browse_scroll_pos', '0');
+            
+            // Scroll to the top of the page instantly so that the search bar is in view
+            window.scrollTo({ top: 0, behavior: 'auto' });
 
             if (currentView !== 'browse') {
               setCurrentView('browse');
@@ -1404,6 +1405,12 @@ const MarketplaceContent: React.FC = () => {
 
             // Set the search focus state to true to open suggestions dropdown/effects
             setIsSearchFocused(true);
+
+            // Synchronous focus attempt for instant keyboard popup if already rendered
+            const immediateInput = document.getElementById('hero-search-input');
+            if (immediateInput) {
+              immediateInput.focus();
+            }
 
             // Ultra-robust polling focus helper to ensure the input gets focused when it renders.
             // We specifically target 'hero-search-input' because 'header-search-bar' is unmounting/hidden during transition.
@@ -1416,10 +1423,10 @@ const MarketplaceContent: React.FC = () => {
                 clearInterval(interval);
               }
               attempts++;
-              if (attempts > 12) {
+              if (attempts > 20) {
                 clearInterval(interval);
               }
-            }, 30);
+            }, 20);
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse' && searchQuery
