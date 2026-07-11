@@ -1390,18 +1390,31 @@ const MarketplaceContent: React.FC = () => {
         {/* Search Tab */}
         <button
           onClick={() => {
+            // Scroll to the top of the page instantly so that the search bar is in the viewport
+            if (currentView === 'browse' && homeViewMode === 'grid') {
+              window.scrollTo({ top: 0, behavior: 'auto' });
+            }
+
             if (currentView !== 'browse') {
               setCurrentView('browse');
             }
             if (homeViewMode === 'video-feed') {
               setHomeViewMode('grid');
             }
+
+            // Set the search focus state to true to open suggestions dropdown/effects
+            setIsSearchFocused(true);
+
             // Ultra-robust polling focus helper to ensure the input gets focused when it renders
             let attempts = 0;
             const interval = setInterval(() => {
               const inputEl = document.getElementById('hero-search-input') || document.getElementById('header-search-bar');
               if (inputEl) {
-                inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (inputEl.id === 'hero-search-input') {
+                  window.scrollTo({ top: 0, behavior: 'auto' });
+                } else {
+                  inputEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+                }
                 inputEl.focus();
                 clearInterval(interval);
               }
@@ -1409,7 +1422,7 @@ const MarketplaceContent: React.FC = () => {
               if (attempts > 12) {
                 clearInterval(interval);
               }
-            }, 40);
+            }, 30);
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse' && searchQuery
