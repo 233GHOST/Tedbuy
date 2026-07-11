@@ -1025,6 +1025,83 @@ Welcome to **TedBuy**, Ghana's #1 Social Classifieds & Video Commerce platform.
 - Direct verified seller peer chats on WhatsApp
 - Verification badge metrics representing transaction completions`;
 
+async function selfHealProductImages() {
+  if (!backendSupabase) return;
+  console.log('[Self-Healing] Starting product images self-healing from disk cache...');
+  try {
+    const { data: products, error } = await backendSupabase
+      .from('products')
+      .select('id, images, title');
+
+    if (error) {
+      console.error('[Self-Healing] Failed to fetch products for self-healing:', error);
+      return;
+    }
+
+    let healedCount = 0;
+    for (const prod of (products || [])) {
+      const id = prod.id;
+      let imgs = Array.isArray(prod.images) ? prod.images : [];
+      if (typeof prod.images === 'string') {
+        try { imgs = JSON.parse(prod.images); } catch (_) { imgs = []; }
+      }
+
+      const hasProxy = imgs.some((img: string) => typeof img === 'string' && img.startsWith('/api/products/'));
+      const isEmpty = imgs.length === 0;
+
+      if (hasProxy || isEmpty) {
+        const restoredImages: string[] = [];
+        const primaryTxtFile = path.join(IMAGES_CACHE_DIR, `${id}.txt`);
+        if (fs.existsSync(primaryTxtFile)) {
+          try {
+            const b64 = fs.readFileSync(primaryTxtFile, 'utf-8');
+            if (b64 && b64.startsWith('data:')) {
+              restoredImages.push(b64);
+            }
+          } catch (e) {
+            console.error(`[Self-Healing] Error reading ${id}.txt:`, e);
+          }
+        }
+
+        let idx = 1;
+        while (true) {
+          const subTxtFile = path.join(IMAGES_CACHE_DIR, `${id}_img${idx}.txt`);
+          if (fs.existsSync(subTxtFile)) {
+            try {
+              const b64 = fs.readFileSync(subTxtFile, 'utf-8');
+              if (b64 && b64.startsWith('data:')) {
+                restoredImages.push(b64);
+                idx++;
+                continue;
+              }
+            } catch (e) {
+              console.error(`[Self-Healing] Error reading sub-image ${id}_img${idx}.txt:`, e);
+            }
+          }
+          break;
+        }
+
+        if (restoredImages.length > 0) {
+          console.log(`[Self-Healing] Restoring ${restoredImages.length} images for product "${prod.title}" (${id}) from disk cache...`);
+          const { error: updateErr } = await backendSupabase
+            .from('products')
+            .update({ images: restoredImages })
+            .eq('id', id);
+
+          if (updateErr) {
+            console.error(`[Self-Healing] Failed to update product ${id}:`, updateErr);
+          } else {
+            healedCount++;
+          }
+        }
+      }
+    }
+    console.log(`[Self-Healing] Completed! Successfully self-healed ${healedCount} products.`);
+  } catch (err) {
+    console.error('[Self-Healing] Error during self-healing:', err);
+  }
+}
+
 async function startServer() {
   // Ensure favicon.ico exists at the web root dynamically as a valid .ico file
   try {
@@ -4622,6 +4699,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   } else {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
+
+      if (backendSupabase) {
+        selfHealProductImages().catch(err => {
+          console.error('[Self-Healing] Startup image self-healing failed:', err);
+        });
+      }
 
       // Automatically keep Supabase in sync with Firestore in the background, so users
       // never have to wait on a manual admin action to see their data. Runs once shortly

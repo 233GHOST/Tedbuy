@@ -56,6 +56,21 @@ export const ProductDetail: React.FC = () => {
   const [reportComment, setReportComment] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
+  const [isDetailFetching, setIsDetailFetching] = useState(false);
+
+  useEffect(() => {
+    if (!product) return;
+    if (product.images && product.images.length === 1) {
+      setIsDetailFetching(true);
+      const timer = setTimeout(() => {
+        setIsDetailFetching(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setIsDetailFetching(false);
+    }
+  }, [selectedProductId, product?.images?.length]);
+
   const handleOpenReportModal = () => {
     if (!currentUser) {
       setAuthMode('login');
@@ -665,7 +680,7 @@ export const ProductDetail: React.FC = () => {
           </div>
 
           {/* Thumbnails list */}
-          {mediaGallery.length > 1 && (
+          {mediaGallery.length > 1 ? (
             <div className="grid grid-cols-5 gap-3">
               {mediaGallery.map((med, i) => (
                 <button
@@ -695,6 +710,21 @@ export const ProductDetail: React.FC = () => {
                 </button>
               ))}
             </div>
+          ) : (
+            isDetailFetching && (
+              <div className="grid grid-cols-5 gap-3">
+                {/* Active thumbnail placeholder */}
+                <div className="aspect-square rounded-xl bg-slate-200 border-2 border-slate-800 scale-95 shadow-sm overflow-hidden animate-pulse">
+                  <div className="w-full h-full bg-slate-300" />
+                </div>
+                {/* 4 pulsed skeleton thumbnail placeholders */}
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={n} className="aspect-square rounded-xl bg-slate-100 border-2 border-transparent animate-pulse overflow-hidden">
+                    <div className="w-full h-full bg-slate-200/60" />
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
 

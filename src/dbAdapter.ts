@@ -345,6 +345,35 @@ export async function getDocs(queryOrRef: any): Promise<any> {
   };
 }
 
+function restoreOriginalMedia(incoming: any, existing: any): any[] {
+  let incomingArr = Array.isArray(incoming) ? incoming : [];
+  if (typeof incoming === 'string') {
+    try { incomingArr = JSON.parse(incoming); } catch (_) { incomingArr = []; }
+  }
+  let existingArr = Array.isArray(existing) ? existing : [];
+  if (typeof existing === 'string') {
+    try { existingArr = JSON.parse(existing); } catch (_) { existingArr = []; }
+  }
+
+  if (!Array.isArray(incomingArr)) return [];
+  if (!Array.isArray(existingArr) || existingArr.length === 0) return incomingArr;
+
+  return incomingArr.map((item: any, idx: number) => {
+    if (typeof item === 'string' && item.includes('/api/products/')) {
+      let originalIdx = 0;
+      const urlMatch = item.match(/[?&]idx=(\d+)/);
+      if (urlMatch && urlMatch[1]) {
+        originalIdx = parseInt(urlMatch[1], 10);
+      }
+      
+      if (originalIdx < existingArr.length && existingArr[originalIdx]) {
+        return existingArr[originalIdx];
+      }
+    }
+    return item;
+  });
+}
+
 export async function setDoc(docRef: any, data: any, options?: any): Promise<void> {
   if (!isSupabaseActive) {
     throw new Error('[Supabase setDoc] Supabase integration is inactive.');
@@ -358,6 +387,23 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
   
   // Process increments and nested values
   payload = sanitizePayload(payload);
+
+  if (table === 'products') {
+    const { data: existing } = await supabase!
+      .from(table)
+      .select('images, videos')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (existing) {
+      if (payload.images) {
+        payload.images = restoreOriginalMedia(payload.images, existing.images);
+      }
+      if (payload.videos) {
+        payload.videos = restoreOriginalMedia(payload.videos, existing.videos);
+      }
+    }
+  }
 
   if (options?.merge) {
     // Fetch existing row first to merge properly
@@ -392,6 +438,23 @@ export async function updateDoc(docRef: any, data: any): Promise<void> {
   const id = docRef.id || parts[1];
 
   let payload = sanitizePayload({ ...data });
+
+  if (table === 'products' && (payload.images || payload.videos)) {
+    const { data: existing } = await supabase!
+      .from(table)
+      .select('images, videos')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (existing) {
+      if (payload.images) {
+        payload.images = restoreOriginalMedia(payload.images, existing.images);
+      }
+      if (payload.videos) {
+        payload.videos = restoreOriginalMedia(payload.videos, existing.videos);
+      }
+    }
+  }
 
   // Handle increments inline
   for (const [key, val] of Object.entries(payload)) {

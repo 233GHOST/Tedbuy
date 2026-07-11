@@ -76,6 +76,25 @@ export function isRealProduct(item: any): boolean {
   return true;
 }
 
+export function mergeAndPreserveFullProducts(prev: Product[], next: Product[]): Product[] {
+  if (!Array.isArray(prev) || prev.length === 0) return next;
+  return next.map(nextProd => {
+    const prevProd = prev.find(p => p.id === nextProd.id);
+    if (!prevProd) return nextProd;
+    
+    const prevImgsCount = Array.isArray(prevProd.images) ? prevProd.images.length : 0;
+    const nextImgsCount = Array.isArray(nextProd.images) ? nextProd.images.length : 0;
+    const hasFullImages = prevImgsCount > nextImgsCount;
+    
+    return {
+      ...nextProd,
+      images: hasFullImages ? prevProd.images : nextProd.images,
+      videos: (prevProd.videos && prevProd.videos.length > (nextProd.videos?.length || 0)) ? prevProd.videos : nextProd.videos,
+      description: prevProd.description || nextProd.description,
+    };
+  });
+}
+
 interface AppContextType {
   reviews: Review[];
   addReview: (sellerId: string, rating: number, comment: string, productTitle?: string) => Promise<void>;
@@ -1366,7 +1385,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // If we received an empty array from the server (possibly due to an error fallback),
         // let's try to retain the client-side backup if we already have it.
         if (sorted.length > 0) {
-          setProducts(sorted);
+          setProducts(prev => mergeAndPreserveFullProducts(prev, sorted));
           setIsProductsLoading(false);
           setProductsLoadError(false);
           setHasMoreProducts(false);
@@ -1418,7 +1437,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             });
             const sorted = processProductList(rawList);
             if (sorted.length > 0) {
-              setProducts(sorted);
+              setProducts(prev => mergeAndPreserveFullProducts(prev, sorted));
               setIsProductsLoading(false);
               setProductsLoadError(false);
               setHasMoreProducts(false);
