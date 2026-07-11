@@ -42,6 +42,8 @@ export const ProductDetail: React.FC = () => {
   const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string } | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [activeMediaIdx, setActiveMediaIdx] = useState(0);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteCheckboxConfirmed, setDeleteCheckboxConfirmed] = useState(false);
@@ -120,6 +122,47 @@ export const ProductDetail: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [lightboxIndex, mediaGallery.length]);
+
+  const handleNextImage = () => {
+    if (mediaGallery.length <= 1) return;
+    setActiveMediaIdx((prev) => (prev + 1) % mediaGallery.length);
+  };
+
+  const handlePrevImage = () => {
+    if (mediaGallery.length <= 1) return;
+    setActiveMediaIdx((prev) => (prev - 1 + mediaGallery.length) % mediaGallery.length);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
+    setTouchStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null || touchStartY === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+    
+    const diffX = touchStartX - touchEndX;
+    const diffY = touchStartY - touchEndY;
+    
+    // Check if horizontal swipe exceeds vertical swipe and passes threshold
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 40) {
+      if (diffX > 0) {
+        handleNextImage();
+      } else {
+        handlePrevImage();
+      }
+    }
+    setTouchStartX(null);
+    setTouchStartY(null);
+  };
+
+  const handleImageClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('video') || target.closest('a')) return;
+    handleNextImage();
+  };
 
   useEffect(() => {
     try {
@@ -617,8 +660,10 @@ export const ProductDetail: React.FC = () => {
         {/* Left column: Visual display images & videos (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
           <div 
-            onClick={() => setLightboxIndex(activeMediaIdx)}
-            className="group/media relative aspect-[4/3] w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md cursor-zoom-in"
+            onClick={handleImageClick}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            className="group/media relative aspect-[4/3] w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md cursor-pointer select-none"
             style={{ aspectRatio: '4/3' }}
           >
             {mediaGallery[activeMediaIdx]?.type === 'video' ? (
@@ -669,6 +714,34 @@ export const ProductDetail: React.FC = () => {
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
+
+            {/* Navigation Arrow buttons */}
+            {mediaGallery.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePrevImage();
+                  }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 bg-slate-900/60 hover:bg-slate-900 text-white p-2 rounded-full border border-slate-750 transition-all shadow-md z-20 cursor-pointer flex items-center justify-center md:opacity-0 md:group-hover/media:opacity-100 opacity-90"
+                  title="Previous Image"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNextImage();
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 bg-slate-900/60 hover:bg-slate-900 text-white p-2 rounded-full border border-slate-750 transition-all shadow-md z-20 cursor-pointer flex items-center justify-center md:opacity-0 md:group-hover/media:opacity-100 opacity-90"
+                  title="Next Image"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </>
+            )}
             
             {/* Overlay indicators */}
             <span className="absolute top-4 left-4 bg-slate-900/80 backdrop-blur-xs text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider z-10">
@@ -677,55 +750,26 @@ export const ProductDetail: React.FC = () => {
             <span className="absolute bottom-4 right-4 bg-slate-900/80 backdrop-blur-xs text-slate-100 text-xs px-3 py-1 rounded-full font-mono z-10">
               {mediaGallery[activeMediaIdx]?.type === 'video' ? 'Video' : 'Image'} {activeMediaIdx + 1} of {mediaGallery.length}
             </span>
-          </div>
 
-          {/* Thumbnails list */}
-          {mediaGallery.length > 1 ? (
-            <div className="grid grid-cols-5 gap-3">
-              {mediaGallery.map((med, i) => (
-                <button
-                  key={i}
-                  id={`media-thumb-${i}`}
-                  onClick={() => setActiveMediaIdx(i)}
-                  className={`aspect-square rounded-xl overflow-hidden bg-slate-100 border-2 transition-all relative ${
-                    i === activeMediaIdx
-                      ? 'border-slate-800 scale-95 shadow-sm'
-                      : 'border-transparent hover:border-slate-350 hover:scale-98'
-                  }`}
-                >
-                  {med.type === 'video' ? (
-                    <>
-                      <video src={med.url} className="w-full h-full object-cover pointer-events-none" />
-                      <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center">
-                        <div className="w-6 h-6 rounded-full bg-white/80 flex items-center justify-center text-slate-900 shadow-xs">
-                          <svg className="w-3.5 h-3.5 fill-current ml-0.5" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-                          </svg>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <img src={med.url} alt="Thumbnail preview" referrerPolicy="no-referrer" loading="lazy" className="w-full h-full object-cover" />
-                  )}
-                </button>
-              ))}
-            </div>
-          ) : (
-            isDetailFetching && (
-              <div className="grid grid-cols-5 gap-3">
-                {/* Active thumbnail placeholder */}
-                <div className="aspect-square rounded-xl bg-slate-200 border-2 border-slate-800 scale-95 shadow-sm overflow-hidden animate-pulse">
-                  <div className="w-full h-full bg-slate-300" />
-                </div>
-                {/* 4 pulsed skeleton thumbnail placeholders */}
-                {[1, 2, 3, 4].map((n) => (
-                  <div key={n} className="aspect-square rounded-xl bg-slate-100 border-2 border-transparent animate-pulse overflow-hidden">
-                    <div className="w-full h-full bg-slate-200/60" />
-                  </div>
+            {/* Dots Pagination Indicator overlay */}
+            {mediaGallery.length > 1 && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 z-20 bg-slate-950/45 backdrop-blur-xs px-2.5 py-1.5 rounded-full">
+                {mediaGallery.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveMediaIdx(idx);
+                    }}
+                    className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                      idx === activeMediaIdx ? 'w-3.5 bg-white' : 'w-1.5 bg-white/40 hover:bg-white/70'
+                    }`}
+                  />
                 ))}
               </div>
-            )
-          )}
+            )}
+          </div>
         </div>
 
         {/* Right column: Purchase callouts and details (5 cols) */}

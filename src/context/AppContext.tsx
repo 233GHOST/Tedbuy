@@ -428,7 +428,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     const unsubscribe = registerFirestoreErrorListener((errInfo) => {
-      showToast(errInfo.error, 'error');
+      // Do not display disruptive global UI-blocking error toasts for background LIST/GET synchronizations,
+      // since the application already has robust offline local storage fallbacks and caches for lists.
+      // Only show error toasts for active writes (CREATE, UPDATE, DELETE) to notify users if their action failed.
+      const isReadOperation = errInfo.operationType === OperationType.LIST || errInfo.operationType === OperationType.GET;
+      if (!isReadOperation) {
+        showToast(errInfo.error, 'error');
+      } else {
+        console.warn(`[Firestore Read Graceful Fallback] Suppressed background read error toast for "${errInfo.path}":`, errInfo.error);
+      }
     });
 
     return () => unsubscribe();
