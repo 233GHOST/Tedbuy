@@ -53,6 +53,69 @@ app.use((err: any, req: any, res: any, next: any) => {
   next();
 });
 
+// --- FIREBASE AUTH CUSTOM DOMAIN REVERSE PROXY ---
+// Enables custom domain sign-in (e.g. tedbuy.store) to securely tunnel Google/Facebook OAuth
+// callbacks to Firebase's default hosting auth handlers without reopening the main SPA.
+app.all('/__/auth/*', async (req: express.Request, res: express.Response) => {
+  try {
+    const targetUrl = `https://tedbuy-fb79a.firebaseapp.com${req.originalUrl}`;
+    
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value !== undefined) {
+        if (Array.isArray(value)) {
+          value.forEach(v => headers.append(key, v));
+        } else {
+          headers.set(key, String(value));
+        }
+      }
+    }
+    
+    // Override the Host header to target Firebase Hosting properly
+    headers.set('host', 'tedbuy-fb79a.firebaseapp.com');
+
+    const fetchOptions: RequestInit = {
+      method: req.method,
+      headers,
+    };
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      if (req.body && Object.keys(req.body).length > 0) {
+        const contentType = req.headers['content-type'] || '';
+        if (contentType.includes('application/json')) {
+          fetchOptions.body = JSON.stringify(req.body);
+        } else if (contentType.includes('application/x-www-form-urlencoded')) {
+          const params = new URLSearchParams();
+          for (const [k, v] of Object.entries(req.body)) {
+            params.append(k, String(v));
+          }
+          fetchOptions.body = params.toString();
+        } else {
+          fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+        }
+      }
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
+    
+    // Forward response headers (excluding chunked encoding/etc to avoid protocol issues)
+    response.headers.forEach((value, key) => {
+      const lowerKey = key.toLowerCase();
+      if (!['transfer-encoding', 'content-encoding', 'connection', 'content-length'].includes(lowerKey)) {
+        res.setHeader(key, value);
+      }
+    });
+
+    res.status(response.status);
+    
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (error) {
+    console.error('[Firebase Auth Proxy Error]:', error);
+    res.status(500).send('Authentication Gateway Error');
+  }
+});
+
 // --- SERVER-SIDE IP RATE LIMITER IMPLEMENTATION ---
 const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
 
