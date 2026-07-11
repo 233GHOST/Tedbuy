@@ -3313,7 +3313,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
           const chatNotification: AppNotification = {
             id: notifId,
             userId: msg.recipientId,
-            type: 'post_created',
+            type: 'new_message',
             title: `Message from ${senderName}`,
             message: msg.text.length > 55 ? `${msg.text.substring(0, 55)}...` : msg.text,
             triggerUserId: msg.senderId,
@@ -3324,7 +3324,8 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
             productPrice: 'Inquire',
             productImage: '',
             createdAt: new Date().toISOString(),
-            read: false
+            read: false,
+            chatId: msg.chatId
           };
 
           try {
@@ -3553,7 +3554,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       const chatNotification: AppNotification = {
         id: notifId,
         userId: recId,
-        type: 'post_created', // Map to standard interface type
+        type: 'new_message', // Map to standard interface type
         title: senderId === 'user_ted_ceo_support' ? 'Message from Tedbuy Support' : `Message from ${sender.username || 'User'}`,
         message: text.length > 50 ? `${text.substring(0, 50)}...` : text,
         triggerUserId: senderId,
@@ -3564,7 +3565,8 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         productPrice: chat.productPrice || 'Inquire',
         productImage: chat.productImage || '',
         createdAt: new Date().toISOString(),
-        read: false
+        read: false,
+        chatId: chatId
       };
 
       try {

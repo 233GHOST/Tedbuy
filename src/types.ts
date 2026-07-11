@@ -244,10 +244,10 @@ export function normalizeCategory(cat: any): Category {
 export interface AppNotification {
   id: string;
   userId: string; // The user who receives the notification
-  type: 'post_created' | 'new_follower';
+  type: 'post_created' | 'new_follower' | 'new_message';
   title: string;
   message: string;
-  triggerUserId: string; // The user who made the post
+  triggerUserId: string; // The user who made the post or sent the message
   triggerUsername: string;
   triggerUserPhoto?: string;
   productId: string; // The product that was posted
@@ -256,6 +256,7 @@ export interface AppNotification {
   productImage: string;
   createdAt: string;
   read: boolean;
+  chatId?: string;
 }
 
 

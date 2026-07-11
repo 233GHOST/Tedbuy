@@ -43,6 +43,9 @@ export const Navbar: React.FC = () => {
     markAllNotificationsAsRead,
     clearAllNotifications,
     setSelectedProductId,
+    setSelectedSellerId,
+    setActiveChatId,
+    setViewingChatOnMobile,
     showToast
   } = useApp();
 
@@ -624,11 +627,27 @@ export const Navbar: React.FC = () => {
                                     if (!notif.read) {
                                       await markNotificationAsRead(notif.id);
                                     }
-                                    if (notif.type === 'new_follower' || !notif.productId) {
-                                      setCurrentView('profile-settings');
-                                    } else {
+                                    if (notif.type === 'new_message' && notif.chatId) {
+                                      setActiveChatId(notif.chatId);
+                                      setViewingChatOnMobile(true);
+                                      setCurrentView('chats');
+                                    } else if (notif.type === 'new_follower' && notif.triggerUserId) {
+                                      setSelectedSellerId(notif.triggerUserId);
+                                      setCurrentView('seller-profile');
+                                    } else if (notif.type === 'post_created' && notif.productId) {
                                       setSelectedProductId(notif.productId);
                                       setCurrentView('product-detail');
+                                    } else {
+                                      // Fallback logic
+                                      if (notif.productId) {
+                                        setSelectedProductId(notif.productId);
+                                        setCurrentView('product-detail');
+                                      } else if (notif.triggerUserId) {
+                                        setSelectedSellerId(notif.triggerUserId);
+                                        setCurrentView('seller-profile');
+                                      } else {
+                                        setCurrentView('profile-settings');
+                                      }
                                     }
                                     setShowNotifications(false);
                                   } catch (err) {
