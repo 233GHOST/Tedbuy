@@ -481,7 +481,7 @@ export const Navbar: React.FC = () => {
                 setSearchQuery('');
                 window.scrollTo({ top: 0, behavior: 'auto' });
               }}
-              className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
+              className={`px-3 py-2 rounded-xl text-sm font-medium hidden sm:flex items-center gap-1.5 transition-all ${
                 currentView === 'browse'
                   ? 'bg-slate-800 border border-slate-700 text-white font-extrabold shadow-sm'
                   : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
@@ -523,7 +523,7 @@ export const Navbar: React.FC = () => {
                 <button
                   id="nav-btn-chats"
                   onClick={() => setCurrentView('chats')}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all relative ${
+                  className={`px-3 py-2 rounded-xl text-sm font-medium hidden sm:flex items-center gap-1.5 transition-all relative ${
                     currentView === 'chats'
                       ? 'bg-slate-800 border border-slate-700 text-white font-extrabold shadow-sm'
                       : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
