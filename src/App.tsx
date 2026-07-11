@@ -1405,16 +1405,13 @@ const MarketplaceContent: React.FC = () => {
             // Set the search focus state to true to open suggestions dropdown/effects
             setIsSearchFocused(true);
 
-            // Ultra-robust polling focus helper to ensure the input gets focused when it renders
+            // Ultra-robust polling focus helper to ensure the input gets focused when it renders.
+            // We specifically target 'hero-search-input' because 'header-search-bar' is unmounting/hidden during transition.
             let attempts = 0;
             const interval = setInterval(() => {
-              const inputEl = document.getElementById('hero-search-input') || document.getElementById('header-search-bar');
+              const inputEl = document.getElementById('hero-search-input');
               if (inputEl) {
-                if (inputEl.id === 'hero-search-input') {
-                  window.scrollTo({ top: 0, behavior: 'auto' });
-                } else {
-                  inputEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-                }
+                window.scrollTo({ top: 0, behavior: 'auto' });
                 inputEl.focus();
                 clearInterval(interval);
               }
