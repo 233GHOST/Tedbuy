@@ -856,32 +856,159 @@ function renderProductGridSSR(products: any[], limit = 24): string {
     return `GH₵ ${num.toLocaleString('en-US')}`;
   };
 
+  const CATEGORY_ICONS_SSR: Record<string, string> = {
+    Phones: '📱',
+    Laptops: '💻',
+    Fashion: '👟',
+    'Home Appliances': '🔌',
+    Vehicles: '🚗',
+    Property: '🏠',
+    'Beauty and Care': '💄',
+    Games: '🎮',
+    Electronics: '⚡',
+    Services: '🛠️',
+    Other: '📦'
+  };
+
+  const categories = ['Phones', 'Laptops', 'Fashion', 'Home Appliances', 'Vehicles', 'Property', 'Beauty and Care', 'Games', 'Electronics'];
+
+  const categoryPillsHtml = categories.map((cat) => {
+    const icon = CATEGORY_ICONS_SSR[cat] || '📦';
+    return `
+      <div style="white-space:nowrap;padding:10px 18px;background:#ffffff;border:1px solid #e2e8f0;border-radius:9999px;font-size:12px;font-weight:700;color:#334155;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 2px rgba(0,0,0,0.02);cursor:pointer;">
+        <span style="font-size:15px;">${icon}</span>
+        <span>${cat}</span>
+      </div>`;
+  }).join('');
+
   const cards = subset.map((p) => {
     const title = escapeHtml(p.title || 'Untitled Listing');
     const price = formatPrice(p.price);
-    const location = escapeHtml(p.location || '');
+    const location = escapeHtml(p.location || 'Ghana');
     const image = escapeHtml(p.imageUrl || (Array.isArray(p.images) && p.images[0]) || p.image || '/favicon.svg');
     const id = escapeHtml(p.id || '');
+    const category = escapeHtml(p.category || 'Other');
+    const condition = p.condition ? escapeHtml(p.condition) : '';
+    const negotiable = p.negotiable !== false;
+
     return `
-      <a href="/products/${id}" class="ssr-card" style="display:flex;flex-direction:column;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;text-decoration:none;color:inherit;background:#fff;">
-        <div style="width:100%;aspect-ratio:1/1;background:#f1f5f9;overflow:hidden;">
+      <a href="/products/${id}" class="ssr-card" style="display:flex;flex-direction:column;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;text-decoration:none;color:inherit;background:#fff;transition:transform 0.2s, box-shadow 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+        <div style="position:relative;width:100%;aspect-ratio:4/3;background:#f1f5f9;overflow:hidden;display:flex;align-items:center;justify-content:center;">
           <img src="${image}" alt="${title}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" />
+          
+          <div style="position:absolute;top:10px;left:10px;display:flex;gap:6px;z-index:10;">
+            <span style="padding:3px 8px;background:rgba(15,23,42,0.8);backdrop-filter:blur(4px);color:#fff;font-size:9px;font-weight:700;border-radius:6px;text-transform:uppercase;letter-spacing:0.05em;">
+              ${category}
+            </span>
+            ${condition ? `
+              <span style="padding:3px 8px;background:rgba(15,23,42,0.9);color:#fff;border:1px solid #475569;font-size:9px;font-weight:700;border-radius:6px;text-transform:uppercase;">
+                ${condition}
+              </span>` : ''}
+          </div>
         </div>
-        <div style="padding:10px 12px;">
-          <div style="font-size:13px;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${title}</div>
-          <div style="font-size:14px;font-weight:800;color:#0f172a;margin-top:2px;">${price}</div>
-          ${location ? `<div style="font-size:11px;color:#64748b;margin-top:2px;">${location}</div>` : ''}
+        <div style="padding:14px;display:flex;flex-direction:column;justify-content:space-between;flex:1;gap:6px;background:linear-gradient(to bottom, #fff, #f8fafc);">
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+              <span style="font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-0.02em;">${price}</span>
+              ${negotiable ? `<span style="font-size:8px;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;font-weight:800;padding:2px 5px;border-radius:4px;text-transform:uppercase;">Neg.</span>` : ''}
+            </div>
+            <div style="font-size:13px;font-weight:600;color:#334155;line-height:1.4;max-height:36px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">
+              ${title}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#64748b;margin-top:auto;">
+            <svg style="width:11px;height:11px;color:#94a3b8;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            <span style="font-weight:500;">${location}</span>
+          </div>
         </div>
       </a>`;
   }).join('');
 
   return `
-    <div id="ssr-product-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:12px;max-width:1280px;margin:0 auto;">
-      ${cards}
+    <!-- Branded Loading Shell to prevent Refresh Layout Shifts -->
+    <div style="background:#f8fafc;min-height:100vh;display:flex;flex-direction:column;font-family:'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased;">
+      
+      <!-- Styled Nav Shell -->
+      <header style="position:sticky;top:0;z-index:40;background:#0f172a;border-bottom:1px solid #020617;color:#fff;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);height:64px;">
+        <div style="max-width:1280px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:100%;gap:16px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:40px;height:40px;border-radius:12px;background:#020617;border:1px solid #1e293b;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:inset 0 1px 2px rgba(255,255,255,0.05);">
+              <img src="/favicon.svg" alt="TedBuy Logo" style="width:32px;height:32px;object-fit:contain;" />
+            </div>
+            <div style="display:flex;flex-direction:column;text-align:left;">
+              <span style="font-size:20px;font-weight:900;letter-spacing:-0.03em;line-height:1;color:#fff;">TedBuy</span>
+              <span style="font-size:9px;color:#94a3b8;font-weight:800;letter-spacing:0.08em;margin-top:2px;text-transform:uppercase;">Ghana</span>
+            </div>
+          </div>
+          
+          <div style="flex:1;max-width:512px;position:relative;display:none;margin:0 16px;">
+            <input type="text" placeholder="Search..." disabled style="width:100%;padding:8px 12px 8px 36px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#fff;font-size:13px;outline:none;" />
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:32px;height:32px;border-radius:50%;background:#1e293b;border:1px solid #334155;"></div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Welcome Badge & Hero Section -->
+      <div style="max-width:1280px;width:100%;margin:0 auto;padding:24px 16px 0 16px;box-sizing:border-box;">
+        <div style="position:relative;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:24px;padding:24px;display:flex;flex-direction:column;gap:16px;box-shadow:0 1px 2px rgba(0,0,0,0.02);text-align:left;">
+          <div style="max-width:512px;width:100%;">
+            <label style="display:block;font-size:11px;font-weight:900;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.1em;">looking for something?</label>
+            <div style="position:relative;display:flex;align-items:center;width:100%;">
+              <div style="position:absolute;left:16px;color:#94a3b8;display:flex;align-items:center;">
+                <svg style="width:18px;height:18px;" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+              </div>
+              <input type="text" placeholder="Search phones, laptops, sneakers, furniture, beauty care..." disabled style="width:100%;padding:14px 16px 14px 44px;border:2px solid #cbd5e1;border-radius:16px;background:#fff;font-size:14px;font-weight:600;color:#94a3b8;outline:none;box-sizing:border-box;" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Categories ribbon wrapper -->
+      <div style="max-width:1280px;width:100%;margin:0 auto;padding:24px 16px 0 16px;box-sizing:border-box;text-align:left;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+          <svg style="width:18px;height:18px;color:#0f172a;" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+          </svg>
+          <span style="font-size:15px;font-weight:800;color:#0f172a;">Explore Classified Categories</span>
+        </div>
+        
+        <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:10px;scrollbar-width:none;-webkit-overflow-scrolling:touch;">
+          ${categoryPillsHtml}
+        </div>
+      </div>
+
+      <!-- Product grid section -->
+      <div style="max-width:1280px;width:100%;margin:0 auto;padding:16px 16px 48px 16px;box-sizing:border-box;">
+        <div id="ssr-product-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+          ${cards}
+        </div>
+      </div>
+
     </div>
+    
     <style>
-      @media (min-width: 640px) { #ssr-product-grid { grid-template-columns: repeat(3,1fr) !important; } }
-      @media (min-width: 1024px) { #ssr-product-grid { grid-template-columns: repeat(5,1fr) !important; } }
+      @media (min-width: 640px) {
+        #ssr-product-grid { grid-template-columns: repeat(3,1fr) !important; }
+      }
+      @media (min-width: 1024px) {
+        #ssr-product-grid { grid-template-columns: repeat(4,1fr) !important; }
+      }
+      @media (min-width: 1280px) {
+        #ssr-product-grid { grid-template-columns: repeat(4,1fr) !important; }
+      }
+      .ssr-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 20px -8px rgba(0,0,0,0.15) !important;
+        border-color: #cbd5e1 !important;
+      }
     </style>`;
 }
 
