@@ -76,10 +76,10 @@ const MarketplaceContent: React.FC = () => {
     isVerificationBlockOpen,
     setIsVerificationBlockOpen,
     blockedActionType,
-    setBlockedActionType
+    setBlockedActionType,
+    isBottomNavVisible,
+    setIsBottomNavVisible
   } = useApp();
-
-  const [isBottomNavVisible, setIsBottomNavVisible] = useState(true);
 
   // Hide bottom navigation on scroll down, show on scroll up for mobile devices
   React.useEffect(() => {
@@ -543,6 +543,7 @@ const MarketplaceContent: React.FC = () => {
 
   const handlePostAdBtn = () => {
     if (!currentUser) {
+      setAuthMode('login');
       setShowAuthModal(true);
       return;
     }

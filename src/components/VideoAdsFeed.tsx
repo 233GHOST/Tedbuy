@@ -669,7 +669,9 @@ export const VideoAdsFeed: React.FC = () => {
     setBlockedActionType,
     showToast,
     homeViewMode,
-    setHomeViewMode
+    setHomeViewMode,
+    isBottomNavVisible,
+    setIsBottomNavVisible
   } = useApp();
 
   const feedScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -752,6 +754,46 @@ export const VideoAdsFeed: React.FC = () => {
       observer.disconnect();
     };
   }, [videoProducts]);
+
+  // Hide bottom navigation on scroll down, show on scroll up inside the video feed container
+  useEffect(() => {
+    const container = feedScrollContainerRef.current;
+    if (!container) return;
+
+    let lastScrollTop = container.scrollTop;
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollTop = container.scrollTop;
+          // Threshold of 12px scroll to prevent jittering
+          if (Math.abs(currentScrollTop - lastScrollTop) > 12) {
+            if (currentScrollTop > lastScrollTop && currentScrollTop > 60) {
+              setIsBottomNavVisible(false);
+            } else {
+              setIsBottomNavVisible(true);
+            }
+          }
+          lastScrollTop = Math.max(0, currentScrollTop);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [setIsBottomNavVisible]);
+
+  // Always reset bottom nav to visible when leaving/unmounting the video feed
+  useEffect(() => {
+    return () => {
+      setIsBottomNavVisible(true);
+    };
+  }, [setIsBottomNavVisible]);
 
   const scrollToProduct = (idx: number) => {
     const p = videoProducts[idx];

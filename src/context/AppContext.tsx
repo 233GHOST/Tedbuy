@@ -210,6 +210,8 @@ interface AppContextType {
   setCanInstall: (val: boolean) => void;
   triggerPWAInstall: () => Promise<void>;
   isStandalone: boolean;
+  isBottomNavVisible: boolean;
+  setIsBottomNavVisible: (visible: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -601,6 +603,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isBottomNavVisible, setIsBottomNavVisible] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [unauthorizedDomainDetected, setUnauthorizedDomainDetected] = useState(false);
   const [isVerificationBlockOpen, setIsVerificationBlockOpen] = useState(false);
@@ -4610,7 +4613,9 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       canInstall,
       setCanInstall,
       triggerPWAInstall,
-      isStandalone
+      isStandalone,
+      isBottomNavVisible,
+      setIsBottomNavVisible
     }}>
       {children}
     </AppContext.Provider>
