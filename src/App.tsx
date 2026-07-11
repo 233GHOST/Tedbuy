@@ -1242,49 +1242,7 @@ const MarketplaceContent: React.FC = () => {
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
         <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-10 mt-12 mb-16 md:mb-0">
           <div className="max-w-7xl mx-auto px-4 space-y-8">
-            {/* Stay Safe on TedBuy Section */}
-            <div className="bg-amber-50/80 border-2 border-amber-400/80 border-l-rose-500 border-l-8 rounded-3xl p-6 md:p-8 max-w-4xl mx-auto text-left space-y-5 shadow-sm relative overflow-hidden">
-              <div className="flex items-center gap-2.5 text-rose-700 font-black text-sm md:text-base uppercase tracking-widest">
-                <ShieldAlert className="w-6 h-6 text-rose-600 animate-pulse shrink-0" />
-                <span>CRITICAL SAFETY ADVISORY — STAY SAFE ON TEDBUY</span>
-              </div>
-              <p className="text-xs text-amber-950 font-semibold leading-relaxed font-sans">
-                Tedbuy is committed to providing a secure P2P trading experience. To guarantee your financial and personal safety, you MUST strictly adhere to these essential marketplace guidelines at all times:
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-1">
-                <div className="space-y-2.5 bg-white p-5 rounded-2xl border-2 border-amber-300/40 shadow-xs hover:border-rose-400/30 transition-all duration-200">
-                  <div className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-extrabold text-xs shadow-xs shrink-0">1</span>
-                    <span>Meet in Public Places</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
-                    Always arrange to meet the other party in <strong className="text-rose-700 font-extrabold">highly populated, well-lit public zones</strong> like shopping malls, bank lobbies, or police stations. Never meet in private or secluded areas.
-                  </p>
-                </div>
-
-                <div className="space-y-2.5 bg-white p-5 rounded-2xl border-2 border-amber-300/40 shadow-xs hover:border-rose-400/30 transition-all duration-200">
-                  <div className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-extrabold text-xs shadow-xs shrink-0">2</span>
-                    <span>No Upfront Payments</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
-                    <strong className="text-rose-700 font-extrabold">Never send money, deposits, or mobile money transfers</strong> before receiving and fully inspecting the physical item. Reject all requests for advance fees or booking deposits.
-                  </p>
-                </div>
-
-                <div className="space-y-2.5 bg-white p-5 rounded-2xl border-2 border-amber-300/40 shadow-xs hover:border-rose-400/30 transition-all duration-200">
-                  <div className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
-                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-extrabold text-xs shadow-xs shrink-0">3</span>
-                    <span>Inspect and Verify</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
-                    <strong className="text-rose-700 font-extrabold">Examine the item carefully</strong> before closing the deal. Switch on electronics, verify phone serial numbers, run diagnostics, and confirm authentic physical quality in person.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="text-center space-y-2 border-t border-slate-100 pt-6">
+            <div className="text-center space-y-2 pt-6">
               <p className="font-sans font-bold text-slate-800">Tedbuy Marketplace &copy; 2026</p>
               <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
                 Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
