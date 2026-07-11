@@ -1458,13 +1458,16 @@ const MarketplaceContent: React.FC = () => {
             if (currentView !== 'browse') {
               setCurrentView('browse');
             }
+            if (homeViewMode === 'video-feed') {
+              setHomeViewMode('grid');
+            }
             setTimeout(() => {
               const inputEl = document.getElementById('hero-search-input');
               if (inputEl) {
                 inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 inputEl.focus();
               }
-            }, 100);
+            }, 150);
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
             currentView === 'browse' && searchQuery
