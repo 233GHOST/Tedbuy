@@ -833,112 +833,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
 
               if (existingUserWithEmail && existingUserId) {
-                console.log(`[Google Sign-In Account Merge] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Merging profile data into new Google UID: "${firebaseUser.uid}" so that user keeps their old store account flawlessly...`);
-                
-                // Keep the existing user profile details, but assign the new UID!
-                const mergedUser: User = {
-                  ...existingUserWithEmail,
-                  id: firebaseUser.uid,
-                  emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
-                  photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
-                  isGoogleAuth: true,
-                  authProvider: 'google.com'
-                };
-
-                const batch = writeBatch(db);
-                
-                // 1. Create the new user document
-                batch.set(doc(db, 'users', firebaseUser.uid), cleanObject(mergedUser));
-                
-                // 2. Delete the old user document
-                batch.delete(doc(db, 'users', existingUserId));
-                
-                // 3. Update the storeName mapping pointing to the new UID if a username is in use
-                if (mergedUser.username) {
-                  const storeNameLower = mergedUser.username.trim().toLowerCase();
-                  batch.set(doc(db, 'storeNames', storeNameLower), {
-                    userId: firebaseUser.uid,
-                    username: mergedUser.username.trim()
-                  });
-                }
-
-                await batch.commit();
-                console.log('[Google Sign-In Account Merge] Profile base data and storeName successfully migrated.');
-
-                // 4. Asynchronously cascade the ID change to all other collections (products, reviews, chats, etc.) 
-                // in the background to ensure consistency without slowing down the initial auth flow!
-                const cascadeUpdates = async () => {
-                  try {
-                    const cascadeBatch = writeBatch(db);
-                    let cascadeCount = 0;
-
-                    // Products migration
-                    const prodsSnap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', existingUserId)));
-                    prodsSnap.forEach(pDoc => {
-                      cascadeBatch.update(doc(db, 'products', pDoc.id), { sellerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    // Reviews from or to this user
-                    const reviewsFromSnap = await getDocs(query(collection(db, 'reviews'), where('buyerId', '==', existingUserId)));
-                    reviewsFromSnap.forEach(rDoc => {
-                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { buyerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    const reviewsToSnap = await getDocs(query(collection(db, 'reviews'), where('sellerId', '==', existingUserId)));
-                    reviewsToSnap.forEach(rDoc => {
-                      cascadeBatch.update(doc(db, 'reviews', rDoc.id), { sellerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    // Chats where this user is buyer or seller
-                    const chatsBuyerSnap = await getDocs(query(collection(db, 'chats'), where('buyerId', '==', existingUserId)));
-                    chatsBuyerSnap.forEach(cDoc => {
-                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { buyerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    const chatsSellerSnap = await getDocs(query(collection(db, 'chats'), where('sellerId', '==', existingUserId)));
-                    chatsSellerSnap.forEach(cDoc => {
-                      cascadeBatch.update(doc(db, 'chats', cDoc.id), { sellerId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    // Messages where this user is sender or recipient
-                    const msgsSenderSnap = await getDocs(query(collection(db, 'messages'), where('senderId', '==', existingUserId)));
-                    msgsSenderSnap.forEach(mDoc => {
-                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { senderId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    const msgsRecipientSnap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', existingUserId)));
-                    msgsRecipientSnap.forEach(mDoc => {
-                      cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    // Notifications to this user
-                    const notificationsSnap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', existingUserId)));
-                    notificationsSnap.forEach(nDoc => {
-                      cascadeBatch.update(doc(db, 'notifications', nDoc.id), { userId: firebaseUser.uid });
-                      cascadeCount++;
-                    });
-
-                    if (cascadeCount > 0) {
-                      await cascadeBatch.commit();
-                      console.log(`[Google Sign-In Account Merge] Cascaded ID update to ${cascadeCount} related documents.`);
-                    }
-                  } catch (cascadeErr) {
-                    console.warn('[Google Sign-In Account Merge] Error performing background cascade ID update:', cascadeErr);
-                  }
-                };
-
-                cascadeUpdates();
-
-                if (active) {
-                  setCurrentUserState(mergedUser);
-                }
+                console.log(`[Google Sign-In Collision] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Postponing to let Google login / linking flow handle credentials.`);
+                return;
               } else {
                 // Create the user document in Firestore asynchronously if first time
                 const newUser: User = {
@@ -958,16 +854,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 
                 // Register storeName and user document atomically so standard signups and Google signups are identical
                 const batch = writeBatch(db);
-                batch.set(userRef, cleanObject(newUser));
                 
                 const storeNameLower = initialUsername.trim().toLowerCase();
-                batch.set(doc(db, 'storeNames', storeNameLower), {
+                let uniqueStoreNameLower = storeNameLower;
+                let uniqueUsername = initialUsername.trim();
+                try {
+                  const checkRef = doc(db, 'storeNames', storeNameLower);
+                  const checkSnap = await getDoc(checkRef);
+                  if (checkSnap.exists()) {
+                    let isTaken = true;
+                    while (isTaken) {
+                      const suffix = Math.floor(100 + Math.random() * 900);
+                      uniqueUsername = `${initialUsername.trim()} ${suffix}`;
+                      uniqueStoreNameLower = uniqueUsername.toLowerCase();
+                      const suffixSnap = await getDoc(doc(db, 'storeNames', uniqueStoreNameLower));
+                      isTaken = suffixSnap.exists();
+                    }
+                  }
+                } catch (checkErr) {
+                  console.warn('Could not verify storeName uniqueness, proceeding with fallback:', checkErr);
+                }
+
+                newUser.username = uniqueUsername;
+                batch.set(userRef, cleanObject(newUser));
+                
+                batch.set(doc(db, 'storeNames', uniqueStoreNameLower), {
                   userId: firebaseUser.uid,
-                  username: initialUsername.trim()
+                  username: uniqueUsername
                 });
                 
                 await batch.commit();
-                console.log(`[Google Signup] Atomically created user profile and reserved store name: "${storeNameLower}"`);
+                console.log(`[Google Signup] Atomically created user profile and reserved store name: "${uniqueStoreNameLower}"`);
 
                 if (active) {
                   justRegisteredUserIds.current.add(firebaseUser.uid);
