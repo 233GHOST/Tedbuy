@@ -154,7 +154,7 @@ export const Navbar: React.FC = () => {
         } else {
           // STEP 1 & 2: First step of registration - validation & OTP initiation
           if (!agreeTermsInput) {
-            setAuthError('You must agree to the Terms of Service and Marketplace Policies to create an account.');
+            setAuthError('You must agree to the Terms of Service and Tedbuy Policies to create an account.');
             setIsAuthSubmitting(false);
             return;
           }
@@ -1199,7 +1199,7 @@ export const Navbar: React.FC = () => {
                         className="w-full text-left flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-xl transition duration-150 cursor-pointer text-slate-700 group hover:bg-slate-100/60 shadow-3xs"
                       >
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold text-slate-800">Read Marketplace Terms & Safety Policies</span>
+                          <span className="text-[11px] font-bold text-slate-800">Read Tedbuy Policies</span>
                         </div>
                         <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider group-hover:text-indigo-700 shrink-0 bg-indigo-50 group-hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">Read &rarr;</span>
                       </button>
@@ -1229,7 +1229,7 @@ export const Navbar: React.FC = () => {
                           onClick={() => setShowTermsModal(true)}
                           className="font-extrabold text-slate-950 hover:text-indigo-600 underline focus:outline-none cursor-pointer inline"
                         >
-                          Marketplace Policies
+                          Tedbuy Policies
                         </button>
                         . *
                       </label>
@@ -1460,7 +1460,7 @@ export const Navbar: React.FC = () => {
                 </svg>
               </div>
               <div>
-                <h3 className="font-extrabold text-slate-950 text-base leading-snug font-sans">Marketplace Terms & Safety Policies</h3>
+                <h3 className="font-extrabold text-slate-950 text-base leading-snug font-sans">Tedbuy Policies</h3>
                 <p className="text-[11px] text-slate-500 font-medium">Please review carefully before agreeing to create your account.</p>
               </div>
             </div>
