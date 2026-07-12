@@ -4353,7 +4353,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     if (matchedUser.isSuspended) {
-      return res.status(403).json({ success: false, error: "Your account has been suspended. Please contact Tedbuy support." });
+      return res.status(403).json({ success: false, error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@mail.com to appeal." });
     }
 
     // Extract stored SHA256 hash (directly or from authProvider fallback)
@@ -4477,6 +4477,43 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const cleanEmail = email.trim().toLowerCase();
     const brevoApiKey = process.env.BREVO_API_KEY;
     const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
+
+    // Check if user is suspended
+    let isSuspended = false;
+    if (adminDb) {
+      try {
+        const snap = await adminDb.collection('users').where('email', '==', cleanEmail).limit(1).get();
+        if (!snap.empty) {
+          const u = snap.docs[0].data();
+          if (u.isSuspended) {
+            isSuspended = true;
+          }
+        }
+      } catch (err) {
+        console.warn('[Auth Reset Check] Firestore suspension query failed:', err);
+      }
+    }
+    if (!isSuspended && backendSupabase) {
+      try {
+        const { data: u } = await backendSupabase
+          .from('users')
+          .select('*')
+          .eq('email', cleanEmail)
+          .maybeSingle();
+        if (u && u.isSuspended) {
+          isSuspended = true;
+        }
+      } catch (err) {
+        console.warn('[Auth Reset Check] Supabase suspension query failed:', err);
+      }
+    }
+
+    if (isSuspended) {
+      return res.status(403).json({
+        success: false,
+        error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. You are not allowed to reset your password. Please contact TedBuy Support at info.tedbuy@mail.com to appeal."
+      });
+    }
 
     try {
       let resetLink = "";

@@ -689,7 +689,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       try {
         if (firebaseUser) {
-
+          // Instant direct check on Firestore for suspension to block a suspended user immediately
+          try {
+            const userDocRef = doc(db, 'users', firebaseUser.uid);
+            const userSnap = await getDoc(userDocRef);
+            if (active && userSnap.exists()) {
+              const data = userSnap.data() as User;
+              if (data.isSuspended) {
+                console.warn('[Security Auth Observer] Suspended user logged in! Logging out immediately.');
+                await signOut(auth);
+                safeLocalStorage.removeItem('tedbuy_simulated_mode');
+                safeLocalStorage.removeItem('tedbuy_simulated_user');
+                safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+                setCurrentUserState(null);
+                setCurrentView('browse');
+                setIsAuthLoading(false);
+                setIsSuspendedBlockOpen(true);
+                return;
+              }
+            }
+          } catch (err) {
+            console.warn('[Security Auth Observer] Firestore user check failed (might be offline):', err);
+          }
 
           // Clear any simulated sandbox mode flags as we now have a genuine authenticated Firebase session
           safeLocalStorage.removeItem('tedbuy_simulated_mode');
@@ -1118,6 +1139,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Could not save current user backup:', err);
     }
   }, [currentUser, isAuthLoading]);
+
+  // Absolute high-security reactive check for account suspension
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (!currentUser) return;
+
+    let active = true;
+
+    // 1. Instantly block if memory state flag is suspended
+    if (currentUser.isSuspended) {
+      console.warn('[Security] currentUser memory state indicates suspension! Activating block modal.');
+      setIsSuspendedBlockOpen(true);
+      setCurrentUserState(null);
+      localStorage.removeItem('tedbuy_simulated_mode');
+      localStorage.removeItem('tedbuy_simulated_user');
+      localStorage.removeItem('tedbuy_local_current_user_backup');
+      signOut(auth).catch(() => {});
+      setCurrentView('browse');
+      return;
+    }
+
+    // 2. Proactive database lookup to prevent stale cache bypass
+    const verifyUserSuspensionInDatabase = async () => {
+      try {
+        const userRef = doc(db, 'users', currentUser.id);
+        const userSnap = await getDoc(userRef);
+        if (!active) return;
+
+        if (userSnap.exists()) {
+          const dbData = userSnap.data() as User;
+          if (dbData.isSuspended) {
+            console.error('[Security Check] Suspended state discovered on database! Logging out.', dbData.username);
+            setIsSuspendedBlockOpen(true);
+            setCurrentUserState(null);
+            localStorage.removeItem('tedbuy_simulated_mode');
+            localStorage.removeItem('tedbuy_simulated_user');
+            localStorage.removeItem('tedbuy_local_current_user_backup');
+            await signOut(auth).catch(() => {});
+            setCurrentView('browse');
+          }
+        }
+      } catch (err) {
+        console.warn('[Security Check] Suspension database verification bypassed (offline or rate-limited):', err);
+      }
+    };
+
+    verifyUserSuspensionInDatabase();
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser, isAuthLoading, auth, db]);
 
   const currentUserId = currentUser?.id;
 
@@ -2385,9 +2458,17 @@ Tedbuy Support`;
         }
       } else {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Server HTTP ${response.status}`);
+        const errText = errData.error || `Server HTTP ${response.status}`;
+        const error = new Error(errText);
+        if (response.status === 403 || errText.toLowerCase().includes('suspended')) {
+          (error as any).isSuspended = true;
+        }
+        throw error;
       }
     } catch (error: any) {
+      if (error?.isSuspended || error?.message?.toLowerCase().includes('suspended') || error?.message?.toLowerCase().includes('suspension')) {
+        throw error;
+      }
       console.warn('[resetPasswordEmail] Server-side reset failed or fallback active. Falling back to default:', error?.message || error);
       try {
         await sendPasswordResetEmail(auth, emailTarget);
@@ -2428,7 +2509,7 @@ Tedbuy Support`;
             if (dbData.isSuspended) {
               await signOut(auth);
               setIsSuspendedBlockOpen(true);
-              throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
+              throw new Error("Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@mail.com to appeal.");
             }
           }
 
@@ -4466,12 +4547,11 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     // 1. Update Firestore
     try {
-      if (!isSimulated) {
-        const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-          isSuspended: suspend
-        });
-      }
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        isSuspended: suspend
+      });
+      console.log(`[Admin Suspend] Successfully wrote isSuspended: ${suspend} to Firestore for ${userId}`);
     } catch (dbErr: any) {
       console.warn('[Admin Suspend] Firestore update failed, trying sandbox update:', dbErr);
     }

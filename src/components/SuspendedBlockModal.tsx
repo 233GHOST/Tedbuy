@@ -24,15 +24,6 @@ export const SuspendedBlockModal: React.FC = () => {
           transition={{ duration: 0.2 }}
           className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-rose-100 relative text-left"
         >
-          {/* Close button */}
-          <button
-            onClick={() => setIsSuspendedBlockOpen(false)}
-            className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
-            title="Dismiss screen"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
           {/* Warning Icon */}
           <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-650 flex items-center justify-center mb-5 shadow-3xs">
             <ShieldAlert className="w-6 h-6 stroke-[2.2]" />
@@ -44,7 +35,7 @@ export const SuspendedBlockModal: React.FC = () => {
           </h3>
 
           <p className="text-xs text-slate-500 mt-2 font-medium leading-relaxed">
-            Your account has been suspended by Tedbuy Administration due to potential safety or policy violations.
+            Your account has been suspended by TedBuy Administration due to safety or policy violations.
           </p>
 
           {/* Details / Email Info card */}
@@ -53,14 +44,14 @@ export const SuspendedBlockModal: React.FC = () => {
             <div className="text-xs">
               <span className="block font-black text-slate-800">Support & Appeals Contact</span>
               <a 
-                href="mailto:info.tedbuy@gmail.com"
+                href="mailto:info.tedbuy@mail.com"
                 className="inline-flex items-center gap-1 font-mono text-xs font-bold text-rose-700 hover:text-rose-800 underline mt-0.5"
               >
-                info.tedbuy@gmail.com
+                info.tedbuy@mail.com
                 <ExternalLink className="w-3 h-3" />
               </a>
               <p className="text-[10px] text-slate-500 mt-2.5 font-medium leading-normal">
-                Please contact Tedbuy support to appeal this action, resolve fraud reports, or clarify safety policy compliance. Be sure to reference your registered email address or phone identifier.
+                Please contact TedBuy support to appeal this action, resolve fraud reports, or clarify safety policy compliance. Be sure to reference your registered email address or phone identifier.
               </p>
             </div>
           </div>
@@ -68,18 +59,30 @@ export const SuspendedBlockModal: React.FC = () => {
           {/* Actions */}
           <div className="space-y-2">
             <a
-              href="mailto:info.tedbuy@gmail.com?subject=Tedbuy Account Appeal"
+              href="mailto:info.tedbuy@mail.com?subject=TedBuy Account Appeal"
               className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer transition shadow-3xs"
             >
               <Mail className="w-4 h-4 text-slate-300" />
-              <span>Contact Tedbuy Support</span>
+              <span>Contact TedBuy Support</span>
             </a>
 
             <button
-              onClick={() => setIsSuspendedBlockOpen(false)}
-              className="w-full py-2.5 px-4 text-center text-slate-500 hover:text-slate-700 font-bold text-xs cursor-pointer transition rounded-xl"
+              onClick={async () => {
+                // Clear all session cache
+                localStorage.removeItem('tedbuy_simulated_mode');
+                localStorage.removeItem('tedbuy_simulated_user');
+                localStorage.removeItem('tedbuy_local_current_user_backup');
+                try {
+                  const { signOut } = await import('firebase/auth');
+                  const { auth } = await import('../firebase');
+                  await signOut(auth);
+                } catch (_) {}
+                setIsSuspendedBlockOpen(false);
+                window.location.reload();
+              }}
+              className="w-full py-2.5 px-4 text-center text-rose-650 hover:text-rose-700 font-extrabold text-xs cursor-pointer transition bg-rose-50/50 hover:bg-rose-50 rounded-2xl border border-rose-100/60"
             >
-              Close
+              Log Out & Exit
             </button>
           </div>
         </motion.div>

@@ -25,6 +25,10 @@ export function toUserFriendlyError(error: any): string {
 
   const clean = msg.toLowerCase();
 
+  if (clean.includes('suspended') || clean.includes('suspension')) {
+    return msg;
+  }
+
   // 1. Connection / Network errors
   if (clean.includes('network') || clean.includes('fetch') || clean.includes('load failed') || clean.includes('connect')) {
     return "Unable to connect. Please check your internet connection and try again.";
@@ -105,7 +109,11 @@ export function getAuthErrorMessage(error: any): string {
 
   // Extract error code and message
   const code = error?.code || "";
-  const message = error?.message || "";
+  const message = error?.message || error?.error || (typeof error === 'string' ? error : "");
+
+  if (message.toLowerCase().includes('suspended') || message.toLowerCase().includes('suspension')) {
+    return message;
+  }
 
   // Log only in development context
   if (process.env.NODE_ENV === "development") {
