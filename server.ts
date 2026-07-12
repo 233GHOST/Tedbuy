@@ -3872,27 +3872,31 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
-    .container { max-width: 500px; margin: 40px auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); }
-    .header { background-color: #0f172a; padding: 32px 24px; text-align: center; color: #ffffff; border-bottom: 4px solid #f97316; }
-    .header h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: #f8fafc; }
+    .container { max-width: 500px; margin: 40px auto; background-color: #ffffff; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06); }
+    .header { background-color: #0f172a; padding: 36px 24px; text-align: center; color: #ffffff; border-bottom: 4px solid #ea580c; }
+    .header-logo { font-size: 28px; font-weight: 950; letter-spacing: -0.04em; margin: 0; line-height: 1; color: #ffffff; }
+    .header-logo span { color: #ea580c; }
+    .header-tag { font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 6px; display: block; }
     .content { padding: 40px 32px; text-align: center; line-height: 1.6; }
-    .greeting { font-size: 16px; font-weight: 600; color: #0f172a; text-align: left; margin-bottom: 24px; }
+    .greeting { font-size: 18px; font-weight: 800; color: #0f172a; text-align: left; margin-bottom: 20px; }
     .info-text { font-size: 15px; color: #475569; text-align: left; margin-bottom: 32px; }
-    .code-container { background-color: #f1f5f9; border-radius: 12px; padding: 24px; margin: 24px 0; border: 1px dashed #cbd5e1; }
-    .otp-code { font-family: "Courier New", Courier, monospace; font-size: 36px; font-weight: 800; letter-spacing: 0.25em; color: #f97316; margin: 0; padding-left: 0.25em; }
-    .expiry-text { font-size: 13px; color: #94a3b8; margin-top: 12px; }
-    .security-warning { background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 4px; font-size: 13px; color: #b45309; text-align: left; margin-top: 32px; }
-    .footer { background-color: #f8fafc; padding: 24px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
+    .code-container { background-color: #fff7ed; border-radius: 18px; padding: 28px; margin: 28px 0; border: 1px dashed #fed7aa; }
+    .otp-code { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 38px; font-weight: 900; letter-spacing: 0.25em; color: #ea580c; margin: 0; padding-left: 0.25em; text-shadow: 0 1px 2px rgba(234, 88, 12, 0.05); }
+    .expiry-text { font-size: 13px; color: #9a3412; font-weight: 600; margin-top: 12px; }
+    .security-warning { background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #b45309; text-align: left; margin-top: 32px; line-height: 1.5; }
+    .footer { background-color: #f8fafc; padding: 28px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; line-height: 1.6; }
+    .footer p { margin: 6px 0; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h2>TedBuy Verification</h2>
+      <h1 class="header-logo"><span>Ted</span>Buy</h1>
+      <span class="header-tag">Ghana's #1 Social Marketplace</span>
     </div>
     <div class="content">
       <div class="greeting">Hi ${escapeHtml(cleanUsername)},</div>
-      <div class="info-text">Thank you for registering with TedBuy! To verify your email address and finalize your account creation, please enter the security code below in your verification screen.</div>
+      <div class="info-text">Thank you for registering with TedBuy! To verify your email address and finalize your account creation, please enter the security verification code below in your screen:</div>
       
       <div class="code-container">
         <div class="otp-code">${otp}</div>
@@ -4353,10 +4357,59 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     // Extract stored SHA256 hash (directly or from authProvider fallback)
-    const storedHash = matchedUser.passwordHash || 
-                       (matchedUser.authProvider && matchedUser.authProvider.startsWith('password_hash:') 
-                        ? matchedUser.authProvider.split('password_hash:')[1] 
-                        : null);
+    let storedHash = matchedUser.passwordHash || 
+                     (matchedUser.authProvider && matchedUser.authProvider.startsWith('password_hash:') 
+                      ? matchedUser.authProvider.split('password_hash:')[1] 
+                      : null);
+
+    // If storedHash is missing or mismatched, attempt to verify using the secure Firebase Auth REST API
+    if (!storedHash || storedHash !== computedHash) {
+      if (apiKey && matchedUser.email) {
+        try {
+          console.log(`[Backend Login] Password hash not matching or not found for ${matchedUser.email}. Attempting verification via Firebase Auth REST API...`);
+          const firebaseRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: matchedUser.email,
+              password: password,
+              returnSecureToken: true
+            })
+          });
+
+          if (firebaseRes.ok) {
+            const authData = await firebaseRes.json();
+            if (authData && authData.localId) {
+              console.log(`[Backend Login] Firebase Auth REST API sign-in succeeded for ${matchedUser.email}! Syncing passwordHash to Firestore...`);
+              
+              // Dynamically cache computed passwordHash in Firestore so future logins are ultra-fast
+              if (adminDb) {
+                await adminDb.collection('users').doc(matchedUser.id).update({
+                  passwordHash: computedHash
+                }).catch((writeErr: any) => console.warn('[Backend Login] Failed to update Firestore with password hash:', writeErr));
+              }
+              
+              storedHash = computedHash;
+              matchedUser.passwordHash = computedHash;
+            }
+          } else {
+            const errData = await firebaseRes.json().catch(() => ({}));
+            const errMsg = errData.error?.message || '';
+            console.warn('[Backend Login] Firebase REST sign-in failed with message:', errMsg);
+            
+            if (errMsg === 'INVALID_PASSWORD') {
+              return res.status(401).json({ success: false, error: "The password you entered is incorrect. Please try again." });
+            } else if (errMsg === 'EMAIL_NOT_FOUND') {
+              return res.status(404).json({ success: false, error: "No registered account was found matching these credentials." });
+            } else if (errMsg === 'USER_DISABLED') {
+              return res.status(403).json({ success: false, error: "This user account has been disabled." });
+            }
+          }
+        } catch (authFallbackErr: any) {
+          console.warn('[Backend Login] Firebase Auth REST API fallback exception:', authFallbackErr?.message);
+        }
+      }
+    }
 
     if (!storedHash) {
       return res.status(400).json({ 
@@ -4459,6 +4512,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
 
+      if (resetLink) {
+        // High-reliability brand replacement: Swap generic Firebase-hosted domain with tedbuy.store custom domain
+        resetLink = resetLink.replace("tedbuy-fb79a.firebaseapp.com", "tedbuy.store");
+        resetLink = resetLink.replace("tedbuy-fb79a.web.app", "tedbuy.store");
+      }
+
       // If no reset link and we can't dispatch REST API directly, check if we have Brevo/SMTP configured
       if (!resetLink) {
         if (!brevoApiKey && !hasSmtp) {
@@ -4474,38 +4533,51 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); }
-    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #f97316; }
-    .header h2 { margin: 0; font-size: 24px; font-weight: 800; color: #f8fafc; }
-    .content { padding: 40px; line-height: 1.7; font-size: 15px; color: #334155; }
-    .btn { display: inline-block; padding: 14px 28px; background-color: #f97316; color: #ffffff !important; text-decoration: none; border-radius: 12px; font-weight: 700; margin: 24px 0; text-align: center; }
-    .footer { background-color: #f8fafc; padding: 32px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06); }
+    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #ea580c; }
+    .header-logo { font-size: 32px; font-weight: 950; letter-spacing: -0.04em; margin: 0; line-height: 1; color: #ffffff; }
+    .header-logo span { color: #ea580c; }
+    .header-tag { font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 8px; display: block; }
+    .content { padding: 44px; line-height: 1.7; font-size: 15px; color: #334155; }
+    .content p { margin-top: 0; margin-bottom: 22px; }
+    .btn-container { text-align: center; margin: 32px 0; }
+    .btn { display: inline-block; padding: 16px 36px; background-color: #ea580c; color: #ffffff !important; text-decoration: none; border-radius: 14px; font-weight: 800; text-align: center; font-size: 15px; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.15); transition: background-color 0.15s ease; }
+    .url-text { font-size: 12px; color: #64748b; word-break: break-all; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-top: 32px; line-height: 1.5; }
+    .footer { background-color: #f8fafc; padding: 36px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; line-height: 1.6; }
+    .footer a { color: #ea580c; text-decoration: underline; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h2>Reset Your TedBuy Password</h2>
+      <h1 class="header-logo"><span>Ted</span>Buy</h1>
+      <span class="header-tag">Ghana's #1 Social Marketplace</span>
     </div>
     <div class="content">
-      <p style="font-size: 17px; font-weight: 700; color: #0f172a;">Hello,</p>
-      <p>We received a request to reset your password for your TedBuy account. Click the button below to set a new password:</p>
-      <div style="text-align: center;">
-        <a href="${resetLink}" class="btn" style="color: #ffffff !important;">Reset Password</a>
+      <p style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 24px;">Hello,</p>
+      <p>We received a request to reset the password for your TedBuy account. Click the button below to choose a secure new password:</p>
+      
+      <div class="btn-container">
+        <a href="${resetLink}" class="btn" style="color: #ffffff !important;">Reset My Password</a>
       </div>
-      <p>If you did not make this request, you can safely ignore this email. Your password will remain unchanged.</p>
-      <p style="font-size: 12px; color: #64748b; word-break: break-all;">If the button above doesn't work, copy and paste this URL into your browser:<br/>${resetLink}</p>
+      
+      <p>If you did not make this request, you can safely ignore this email. Your password will remain completely secure and unchanged.</p>
+      
+      <div class="url-text">
+        <strong>Button not working?</strong> Copy and paste this URL into your browser address bar:<br/>
+        <span style="color: #ea580c;">${resetLink}</span>
+      </div>
     </div>
     <div class="footer">
       <p>This message was sent to ${escapeHtml(cleanEmail)}.</p>
-      <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
+      <p>&copy; 2026 TedBuy Ghana. Accra, Ghana.</p>
     </div>
   </div>
 </body>
 </html>`;
 
-      const textContent = `Reset Your TedBuy Password\n\nHello,\n\nWe received a request to reset your password for your TedBuy account. Use the following link to set a new password:\n\n${resetLink}\n\nIf you did not make this request, you can safely ignore this email.\n\nTedbuy Support`;
+      const textContent = `Reset Your TedBuy Password\n\nHello,\n\nWe received a request to reset the password for your TedBuy account. Use the following link to choose a secure new password:\n\n${resetLink}\n\nIf you did not make this request, you can safely ignore this email.\n\nTedBuy Support`;
 
       let emailSent = false;
       let errorDetail = "";
@@ -4602,34 +4674,41 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
-    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #f97316; }
-    .header h2 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: #f8fafc; }
-    .content { padding: 40px; line-height: 1.7; font-size: 15px; color: #334155; }
-    .content p { margin-top: 0; margin-bottom: 20px; }
-    .footer { background-color: #f8fafc; padding: 32px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
-    .footer a { color: #f97316; text-decoration: underline; font-weight: 600; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06); }
+    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #ea580c; }
+    .header-logo { font-size: 32px; font-weight: 950; letter-spacing: -0.04em; margin: 0; line-height: 1; color: #ffffff; }
+    .header-logo span { color: #ea580c; }
+    .header-tag { font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 8px; display: block; }
+    .content { padding: 44px; line-height: 1.7; font-size: 15px; color: #334155; }
+    .content p { margin-top: 0; margin-bottom: 22px; }
+    .footer { background-color: #f8fafc; padding: 36px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; line-height: 1.6; }
+    .footer a { color: #ea580c; text-decoration: underline; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h2>Welcome to Tedbuy</h2>
+      <h1 class="header-logo"><span>Ted</span>Buy</h1>
+      <span class="header-tag">Ghana's #1 Social Marketplace</span>
     </div>
     <div class="content">
-      <p style="font-size: 17px; font-weight: 700; color: #0f172a; margin-bottom: 24px;">Hi ${escapedName},</p>
+      <p style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 24px;">Hi ${escapedName},</p>
       
-      <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on Tedbuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
+      <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.</p>
+
+      <p>All replies to this email inbox are monitored by TedBuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
+
+      <p>Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
       
-      <p style="margin-top: 36px; line-height: 1.5; font-size: 14px;">
+      <p style="margin-top: 40px; line-height: 1.5; font-size: 14px;">
         Gratefully yours,<br/><br/>
-        <strong style="font-size: 16px; color: #0f172a;">Tedbuy Support</strong>
+        <strong style="font-size: 16px; color: #0f172a;">TedBuy Support</strong>
       </p>
     </div>
     <div class="footer">
       <p>This message was sent from <a href="mailto:info.tedbuy@gmail.com">info.tedbuy@gmail.com</a>. You can reply directly to this email to reach our support team.</p>
-      <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
+      <p>&copy; 2026 TedBuy Ghana. Accra, Ghana.</p>
     </div>
   </div>
 </body>
