@@ -3588,9 +3588,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         return res.status(400).json({ success: false, error: 'Username is already taken. Please choose another one.' });
       }
 
-      // B. Check Firestore users collection for existing email or phone
+      // B. Check Firestore and Supabase users collection for existing email or phone
       let emailTaken = false;
       let phoneTaken = false;
+      let foundUid: string | null = null;
+      let foundUsername: string | null = null;
 
       if (backendSupabase) {
         try {
@@ -3599,14 +3601,24 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             .select('*')
             .eq('email', cleanEmail)
             .maybeSingle();
-          if (!emailErr && emailMatch) emailTaken = true;
+          if (!emailErr && emailMatch) {
+            emailTaken = true;
+            foundUid = emailMatch.id;
+            foundUsername = emailMatch.username;
+          }
 
           const { data: phoneMatch, error: phoneErr } = await backendSupabase
             .from('users')
             .select('*')
             .eq('phoneNumber', cleanPhone)
             .maybeSingle();
-          if (!phoneErr && phoneMatch) phoneTaken = true;
+          if (!phoneErr && phoneMatch) {
+            phoneTaken = true;
+            if (!foundUid) {
+              foundUid = phoneMatch.id;
+              foundUsername = phoneMatch.username;
+            }
+          }
         } catch (err) {
           console.warn('[Register Check] Supabase email/phone check failed, falling back:', err);
         }
@@ -3616,11 +3628,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (adminDb) {
           if (!emailTaken) {
             const emailSnap = await adminDb.collection('users').where('email', '==', cleanEmail).limit(1).get();
-            if (!emailSnap.empty) emailTaken = true;
+            if (!emailSnap.empty) {
+              emailTaken = true;
+              foundUid = emailSnap.docs[0].id;
+              foundUsername = emailSnap.docs[0].data().username;
+            }
           }
           if (!phoneTaken) {
             const phoneSnap = await adminDb.collection('users').where('phoneNumber', '==', cleanPhone).limit(1).get();
-            if (!phoneSnap.empty) phoneTaken = true;
+            if (!phoneSnap.empty) {
+              phoneTaken = true;
+              if (!foundUid) {
+                foundUid = phoneSnap.docs[0].id;
+                foundUsername = phoneSnap.docs[0].data().username;
+              }
+            }
           }
         } else {
           // REST Fallback querying
@@ -3648,6 +3670,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             const data = await emailRes.json();
             if (Array.isArray(data) && data.length > 0 && data[0].document) {
               emailTaken = true;
+              const docName = data[0].document.name;
+              const docNameParts = docName.split('/');
+              foundUid = docNameParts[docNameParts.length - 1];
+              foundUsername = data[0].document.fields?.username?.stringValue || null;
             }
           }
 
@@ -3673,11 +3699,114 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             const data = await phoneRes.json();
             if (Array.isArray(data) && data.length > 0 && data[0].document) {
               phoneTaken = true;
+              if (!foundUid) {
+                const docName = data[0].document.name;
+                const docNameParts = docName.split('/');
+                foundUid = docNameParts[docNameParts.length - 1];
+                foundUsername = data[0].document.fields?.username?.stringValue || null;
+              }
             }
           }
         }
       } catch (err) {
         console.warn('[Register Check] Error checking existing users in DB:', err);
+      }
+
+      // Check Firebase Authentication status to detect orphaned db records
+      let existsInAuth = false;
+      let checkedAuth = false;
+
+      // Try Admin SDK first
+      try {
+        const { getApps } = await import("firebase-admin/app");
+        if (getApps().length > 0) {
+          const { getAuth } = await import("firebase-admin/auth");
+          try {
+            await getAuth().getUserByEmail(cleanEmail);
+            existsInAuth = true;
+            checkedAuth = true;
+          } catch (authErr: any) {
+            if (authErr.code === 'auth/user-not-found') {
+              existsInAuth = false;
+              checkedAuth = true;
+            } else {
+              console.warn('[Register Check] Unexpected Auth Admin check error:', authErr);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Register Check] Error using Auth Admin, trying REST API:', err);
+      }
+
+      // Fallback to REST API if Admin SDK wasn't used or failed
+      if (!checkedAuth && apiKey) {
+        try {
+          const authLookupRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: [cleanEmail] })
+          });
+          if (authLookupRes.ok) {
+            const authData = await authLookupRes.json();
+            if (authData && Array.isArray(authData.users) && authData.users.length > 0) {
+              existsInAuth = true;
+            }
+            checkedAuth = true;
+          } else {
+            console.warn('[Register Check] Auth REST lookup failed with status:', authLookupRes.status);
+          }
+        } catch (restErr) {
+          console.warn('[Register Check] Auth REST lookup failed with error:', restErr);
+        }
+      }
+
+      // If we successfully verified that the user DOES NOT exist in Firebase Authentication,
+      // but they exist in the DB (Firestore or Supabase), we have detected a desynced/orphaned record.
+      // We will perform self-healing by deleting the orphaned database record so they can register again.
+      if (checkedAuth && !existsInAuth && (emailTaken || phoneTaken)) {
+        console.log(`[Register Check] Detected desynced/orphaned database records for email ${cleanEmail} (UID: ${foundUid}). Performing self-healing delete.`);
+        
+        if (foundUid) {
+          // Delete from Firestore
+          try {
+            if (adminDb) {
+              await adminDb.collection('users').doc(foundUid).delete();
+              if (foundUsername) {
+                await adminDb.collection('storeNames').doc(foundUsername.toLowerCase()).delete();
+              }
+            } else {
+              const deleteUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${foundUid}${apiKey ? `?key=${apiKey}` : ""}`;
+              await fetch(deleteUrl, { method: 'DELETE' });
+              
+              if (foundUsername) {
+                const storeNameDeleteUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/storeNames/${encodeURIComponent(foundUsername.toLowerCase())}${apiKey ? `?key=${apiKey}` : ""}`;
+                await fetch(storeNameDeleteUrl, { method: 'DELETE' });
+              }
+            }
+            console.log('[Register Check] Successfully cleaned up orphan Firestore documents.');
+          } catch (fsDelErr) {
+            console.warn('[Register Check] Failed to delete orphaned Firestore document:', fsDelErr);
+          }
+
+          // Delete from Supabase
+          if (backendSupabase) {
+            try {
+              await backendSupabase.from('users').delete().eq('id', foundUid);
+              if (foundUsername) {
+                await backendSupabase.from('store_names').delete().eq('id', foundUsername.toLowerCase());
+              }
+              console.log('[Register Check] Successfully cleaned up orphan Supabase database entries.');
+            } catch (sbDelErr) {
+              console.warn('[Register Check] Failed to delete orphaned Supabase entry:', sbDelErr);
+            }
+          }
+        }
+
+        // Reset registration block flags as the orphan database records have been successfully cleared!
+        emailTaken = false;
+        phoneTaken = false;
+        foundUid = null;
+        foundUsername = null;
       }
 
       if (emailTaken) {
@@ -3687,21 +3816,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         return res.status(400).json({ success: false, error: 'Phone number is already registered.' });
       }
 
-      // Check Firebase Auth if admin is available
-      if (adminDb) {
-        try {
-          const { getAuth } = await import("firebase-admin/auth");
-          try {
-            await getAuth().getUserByEmail(cleanEmail);
-            return res.status(400).json({ success: false, error: 'Email address is already registered in Authentication.' });
-          } catch (authErr: any) {
-            if (authErr.code !== 'auth/user-not-found') {
-              console.warn('[Register Check] Unexpected Auth check error:', authErr);
-            }
-          }
-        } catch (err) {
-          console.warn('[Register Check] Error importing or using Auth Admin:', err);
-        }
+      // Final fail-safe: block if the email is actually active in Firebase Auth but somehow has no DB record
+      if (checkedAuth && existsInAuth) {
+        return res.status(400).json({ success: false, error: 'Email address is already registered in Firebase Authentication. Please try logging in or resetting your password.' });
       }
 
       // 3. Generate 6-digit secure OTP
