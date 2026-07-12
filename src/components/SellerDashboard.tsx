@@ -72,8 +72,10 @@ export const SellerDashboard: React.FC = () => {
     );
   }
 
-  // Filter products owned by the active user
-  const myProducts = products.filter(p => p.sellerId === currentUser.id);
+  // Filter products owned by the active user (Admins see and manage all listings)
+  const myProducts = currentUser.isAdmin
+    ? products
+    : products.filter(p => p.sellerId === currentUser.id);
   const savedProducts = products.filter(p => currentUser.savedProductIds?.includes(p.id) || false);
 
   const handleEdit = (product: Product, e: React.MouseEvent) => {
@@ -215,7 +217,7 @@ export const SellerDashboard: React.FC = () => {
               : 'text-slate-400 hover:text-slate-600'
           }`}
         >
-          My Listed Ads ({myProducts.length})
+          {currentUser.isAdmin ? 'All Marketplace Listings (Admin View)' : 'My Listed Ads'} ({myProducts.length})
         </button>
         <button
           id="tab-watchlist"

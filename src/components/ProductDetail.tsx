@@ -1065,7 +1065,7 @@ export const ProductDetail: React.FC = () => {
                 </div>
               )}
 
-              {isOwner ? (
+              {isOwner && !currentUser?.isAdmin ? (
                 <div className="bg-slate-50 text-slate-800 p-4 rounded-3xl border border-slate-200 text-xs text-left space-y-3.5">
                   <div className="space-y-1">
                     <p className="font-semibold text-slate-800">👋 You posted this product listing!</p>

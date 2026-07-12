@@ -3729,9 +3729,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let errorDetail = '';
 
       const mailOptions = {
-        from: '"Tedbuy" <info@tedbuy.store>',
+        from: '"Tedbuy" <info.tedbuy@gmail.com>',
         to: cleanEmail,
-        replyTo: 'info@tedbuy.store',
+        replyTo: 'info.tedbuy@gmail.com',
         subject: `${otp} is your TedBuy Verification Code`,
         text: `Welcome to TedBuy!\n\nYour 6-digit security verification code is: ${otp}\n\nThis code is valid for 10 minutes. For your security, please do not share this code with anyone.\n\nThank you,\nTedBuy Support`,
         html: `<!DOCTYPE html>
@@ -4037,7 +4037,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       </p>
     </div>
     <div class="footer">
-      <p>This message was sent from <a href="mailto:info@tedbuy.store">info@tedbuy.store</a>. You can reply directly to this email to reach our support team.</p>
+      <p>This message was sent from <a href="mailto:info.tedbuy@gmail.com">info.tedbuy@gmail.com</a>. You can reply directly to this email to reach our support team.</p>
       <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
     </div>
   </div>
@@ -4049,7 +4049,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (brevoApiKey) {
       console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${email}`);
       try {
-        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info@tedbuy.store';
+        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
         const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
         const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -4113,9 +4113,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
       
       const mailOptions = {
-        from: '"Tedbuy" <info@tedbuy.store>',
+        from: '"Tedbuy" <info.tedbuy@gmail.com>',
         to: email,
-        replyTo: 'info@tedbuy.store',
+        replyTo: 'info.tedbuy@gmail.com',
         subject: subject,
         text: textContent,
         html: htmlContent

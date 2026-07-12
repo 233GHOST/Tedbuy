@@ -939,7 +939,7 @@ export const ProfileSettings: React.FC = () => {
 
               <div className="space-y-4">
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Manage welcome onboarding workflows for registered users. Dispatch the official CEO greeting to all accounts, enabling support replies directly to <span className="font-bold underline text-emerald-400">info@tedbuy.store</span>.
+                  Manage welcome onboarding workflows for registered users. Dispatch the official CEO greeting to all accounts, enabling support replies directly to <span className="font-bold underline text-emerald-400">info.tedbuy@gmail.com</span>.
                 </p>
 
                 {/* Dashboard Metrics */}

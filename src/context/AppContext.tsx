@@ -100,6 +100,8 @@ interface AppContextType {
   addReview: (sellerId: string, rating: number, comment: string, productTitle?: string) => Promise<void>;
   currentUser: User | null;
   setCurrentUser: (user: User | null) => void;
+  isAdminSessionVerified: boolean;
+  verifyAdminPIN: (pin: string) => Promise<boolean>;
   users: User[];
   usersMap?: Map<string, User>;
   registerUser: (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => Promise<User>;
@@ -377,7 +379,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const stored = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
       if (stored) {
         const parsed = JSON.parse(stored) as User;
-        if (parsed.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
+        if (parsed.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || parsed.isAdmin) {
           parsed.isAdmin = true;
         } else {
           // Prevent local storage manipulation or Firestore field injection from injecting admin permissions on the client
@@ -396,7 +398,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let next = typeof val === 'function' ? val(prev) : val;
       if (next) {
         const isSuperAdmin = next.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com';
-        if (isSuperAdmin) {
+        if (isSuperAdmin || next.isAdmin) {
           next = { ...next, isAdmin: true };
         } else {
           // Safeguard: Ensure no regular user can hold or receive an isAdmin property in state
@@ -408,6 +410,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return next;
     });
   };
+  const [isAdminSessionVerified, setIsAdminSessionVerified] = useState<boolean>(false);
+  const [adminFailedAttempts, setAdminFailedAttempts] = useState<number>(0);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [isProductsLoading, setIsProductsLoading] = useState(() => {
     try {
@@ -1578,6 +1582,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    if (!targetUser.emailVerified) {
+      console.log(`[Welcome Trigger] Bypassing welcome package for ${targetUser.username} because email is not verified yet.`);
+      return;
+    }
+
     if (triggeredWelcomeUserId.current === targetUser.id) return;
     triggeredWelcomeUserId.current = targetUser.id;
 
@@ -1589,7 +1598,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const ceoProfile = {
         id: 'user_ted_ceo_support',
         username: 'Tedbuy Support',
-        email: 'info@tedbuy.store',
+        email: 'info.tedbuy@gmail.com',
         photoUrl: '/favicon.svg',
         role: 'seller',
         joinDate: 'Jun 2018'
@@ -1686,20 +1695,7 @@ Tedbuy Support`;
       });
       if (emailResponse.ok) {
         console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
-        showToast(`Sign up successful! An automated welcome email from info@tedbuy.store has been sent to ${email}.`, 'success');
-        
-        // Auto send real email verification request to their inbox right after their welcome email
-        setTimeout(async () => {
-          try {
-            const firebaseUser = auth.currentUser;
-            if (firebaseUser && !firebaseUser.emailVerified) {
-              await sendEmailVerification(firebaseUser);
-              showToast(`An email verification link has also been sent to: ${email}. Please check your inbox or spam folder to verify.`, 'info');
-            }
-          } catch (verifErr: any) {
-            console.warn('[Welcome Trigger] Auto email verification dispatch failed:', verifErr);
-          }
-        }, 1500);
+        showToast(`Sign up successful! An automated welcome email from info.tedbuy@gmail.com has been sent to ${email}.`, 'success');
       } else {
         console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
       }
@@ -1717,7 +1713,7 @@ Tedbuy Support`;
   };
 
   useEffect(() => {
-    if (!currentUser || !currentUser.email || currentUser.welcomeSent) return;
+    if (!currentUser || !currentUser.email || currentUser.welcomeSent || !currentUser.emailVerified) return;
     
     // Ensure welcome messages are only sent to users who just registered an account, NOT users signing into an existing account.
     if (!justRegisteredUserIds.current.has(currentUser.id)) {
@@ -1866,7 +1862,7 @@ Tedbuy Support`;
     const qBuyer = query(collection(db, 'chats'), where('buyerId', '==', currentUserId));
     const qSeller = query(collection(db, 'chats'), where('sellerId', '==', currentUserId));
 
-    const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+    const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
     const qAdminSupport = isAdminUser ? query(collection(db, 'chats'), where('sellerId', '==', 'user_ted_ceo_support')) : null;
 
     const chatMap = new Map<string, Chat>();
@@ -1950,7 +1946,7 @@ Tedbuy Support`;
 
     console.log(`[Messages Sync] Initializing real-time message listeners for user: ${currentUserId}`);
 
-    const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+    const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
 
     // Pre-populate with currently loaded messages from previous session backup to prevent flicker
     messages.forEach(m => {
@@ -2491,6 +2487,8 @@ Tedbuy Support`;
 
   const logoutUser = async () => {
     try {
+      setIsAdminSessionVerified(false);
+      setAdminFailedAttempts(0);
       await signOut(auth);
       safeLocalStorage.removeItem('tedbuy_simulated_mode');
       safeLocalStorage.removeItem('tedbuy_simulated_user');
@@ -2502,6 +2500,47 @@ Tedbuy Support`;
       console.error('Core Logout failed:', err);
     }
   };
+
+  const verifyAdminPIN = useCallback(async (pin: string): Promise<boolean> => {
+    const trimmed = pin.trim();
+    const customPin = (import.meta as any).env.VITE_ADMIN_PIN;
+    let isValid = false;
+    
+    if (customPin) {
+      isValid = trimmed === customPin.trim();
+    } else {
+      try {
+        const msgBuffer = new TextEncoder().encode(trimmed);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        // SHA-256 of "559102" is "8e6c708cc0e62f01f01c76f6b0f16f316a75f148419619623e1e9ecda267b2d5"
+        isValid = hashHex === '8e6c708cc0e62f01f01c76f6b0f16f316a75f148419619623e1e9ecda267b2d5';
+      } catch (err) {
+        console.error('Crypto error during PIN verification, falling back to safe local check:', err);
+        isValid = trimmed === '559102';
+      }
+    }
+    
+    if (isValid) {
+      setIsAdminSessionVerified(true);
+      setAdminFailedAttempts(0);
+      showToast('Admin access unlocked successfully!', 'success');
+      return true;
+    } else {
+      setAdminFailedAttempts(prev => {
+        const nextAttempts = prev + 1;
+        if (nextAttempts >= 3) {
+          showToast('Security Alert: Too many failed admin attempts. Logging out immediately.', 'error');
+          logoutUser();
+        } else {
+          showToast(`Invalid Admin PIN. Attempt ${nextAttempts} of 3.`, 'error');
+        }
+        return nextAttempts;
+      });
+      return false;
+    }
+  }, [logoutUser, showToast]);
 
   const sendVerificationEmailReal = async () => {
     const firebaseUser = auth.currentUser;
@@ -2785,8 +2824,8 @@ Tedbuy Support`;
         if (!currentUser) {
           throw new Error('Authentication Required: You must be logged in to modify listings.');
         }
-        const isSuperAdmin = currentUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com';
-        if (localProduct && localProduct.sellerId !== currentUser.id && !currentUser.isAdmin && !isSuperAdmin) {
+        const isSuperAdmin = currentUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' && isAdminSessionVerified;
+        if (localProduct && localProduct.sellerId !== currentUser.id && (!currentUser.isAdmin || !isAdminSessionVerified) && !isSuperAdmin) {
           throw new Error('Unauthorized Access: You do not have permissions to modify this listing.');
         }
       }
@@ -3470,7 +3509,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     const chat = chats.find(c => c.id === chatId);
     if (!chat) return;
 
-    const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+    const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
     
     let senderId = sender.id;
     let recId = chat.buyerId === sender.id ? chat.sellerId : chat.buyerId;
@@ -4113,7 +4152,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     onlyUnsent: boolean, 
     onProgress: (current: number, total: number, logMsg: string) => void
   ) => {
-    if (!currentUser || !currentUser.isAdmin) {
+    if (!currentUser || !currentUser.isAdmin || !isAdminSessionVerified) {
       throw new Error("Unauthorized: Only administrators can trigger bulk onboarding emails.");
     }
 
@@ -4172,7 +4211,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
   };
 
   const adminDeleteUserProfile = async (userId: string, forceDeleteActive: boolean = false) => {
-    if (!currentUser || !currentUser.isAdmin) {
+    if (!currentUser || !currentUser.isAdmin || !isAdminSessionVerified) {
       throw new Error("Unauthorized: Only administrators can delete store profiles.");
     }
 
@@ -4490,6 +4529,9 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
   const memoizedCurrentUser = useMemo(() => {
     if (!currentUser) return null;
 
+    const isBaseAdmin = currentUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser.isAdmin;
+
+    let resolvedUser = { ...currentUser };
     try {
       // Prioritize the long-lived cache of Firestore user documents
       const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache');
@@ -4497,7 +4539,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         const cache = JSON.parse(cacheStr);
         const cachedDoc = cache[currentUser.id];
         if (cachedDoc) {
-          return {
+          resolvedUser = {
             ...currentUser,
             username: currentUser.username || cachedDoc.username,
             photoUrl: currentUser.photoUrl || cachedDoc.photoUrl,
@@ -4512,13 +4554,25 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       console.warn('[memoizedCurrentUser] Error resolving cache:', err);
     }
 
-    return currentUser;
-  }, [currentUser]);
+    if (isBaseAdmin) {
+      if (isAdminSessionVerified) {
+        resolvedUser.isAdmin = true;
+      } else {
+        delete resolvedUser.isAdmin;
+      }
+    } else {
+      delete resolvedUser.isAdmin;
+    }
+
+    return resolvedUser;
+  }, [currentUser, isAdminSessionVerified]);
 
   return (
     <AppContext.Provider value={{
       currentUser: memoizedCurrentUser,
       setCurrentUser: setCurrentUserState,
+      isAdminSessionVerified,
+      verifyAdminPIN,
       users,
       usersMap,
       registerUser,

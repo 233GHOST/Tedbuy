@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, Suspense, lazy } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
+import { AdminSecurityGate } from './components/AdminSecurityGate';
 import { ProductCard } from './components/ProductCard';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 
@@ -1210,7 +1211,7 @@ const MarketplaceContent: React.FC = () => {
                         <div ref={scrollSentinelRef} className="flex justify-center pt-8 pb-4">
                           <div className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-2xl shadow-3xs text-slate-600 animate-pulse">
                             <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-800 rounded-full animate-spin" />
-                            <span className="text-xs font-extrabold text-slate-700">Loading more listings...</span>
+                            <span className="text-xs font-extrabold text-slate-700">Loading more...</span>
                           </div>
                         </div>
                       )}
@@ -1504,6 +1505,7 @@ const MarketplaceContent: React.FC = () => {
           <VerificationBlockModal />
         </Suspense>
       )}
+      <AdminSecurityGate />
       <WebMCPInitializer />
       <PWAInstallPrompt />
     </div>

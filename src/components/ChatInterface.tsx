@@ -183,7 +183,7 @@ export const ChatInterface: React.FC = () => {
   }, [activeChatId]);
 
   const isAdminUser = useMemo(() => {
-    return currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+    return !!currentUser?.isAdmin;
   }, [currentUser]);
 
   const [adminChatFilter, setAdminChatFilter] = useState<'all' | 'support' | 'marketplace'>('all');
@@ -404,7 +404,7 @@ export const ChatInterface: React.FC = () => {
               myChats.map(chat => {
                 const isPeerSeller = chat.buyerId === currentUser?.id;
                 const clientUser = users.find(u => u.id === chat.buyerId);
-                const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+                const isAdminUser = !!currentUser?.isAdmin;
                 const displayPeerName = (chat.productId === 'support_welcome' && isAdminUser)
                   ? (clientUser?.username || chat.buyerName || 'User')
                   : (isPeerSeller ? chat.sellerName : chat.buyerName);
@@ -543,7 +543,7 @@ export const ChatInterface: React.FC = () => {
             <>
               {/* Product Info / Chat Header banner */}
               {activeChat.productId === 'support_welcome' ? (() => {
-                const isAdminUser = currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin;
+                const isAdminUser = !!currentUser?.isAdmin;
                 const clientUser = users.find(u => u.id === activeChat.buyerId);
                 const supportHeaderName = isAdminUser ? (clientUser?.username || activeChat.buyerName || 'User') : 'Tedbuy Support';
                 const supportHeaderPhoto = isAdminUser 
