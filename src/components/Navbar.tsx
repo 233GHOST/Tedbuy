@@ -213,14 +213,7 @@ export const Navbar: React.FC = () => {
               setIsVerifyingOtp(true);
               setOtpTimeRemaining(600); // 10 minutes countdown
               setResendCooldown(60); // 60 seconds resend cooldown
-              
-              if (initRes.simulated && initRes.debugOtp) {
-                setOtpDebugCode(initRes.debugOtp);
-                setOtpInput(initRes.debugOtp); // Auto-populate for tester convenience
-                showToast('Offline Sandbox Mode Active. Verification code generated.', 'info');
-              } else {
-                showToast('A 6-digit verification code has been sent to your email address.', 'success');
-              }
+              showToast('A 6-digit verification code has been sent to your email address.', 'success');
             }
           } catch (initErr: any) {
             setAuthError(initErr?.message || 'Failed to initiate registration. Please try again.');
@@ -985,13 +978,7 @@ export const Navbar: React.FC = () => {
                               );
                               if (initRes.success) {
                                 setOtpTimeRemaining(600);
-                                if (initRes.simulated && initRes.debugOtp) {
-                                  setOtpDebugCode(initRes.debugOtp);
-                                  setOtpInput(initRes.debugOtp);
-                                  showToast('New verification code auto-populated!', 'info');
-                                } else {
-                                  showToast('Verification code resent to your email.', 'success');
-                                }
+                                showToast('Verification code resent to your email.', 'success');
                               }
                             } catch (err: any) {
                               setAuthError(err?.message || 'Failed to resend code.');
@@ -1003,14 +990,6 @@ export const Navbar: React.FC = () => {
                         </button>
                       )}
                     </div>
-
-                    {otpDebugCode && (
-                      <div className="bg-amber-50 border border-amber-200 text-amber-850 p-3 rounded-xl text-center text-xs space-y-1">
-                        <span className="font-extrabold text-amber-900 block">Debug Sandbox Helper</span>
-                        <span>OTP Code: <strong className="font-mono bg-white px-2 py-0.5 rounded border border-amber-300 select-all">{otpDebugCode}</strong></span>
-                        <p className="text-[10px] text-amber-600 leading-tight">SMTP is simulated in offline/sandbox mode. Real dispatch bypassed for testing convenience.</p>
-                      </div>
-                    )}
 
                     <div className="flex flex-col gap-2.5 pt-2">
                       <button

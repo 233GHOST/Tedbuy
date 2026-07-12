@@ -3781,41 +3781,39 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 </html>`
       };
 
+      if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        console.warn(`[Auth Register] SMTP credentials not configured. Denying simulated register flow.`);
+        return res.status(400).json({
+          success: false,
+          error: "Verification code cannot be sent: SMTP mail service credentials are not configured in the system environment. Please configure SMTP variables to enable registration."
+        });
+      }
+
       try {
-        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-          const diagResult = await diagnoseSMTPAndVerify(transporter);
-          if (diagResult.success) {
-            await transporter.sendMail(mailOptions);
-            emailSent = true;
-          } else {
-            console.warn(`[Auth Register] SMTP pre-flight failed. Gracefully falling back to simulation.`);
-            simulated = true;
-          }
-        } else {
-          simulated = true;
+        const diagResult = await diagnoseSMTPAndVerify(transporter);
+        if (!diagResult.success) {
+          console.warn(`[Auth Register] SMTP pre-flight failed.`);
+          return res.status(400).json({
+            success: false,
+            error: "Failed to send verification code. SMTP connection test failed. Please contact TedBuy support."
+          });
         }
+        await transporter.sendMail(mailOptions);
+        emailSent = true;
       } catch (err: any) {
-        console.warn(`[Auth Register] SMTP send failed:`, err);
-        simulated = true;
+        console.error(`[Auth Register] SMTP send failed:`, err);
         errorDetail = err?.message || String(err);
+        return res.status(500).json({
+          success: false,
+          error: `Failed to send verification code to your email. Details: ${errorDetail}`
+        });
       }
 
-      const responsePayload: any = {
+      return res.json({
         success: true,
-        message: emailSent ? "Verification code sent to your email." : "Verification code generated in simulation mode.",
+        message: "Verification code has been successfully sent to your email. Please check your inbox and spam folders.",
         email: cleanEmail
-      };
-
-      if (simulated) {
-        responsePayload.simulated = true;
-        // Expose the OTP in simulated/dev environments so that the developer is not blocked!
-        if (process.env.NODE_ENV !== 'production' || !process.env.SMTP_USER) {
-          responsePayload.debugOtp = otp;
-          responsePayload.warning = "SMTP is not configured or offline. Real dispatch bypassed; verification code returned directly for testing convenience.";
-        }
-      }
-
-      return res.json(responsePayload);
+      });
 
     } catch (err: any) {
       console.error('[Auth Register Exception]:', err);
