@@ -14,6 +14,7 @@ const ProductDetail = lazy(() => import('./components/ProductDetail').then(m => 
 const ListingModal = lazy(() => import('./components/ListingModal').then(m => ({ default: m.ListingModal })));
 const VideoAdsFeed = lazy(() => import('./components/VideoAdsFeed').then(m => ({ default: m.VideoAdsFeed })));
 const VerificationBlockModal = lazy(() => import('./components/VerificationBlockModal').then(m => ({ default: m.VerificationBlockModal })));
+const SuspendedBlockModal = lazy(() => import('./components/SuspendedBlockModal').then(m => ({ default: m.SuspendedBlockModal })));
 
 import { Category, Product } from './types';
 import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info, ShieldAlert } from 'lucide-react';
@@ -76,6 +77,8 @@ const MarketplaceContent: React.FC = () => {
     hideToast,
     isVerificationBlockOpen,
     setIsVerificationBlockOpen,
+    isSuspendedBlockOpen,
+    setIsSuspendedBlockOpen,
     blockedActionType,
     setBlockedActionType,
     isBottomNavVisible,
@@ -1503,6 +1506,11 @@ const MarketplaceContent: React.FC = () => {
       {isVerificationBlockOpen && (
         <Suspense fallback={null}>
           <VerificationBlockModal />
+        </Suspense>
+      )}
+      {isSuspendedBlockOpen && (
+        <Suspense fallback={null}>
+          <SuspendedBlockModal />
         </Suspense>
       )}
       <AdminSecurityGate />

@@ -14,6 +14,7 @@ export interface User {
   emailVerified?: boolean;
   isGoogleAuth?: boolean;
   authProvider?: string;
+  isSuspended?: boolean;
   fcmTokens?: string[];
   visitCount?: number;
   rapidPostScore?: number;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'motion/react';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical, Search } from 'lucide-react';
 import { isUserVerified } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -15,6 +15,7 @@ export const ProfileSettings: React.FC = () => {
     updateUserProfile, 
     deleteAccount, 
     adminDeleteUserProfile,
+    adminToggleUserSuspension,
     logoutUser, 
     setCurrentView, 
     users, 
@@ -150,6 +151,8 @@ export const ProfileSettings: React.FC = () => {
   const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [activeAccountConfirmUser, setActiveAccountConfirmUser] = useState<{ id: string; username: string } | null>(null);
+  const [suspensionUpdatingId, setSuspensionUpdatingId] = useState<string | null>(null);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
 
   const filteredStoresForAdmin = (users || []).filter(u => {
     if (u.id === currentUser?.id) return false; // Don't delete self
@@ -1113,6 +1116,151 @@ export const ProfileSettings: React.FC = () => {
                       )}
                     </div>
                   )}
+                </div>
+
+                {/* User Account Suspension & Safety Hub */}
+                <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-slate-800 rounded-lg text-rose-400">
+                        <ShieldAlert className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-200">User Moderation & Suspension Hub</span>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-350 leading-relaxed">
+                    Flag fraudulent accounts, suspend malicious sellers, or reactivate store access instantly. Suspended users are immediately blocked from logging in (whether via password or Google) and are shown a professional appeal screen referencing the support email.
+                  </p>
+
+                  <div className="relative mt-2">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
+                      <Search className="w-4 h-4" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Search accounts by username, email, or phone..."
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-slate-700 transition"
+                    />
+                  </div>
+
+                  {/* Users moderation list */}
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {(() => {
+                      const queryClean = userSearchQuery.trim().toLowerCase();
+                      const filteredList = (users || []).filter(u => {
+                        if (!queryClean) return true; // Show all (or first few) if empty query
+                        return (
+                          (u.username && u.username.toLowerCase().includes(queryClean)) ||
+                          (u.email && u.email.toLowerCase().includes(queryClean)) ||
+                          (u.phoneNumber && u.phoneNumber.toLowerCase().includes(queryClean)) ||
+                          (u.whatsAppNumber && u.whatsAppNumber.toLowerCase().includes(queryClean))
+                        );
+                      });
+
+                      // If query is empty, slice to show the first 5 so we don't clog up the UI
+                      const itemsToShow = queryClean ? filteredList : filteredList.slice(0, 5);
+
+                      if (itemsToShow.length === 0) {
+                        return (
+                          <div className="text-center py-4 text-[11px] text-slate-550 bg-slate-950/45 rounded-2xl border border-dashed border-slate-800/80">
+                            No registered accounts found matching "{userSearchQuery}".
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <>
+                          {!queryClean && filteredList.length > 5 && (
+                            <div className="text-[10px] text-slate-500 font-bold mb-1">
+                              Showing first 5 profiles. Use search to find specific accounts.
+                            </div>
+                          )}
+                          <div className="divide-y divide-slate-850 bg-slate-950 rounded-2xl border border-slate-850/80 overflow-hidden">
+                            {itemsToShow.map(u => {
+                              const isSelf = u.id === currentUser?.id;
+                              const isSuperAdmin = u.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com';
+                              const isUpdating = suspensionUpdatingId === u.id;
+                              const isSuspended = u.isSuspended || false;
+
+                              return (
+                                <div key={u.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs leading-normal">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-extrabold text-slate-200">
+                                        {u.username || 'Anonymous User'}
+                                      </span>
+                                      
+                                      {/* Status Badge */}
+                                      {isSuspended ? (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                          Suspended
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                          Active Access
+                                        </span>
+                                      )}
+
+                                      {isSuperAdmin && (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                          Super Administrator
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    <div className="text-[11px] text-slate-400 font-mono space-y-0.5">
+                                      <span className="block font-sans text-slate-500">ID: <span className="font-mono text-slate-400">{u.id}</span></span>
+                                      {u.email && <span className="block">Email: {u.email}</span>}
+                                      {u.phoneNumber && <span className="block">Phone: {u.phoneNumber}</span>}
+                                    </div>
+                                  </div>
+
+                                  <div className="sm:text-right shrink-0">
+                                    {isSuperAdmin ? (
+                                      <span className="text-[10px] font-bold text-slate-500 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl block text-center sm:inline-block">
+                                        Protected Admin Account
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={isUpdating}
+                                        onClick={async () => {
+                                          setSuspensionUpdatingId(u.id);
+                                          try {
+                                            await adminToggleUserSuspension(u.id, !isSuspended);
+                                          } catch (err: any) {
+                                            showToast(err?.message || 'Suspension toggle failed', 'error');
+                                          } finally {
+                                            setSuspensionUpdatingId(null);
+                                          }
+                                        }}
+                                        className={`w-full sm:w-auto px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer select-none transition duration-150 flex items-center justify-center gap-1.5 ${
+                                          isSuspended
+                                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-3xs'
+                                            : 'bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500/20 hover:border-rose-500/35 text-rose-400'
+                                        }`}
+                                      >
+                                        {isUpdating ? (
+                                          <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                                        ) : isSuspended ? (
+                                          <span>Reactivate Account</span>
+                                        ) : (
+                                          <span>Suspend Account</span>
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
             </div>

@@ -33,7 +33,9 @@ import {
   where,
   increment,
   orderBy,
-  limit
+  limit,
+  isSupabaseActive,
+  supabase
 } from '../dbAdapter';
 import { auth, db, handleFirestoreError, OperationType, registerFirestoreErrorListener, requestFcmToken } from '../firebase';
 import { slugify } from '../utils/slugify';
@@ -197,6 +199,9 @@ interface AppContextType {
   reloadUserVerificationStatus: () => Promise<boolean>;
   isVerificationBlockOpen: boolean;
   setIsVerificationBlockOpen: (open: boolean) => void;
+  isSuspendedBlockOpen: boolean;
+  setIsSuspendedBlockOpen: (open: boolean) => void;
+  adminToggleUserSuspension: (userId: string, suspend: boolean) => Promise<void>;
   blockedActionType: 'post-ad' | 'chat' | 'whatsApp' | 'review' | null;
   setBlockedActionType: (type: 'post-ad' | 'chat' | 'whatsApp' | 'review' | null) => void;
   notifications: AppNotification[];
@@ -611,6 +616,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [unauthorizedDomainDetected, setUnauthorizedDomainDetected] = useState(false);
   const [isVerificationBlockOpen, setIsVerificationBlockOpen] = useState(false);
+  const [isSuspendedBlockOpen, setIsSuspendedBlockOpen] = useState(false);
   const [blockedActionType, setBlockedActionType] = useState<'post-ad' | 'chat' | 'whatsApp' | 'review' | null>(null);
 
   // Popstate and Hashchange listener to update view and states on native back/forward buttons
@@ -799,6 +805,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
+              if (dbData.isSuspended) {
+                console.warn('[Security] Suspended account detected! Logging out and blocking.', dbData.username);
+                await signOut(auth);
+                safeLocalStorage.removeItem('tedbuy_simulated_mode');
+                safeLocalStorage.removeItem('tedbuy_simulated_user');
+                setCurrentUserState(null);
+                setCurrentView('browse');
+                setIsSuspendedBlockOpen(true);
+                return;
+              }
               const isEmailVerifiedNow = firebaseUser.emailVerified || false;
               const isCurrentlyGoogle = firebaseUser.providerData.some(p => p.providerId === 'google.com') || (firebaseUser.email ? firebaseUser.email.endsWith('@gmail.com') : false);
               
@@ -2271,9 +2287,22 @@ Tedbuy Support`;
     // Check if the identifier is an email address
     if (cleanIdentifier.includes('@')) {
       try {
-        await signInWithEmailAndPassword(auth, cleanIdentifier, password);
+        const cred = await signInWithEmailAndPassword(auth, cleanIdentifier, password);
+        const userRef = doc(db, 'users', cred.user.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const dbData = userSnap.data() as User;
+          if (dbData.isSuspended) {
+            await signOut(auth);
+            setIsSuspendedBlockOpen(true);
+            throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
+          }
+        }
         return true;
       } catch (authErrorDetail: any) {
+        if (authErrorDetail?.message?.includes("suspended") || authErrorDetail?.message?.includes("suspended")) {
+          throw authErrorDetail;
+        }
         if (process.env.NODE_ENV === "development") {
           console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
         }
@@ -2293,6 +2322,10 @@ Tedbuy Support`;
           if (matchedUser) {
             if (matchedUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
               throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
+            }
+            if (matchedUser.isSuspended) {
+              setIsSuspendedBlockOpen(true);
+              throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
             }
             showToast('Email/Password credentials provider is disabled in Firebase console. Logged in safely via local sandbox account!', 'info');
             safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
@@ -2346,9 +2379,22 @@ Tedbuy Support`;
       if (targetEmail) {
         const finalEmail = targetEmail;
         try {
-          await signInWithEmailAndPassword(auth, finalEmail, password);
+          const cred = await signInWithEmailAndPassword(auth, finalEmail, password);
+          const userRef = doc(db, 'users', cred.user.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const dbData = userSnap.data() as User;
+            if (dbData.isSuspended) {
+              await signOut(auth);
+              setIsSuspendedBlockOpen(true);
+              throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
+            }
+          }
           return true;
         } catch (authErrorDetail: any) {
+          if (authErrorDetail?.message?.includes("suspended") || authErrorDetail?.message?.includes("suspended")) {
+            throw authErrorDetail;
+          }
           if (process.env.NODE_ENV === "development") {
             console.error('Firebase Auth failed for user email resolved from username/phone:', finalEmail, authErrorDetail);
           }
@@ -2366,6 +2412,10 @@ Tedbuy Support`;
             if (matchedUser) {
               if (matchedUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
                 throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
+              }
+              if (matchedUser.isSuspended) {
+                setIsSuspendedBlockOpen(true);
+                throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
               }
               showToast('Email/Password provider is disabled. Accessing sandbox account on-the-fly!', 'info');
               safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
@@ -2423,6 +2473,17 @@ Tedbuy Support`;
         const googleUser = result.user;
         if (googleUser && googleUser.email) {
           const emailClean = googleUser.email.trim().toLowerCase();
+
+          const userRef = doc(db, 'users', googleUser.uid);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const dbData = userSnap.data() as User;
+            if (dbData.isSuspended) {
+              await signOut(auth);
+              setIsSuspendedBlockOpen(true);
+              throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
+            }
+          }
 
           // Just let the Google Sign-In succeed. The onAuthStateChanged listener
           // will detect any existing email collision and automatically perform
@@ -4416,6 +4477,74 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     showToast(`Store profile for "${targetUser.username}" permanently deleted and store name released!`, 'success');
   };
+  
+  const adminToggleUserSuspension = async (userId: string, suspend: boolean) => {
+    if (!currentUser || !currentUser.isAdmin || !isAdminSessionVerified) {
+      throw new Error("Unauthorized: Only verified administrators can suspend or unsuspend store profiles.");
+    }
+
+    const targetUser = users.find(u => u.id === userId);
+    if (!targetUser) {
+      throw new Error("User profile not found in system.");
+    }
+
+    const targetEmail = targetUser.email?.trim()?.toLowerCase();
+    if (targetEmail === 'asumaduvincent7@gmail.com') {
+      throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be suspended.');
+    }
+
+    const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+
+    console.log(`[Admin] ${suspend ? 'Suspending' : 'Unsuspending'} user profile for: ${targetUser.username} (${userId})`);
+
+    // 1. Update Firestore
+    try {
+      if (!isSimulated) {
+        const userRef = doc(db, 'users', userId);
+        await updateDoc(userRef, {
+          isSuspended: suspend
+        });
+      }
+    } catch (dbErr: any) {
+      console.warn('[Admin Suspend] Firestore update failed, trying sandbox update:', dbErr);
+    }
+
+    // 2. If Supabase is active, sync to Supabase table
+    if (isSupabaseActive && supabase) {
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update({ isSuspended: suspend })
+          .eq('id', userId);
+        if (error) throw error;
+        console.log('[Admin Suspend] Supabase sync completed.');
+      } catch (sbErr) {
+        console.error('[Admin Suspend] Supabase sync failed:', sbErr);
+      }
+    }
+
+    // 3. Update local state
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, isSuspended: suspend } : u));
+    
+    // If the active current user in memory is updated
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUserState(prev => prev ? { ...prev, isSuspended: suspend } : null);
+    }
+
+    // 4. Update the local backups
+    try {
+      const localUsersBackup = safeLocalStorage.getItem('tedbuy_local_users_backup');
+      if (localUsersBackup) {
+        const parsedList = JSON.parse(localUsersBackup) as User[];
+        const updatedList = parsedList.map(u => u.id === userId ? { ...u, isSuspended: suspend } : u);
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(updatedList));
+      }
+    } catch (err) {
+      console.warn('Failed to update local users backup:', err);
+    }
+
+    showToast(`User "${targetUser.username}" has been successfully ${suspend ? 'suspended' : 'unsuspended'}.`, 'success');
+  };
 
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
     if (!currentUser) {
@@ -4606,6 +4735,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       updateUserProfile,
       deleteAccount,
       adminDeleteUserProfile,
+      adminToggleUserSuspension,
       sendWelcomeEmailToAll,
       reviews,
       addReview,
@@ -4653,6 +4783,8 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       reloadUserVerificationStatus,
       isVerificationBlockOpen,
       setIsVerificationBlockOpen,
+      isSuspendedBlockOpen,
+      setIsSuspendedBlockOpen,
       blockedActionType,
       setBlockedActionType,
       notifications,

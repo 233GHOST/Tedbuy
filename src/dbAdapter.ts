@@ -55,7 +55,7 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
   users: new Set([
     'id', 'username', 'email', 'phoneNumber', 'whatsAppNumber', 'role', 
     'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 
-    'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'createdAt'
+    'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'isSuspended', 'createdAt'
   ]),
   products: new Set([
     'id', 'title', 'description', 'price', 'category', 'location', 
@@ -124,6 +124,7 @@ function transformForSupabaseClient(table: string, data: any, docId: string): an
     result.isGoogleAuth = result.isGoogleAuth === true;
     result.isAdmin = result.isAdmin === true;
     result.welcomeSent = result.welcomeSent === true;
+    result.isSuspended = result.isSuspended === true;
     if (result.followingSellers && typeof result.followingSellers === 'string') {
       try { result.followingSellers = JSON.parse(result.followingSellers); } catch (_) { result.followingSellers = []; }
     }
