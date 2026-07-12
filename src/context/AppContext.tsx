@@ -2265,8 +2265,18 @@ Tedbuy Support`;
           justRegisteredUserIds.current.add(user.id);
           await signInWithEmailAndPassword(auth, email, tempPassword);
           console.log('[verifyAndCompleteRegistration] Production sign-in successful!');
+
+          // Proactively save user profile and reserve store name in Firestore on the client-side
+          // because the server's adminDb client is disabled (null) for safety.
+          const userRef = doc(db, 'users', user.id);
+          await setDoc(userRef, user);
+          await setDoc(doc(db, 'storeNames', user.username.toLowerCase()), {
+            userId: user.id,
+            username: user.username
+          });
+          console.log('[verifyAndCompleteRegistration] Profile and store name successfully created in Firestore client-side.');
         } catch (signInErr) {
-          console.error('[verifyAndCompleteRegistration] Client sign-in failed after backend creation:', signInErr);
+          console.error('[verifyAndCompleteRegistration] Client sign-in or document creation failed after backend creation:', signInErr);
           setCurrentUserState(user);
         }
       }

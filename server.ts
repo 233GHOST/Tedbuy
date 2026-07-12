@@ -4044,9 +4044,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let uid = "";
       let isSimulated = false;
 
-      // Check if Admin SDK is initialized and functional
-      if (adminDb) {
-        try {
+      // Try to create the user in Firebase Authentication
+      let createdInAuth = false;
+
+      // Try Admin SDK first if initialized
+      try {
+        const { getApps } = await import("firebase-admin/app");
+        if (getApps().length > 0) {
           const { getAuth } = await import("firebase-admin/auth");
           const userRecord = await getAuth().createUser({
             email: session.email,
@@ -4056,22 +4060,45 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             emailVerified: true
           });
           uid = userRecord.uid;
-          console.log(`[Auth Verify] Admin SDK created Auth user with UID: ${uid}`);
-        } catch (authErr: any) {
-          console.warn('[Auth Verify] Admin SDK createUser failed, attempting REST or sandbox fallback:', authErr?.message || authErr);
-          // If operation not allowed, or other auth config issues, we might fall back
-          if (authErr?.code === 'auth/operation-not-allowed') {
-            isSimulated = true;
-          } else {
-            throw authErr;
-          }
+          createdInAuth = true;
+          console.log(`[Auth Verify] Admin SDK successfully created Auth user with UID: ${uid}`);
         }
-      } else {
-        isSimulated = true;
+      } catch (authErr: any) {
+        console.warn('[Auth Verify] Admin SDK createUser failed, attempting REST fallback:', authErr?.message || authErr);
       }
 
-      if (isSimulated) {
-        // High fidelity sandbox / REST fallback creation
+      // Try Identity Toolkit REST API as fallback
+      if (!createdInAuth && apiKey) {
+        try {
+          console.log('[Auth Verify] Attempting to create user in Firebase Auth using REST API...');
+          const restRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: session.email,
+              password: session.password,
+              displayName: session.username,
+              returnSecureToken: true
+            })
+          });
+
+          if (restRes.ok) {
+            const restData = await restRes.json();
+            uid = restData.localId;
+            createdInAuth = true;
+            console.log(`[Auth Verify] REST API successfully created Auth user with UID: ${uid}`);
+          } else {
+            const errText = await restRes.text();
+            console.warn('[Auth Verify] REST API signup failed:', errText);
+          }
+        } catch (restErr: any) {
+          console.warn('[Auth Verify] REST API signup exception:', restErr?.message || restErr);
+        }
+      }
+
+      // Fallback to simulated mode only if both auth creation methods failed
+      if (!createdInAuth) {
+        isSimulated = true;
         uid = `user_local_${session.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
         console.log(`[Auth Verify] Simulated Sandbox fallback active. Created user ID: ${uid}`);
       }
