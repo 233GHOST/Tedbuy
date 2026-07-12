@@ -1,4 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
+import { 
+  getDoc as fsGetDoc, 
+  getDocs as fsGetDocs, 
+  setDoc as fsSetDoc, 
+  updateDoc as fsUpdateDoc, 
+  deleteDoc as fsDeleteDoc, 
+  onSnapshot as fsOnSnapshot,
+  collection as fsCollection,
+  doc as fsDoc,
+  query as fsQuery,
+  where as fsWhere,
+  orderBy as fsOrderBy,
+  limit as fsLimit,
+  increment as fsIncrement,
+  writeBatch as fsWriteBatch
+} from 'firebase/firestore';
+import { db as fsDb } from './firebase';
 
 // -------------------------------------------------------------
 // Initialize Supabase Client if credentials are provided
@@ -19,7 +36,7 @@ export const supabase = isSupabaseActive
 if (isSupabaseActive) {
   console.log('[Supabase Adapter] Active! Routing all client database calls to Supabase (PostgreSQL) exclusively.');
 } else {
-  console.warn('[Supabase Adapter] Inactive. Supabase credentials are not detected!');
+  console.warn('[Supabase Adapter] Inactive. Routing all client database calls to Firebase Firestore natively.');
 }
 
 // Map Firestore collection paths to Supabase table names
@@ -193,6 +210,9 @@ export interface AdapterQuery {
 }
 
 export function collection(dbInstance: any, path: string): any {
+  if (!isSupabaseActive) {
+    return fsCollection(fsDb, path);
+  }
   return {
     __isAdapterRef: true,
     type: 'collection',
@@ -201,6 +221,15 @@ export function collection(dbInstance: any, path: string): any {
 }
 
 export function doc(dbInstanceOrRef: any, pathOrId?: string, id?: string): any {
+  if (!isSupabaseActive) {
+    if (dbInstanceOrRef && dbInstanceOrRef.path) {
+      // Called with doc(collectionRef, id)
+      return fsDoc(dbInstanceOrRef, pathOrId!);
+    } else {
+      // Called with doc(db, path, id)
+      return fsDoc(fsDb, pathOrId!, id!);
+    }
+  }
   let fullPath = '';
   let docId = '';
 
@@ -224,18 +253,30 @@ export function doc(dbInstanceOrRef: any, pathOrId?: string, id?: string): any {
 
 // Query constraints
 export function where(field: string, op: string, value: any) {
+  if (!isSupabaseActive) {
+    return fsWhere(field, op as any, value);
+  }
   return { type: 'where', field, op, value };
 }
 
 export function orderBy(field: string, direction: 'asc' | 'desc' = 'asc') {
+  if (!isSupabaseActive) {
+    return fsOrderBy(field, direction);
+  }
   return { type: 'orderBy', field, direction };
 }
 
 export function limit(n: number) {
+  if (!isSupabaseActive) {
+    return fsLimit(n);
+  }
   return { type: 'limit', n };
 }
 
 export function query(ref: any, ...constraints: any[]): any {
+  if (!isSupabaseActive) {
+    return fsQuery(ref, ...constraints);
+  }
   return {
     __isAdapterQuery: true,
     ref,
@@ -244,6 +285,9 @@ export function query(ref: any, ...constraints: any[]): any {
 }
 
 export function increment(n: number) {
+  if (!isSupabaseActive) {
+    return fsIncrement(n);
+  }
   return { __isIncrement: true, value: n };
 }
 
@@ -252,7 +296,7 @@ export function increment(n: number) {
 // -------------------------------------------------------------
 export async function getDoc(docRef: any): Promise<any> {
   if (!isSupabaseActive) {
-    throw new Error('[Supabase getDoc] Supabase integration is inactive.');
+    return fsGetDoc(docRef);
   }
 
   const parts = docRef.path.split('/');
@@ -315,7 +359,7 @@ function buildSupabaseQuery(table: string, constraints: any[] = []) {
 
 export async function getDocs(queryOrRef: any): Promise<any> {
   if (!isSupabaseActive) {
-    throw new Error('[Supabase getDocs] Supabase integration is inactive.');
+    return fsGetDocs(queryOrRef);
   }
 
   const isQuery = queryOrRef.__isAdapterQuery;
@@ -377,7 +421,7 @@ function restoreOriginalMedia(incoming: any, existing: any): any[] {
 
 export async function setDoc(docRef: any, data: any, options?: any): Promise<void> {
   if (!isSupabaseActive) {
-    throw new Error('[Supabase setDoc] Supabase integration is inactive.');
+    return fsSetDoc(docRef, data, options);
   }
 
   const parts = docRef.path.split('/');
@@ -431,7 +475,7 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
 
 export async function updateDoc(docRef: any, data: any): Promise<void> {
   if (!isSupabaseActive) {
-    throw new Error('[Supabase updateDoc] Supabase integration is inactive.');
+    return fsUpdateDoc(docRef, data);
   }
 
   const parts = docRef.path.split('/');
@@ -489,7 +533,7 @@ export async function updateDoc(docRef: any, data: any): Promise<void> {
 
 export async function deleteDoc(docRef: any): Promise<void> {
   if (!isSupabaseActive) {
-    throw new Error('[Supabase deleteDoc] Supabase integration is inactive.');
+    return fsDeleteDoc(docRef);
   }
 
   const parts = docRef.path.split('/');
@@ -511,6 +555,9 @@ export async function deleteDoc(docRef: any): Promise<void> {
 // Atomic Transactions & Batched Writes
 // -------------------------------------------------------------
 export function writeBatch(dbInstance?: any): any {
+  if (!isSupabaseActive) {
+    return fsWriteBatch(fsDb);
+  }
   const operations: Array<() => Promise<void>> = [];
 
   return {
@@ -547,8 +594,7 @@ export function onSnapshot(
   onError?: (error: any) => void
 ): () => void {
   if (!isSupabaseActive) {
-    if (onError) onError(new Error('[Supabase onSnapshot] Supabase integration is inactive.'));
-    return () => {};
+    return fsOnSnapshot(queryOrDocRef, onNext, onError);
   }
 
   const isDoc = queryOrDocRef.type === 'doc' || (queryOrDocRef.path && queryOrDocRef.path.split('/').length > 1);

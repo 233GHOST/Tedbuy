@@ -2311,181 +2311,48 @@ Tedbuy Support`;
     }
     const cleanIdentifier = identifier.trim();
 
-    // Check if the identifier is an email address
-    if (cleanIdentifier.includes('@')) {
+    try {
+      console.log('[loginUser] Dispatching credentials login request to the secure server backend...', cleanIdentifier);
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: cleanIdentifier, password })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!data.success || !data.user) {
+        throw new Error(data.error || 'Invalid credentials or failed to resolve account.');
+      }
+
+      const matchedUser = data.user as User;
+
+      // Ensure we clear any old simulation mode flags
+      safeLocalStorage.removeItem('tedbuy_simulated_mode');
+
+      // Now, try to sign in the Firebase Auth SDK client-side to keep tokens and listeners fully synced
       try {
-        const cred = await signInWithEmailAndPassword(auth, cleanIdentifier, password);
-        const userRef = doc(db, 'users', cred.user.uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const dbData = userSnap.data() as User;
-          if (dbData.isSuspended) {
-            await signOut(auth);
-            setIsSuspendedBlockOpen(true);
-            throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
-          }
-        }
-        return true;
+        console.log('[loginUser] Syncing Firebase Client Auth state with backend credentials...');
+        await signInWithEmailAndPassword(auth, matchedUser.email, password);
       } catch (authErrorDetail: any) {
-        if (authErrorDetail?.message?.includes("suspended") || authErrorDetail?.message?.includes("suspended")) {
-          throw authErrorDetail;
-        }
-        if (process.env.NODE_ENV === "development") {
-          console.error('Firebase Auth failed for email:', cleanIdentifier, authErrorDetail);
-        }
+        console.warn('[loginUser] Firebase Client Auth SDK sync failed (graceful fallback):', authErrorDetail?.message || authErrorDetail);
         
-        const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
-                                   authErrorDetail?.message?.includes('operation-not-allowed');
-        if (isAuthErrorDisabled) {
-          console.warn('Firebase Email/Password provider disabled. Engaging local high-fidelity sandbox login match.');
-          let matchedUser = users.find(u => u.email?.toLowerCase() === cleanIdentifier.toLowerCase());
-          if (!matchedUser) {
-            try {
-              const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
-              const backupList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
-              matchedUser = backupList.find(u => u.email?.toLowerCase() === cleanIdentifier.toLowerCase());
-            } catch (_) {}
-          }
-          if (matchedUser) {
-            if (matchedUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
-              throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
-            }
-            if (matchedUser.isSuspended) {
-              setIsSuspendedBlockOpen(true);
-              throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
-            }
-            showToast('Email/Password credentials provider is disabled in Firebase console. Logged in safely via local sandbox account!', 'info');
-            safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
-            safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
-            setCurrentUserState(matchedUser);
-            return true;
-          } else {
-            throw new Error('Email/Password provider is disabled in your Firebase console and no local sandboxed account exists under this email. Please click "Register" to create an account first!');
-          }
-        }
-        throw authErrorDetail;
-      }
-    } else {
-      // Identifier is a username, phone number, or WhatsApp number (e.g. Ama, +233...)
-      let targetEmail: string | null = null;
-
-      const normalizePhone = (num: string): string => {
-        if (!num) return '';
-        const digits = num.replace(/\D/g, '');
-        // If it starts with '0' and followed by 9 digits (standard local Ghana format), convert '0' to '233'
-        if (digits.startsWith('0') && digits.length === 10) {
-          return '233' + digits.substring(1);
-        }
-        return digits;
-      };
-
-      const normalizedInput = normalizePhone(cleanIdentifier);
-
-      try {
-        const usersSnap = await getDocs(collection(db, 'users'));
-        usersSnap.forEach((docSnap) => {
-          const u = docSnap.data() as User;
-          const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
-          
-          const userPhoneNormalized = u.phoneNumber ? normalizePhone(u.phoneNumber) : '';
-          const userWhatsAppNormalized = u.whatsAppNumber ? normalizePhone(u.whatsAppNumber) : '';
-          
-          const matchPhone = normalizedInput && userPhoneNormalized && userPhoneNormalized === normalizedInput;
-          const matchWhatsApp = normalizedInput && userWhatsAppNormalized && userWhatsAppNormalized === normalizedInput;
-          
-          if (matchUsername || matchPhone || matchWhatsApp) {
-            targetEmail = u.email || null;
-          }
-        });
-      } catch (dbErr) {
-        if (process.env.NODE_ENV === "development") {
-          console.error('Could not query users list from database for username/phone match:', dbErr);
-        }
+        // If the Firebase provider is disabled or has issues, we fall back to on-the-fly client-side session emulation!
+        safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
       }
 
-      // Safe fallback: if not resolved via Firestore query, check current state list and localStorage backups
-      if (!targetEmail) {
-        console.log('[Login fallback] Checking client-side users list and localStorage backup...');
-        const mergedUsersList = [...users];
-        try {
-          const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
-          if (storedUsers) {
-            const backupList = JSON.parse(storedUsers) as User[];
-            backupList.forEach(bu => {
-              if (!mergedUsersList.some(u => u.id === bu.id)) {
-                mergedUsersList.push(bu);
-              }
-            });
-          }
-        } catch (_) {}
+      // Persist the user state and backup session locally
+      safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
+      setCurrentUserState(matchedUser);
+      return true;
 
-        mergedUsersList.forEach((u) => {
-          const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
-          const userPhoneNormalized = u.phoneNumber ? normalizePhone(u.phoneNumber) : '';
-          const userWhatsAppNormalized = u.whatsAppNumber ? normalizePhone(u.whatsAppNumber) : '';
-          
-          const matchPhone = normalizedInput && userPhoneNormalized && userPhoneNormalized === normalizedInput;
-          const matchWhatsApp = normalizedInput && userWhatsAppNormalized && userWhatsAppNormalized === normalizedInput;
-          
-          if (matchUsername || matchPhone || matchWhatsApp) {
-            targetEmail = u.email || null;
-          }
-        });
-      }
-
-      if (targetEmail) {
-        const finalEmail = targetEmail;
-        try {
-          const cred = await signInWithEmailAndPassword(auth, finalEmail, password);
-          const userRef = doc(db, 'users', cred.user.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            const dbData = userSnap.data() as User;
-            if (dbData.isSuspended) {
-              await signOut(auth);
-              setIsSuspendedBlockOpen(true);
-              throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
-            }
-          }
-          return true;
-        } catch (authErrorDetail: any) {
-          if (authErrorDetail?.message?.includes("suspended") || authErrorDetail?.message?.includes("suspended")) {
-            throw authErrorDetail;
-          }
-          if (process.env.NODE_ENV === "development") {
-            console.error('Firebase Auth failed for user email resolved from username/phone:', finalEmail, authErrorDetail);
-          }
-          const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
-                                     authErrorDetail?.message?.includes('operation-not-allowed');
-          if (isAuthErrorDisabled) {
-            let matchedUser = users.find(u => u.email?.toLowerCase() === finalEmail.toLowerCase());
-            if (!matchedUser) {
-              try {
-                const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
-                const backupList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
-                matchedUser = backupList.find(u => u.email?.toLowerCase() === finalEmail.toLowerCase());
-              } catch (_) {}
-            }
-            if (matchedUser) {
-              if (matchedUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
-                throw new Error('Crucial Security Guard: The administrator account cannot utilize local sandbox or offline credentials bypass. You must authenticate using real, secure cloud credentials.');
-              }
-              if (matchedUser.isSuspended) {
-                setIsSuspendedBlockOpen(true);
-                throw new Error("Your account has been suspended, Contact Tedbuy support. info.tedbuy@gmail.com");
-              }
-              showToast('Email/Password provider is disabled. Accessing sandbox account on-the-fly!', 'info');
-              safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
-              safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(matchedUser));
-              setCurrentUserState(matchedUser);
-              return true;
-            }
-          }
-          throw authErrorDetail;
-        }
-      } else {
-        throw new Error('No registered account was found matching this username or phone number.');
-      }
+    } catch (err: any) {
+      console.error('[loginUser Exception]:', err);
+      throw err;
     }
   };
 

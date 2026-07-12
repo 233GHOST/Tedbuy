@@ -4,6 +4,7 @@ import fs from "fs";
 import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
+import crypto from "crypto";
 
 import dotenv from "dotenv";
 import net from "net";
@@ -4073,16 +4074,34 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const { getApps } = await import("firebase-admin/app");
         if (getApps().length > 0) {
           const { getAuth } = await import("firebase-admin/auth");
-          const userRecord = await getAuth().createUser({
-            email: session.email,
-            password: session.password,
-            displayName: session.username,
-            phoneNumber: session.phoneNumber || undefined,
-            emailVerified: true
-          });
-          uid = userRecord.uid;
-          createdInAuth = true;
-          console.log(`[Auth Verify] Admin SDK successfully created Auth user with UID: ${uid}`);
+          try {
+            const userRecord = await getAuth().createUser({
+              email: session.email,
+              password: session.password,
+              displayName: session.username,
+              phoneNumber: session.phoneNumber || undefined,
+              emailVerified: true
+            });
+            uid = userRecord.uid;
+            createdInAuth = true;
+            console.log(`[Auth Verify] Admin SDK successfully created Auth user with UID: ${uid}`);
+          } catch (createErr: any) {
+            if (createErr.code === 'auth/email-already-exists') {
+              console.log(`[Auth Verify] Admin SDK detected existing email. Resolving UID and updating credentials...`);
+              const existingUser = await getAuth().getUserByEmail(session.email);
+              uid = existingUser.uid;
+              await getAuth().updateUser(uid, {
+                password: session.password,
+                displayName: session.username,
+                phoneNumber: session.phoneNumber || undefined,
+                emailVerified: true
+              });
+              createdInAuth = true;
+              console.log(`[Auth Verify] Admin SDK successfully updated existing Auth user with UID: ${uid}`);
+            } else {
+              throw createErr;
+            }
+          }
         }
       } catch (authErr: any) {
         console.warn('[Auth Verify] Admin SDK createUser failed, attempting REST fallback:', authErr?.message || authErr);
@@ -4109,8 +4128,41 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             createdInAuth = true;
             console.log(`[Auth Verify] REST API successfully created Auth user with UID: ${uid}`);
           } else {
-            const errText = await restRes.text();
-            console.warn('[Auth Verify] REST API signup failed:', errText);
+            const errData = await restRes.json().catch(() => ({}));
+            const errMessage = errData?.error?.message || '';
+            if (errMessage.includes('EMAIL_EXISTS')) {
+              console.log('[Auth Verify] REST API detected email exists. Looking up user UID to update password...');
+              const lookupRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: [session.email] })
+              });
+              if (lookupRes.ok) {
+                const lookupData = await lookupRes.json();
+                if (lookupData && Array.isArray(lookupData.users) && lookupData.users.length > 0) {
+                  uid = lookupData.users[0].localId;
+                  console.log(`[Auth Verify] Found existing user localId: ${uid}. Updating password via REST...`);
+                  const updateRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      localId: uid,
+                      password: session.password,
+                      displayName: session.username,
+                      emailVerified: true
+                    })
+                  });
+                  if (updateRes.ok) {
+                    createdInAuth = true;
+                    console.log(`[Auth Verify] REST API successfully updated password for existing UID: ${uid}`);
+                  } else {
+                    console.warn('[Auth Verify] REST API failed to update existing user password:', await updateRes.text());
+                  }
+                }
+              }
+            } else {
+              console.warn('[Auth Verify] REST API signup failed:', JSON.stringify(errData));
+            }
           }
         } catch (restErr: any) {
           console.warn('[Auth Verify] REST API signup exception:', restErr?.message || restErr);
@@ -4124,6 +4176,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         console.log(`[Auth Verify] Simulated Sandbox fallback active. Created user ID: ${uid}`);
       }
 
+      // Compute secure SHA256 password hash for the new highly-reliable backend authentication
+      const passwordHash = crypto.createHash('sha256').update(session.password).digest('hex');
+
       const newUser = {
         id: uid,
         username: session.username,
@@ -4134,7 +4189,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         photoUrl: session.photoUrl || null,
         followingSellers: [],
         savedProductIds: [],
-        emailVerified: true
+        emailVerified: true,
+        passwordHash: passwordHash,
+        authProvider: 'password_hash:' + passwordHash
       };
 
       // Proactively sync user profile and store name mapping to Firestore atomically
@@ -4153,7 +4210,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               photoUrl: session.photoUrl || null,
               followingSellers: [],
               savedProductIds: [],
-              emailVerified: true
+              emailVerified: true,
+              authProvider: 'password_hash:' + passwordHash
             });
           if (userErr) throw userErr;
 
@@ -4208,6 +4266,130 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
+  // Secure high-reliability login endpoint verifying computed password hash against databases (Supabase or Firestore)
+  app.post('/api/auth/login', serverRateLimiter(60 * 1000, 20, "auth-login"), async (req, res) => {
+    const { identifier, password } = req.body;
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, error: "Identifier and password are required." });
+    }
+
+    const cleanIdentifier = identifier.trim().toLowerCase();
+    const computedHash = crypto.createHash('sha256').update(password).digest('hex');
+
+    let matchedUser: any = null;
+
+    // 1. Search in Supabase if active
+    if (backendSupabase) {
+      try {
+        console.log(`[Backend Login] Searching for user "${cleanIdentifier}" in Supabase...`);
+        // Search by email
+        let { data: user, error } = await backendSupabase
+          .from('users')
+          .select('*')
+          .eq('email', cleanIdentifier)
+          .maybeSingle();
+
+        // Search by username
+        if (!user && !error) {
+          const { data: userByUsername } = await backendSupabase
+            .from('users')
+            .select('*')
+            .eq('username', cleanIdentifier)
+            .maybeSingle();
+          user = userByUsername;
+        }
+
+        // Search by phoneNumber
+        if (!user && !error) {
+          const { data: userByPhone } = await backendSupabase
+            .from('users')
+            .select('*')
+            .eq('phoneNumber', cleanIdentifier)
+            .maybeSingle();
+          user = userByPhone;
+        }
+
+        if (user) {
+          matchedUser = user;
+          console.log(`[Backend Login] Found user profile in Supabase with ID: ${user.id}`);
+        }
+      } catch (sbErr) {
+        console.warn('[Backend Login] Supabase search exception:', sbErr);
+      }
+    }
+
+    // 2. Search in Firestore if not found in Supabase or if Supabase is inactive
+    if (!matchedUser) {
+      try {
+        console.log(`[Backend Login] Searching for user "${cleanIdentifier}" in Firestore...`);
+        if (adminDb) {
+          // Search by email
+          let snap = await adminDb.collection('users').where('email', '==', cleanIdentifier).limit(1).get();
+          // Search by username
+          if (snap.empty) {
+            snap = await adminDb.collection('users').where('username', '==', cleanIdentifier).limit(1).get();
+          }
+          // Search by phoneNumber
+          if (snap.empty) {
+            snap = await adminDb.collection('users').where('phoneNumber', '==', cleanIdentifier).limit(1).get();
+          }
+
+          if (!snap.empty) {
+            matchedUser = { id: snap.docs[0].id, ...snap.docs[0].data() };
+            console.log(`[Backend Login] Found user profile in Firestore with ID: ${matchedUser.id}`);
+          }
+        }
+      } catch (dbErr) {
+        console.warn('[Backend Login] Firestore search exception:', dbErr);
+      }
+    }
+
+    if (!matchedUser) {
+      return res.status(404).json({ success: false, error: "No registered account was found matching these credentials. If you are registering, please make sure to verify the 6-digit code sent to your email." });
+    }
+
+    if (matchedUser.isSuspended) {
+      return res.status(403).json({ success: false, error: "Your account has been suspended. Please contact Tedbuy support." });
+    }
+
+    // Extract stored SHA256 hash (directly or from authProvider fallback)
+    const storedHash = matchedUser.passwordHash || 
+                       (matchedUser.authProvider && matchedUser.authProvider.startsWith('password_hash:') 
+                        ? matchedUser.authProvider.split('password_hash:')[1] 
+                        : null);
+
+    if (!storedHash) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "This account was registered using Google Authentication or does not have a local password. Please sign in using Google." 
+      });
+    }
+
+    if (storedHash !== computedHash) {
+      return res.status(401).json({ success: false, error: "The password you entered is incorrect. Please try again." });
+    }
+
+    // Login successful!
+    console.log(`[Backend Login] Successful authentication for user: ${matchedUser.email} / ${matchedUser.username}`);
+    return res.json({
+      success: true,
+      user: {
+        id: matchedUser.id,
+        username: matchedUser.username,
+        email: matchedUser.email,
+        phoneNumber: matchedUser.phoneNumber || null,
+        whatsAppNumber: matchedUser.whatsAppNumber || null,
+        role: matchedUser.role || 'both',
+        joinDate: matchedUser.joinDate,
+        photoUrl: matchedUser.photoUrl || null,
+        followingSellers: matchedUser.followingSellers || [],
+        savedProductIds: matchedUser.savedProductIds || [],
+        emailVerified: matchedUser.emailVerified !== false,
+        isAdmin: matchedUser.isAdmin === true || matchedUser.email?.toLowerCase() === 'asumaduvincent7@gmail.com'
+      }
+    });
+  });
+
   // Secure password reset link dispatcher using Brevo/SMTP server-side
   app.post('/api/auth/reset-password', serverRateLimiter(5 * 60 * 1000, 3, "auth-reset-password"), async (req, res) => {
     const { email } = req.body;
@@ -4219,11 +4401,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const brevoApiKey = process.env.BREVO_API_KEY;
     const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
 
-    if (!brevoApiKey && !hasSmtp) {
-      console.log(`[Auth Reset] Neither Brevo nor SMTP configured on the server. Instructing client to fallback.`);
-      return res.json({ success: false, fallback: true, message: "Server email engine not configured. Falling back to client-side default." });
-    }
-
     try {
       let resetLink = "";
       try {
@@ -4234,11 +4411,36 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           console.log(`[Auth Reset] Generated Admin SDK password reset link for: ${cleanEmail}`);
         }
       } catch (authErr: any) {
-        console.warn('[Auth Reset] Admin SDK failed to generate reset link, suggesting client fallback:', authErr?.message || authErr);
-        return res.json({ success: false, fallback: true, error: authErr?.message || String(authErr) });
+        console.warn('[Auth Reset] Admin SDK failed to generate reset link:', authErr?.message || authErr);
       }
 
+      // If Admin SDK link generation is unavailable/failed, try calling the Firebase Auth REST API 
+      // directly to dispatch standard password reset email from Firebase!
+      if (!resetLink && apiKey) {
+        console.log(`[Auth Reset] Using Firebase Auth REST API to dispatch reset email directly for: ${cleanEmail}`);
+        const firebaseRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestType: "PASSWORD_RESET",
+            email: cleanEmail
+          })
+        });
+        if (firebaseRes.ok) {
+          console.log(`[Auth Reset] Firebase Auth REST API successfully sent password reset email directly.`);
+          return res.json({ success: true, message: "Password reset instructions have been successfully dispatched to your email address." });
+        } else {
+          const errText = await firebaseRes.text();
+          console.warn(`[Auth Reset] Firebase Auth REST API dispatch failed:`, errText);
+        }
+      }
+
+      // If no reset link and we can't dispatch REST API directly, check if we have Brevo/SMTP configured
       if (!resetLink) {
+        if (!brevoApiKey && !hasSmtp) {
+          console.log(`[Auth Reset] Neither Brevo nor SMTP configured on the server. Instructing client to fallback.`);
+          return res.json({ success: false, fallback: true, message: "Server email engine not configured. Falling back to client-side default." });
+        }
         return res.json({ success: false, fallback: true, message: "Could not generate link on server. Falling back." });
       }
 
