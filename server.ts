@@ -4390,6 +4390,30 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     });
   });
 
+  // Secure high-reliability endpoint to verify admin PIN against server-side env or default fallback
+  app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-verify-admin-pin"), (req, res) => {
+    const { pin } = req.body;
+    if (!pin) {
+      return res.status(400).json({ success: false, error: "PIN is required." });
+    }
+
+    const trimmed = pin.trim();
+    // Support both VITE_ADMIN_PIN and ADMIN_PIN server-side
+    const serverCustomPin = process.env.VITE_ADMIN_PIN || process.env.ADMIN_PIN;
+
+    let isValid = false;
+    if (serverCustomPin) {
+      isValid = trimmed === serverCustomPin.trim();
+      console.log(`[Admin PIN Verify] Verifying against custom server-side pin: ${isValid ? 'Success' : 'Failed'}`);
+    } else {
+      // Default fallback is 559102
+      isValid = trimmed === '559102';
+      console.log(`[Admin PIN Verify] Verifying against default fallback pin: ${isValid ? 'Success' : 'Failed'}`);
+    }
+
+    return res.json({ success: isValid });
+  });
+
   // Secure password reset link dispatcher using Brevo/SMTP server-side
   app.post('/api/auth/reset-password', serverRateLimiter(5 * 60 * 1000, 3, "auth-reset-password"), async (req, res) => {
     const { email } = req.body;
