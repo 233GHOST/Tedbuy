@@ -2451,12 +2451,35 @@ Tedbuy Support`;
       throw new Error('Please enter a valid email address.');
     }
     try {
-      await sendPasswordResetEmail(auth, emailTarget);
-    } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error('Firebase password reset failed:', error);
+      console.log('[resetPasswordEmail] Attempting server-side dispatch...');
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailTarget })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          console.log('[resetPasswordEmail] Password reset dispatched successfully via server.');
+          return;
+        }
+        if (data.fallback) {
+          console.log('[resetPasswordEmail] Server requested fallback to client-side default.');
+          await sendPasswordResetEmail(auth, emailTarget);
+          return;
+        }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Server HTTP ${response.status}`);
       }
-      throw error;
+    } catch (error: any) {
+      console.warn('[resetPasswordEmail] Server-side reset failed or fallback active. Falling back to default:', error?.message || error);
+      try {
+        await sendPasswordResetEmail(auth, emailTarget);
+      } catch (fallbackErr: any) {
+        throw new Error(fallbackErr?.message || String(fallbackErr));
+      }
     }
   };
 

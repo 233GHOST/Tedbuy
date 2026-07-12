@@ -3949,6 +3949,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
 
       if (!emailSent) {
+        if (brevoApiKey) {
+          console.warn(`[Auth Register] Brevo configuration was detected but delivery failed:`, errorDetail);
+          return res.status(400).json({
+            success: false,
+            error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
+          });
+        }
+
         if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
           console.warn(`[Auth Register] Neither SMTP credentials nor Brevo API key are configured.`);
           return res.status(400).json({
@@ -4184,6 +4192,156 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } catch (err: any) {
       console.error('[Auth Verify Exception]:', err);
       return res.status(500).json({ success: false, error: err?.message || "Internal server error during registration completion." });
+    }
+  });
+
+  // Secure password reset link dispatcher using Brevo/SMTP server-side
+  app.post('/api/auth/reset-password', serverRateLimiter(5 * 60 * 1000, 3, "auth-reset-password"), async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: "Email parameter is required." });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const brevoApiKey = process.env.BREVO_API_KEY;
+    const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
+
+    if (!brevoApiKey && !hasSmtp) {
+      console.log(`[Auth Reset] Neither Brevo nor SMTP configured on the server. Instructing client to fallback.`);
+      return res.json({ success: false, fallback: true, message: "Server email engine not configured. Falling back to client-side default." });
+    }
+
+    try {
+      let resetLink = "";
+      try {
+        const { getApps } = await import("firebase-admin/app");
+        if (getApps().length > 0) {
+          const { getAuth } = await import("firebase-admin/auth");
+          resetLink = await getAuth().generatePasswordResetLink(cleanEmail);
+          console.log(`[Auth Reset] Generated Admin SDK password reset link for: ${cleanEmail}`);
+        }
+      } catch (authErr: any) {
+        console.warn('[Auth Reset] Admin SDK failed to generate reset link, suggesting client fallback:', authErr?.message || authErr);
+        return res.json({ success: false, fallback: true, error: authErr?.message || String(authErr) });
+      }
+
+      if (!resetLink) {
+        return res.json({ success: false, fallback: true, message: "Could not generate link on server. Falling back." });
+      }
+
+      const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); }
+    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #f97316; }
+    .header h2 { margin: 0; font-size: 24px; font-weight: 800; color: #f8fafc; }
+    .content { padding: 40px; line-height: 1.7; font-size: 15px; color: #334155; }
+    .btn { display: inline-block; padding: 14px 28px; background-color: #f97316; color: #ffffff !important; text-decoration: none; border-radius: 12px; font-weight: 700; margin: 24px 0; text-align: center; }
+    .footer { background-color: #f8fafc; padding: 32px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>Reset Your TedBuy Password</h2>
+    </div>
+    <div class="content">
+      <p style="font-size: 17px; font-weight: 700; color: #0f172a;">Hello,</p>
+      <p>We received a request to reset your password for your TedBuy account. Click the button below to set a new password:</p>
+      <div style="text-align: center;">
+        <a href="${resetLink}" class="btn" style="color: #ffffff !important;">Reset Password</a>
+      </div>
+      <p>If you did not make this request, you can safely ignore this email. Your password will remain unchanged.</p>
+      <p style="font-size: 12px; color: #64748b; word-break: break-all;">If the button above doesn't work, copy and paste this URL into your browser:<br/>${resetLink}</p>
+    </div>
+    <div class="footer">
+      <p>This message was sent to ${escapeHtml(cleanEmail)}.</p>
+      <p>&copy; 2026 Tedbuy Inc. Accra, Ghana.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const textContent = `Reset Your TedBuy Password\n\nHello,\n\nWe received a request to reset your password for your TedBuy account. Use the following link to set a new password:\n\n${resetLink}\n\nIf you did not make this request, you can safely ignore this email.\n\nTedbuy Support`;
+
+      let emailSent = false;
+      let errorDetail = "";
+
+      if (brevoApiKey) {
+        console.log(`[Auth Reset] Dispatching reset email via Brevo REST API for: ${cleanEmail}`);
+        try {
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+          const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
+
+          const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+              'accept': 'application/json',
+              'api-key': brevoApiKey,
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+              sender: { name: senderName, email: senderEmail },
+              to: [{ email: cleanEmail }],
+              replyTo: { name: senderName, email: senderEmail },
+              subject: "Reset Your TedBuy Password",
+              htmlContent: htmlContent,
+              textContent: textContent
+            })
+          });
+
+          if (brevoResponse.ok) {
+            console.log(`[Auth Reset] Brevo sent reset email successfully.`);
+            emailSent = true;
+          } else {
+            const errText = await brevoResponse.text();
+            throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
+          }
+        } catch (brevoErr: any) {
+          console.error(`[Auth Reset] Brevo REST delivery failed:`, brevoErr?.message || brevoErr);
+          errorDetail = brevoErr?.message || String(brevoErr);
+        }
+      }
+
+      if (!emailSent && hasSmtp) {
+        console.log(`[Auth Reset] Falling back to SMTP for: ${cleanEmail}`);
+        try {
+          const transporter = getMailTransporter();
+          const diagResult = await diagnoseSMTPAndVerify(transporter);
+          if (diagResult.success) {
+            await transporter.sendMail({
+              from: `"Tedbuy Support" <${process.env.SMTP_USER}>`,
+              to: cleanEmail,
+              subject: "Reset Your TedBuy Password",
+              text: textContent,
+              html: htmlContent
+            });
+            emailSent = true;
+          } else {
+            throw new Error(`SMTP connection test failed: ${diagResult.details?.error || 'Unknown error'}`);
+          }
+        } catch (smtpErr: any) {
+          console.error(`[Auth Reset] SMTP delivery failed:`, smtpErr?.message || smtpErr);
+          errorDetail = smtpErr?.message || String(smtpErr);
+        }
+      }
+
+      if (emailSent) {
+        return res.json({ success: true, provider: brevoApiKey && emailSent ? 'brevo-rest' : 'smtp' });
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: `Could not send reset email. Details: ${errorDetail}`
+        });
+      }
+
+    } catch (err: any) {
+      console.error('[Auth Reset Exception]:', err);
+      return res.status(500).json({ success: false, error: err?.message || "Internal server error during password reset request." });
     }
   });
 
