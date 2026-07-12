@@ -1774,10 +1774,12 @@ Tedbuy Support`;
 
     // 5. Send Welcome Email synchronously via server SMTP / Brevo REST
     try {
+      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const emailResponse = await fetch('/api/send-welcome-email', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
         },
         body: JSON.stringify({
           email: email.trim(),
@@ -4284,10 +4286,12 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       onProgress(i, total, logs + prepMessage);
 
       try {
+        const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
         const emailResponse = await fetch('/api/send-welcome-email', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
           },
           body: JSON.stringify({
             email,

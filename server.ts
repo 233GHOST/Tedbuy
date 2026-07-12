@@ -4693,10 +4693,40 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
-  app.post('/api/send-welcome-email', serverRateLimiter(5 * 60 * 1000, 3, "welcome-email"), async (req, res) => {
+  app.post('/api/send-welcome-email', async (req, res) => {
     const { email, username } = req.body;
     if (!email) {
       return res.status(400).json({ error: 'Email parameter is required.' });
+    }
+
+    // Dynamic rate limiter check that bypasses for Admins
+    const authHeader = req.headers.authorization;
+    const isAdmin = await verifyAdmin(authHeader);
+
+    if (!isAdmin) {
+      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
+      const key = `${ip}:welcome-email`;
+      const now = Date.now();
+      const windowMs = 5 * 60 * 1000;
+      const maxRequests = 3;
+
+      if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
+        rateLimitStore[key] = {
+          count: 1,
+          resetTime: now + windowMs
+        };
+      } else {
+        rateLimitStore[key].count++;
+        if (rateLimitStore[key].count > maxRequests) {
+          const remainingSecs = Math.ceil((rateLimitStore[key].resetTime - now) / 1000);
+          res.setHeader("Retry-After", remainingSecs);
+          return res.status(429).json({
+            error: `Too many requests to welcome-email. Please wait ${remainingSecs} seconds and try again.`
+          });
+        }
+      }
+    } else {
+      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${email}`);
     }
 
     const cleanName = username || email.split('@')[0] || 'there';
