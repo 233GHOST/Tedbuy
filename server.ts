@@ -3898,32 +3898,84 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 </html>`
       };
 
-      if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-        console.warn(`[Auth Register] SMTP credentials not configured. Denying simulated register flow.`);
-        return res.status(400).json({
-          success: false,
-          error: "Verification code cannot be sent: SMTP mail service credentials are not configured in the system environment. Please configure SMTP variables to enable registration."
-        });
+      const brevoApiKey = process.env.BREVO_API_KEY;
+
+      if (brevoApiKey) {
+        console.log(`[Auth Register] Brevo API Key detected. Dispatching OTP via Brevo Transactional REST API for: ${cleanEmail}`);
+        try {
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+          const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
+
+          const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+              'accept': 'application/json',
+              'api-key': brevoApiKey,
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+              sender: {
+                name: senderName,
+                email: senderEmail
+              },
+              to: [
+                {
+                  email: cleanEmail,
+                  name: cleanUsername
+                }
+              ],
+              replyTo: {
+                email: senderEmail,
+                name: senderName
+              },
+              subject: mailOptions.subject,
+              htmlContent: mailOptions.html,
+              textContent: mailOptions.text
+            })
+          });
+
+          if (brevoResponse.ok) {
+            const result = await brevoResponse.json();
+            console.log(`[Auth Register] Brevo REST API OTP sent successfully. Message ID: ${result.messageId || 'unknown'}`);
+            emailSent = true;
+          } else {
+            const errText = await brevoResponse.text();
+            throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
+          }
+        } catch (brevoErr: any) {
+          console.error(`[Auth Register] Brevo REST API delivery failed:`, brevoErr?.message || brevoErr);
+          errorDetail = brevoErr?.message || String(brevoErr);
+        }
       }
 
-      try {
-        const diagResult = await diagnoseSMTPAndVerify(transporter);
-        if (!diagResult.success) {
-          console.warn(`[Auth Register] SMTP pre-flight failed.`);
+      if (!emailSent) {
+        if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+          console.warn(`[Auth Register] Neither SMTP credentials nor Brevo API key are configured.`);
           return res.status(400).json({
             success: false,
-            error: "Failed to send verification code. SMTP connection test failed. Please contact TedBuy support."
+            error: "Verification code cannot be sent: SMTP mail service credentials (SMTP_USER/SMTP_PASS) or Brevo API credentials (BREVO_API_KEY) are not configured in the system environment. Please configure email variables to enable registration."
           });
         }
-        await transporter.sendMail(mailOptions);
-        emailSent = true;
-      } catch (err: any) {
-        console.error(`[Auth Register] SMTP send failed:`, err);
-        errorDetail = err?.message || String(err);
-        return res.status(500).json({
-          success: false,
-          error: `Failed to send verification code to your email. Details: ${errorDetail}`
-        });
+
+        try {
+          const diagResult = await diagnoseSMTPAndVerify(transporter);
+          if (!diagResult.success) {
+            console.warn(`[Auth Register] SMTP pre-flight failed.`);
+            return res.status(400).json({
+              success: false,
+              error: "Failed to send verification code. SMTP connection test failed. Please contact TedBuy support."
+            });
+          }
+          await transporter.sendMail(mailOptions);
+          emailSent = true;
+        } catch (err: any) {
+          console.error(`[Auth Register] SMTP send failed:`, err);
+          errorDetail = err?.message || String(err);
+          return res.status(500).json({
+            success: false,
+            error: `Failed to send verification code to your email. Details: ${errorDetail}`
+          });
+        }
       }
 
       return res.json({
