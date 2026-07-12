@@ -436,9 +436,12 @@ if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
 
 let isGCPServiceAccountAuthorized = process.env.K_SERVICE !== undefined || process.env.GOOGLE_APPLICATION_CREDENTIALS !== undefined || parsedServiceAccountJson !== null;
 
-// Routing database operations exclusively to Supabase. Disabling Firestore Admin client, keeping Auth token verification active.
-console.log('[Firebase Admin] Routing database operations exclusively to Supabase. Disabling Firestore Admin client, keeping Auth token verification active.');
-adminDb = null;
+if (backendSupabase) {
+  console.log('[Firebase Admin] Routing database operations exclusively to Supabase. Disabling Firestore Admin client, keeping Auth token verification active.');
+  adminDb = null;
+} else {
+  console.log('[Firebase Admin] Supabase not configured. Enabling Firestore Admin client for secure server-side operations.');
+}
 
 if (isGCPServiceAccountAuthorized) {
   (async () => {
@@ -458,6 +461,16 @@ if (isGCPServiceAccountAuthorized) {
         }
       }
       console.log('[Firebase Admin] App successfully initialized for admin auth token verification.');
+
+      if (!backendSupabase) {
+        try {
+          const { getFirestore } = await import("firebase-admin/firestore");
+          adminDb = getFirestore();
+          console.log('[Firebase Admin] Firestore Admin DB client initialized successfully!');
+        } catch (dbInitErr: any) {
+          console.warn('[Firebase Admin] Failed to initialize Firestore Admin DB client:', dbInitErr.message || dbInitErr);
+        }
+      }
     } catch (err: any) {
       console.warn('[Firebase Admin] Failed to initialize Firebase Admin app for verification:', err.message || err);
     }

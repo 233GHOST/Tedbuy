@@ -819,8 +819,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const isCurrentlyGoogle = firebaseUser.providerData.some(p => p.providerId === 'google.com') || (firebaseUser.email ? firebaseUser.email.endsWith('@gmail.com') : false);
               
               const updates: any = {};
-              if (isEmailVerifiedNow !== dbData.emailVerified) {
-                updates.emailVerified = isEmailVerifiedNow;
+              // Prevent downgrading emailVerified to false if the user verified via OTP.
+              // But allow upgrading from false to true if Firebase verifies it (e.g., via Google sign in).
+              if (isEmailVerifiedNow && !dbData.emailVerified) {
+                updates.emailVerified = true;
               }
               if (isCurrentlyGoogle && !dbData.isGoogleAuth) {
                 updates.isGoogleAuth = true;
@@ -2267,7 +2269,6 @@ Tedbuy Support`;
           console.log('[verifyAndCompleteRegistration] Production sign-in successful!');
 
           // Proactively save user profile and reserve store name in Firestore on the client-side
-          // because the server's adminDb client is disabled (null) for safety.
           const userRef = doc(db, 'users', user.id);
           await setDoc(userRef, user);
           await setDoc(doc(db, 'storeNames', user.username.toLowerCase()), {
@@ -2279,6 +2280,22 @@ Tedbuy Support`;
           console.error('[verifyAndCompleteRegistration] Client sign-in or document creation failed after backend creation:', signInErr);
           setCurrentUserState(user);
         }
+
+        // Always register user to our local users state list and local storage backups immediately for maximum login reliability
+        setUsers(prev => {
+          if (!prev.some(u => u.id === user.id)) {
+            return [...prev, user];
+          }
+          return prev;
+        });
+        try {
+          const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+          const userList: User[] = storedUsers ? JSON.parse(storedUsers) : [];
+          if (!userList.some(u => u.id === user.id)) {
+            userList.push(user);
+            safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(userList));
+          }
+        } catch (_) {}
       }
 
       return data;
@@ -2384,6 +2401,36 @@ Tedbuy Support`;
         if (process.env.NODE_ENV === "development") {
           console.error('Could not query users list from database for username/phone match:', dbErr);
         }
+      }
+
+      // Safe fallback: if not resolved via Firestore query, check current state list and localStorage backups
+      if (!targetEmail) {
+        console.log('[Login fallback] Checking client-side users list and localStorage backup...');
+        const mergedUsersList = [...users];
+        try {
+          const storedUsers = safeLocalStorage.getItem('tedbuy_local_users_backup');
+          if (storedUsers) {
+            const backupList = JSON.parse(storedUsers) as User[];
+            backupList.forEach(bu => {
+              if (!mergedUsersList.some(u => u.id === bu.id)) {
+                mergedUsersList.push(bu);
+              }
+            });
+          }
+        } catch (_) {}
+
+        mergedUsersList.forEach((u) => {
+          const matchUsername = u.username?.toLowerCase() === cleanIdentifier.toLowerCase();
+          const userPhoneNormalized = u.phoneNumber ? normalizePhone(u.phoneNumber) : '';
+          const userWhatsAppNormalized = u.whatsAppNumber ? normalizePhone(u.whatsAppNumber) : '';
+          
+          const matchPhone = normalizedInput && userPhoneNormalized && userPhoneNormalized === normalizedInput;
+          const matchWhatsApp = normalizedInput && userWhatsAppNormalized && userWhatsAppNormalized === normalizedInput;
+          
+          if (matchUsername || matchPhone || matchWhatsApp) {
+            targetEmail = u.email || null;
+          }
+        });
       }
 
       if (targetEmail) {
