@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, isUserVerified, User } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Eye, Calendar, Tag, Bookmark, Video, Flame } from 'lucide-react';
+import { MapPin, Eye, Calendar, Bookmark, Video, Flame } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 import { isBoostActive } from '../utils/dateParser';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
@@ -227,7 +227,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
       className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group animate-fade-in"
     >
       {/* Listing image section */}
-      <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-[4/3] flex items-center justify-center" style={{ aspectRatio: '4/3' }}>
+      <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-square flex items-center justify-center" style={{ aspectRatio: '1/1' }}>
         {isVisible ? (
           <>
             {processedVideoUrl ? (
@@ -284,10 +284,6 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
         )}
 
         <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-20">
-          <span className="px-2 py-0.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold rounded-md flex items-center gap-1 uppercase tracking-wider">
-            <Tag className="w-2.5 h-2.5" />
-            {product.category}
-          </span>
           {isPrioSeller && (
             <span className="px-2 py-0.5 bg-amber-500 text-slate-950 text-[10px] font-black rounded-md flex items-center gap-1 uppercase tracking-wider shadow-md animate-pulse">
               <Flame className="w-2.5 h-2.5 text-slate-950 fill-slate-950 animate-bounce" />
@@ -346,21 +342,21 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
       </div>
 
       {/* Detail info section */}
-      <div className="p-4 flex flex-col flex-1 justify-between gap-2.5 text-left bg-gradient-to-b from-white to-slate-50">
+      <div className="p-3 flex flex-col flex-1 justify-between gap-2 text-left bg-gradient-to-b from-white to-slate-50">
         <div className="space-y-1">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xl font-bold text-slate-900 block leading-tight font-sans tracking-tight">
+            <span className="text-base font-extrabold text-slate-900 block leading-tight font-sans tracking-tight">
               {formattedPrice}
             </span>
             {product.negotiable !== false && (
               <span id={`product-card-negotiable-${product.id}`} className="inline-flex items-center text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider font-sans shrink-0">
-                Neg.
+                Negotiable
               </span>
             )}
           </div>
           {product.brand && (
             <span id={`product-card-brand-${product.id}`} className="inline-block text-[9px] bg-slate-100 text-slate-600 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider font-sans mb-1">
-              💼 {product.brand}
+              {product.brand}
             </span>
           )}
           <h3 className="text-sm font-semibold text-slate-800 line-clamp-2 leading-snug group-hover:text-slate-950 transition truncate-hover">
@@ -368,23 +364,13 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
           </h3>
         </div>
 
-        <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-150 text-[11px] text-slate-500 font-sans">
+        <div className="flex flex-col gap-1 text-[11px] text-slate-500 font-sans">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1 min-w-0 flex-1">
               <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="truncate">{product.location}</span>
             </div>
-          </div>
-          <div className="flex items-center justify-between mt-0.5 text-[10px]">
-            <span className="text-slate-400 flex items-center gap-1 flex-wrap">
-              Seller: <b className="text-slate-700 font-semibold">{product.sellerName || 'Verified Seller'}</b>
-              {isSellerVerified && (
-                <span className="inline-flex items-center gap-0.5 text-[9px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-150/40 px-1 py-0.2 rounded-md" title="Verified Tedbuy Seller">
-                  🛡️ Verified
-                </span>
-              )}
-            </span>
-            {(!product.images[0] && !product.videos?.[0]) && <span className="bg-slate-200 text-slate-600 px-1 py-0.5 rounded text-[8px]">No Image</span>}
+            {(!product.images[0] && !product.videos?.[0]) && <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded text-[8px] shrink-0">No Image</span>}
           </div>
         </div>
 
