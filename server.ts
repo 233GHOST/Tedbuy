@@ -3871,28 +3871,137 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
-    .container { max-width: 500px; margin: 40px auto; background-color: #ffffff; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06); }
-    .header { background-color: #0f172a; padding: 36px 24px; text-align: center; color: #ffffff; border-bottom: 4px solid #ea580c; }
-    .header-logo { font-size: 28px; font-weight: 950; letter-spacing: -0.04em; margin: 0; line-height: 1; color: #ffffff; }
-    .header-logo span { color: #ea580c; }
-    .header-tag { font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 6px; display: block; }
-    .content { padding: 40px 32px; text-align: center; line-height: 1.6; }
-    .greeting { font-size: 18px; font-weight: 800; color: #0f172a; text-align: left; margin-bottom: 20px; }
-    .info-text { font-size: 15px; color: #475569; text-align: left; margin-bottom: 32px; }
-    .code-container { background-color: #fff7ed; border-radius: 18px; padding: 28px; margin: 28px 0; border: 1px dashed #fed7aa; }
-    .otp-code { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 38px; font-weight: 900; letter-spacing: 0.25em; color: #ea580c; margin: 0; padding-left: 0.25em; text-shadow: 0 1px 2px rgba(234, 88, 12, 0.05); }
-    .expiry-text { font-size: 13px; color: #9a3412; font-weight: 600; margin-top: 12px; }
-    .security-warning { background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 14px 18px; border-radius: 8px; font-size: 13px; color: #b45309; text-align: left; margin-top: 32px; line-height: 1.5; }
-    .footer { background-color: #f8fafc; padding: 28px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; line-height: 1.6; }
-    .footer p { margin: 6px 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+      background-color: #f4f6fa; 
+      color: #1e293b; 
+      margin: 0; 
+      padding: 0; 
+    }
+    .container { 
+      max-width: 500px; 
+      margin: 40px auto; 
+      background-color: #0f172a; 
+      border-radius: 24px; 
+      border: 1px solid #1e293b; 
+      overflow: hidden; 
+      box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3); 
+    }
+    .header { 
+      background-color: #ffffff; 
+      padding: 30px 24px; 
+      border-bottom: 4px solid #ea580c; 
+    }
+    .header-table {
+      margin: 0 auto;
+      border-collapse: collapse;
+    }
+    .header-logo-img {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: block;
+      background-color: #0f172a;
+    }
+    .header-title {
+      font-size: 28px;
+      font-weight: 950;
+      color: #0f172a;
+      margin: 0;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+    .header-title span {
+      color: #ea580c;
+    }
+    .header-tag {
+      font-size: 10px;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-top: 4px;
+      display: block;
+    }
+    .content { 
+      padding: 40px 32px; 
+      line-height: 1.7; 
+      font-size: 15px; 
+      color: #cbd5e1; 
+      text-align: left;
+    }
+    .greeting { 
+      font-size: 18px; 
+      font-weight: 800; 
+      color: #ffffff; 
+      margin-bottom: 20px; 
+    }
+    .info-text { 
+      font-size: 15px; 
+      color: #94a3b8; 
+      margin-bottom: 32px; 
+    }
+    .code-container { 
+      background-color: #1e293b; 
+      border-radius: 18px; 
+      padding: 24px; 
+      margin: 28px 0; 
+      border: 1px dashed #ea580c; 
+      text-align: center;
+    }
+    .otp-code { 
+      font-size: 38px; 
+      font-weight: 900; 
+      letter-spacing: 0.25em; 
+      color: #ea580c; 
+      margin: 0; 
+      padding-left: 0.25em; 
+      text-shadow: 0 2px 4px rgba(234, 88, 12, 0.15); 
+    }
+    .expiry-text { 
+      font-size: 13px; 
+      color: #fdba74; 
+      font-weight: 600; 
+      margin-top: 10px; 
+    }
+    .security-warning { 
+      background-color: rgba(245, 158, 11, 0.1); 
+      border-left: 4px solid #f59e0b; 
+      padding: 14px 18px; 
+      border-radius: 8px; 
+      font-size: 13px; 
+      color: #f59e0b; 
+      margin-top: 32px; 
+      line-height: 1.5; 
+    }
+    .footer { 
+      background-color: #0b0f19; 
+      padding: 28px 32px; 
+      text-align: center; 
+      font-size: 12px; 
+      color: #64748b; 
+      border-top: 1px solid #1e293b; 
+      line-height: 1.6; 
+    }
+    .footer p { 
+      margin: 6px 0; 
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1 class="header-logo"><span>Ted</span>Buy</h1>
-      <span class="header-tag">Ghana's #1 Social Marketplace</span>
+      <table class="header-table" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="vertical-align: middle; padding-right: 12px;">
+            <img class="header-logo-img" src="https://tedbuy.store/favicon.png" alt="TedBuy Logo" />
+          </td>
+          <td style="vertical-align: middle; text-align: left;">
+            <h1 class="header-title">Ted<span>Buy</span></h1>
+            <span class="header-tag">Ghana's #1 Social Marketplace</span>
+          </td>
+        </tr>
+      </table>
     </div>
     <div class="content">
       <div class="greeting">Hi ${escapeHtml(cleanUsername)},</div>
@@ -4570,29 +4679,130 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06); }
-    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #ea580c; }
-    .header-logo { font-size: 32px; font-weight: 950; letter-spacing: -0.04em; margin: 0; line-height: 1; color: #ffffff; }
-    .header-logo span { color: #ea580c; }
-    .header-tag { font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 8px; display: block; }
-    .content { padding: 44px; line-height: 1.7; font-size: 15px; color: #334155; }
-    .content p { margin-top: 0; margin-bottom: 22px; }
-    .btn-container { text-align: center; margin: 32px 0; }
-    .btn { display: inline-block; padding: 16px 36px; background-color: #ea580c; color: #ffffff !important; text-decoration: none; border-radius: 14px; font-weight: 800; text-align: center; font-size: 15px; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.15); transition: background-color 0.15s ease; }
-    .url-text { font-size: 12px; color: #64748b; word-break: break-all; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-top: 32px; line-height: 1.5; }
-    .footer { background-color: #f8fafc; padding: 36px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; line-height: 1.6; }
-    .footer a { color: #ea580c; text-decoration: underline; font-weight: 600; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      background-color: #f4f6fa; 
+      color: #1e293b; 
+      margin: 0; 
+      padding: 0; 
+    }
+    .container { 
+      max-width: 500px; 
+      margin: 40px auto; 
+      background-color: #0f172a; 
+      border-radius: 24px; 
+      border: 1px solid #1e293b; 
+      overflow: hidden; 
+      box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3); 
+    }
+    .header { 
+      background-color: #ffffff; 
+      padding: 30px 24px; 
+      border-bottom: 4px solid #ea580c; 
+    }
+    .header-table {
+      margin: 0 auto;
+      border-collapse: collapse;
+    }
+    .header-logo-img {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: block;
+      background-color: #0f172a;
+    }
+    .header-title {
+      font-size: 28px;
+      font-weight: 950;
+      color: #0f172a;
+      margin: 0;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+    .header-title span {
+      color: #ea580c;
+    }
+    .header-tag {
+      font-size: 10px;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-top: 4px;
+      display: block;
+    }
+    .content { 
+      padding: 40px 32px; 
+      line-height: 1.7; 
+      font-size: 15px; 
+      color: #cbd5e1; 
+      text-align: left;
+    }
+    .content p { 
+      margin-top: 0; 
+      margin-bottom: 22px; 
+    }
+    .btn-container { 
+      text-align: center; 
+      margin: 32px 0; 
+    }
+    .btn { 
+      display: inline-block; 
+      padding: 16px 36px; 
+      background-color: #ea580c; 
+      color: #ffffff !important; 
+      text-decoration: none; 
+      border-radius: 14px; 
+      font-weight: 800; 
+      text-align: center; 
+      font-size: 15px; 
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.15); 
+      transition: background-color 0.15s ease; 
+    }
+    .url-text { 
+      font-size: 12px; 
+      color: #94a3b8; 
+      word-break: break-all; 
+      background-color: #1e293b; 
+      border: 1px solid #1e293b; 
+      border-radius: 12px; 
+      padding: 14px; 
+      margin-top: 32px; 
+      line-height: 1.5; 
+    }
+    .footer { 
+      background-color: #0b0f19; 
+      padding: 28px 32px; 
+      text-align: center; 
+      font-size: 12px; 
+      color: #64748b; 
+      border-top: 1px solid #1e293b; 
+      line-height: 1.6; 
+    }
+    .footer a { 
+      color: #ea580c; 
+      text-decoration: underline; 
+      font-weight: 600; 
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1 class="header-logo"><span>Ted</span>Buy</h1>
-      <span class="header-tag">Ghana's #1 Social Marketplace</span>
+      <table class="header-table" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="vertical-align: middle; padding-right: 12px;">
+            <img class="header-logo-img" src="https://tedbuy.store/favicon.png" alt="TedBuy Logo" />
+          </td>
+          <td style="vertical-align: middle; text-align: left;">
+            <h1 class="header-title">Ted<span>Buy</span></h1>
+            <span class="header-tag">Ghana's #1 Social Marketplace</span>
+          </td>
+        </tr>
+      </table>
     </div>
     <div class="content">
-      <p style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 24px;">Hello,</p>
+      <p style="font-size: 18px; font-weight: 800; color: #ffffff; margin-bottom: 24px;">Hello,</p>
       <p>We received a request to reset the password for your TedBuy account. Click the button below to choose a secure new password:</p>
       
       <div class="btn-container">
@@ -4741,26 +4951,102 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06); }
-    .header { background-color: #0f172a; padding: 40px 32px; text-align: center; color: #ffffff; border-bottom: 4px solid #ea580c; }
-    .header-logo { font-size: 32px; font-weight: 950; letter-spacing: -0.04em; margin: 0; line-height: 1; color: #ffffff; }
-    .header-logo span { color: #ea580c; }
-    .header-tag { font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.15em; margin-top: 8px; display: block; }
-    .content { padding: 44px; line-height: 1.7; font-size: 15px; color: #334155; }
-    .content p { margin-top: 0; margin-bottom: 22px; }
-    .footer { background-color: #f8fafc; padding: 36px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; line-height: 1.6; }
-    .footer a { color: #ea580c; text-decoration: underline; font-weight: 600; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+      background-color: #f4f6fa; 
+      color: #1e293b; 
+      margin: 0; 
+      padding: 0; 
+    }
+    .container { 
+      max-width: 500px; 
+      margin: 40px auto; 
+      background-color: #0f172a; 
+      border-radius: 24px; 
+      border: 1px solid #1e293b; 
+      overflow: hidden; 
+      box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3); 
+    }
+    .header { 
+      background-color: #ffffff; 
+      padding: 30px 24px; 
+      border-bottom: 4px solid #ea580c; 
+    }
+    .header-table {
+      margin: 0 auto;
+      border-collapse: collapse;
+    }
+    .header-logo-img {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: block;
+      background-color: #0f172a;
+    }
+    .header-title {
+      font-size: 28px;
+      font-weight: 950;
+      color: #0f172a;
+      margin: 0;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+    .header-title span {
+      color: #ea580c;
+    }
+    .header-tag {
+      font-size: 10px;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-top: 4px;
+      display: block;
+    }
+    .content { 
+      padding: 40px 32px; 
+      line-height: 1.7; 
+      font-size: 15px; 
+      color: #cbd5e1; 
+      text-align: left;
+    }
+    .content p { 
+      margin-top: 0; 
+      margin-bottom: 22px; 
+    }
+    .footer { 
+      background-color: #0b0f19; 
+      padding: 28px 32px; 
+      text-align: center; 
+      font-size: 12px; 
+      color: #64748b; 
+      border-top: 1px solid #1e293b; 
+      line-height: 1.6; 
+    }
+    .footer a { 
+      color: #ea580c; 
+      text-decoration: underline; 
+      font-weight: 600; 
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1 class="header-logo"><span>Ted</span>Buy</h1>
-      <span class="header-tag">Ghana's #1 Social Marketplace</span>
+      <table class="header-table" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="vertical-align: middle; padding-right: 12px;">
+            <img class="header-logo-img" src="https://tedbuy.store/favicon.png" alt="TedBuy Logo" />
+          </td>
+          <td style="vertical-align: middle; text-align: left;">
+            <h1 class="header-title">Ted<span>Buy</span></h1>
+            <span class="header-tag">Ghana's #1 Social Marketplace</span>
+          </td>
+        </tr>
+      </table>
     </div>
     <div class="content">
-      <p style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 24px;">Hi ${escapedName},</p>
+      <p style="font-size: 18px; font-weight: 800; color: #ffffff; margin-bottom: 24px;">Hi ${escapedName},</p>
       
       <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.</p>
 
@@ -4770,7 +5056,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       
       <p style="margin-top: 40px; line-height: 1.5; font-size: 14px;">
         Gratefully yours,<br/><br/>
-        <strong style="font-size: 16px; color: #0f172a;">TedBuy Support</strong>
+        <strong style="font-size: 16px; color: #ffffff;">TedBuy Support</strong>
       </p>
     </div>
     <div class="footer">
