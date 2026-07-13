@@ -57,6 +57,7 @@ export const ProductDetail: React.FC = () => {
   const [reportReason, setReportReason] = useState('spam');
   const [reportComment, setReportComment] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const [isDetailFetching, setIsDetailFetching] = useState(false);
 
@@ -83,6 +84,31 @@ export const ProductDetail: React.FC = () => {
     setReportReason('spam');
     setReportComment('');
     setIsReportModalOpen(true);
+  };
+
+  const handleShareProduct = async () => {
+    if (!product) return;
+    const shareUrl = window.location.href;
+    const shareTitle = product.title;
+    const shareText = `Check out this listing: "${product.title}" for ${formattedPrice} on TedBuy Ghana!`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: shareUrl
+        });
+        showToast("Shared successfully! 🎉", "success");
+      } catch (err: any) {
+        if (err && err.name !== 'AbortError') {
+          console.warn("navigator.share failed, opening custom share modal...", err);
+          setIsShareModalOpen(true);
+        }
+      }
+    } else {
+      setIsShareModalOpen(true);
+    }
   };
 
   const handleReportSubmit = async (e: React.FormEvent) => {
@@ -1111,6 +1137,13 @@ export const ProductDetail: React.FC = () => {
                       <span>Delete Listing</span>
                     </button>
                   </div>
+                  <button
+                    onClick={handleShareProduct}
+                    className="w-full py-2.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-750 font-extrabold rounded-xl flex items-center justify-center gap-1.5 text-[11px] transition cursor-pointer select-none"
+                  >
+                    <Share2 className="w-3.5 h-3.5 stroke-[2.2]" />
+                    <span>Share Ad Listing</span>
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -1122,6 +1155,15 @@ export const ProductDetail: React.FC = () => {
                     >
                       <MessageSquare className="w-5 h-5 fill-white/20 stroke-[2.2]" />
                       <span>Message Seller</span>
+                    </button>
+
+                    <button
+                      id="btn-share-detail"
+                      onClick={handleShareProduct}
+                      className="px-4 py-3.5 rounded-2xl border bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100 text-sm flex items-center justify-center gap-2 shrink-0 transition duration-200 cursor-pointer"
+                      title="Share Product"
+                    >
+                      <Share2 className="w-5 h-5 stroke-[2.2]" />
                     </button>
                     
                     <button
@@ -1610,6 +1652,115 @@ export const ProductDetail: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Share Product Modal */}
+      {isShareModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" onClick={() => setIsShareModalOpen(false)}>
+          <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full border border-slate-150 relative animate-scale-up text-left" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5 text-indigo-700">
+                <Share2 className="w-4.5 h-4.5 text-indigo-600" />
+                <span>Share Listing</span>
+              </h3>
+              <button
+                onClick={() => setIsShareModalOpen(false)}
+                className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 mt-4">
+              <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                Share <strong className="text-slate-800">"{product.title}"</strong> with your friends and family or send it to your chat groups!
+              </p>
+
+              {/* Share Options */}
+              <div className="space-y-2">
+                {/* WhatsApp */}
+                <button
+                  onClick={() => {
+                    const text = `Check out this listing on TedBuy: *${product.title}* for *${formattedPrice}*\n\nView here: ${window.location.href}`;
+                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+                    setIsShareModalOpen(false);
+                    showToast("Opening WhatsApp...", "success");
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-2xl border border-emerald-150 bg-emerald-50/30 hover:bg-emerald-50 text-emerald-800 hover:text-emerald-900 font-bold text-xs transition duration-150 cursor-pointer"
+                >
+                  <span className="text-lg">💬</span>
+                  <span className="flex-1 text-left">Share to WhatsApp</span>
+                </button>
+
+                {/* Telegram */}
+                <button
+                  onClick={() => {
+                    const text = `Check out this listing on TedBuy: ${product.title} for ${formattedPrice}`;
+                    window.open(`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+                    setIsShareModalOpen(false);
+                    showToast("Opening Telegram...", "success");
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-2xl border border-sky-150 bg-sky-50/30 hover:bg-sky-50 text-sky-800 hover:text-sky-900 font-bold text-xs transition duration-150 cursor-pointer"
+                >
+                  <span className="text-lg">✈️</span>
+                  <span className="flex-1 text-left">Share to Telegram</span>
+                </button>
+
+                {/* Web Share API (System Share) */}
+                {typeof navigator !== 'undefined' && navigator.share && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.share({
+                          title: product.title,
+                          text: `Check out this listing on TedBuy: ${product.title} for ${formattedPrice}`,
+                          url: window.location.href
+                        });
+                        setIsShareModalOpen(false);
+                        showToast("Shared successfully!", "success");
+                      } catch (err: any) {
+                        if (err && err.name !== 'AbortError') {
+                          showToast("Error sharing: " + err.message, "error");
+                        }
+                      }
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-2xl border border-indigo-150 bg-indigo-50/30 hover:bg-indigo-50 text-indigo-800 hover:text-indigo-900 font-bold text-xs transition duration-150 cursor-pointer"
+                  >
+                    <Share2 className="w-4.5 h-4.5 text-indigo-600 animate-pulse" />
+                    <span className="flex-1 text-left">System Share Sheet</span>
+                  </button>
+                )}
+
+                {/* Copy Link */}
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(window.location.href);
+                      showToast("Link copied to clipboard! Paste it anywhere.", "success");
+                      setIsShareModalOpen(false);
+                    } catch (err) {
+                      showToast("Failed to copy link.", "error");
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-800 font-bold text-xs transition duration-150 cursor-pointer"
+                >
+                  <span className="text-lg">📋</span>
+                  <span className="flex-1 text-left">Copy Listing Link</span>
+                </button>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsShareModalOpen(false)}
+                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition cursor-pointer text-center"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
