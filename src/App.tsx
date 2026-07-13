@@ -1266,52 +1266,7 @@ const MarketplaceContent: React.FC = () => {
         </Suspense>
       )}
 
-      {/* Floating Modern Toast Notification */}
-      {toast && (
-        <div id="welcome-success-toast" className="fixed top-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 z-50 w-full max-w-md px-4 md:px-0 pointer-events-none animate-slide-in">
-          <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-4.5 shadow-[0_15px_45px_1px_rgba(0,0,0,0.25)] flex items-start gap-4 pointer-events-auto backdrop-blur-md">
-            <div className={`rounded-full p-2.5 shrink-0 flex items-center justify-center ${
-              toast.type === 'success' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 
-              toast.type === 'error' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' : 
-              'bg-blue-500/15 text-blue-400 border border-blue-500/20'
-            }`}>
-              {toast.type === 'success' ? (
-                <Check className="w-4.5 h-4.5 stroke-[3]" />
-              ) : toast.type === 'error' ? (
-                <AlertCircle className="w-4.5 h-4.5 stroke-[3]" />
-              ) : (
-                <Info className="w-4.5 h-4.5 stroke-[3]" />
-              )}
-            </div>
-            <div className="flex-1 space-y-1.5">
-              <p className="font-bold text-sm tracking-tight text-white flex items-center gap-1.5 font-sans">
-                {String(toast.message || '').toLowerCase().includes('delete') ? (
-                  <>Account Deleted 🔒</>
-                ) : String(toast.message || '').toLowerCase().includes('welcome') || String(toast.message || '').toLowerCase().includes('sign up') ? (
-                  <>Welcome to TedBuy 🚀</>
-                ) : String(toast.message || '').toLowerCase().includes('store name') || String(toast.message || '').toLowerCase().includes('successfully changed') ? (
-                  <>Store Named Updated 📝</>
-                ) : toast.type === 'success' ? (
-                  <>Success ✨</>
-                ) : toast.type === 'error' ? (
-                  <>Error ⚠️</>
-                ) : (
-                  <>Notification 🔔</>
-                )}
-              </p>
-              <p className="text-[12px] text-slate-300 leading-relaxed font-medium">{toast.message || ''}</p>
-            </div>
-            <button
-              id="close-toast-btn"
-              onClick={hideToast}
-              className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer shrink-0"
-              title="Dismiss Notification"
-            >
-              <X className="w-4.5 h-4.5" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Floating Modern Toast Notification has been removed */}
 
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
       <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around transition-all duration-300 transform ${

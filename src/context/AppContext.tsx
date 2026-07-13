@@ -440,8 +440,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const finalMessage = type === 'error' ? toUserFriendlyError(message) : message;
-    setToast({ message: finalMessage, type });
+    // No-op: all toast notifications have been removed from the system
   }, []);
 
   const hideToast = useCallback(() => {
