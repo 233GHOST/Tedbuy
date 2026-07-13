@@ -923,6 +923,10 @@ const MarketplaceContent: React.FC = () => {
                   selectedCategory={selectedCategory}
                   extraFilters={extraFilters}
                   setExtraFilters={setExtraFilters}
+                  minPrice={minPrice}
+                  maxPrice={maxPrice}
+                  setMinPrice={setMinPrice}
+                  setMaxPrice={setMaxPrice}
                 />
 
                 {/* Price Budget Filter - Shown only when searching for a product */}
