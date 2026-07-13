@@ -90,7 +90,7 @@ export const ProductDetail: React.FC = () => {
     if (!product) return;
     const shareUrl = window.location.href;
     const shareTitle = product.title;
-    const shareText = `Check out this listing: "${product.title}" for ${formattedPrice} on TedBuy Ghana!`;
+    const shareText = `Check out "${product.title}" for ${formattedPrice} on TedBuy Ghana!`;
 
     if (navigator.share) {
       try {
@@ -1683,7 +1683,7 @@ export const ProductDetail: React.FC = () => {
                 {/* WhatsApp */}
                 <button
                   onClick={() => {
-                    const text = `Check out this listing on TedBuy: *${product.title}* for *${formattedPrice}*\n\nView here: ${window.location.href}`;
+                    const text = `Check out *${product.title}* for *${formattedPrice}* on TedBuy!\n\nView here: ${window.location.href}`;
                     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
                     showToast("Opening WhatsApp...", "success");
@@ -1697,7 +1697,7 @@ export const ProductDetail: React.FC = () => {
                 {/* Telegram */}
                 <button
                   onClick={() => {
-                    const text = `Check out this listing on TedBuy: ${product.title} for ${formattedPrice}`;
+                    const text = `Check out ${product.title} for ${formattedPrice} on TedBuy!`;
                     window.open(`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
                     showToast("Opening Telegram...", "success");
@@ -1715,7 +1715,7 @@ export const ProductDetail: React.FC = () => {
                       try {
                         await navigator.share({
                           title: product.title,
-                          text: `Check out this listing on TedBuy: ${product.title} for ${formattedPrice}`,
+                          text: `Check out ${product.title} for ${formattedPrice} on TedBuy!`,
                           url: window.location.href
                         });
                         setIsShareModalOpen(false);
