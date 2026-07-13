@@ -363,7 +363,7 @@ export const Navbar: React.FC = () => {
             </div>
             <div className="flex flex-col">
               <span className="text-xl font-sans font-black tracking-tight leading-none text-white">
-                tedbuy
+                Ted<span className="text-[#ea580c]">Buy</span>
               </span>
             </div>
           </div>
