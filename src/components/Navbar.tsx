@@ -932,7 +932,7 @@ export const Navbar: React.FC = () => {
                 isVerifyingOtp ? (
                   <div className="space-y-5 animate-fade-in">
                     <div className="text-center">
-                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 mb-3 text-orange-600 ring-8 ring-orange-50/50">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 mb-3 text-emerald-600 ring-8 ring-emerald-50/50">
                         <CheckCheck className="h-6 w-6" />
                       </div>
                       <h3 className="text-lg font-extrabold text-slate-900">Verify your Email</h3>
@@ -955,7 +955,7 @@ export const Navbar: React.FC = () => {
                           setOtpInput(val);
                         }}
                         placeholder="000000"
-                        className="w-full text-center tracking-[0.5em] font-mono text-2xl px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 placeholder-slate-300 transition"
+                        className="w-full text-center tracking-[0.5em] font-mono text-2xl px-3.5 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-300 transition"
                       />
                     </div>
 
@@ -984,7 +984,7 @@ export const Navbar: React.FC = () => {
                               setAuthError(err?.message || 'Failed to resend code.');
                             }
                           }}
-                          className="font-extrabold text-orange-600 hover:text-orange-700 hover:underline cursor-pointer bg-transparent border-0 p-0 focus:outline-none text-xs"
+                          className="font-extrabold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer bg-transparent border-0 p-0 focus:outline-none text-xs"
                         >
                           Resend Code
                         </button>
@@ -995,7 +995,7 @@ export const Navbar: React.FC = () => {
                       <button
                         type="submit"
                         disabled={isAuthSubmitting || otpTimeRemaining <= 0}
-                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-sm font-bold text-white transition duration-150 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-sm font-bold text-white transition duration-150 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isAuthSubmitting ? (
                           <>

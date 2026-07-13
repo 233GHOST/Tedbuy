@@ -1788,7 +1788,6 @@ Tedbuy Support`;
       });
       if (emailResponse.ok) {
         console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
-        showToast(`Sign up successful! An automated welcome email from info.tedbuy@gmail.com has been sent to ${email}.`, 'success');
       } else {
         console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
       }
