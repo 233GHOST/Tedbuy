@@ -3870,22 +3870,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <style>
+    :root {
+      color-scheme: light dark;
+      supported-color-schemes: light dark;
+    }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
       background-color: #f4f6fa; 
-      color: #1e293b; 
+      color: #334155; 
       margin: 0; 
       padding: 0; 
     }
     .container { 
       max-width: 500px; 
       margin: 40px auto; 
-      background-color: #0f172a; 
+      background-color: #ffffff; 
       border-radius: 24px; 
-      border: 1px solid #1e293b; 
+      border: 1px solid #e2e8f0; 
       overflow: hidden; 
-      box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3); 
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); 
     }
     .header { 
       background-color: #ffffff; 
@@ -3927,22 +3933,22 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       padding: 40px 32px; 
       line-height: 1.7; 
       font-size: 15px; 
-      color: #cbd5e1; 
+      color: #334155; 
       text-align: left;
     }
     .greeting { 
       font-size: 18px; 
       font-weight: 800; 
-      color: #ffffff; 
+      color: #0f172a; 
       margin-bottom: 20px; 
     }
     .info-text { 
       font-size: 15px; 
-      color: #94a3b8; 
+      color: #475569; 
       margin-bottom: 32px; 
     }
     .code-container { 
-      background-color: #1e293b; 
+      background-color: #fff7ed; 
       border-radius: 18px; 
       padding: 24px; 
       margin: 28px 0; 
@@ -3956,35 +3962,89 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       color: #ea580c; 
       margin: 0; 
       padding-left: 0.25em; 
-      text-shadow: 0 2px 4px rgba(234, 88, 12, 0.15); 
+      text-shadow: 0 2px 4px rgba(234, 88, 12, 0.05); 
     }
     .expiry-text { 
       font-size: 13px; 
-      color: #fdba74; 
+      color: #c2410c; 
       font-weight: 600; 
       margin-top: 10px; 
     }
     .security-warning { 
-      background-color: rgba(245, 158, 11, 0.1); 
+      background-color: #fffbeb; 
       border-left: 4px solid #f59e0b; 
       padding: 14px 18px; 
       border-radius: 8px; 
       font-size: 13px; 
-      color: #f59e0b; 
+      color: #b45309; 
       margin-top: 32px; 
       line-height: 1.5; 
     }
     .footer { 
-      background-color: #0b0f19; 
+      background-color: #f8fafc; 
       padding: 28px 32px; 
       text-align: center; 
       font-size: 12px; 
       color: #64748b; 
-      border-top: 1px solid #1e293b; 
+      border-top: 1px solid #e2e8f0; 
       line-height: 1.6; 
     }
     .footer p { 
       margin: 6px 0; 
+    }
+    .footer a { 
+      color: #ea580c; 
+      text-decoration: underline; 
+      font-weight: 600; 
+    }
+
+    /* Dark Mode (Respect User Preferences) */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #0b0f19 !important;
+        color: #cbd5e1 !important;
+      }
+      .container {
+        background-color: #0f172a !important;
+        border-color: #1e293b !important;
+        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3) !important;
+      }
+      .header {
+        background-color: #0f172a !important;
+        border-bottom-color: #ea580c !important;
+      }
+      .header-title {
+        color: #ffffff !important;
+      }
+      .header-tag {
+        color: #94a3b8 !important;
+      }
+      .content {
+        color: #cbd5e1 !important;
+      }
+      .greeting {
+        color: #ffffff !important;
+      }
+      .info-text {
+        color: #cbd5e1 !important;
+      }
+      .code-container {
+        background-color: #1e293b !important;
+        border-color: #ea580c !important;
+      }
+      .expiry-text {
+        color: #fdba74 !important;
+      }
+      .security-warning {
+        background-color: rgba(245, 158, 11, 0.1) !important;
+        border-left-color: #f59e0b !important;
+        color: #f59e0b !important;
+      }
+      .footer {
+        background-color: #0b0f19 !important;
+        border-top-color: #1e293b !important;
+        color: #64748b !important;
+      }
     }
   </style>
 </head>
@@ -4678,22 +4738,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <style>
+    :root {
+      color-scheme: light dark;
+      supported-color-schemes: light dark;
+    }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
       background-color: #f4f6fa; 
-      color: #1e293b; 
+      color: #334155; 
       margin: 0; 
       padding: 0; 
     }
     .container { 
       max-width: 500px; 
       margin: 40px auto; 
-      background-color: #0f172a; 
+      background-color: #ffffff; 
       border-radius: 24px; 
-      border: 1px solid #1e293b; 
+      border: 1px solid #e2e8f0; 
       overflow: hidden; 
-      box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3); 
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); 
     }
     .header { 
       background-color: #ffffff; 
@@ -4735,7 +4801,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       padding: 40px 32px; 
       line-height: 1.7; 
       font-size: 15px; 
-      color: #cbd5e1; 
+      color: #334155; 
       text-align: left;
     }
     .content p { 
@@ -4761,28 +4827,70 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
     .url-text { 
       font-size: 12px; 
-      color: #94a3b8; 
+      color: #64748b; 
       word-break: break-all; 
-      background-color: #1e293b; 
-      border: 1px solid #1e293b; 
+      background-color: #f8fafc; 
+      border: 1px solid #e2e8f0; 
       border-radius: 12px; 
       padding: 14px; 
       margin-top: 32px; 
       line-height: 1.5; 
     }
     .footer { 
-      background-color: #0b0f19; 
+      background-color: #f8fafc; 
       padding: 28px 32px; 
       text-align: center; 
       font-size: 12px; 
       color: #64748b; 
-      border-top: 1px solid #1e293b; 
+      border-top: 1px solid #e2e8f0; 
       line-height: 1.6; 
+    }
+    .footer p { 
+      margin: 6px 0; 
     }
     .footer a { 
       color: #ea580c; 
       text-decoration: underline; 
       font-weight: 600; 
+    }
+
+    /* Dark Mode (Respect User Preferences) */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #0b0f19 !important;
+        color: #cbd5e1 !important;
+      }
+      .container {
+        background-color: #0f172a !important;
+        border-color: #1e293b !important;
+        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3) !important;
+      }
+      .header {
+        background-color: #0f172a !important;
+        border-bottom-color: #ea580c !important;
+      }
+      .header-title {
+        color: #ffffff !important;
+      }
+      .header-tag {
+        color: #94a3b8 !important;
+      }
+      .content {
+        color: #cbd5e1 !important;
+      }
+      #reset-greeting {
+        color: #ffffff !important;
+      }
+      .url-text {
+        background-color: #1e293b !important;
+        border-color: #1e293b !important;
+        color: #cbd5e1 !important;
+      }
+      .footer {
+        background-color: #0b0f19 !important;
+        border-top-color: #1e293b !important;
+        color: #64748b !important;
+      }
     }
   </style>
 </head>
@@ -4802,7 +4910,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       </table>
     </div>
     <div class="content">
-      <p style="font-size: 18px; font-weight: 800; color: #ffffff; margin-bottom: 24px;">Hello,</p>
+      <p style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 24px;" id="reset-greeting">Hello,</p>
       <p>We received a request to reset the password for your TedBuy account. Click the button below to choose a secure new password:</p>
       
       <div class="btn-container">
@@ -4950,22 +5058,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
   <style>
+    :root {
+      color-scheme: light dark;
+      supported-color-schemes: light dark;
+    }
     body { 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
       background-color: #f4f6fa; 
-      color: #1e293b; 
+      color: #334155; 
       margin: 0; 
       padding: 0; 
     }
     .container { 
       max-width: 500px; 
       margin: 40px auto; 
-      background-color: #0f172a; 
+      background-color: #ffffff; 
       border-radius: 24px; 
-      border: 1px solid #1e293b; 
+      border: 1px solid #e2e8f0; 
       overflow: hidden; 
-      box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3); 
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); 
     }
     .header { 
       background-color: #ffffff; 
@@ -5007,7 +5121,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       padding: 40px 32px; 
       line-height: 1.7; 
       font-size: 15px; 
-      color: #cbd5e1; 
+      color: #334155; 
       text-align: left;
     }
     .content p { 
@@ -5015,18 +5129,58 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       margin-bottom: 22px; 
     }
     .footer { 
-      background-color: #0b0f19; 
+      background-color: #f8fafc; 
       padding: 28px 32px; 
       text-align: center; 
       font-size: 12px; 
       color: #64748b; 
-      border-top: 1px solid #1e293b; 
+      border-top: 1px solid #e2e8f0; 
       line-height: 1.6; 
+    }
+    .footer p { 
+      margin: 6px 0; 
     }
     .footer a { 
       color: #ea580c; 
       text-decoration: underline; 
       font-weight: 600; 
+    }
+
+    /* Dark Mode (Respect User Preferences) */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #0b0f19 !important;
+        color: #cbd5e1 !important;
+      }
+      .container {
+        background-color: #0f172a !important;
+        border-color: #1e293b !important;
+        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3) !important;
+      }
+      .header {
+        background-color: #0f172a !important;
+        border-bottom-color: #ea580c !important;
+      }
+      .header-title {
+        color: #ffffff !important;
+      }
+      .header-tag {
+        color: #94a3b8 !important;
+      }
+      .content {
+        color: #cbd5e1 !important;
+      }
+      .content p {
+        color: #cbd5e1 !important;
+      }
+      .greeting-welcome {
+        color: #ffffff !important;
+      }
+      .footer {
+        background-color: #0b0f19 !important;
+        border-top-color: #1e293b !important;
+        color: #64748b !important;
+      }
     }
   </style>
 </head>
@@ -5046,7 +5200,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       </table>
     </div>
     <div class="content">
-      <p style="font-size: 18px; font-weight: 800; color: #ffffff; margin-bottom: 24px;">Hi ${escapedName},</p>
+      <p style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 24px;" class="greeting-welcome">Hi ${escapedName},</p>
       
       <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.</p>
 
@@ -5056,7 +5210,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       
       <p style="margin-top: 40px; line-height: 1.5; font-size: 14px;">
         Gratefully yours,<br/><br/>
-        <strong style="font-size: 16px; color: #ffffff;">TedBuy Support</strong>
+        <strong style="font-size: 16px; color: #0f172a;" class="greeting-welcome">TedBuy Support</strong>
       </p>
     </div>
     <div class="footer">
