@@ -468,7 +468,14 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
     .upsert(payload);
 
   if (error) {
-    console.error(`[Supabase setDoc] Error setting row in table ${table} for id ${id}:`, error);
+    console.warn(`[Supabase setDoc Warning] Error setting row in table ${table} for id ${id}:`, error?.message || error);
+    try {
+      console.log(`[Supabase Fallback] Redirecting setDoc write to native Firestore for resilience...`);
+      await fsSetDoc(fsDoc(fsDb, parts[0], id), data, options);
+      return;
+    } catch (fsErr: any) {
+      console.warn('[Supabase Fallback Error] Firestore fallback setDoc failed:', fsErr?.message || fsErr);
+    }
     throw error;
   }
 }
@@ -526,7 +533,14 @@ export async function updateDoc(docRef: any, data: any): Promise<void> {
     .eq('id', id);
 
   if (error) {
-    console.error(`[Supabase updateDoc] Error updating row in table ${table} for id ${id}:`, error);
+    console.warn(`[Supabase updateDoc Warning] Error updating row in table ${table} for id ${id}:`, error?.message || error);
+    try {
+      console.log(`[Supabase Fallback] Redirecting updateDoc write to native Firestore for resilience...`);
+      await fsUpdateDoc(fsDoc(fsDb, parts[0], id), data);
+      return;
+    } catch (fsErr: any) {
+      console.warn('[Supabase Fallback Error] Firestore fallback updateDoc failed:', fsErr?.message || fsErr);
+    }
     throw error;
   }
 }
@@ -546,7 +560,14 @@ export async function deleteDoc(docRef: any): Promise<void> {
     .eq('id', id);
 
   if (error) {
-    console.error(`[Supabase deleteDoc] Error deleting row from table ${table} for id ${id}:`, error);
+    console.warn(`[Supabase deleteDoc Warning] Error deleting row from table ${table} for id ${id}:`, error?.message || error);
+    try {
+      console.log(`[Supabase Fallback] Redirecting deleteDoc write to native Firestore for resilience...`);
+      await fsDeleteDoc(fsDoc(fsDb, parts[0], id));
+      return;
+    } catch (fsErr: any) {
+      console.warn('[Supabase Fallback Error] Firestore fallback deleteDoc failed:', fsErr?.message || fsErr);
+    }
     throw error;
   }
 }

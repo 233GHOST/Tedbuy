@@ -4573,7 +4573,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         if (error) throw error;
         console.log('[Admin Suspend] Supabase sync completed.');
       } catch (sbErr) {
-        console.error('[Admin Suspend] Supabase sync failed:', sbErr);
+        console.warn('[Admin Suspend] Supabase sync failed:', sbErr);
       }
     }
 
