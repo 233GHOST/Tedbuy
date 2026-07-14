@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS public.users (
     "authProvider" TEXT,
     "isAdmin" BOOLEAN DEFAULT false,
     "welcomeSent" BOOLEAN DEFAULT false,
+    "isSuspended" BOOLEAN DEFAULT false,
     "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -180,3 +181,8 @@ GRANT ALL ON TABLE public.store_names TO anon, authenticated, service_role;
 GRANT ALL ON TABLE public.boost_purchases TO anon, authenticated, service_role;
 
 -- Done! You're ready to go. Run this in your Supabase SQL editor.
+--
+-- UPGRADE SCRIPTS FOR EXISTING DEPLOYMENTS:
+-- If your users table already exists, run this query in your Supabase SQL Editor:
+-- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "isSuspended" BOOLEAN DEFAULT false;
+
