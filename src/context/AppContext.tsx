@@ -3385,9 +3385,21 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       return existingChat.id;
     }
 
+    const getCategoryPlaceholder = (categoryName: string) => {
+      const cat = categoryName ? categoryName.toLowerCase() : '';
+      if (cat.includes('phone') || cat.includes('mobile')) return 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=120&q=80';
+      if (cat.includes('laptop') || cat.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=120&q=80';
+      if (cat.includes('fashion') || cat.includes('wear') || cat.includes('clothes') || cat.includes('bag')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=120&q=80';
+      if (cat.includes('vehicle') || cat.includes('car')) return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=120&q=80';
+      if (cat.includes('beauty') || cat.includes('care')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=120&q=80';
+      if (cat.includes('game') || cat.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=120&q=80';
+      if (cat.includes('appliance') || cat.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=120&q=80';
+      return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=120&q=80';
+    };
+
     const chatId = `chat_${currentUser.id}_${product.sellerId}_${product.id}_${Date.now()}`;
     const initialAdType: 'image' | 'video' = (product.videos && product.videos.length > 0) ? 'video' : 'image';
-    const initialProductImage = product.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80';
+    const initialProductImage = product.images?.[0] || getCategoryPlaceholder(product.category);
 
     const newChat: Chat = {
       id: chatId,

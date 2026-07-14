@@ -9,6 +9,18 @@ import { auth } from '../firebase';
 import { isBoostActive, parseDate } from '../utils/dateParser';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 
+const getCategoryPlaceholder = (categoryName: string) => {
+  const cat = categoryName ? categoryName.toLowerCase() : '';
+  if (cat.includes('phone') || cat.includes('mobile')) return 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=600&q=80';
+  if (cat.includes('laptop') || cat.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80';
+  if (cat.includes('fashion') || cat.includes('wear') || cat.includes('clothes') || cat.includes('bag')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=600&q=80';
+  if (cat.includes('vehicle') || cat.includes('car')) return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
+  if (cat.includes('beauty') || cat.includes('care')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=600&q=80';
+  if (cat.includes('game') || cat.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80';
+  if (cat.includes('appliance') || cat.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=600&q=80';
+  return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+};
+
 export const ProductDetail: React.FC = () => {
   const {
     products,
@@ -224,7 +236,7 @@ export const ProductDetail: React.FC = () => {
       updateMetaTag('meta[property="og:description"]', 'property', 'og:description', product.description || `Check out this classified deal under ${product.category}.`);
       updateMetaTag('meta[property="og:url"]', 'property', 'og:url', window.location.href);
 
-      const mainImg = product.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+      const mainImg = product.images?.[0] || getCategoryPlaceholder(product.category);
       updateMetaTag('meta[property="og:image"]', 'property', 'og:image', mainImg);
       updateMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', mainImg);
       updateMetaTag('meta[property="og:type"]', 'property', 'og:type', 'product');
@@ -703,13 +715,13 @@ export const ProductDetail: React.FC = () => {
             ) : (
               <div className="relative w-full h-full flex items-center justify-center">
                 <img
-                  src={mediaGallery[activeMediaIdx]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80'}
+                  src={mediaGallery[activeMediaIdx]?.url || getCategoryPlaceholder(product.category)}
                   alt={product.title}
                   referrerPolicy="no-referrer"
                   loading="lazy"
                   className="max-w-full max-h-full object-contain transition duration-500 group-hover/media:scale-[1.03]"
                   onError={(e) => {
-                    e.currentTarget.src = 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
+                    e.currentTarget.src = getCategoryPlaceholder(product.category);
                   }}
                 />
                 {/* Clean, centered Tedbuy Watermark Overlay */}

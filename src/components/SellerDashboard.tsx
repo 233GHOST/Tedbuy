@@ -6,6 +6,18 @@ import { Product, Category } from '../types';
 import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play, Sparkles, Clock } from 'lucide-react';
 import { isBoostActive, parseDate } from '../utils/dateParser';
 
+const getCategoryPlaceholder = (categoryName: string) => {
+  const cat = categoryName ? categoryName.toLowerCase() : '';
+  if (cat.includes('phone') || cat.includes('mobile')) return 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=120&q=80';
+  if (cat.includes('laptop') || cat.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=120&q=80';
+  if (cat.includes('fashion') || cat.includes('wear') || cat.includes('clothes') || cat.includes('bag')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=120&q=80';
+  if (cat.includes('vehicle') || cat.includes('car')) return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=120&q=80';
+  if (cat.includes('beauty') || cat.includes('care')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=120&q=80';
+  if (cat.includes('game') || cat.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=120&q=80';
+  if (cat.includes('appliance') || cat.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=120&q=80';
+  return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=120&q=80';
+};
+
 export const SellerDashboard: React.FC = () => {
   const {
     currentUser,
@@ -287,7 +299,7 @@ export const SellerDashboard: React.FC = () => {
                       </div>
                     ) : (
                       <img
-                        src="https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80"
+                        src={getCategoryPlaceholder(prod.category)}
                         alt={prod.title}
                         className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
                       />
@@ -457,7 +469,7 @@ export const SellerDashboard: React.FC = () => {
                       </div>
                     ) : (
                       <img
-                        src="https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=120&q=80"
+                        src={getCategoryPlaceholder(prod.category)}
                         alt={prod.title}
                         className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
                       />
