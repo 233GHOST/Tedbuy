@@ -501,6 +501,56 @@ async function getGCPMetadataToken() {
   return null;
 }
 
+function parseFirestoreDocument(doc: any): any {
+  if (!doc || !doc.fields) return null;
+  const fields = doc.fields;
+  const result: any = {};
+  
+  const parseVal = (val: any): any => {
+    if (!val) return undefined;
+    if ('stringValue' in val) return val.stringValue;
+    if ('integerValue' in val) return parseInt(val.integerValue, 10);
+    if ('doubleValue' in val) return parseFloat(val.doubleValue);
+    if ('booleanValue' in val) return val.booleanValue;
+    if ('arrayValue' in val) {
+      const arr = val.arrayValue?.values || [];
+      return arr.map((sub: any) => parseVal(sub));
+    }
+    if ('mapValue' in val) {
+      const mapFields = val.mapValue?.fields || {};
+      const mapResult: any = {};
+      for (const k of Object.keys(mapFields)) {
+        mapResult[k] = parseVal(mapFields[k]);
+      }
+      return mapResult;
+    }
+    return undefined;
+  };
+
+  for (const key of Object.keys(fields)) {
+    result[key] = parseVal(fields[key]);
+  }
+
+  const nameParts = doc.name ? doc.name.split('/') : [];
+  const id = nameParts[nameParts.length - 1] || '';
+  result.id = id;
+  return result;
+}
+
+async function getProductFromFirestoreREST(productId: string): Promise<any> {
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      const doc = await res.json();
+      return parseFirestoreDocument(doc);
+    }
+  } catch (err) {
+    console.warn(`[Firestore REST] Failed to fetch product ${productId} from Firestore:`, err);
+  }
+  return null;
+}
+
 // REST API helper to fetch product info directly from Firestore
 async function getProductData(productId: string, bypassListCache: boolean = false) {
   const now = Date.now();
@@ -585,6 +635,7 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
   }
 
   try {
+    let rawProduct: any = null;
     if (backendSupabase) {
       console.log(`[Meta Crawler] Fetching product ${productId} via Supabase`);
       const { data, error } = await backendSupabase
@@ -594,103 +645,33 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
         .maybeSingle();
 
       if (!error && data) {
-        const title = data.title || '';
-        const description = data.description || '';
-        const priceValue = data.price || 'Negotiable';
-        const images = Array.isArray(data.images) ? data.images : [];
-        const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
-
-        const result = {
-          title,
-          description,
-          price: priceValue,
-          image: primaryImage,
-          images: data.images || [],
-          category: data.category || ''
-        };
-        productDataCache.set(productId, { data: result, timestamp: now });
-        return result;
+        rawProduct = data;
       }
-    } else {
-      console.log(`[Meta Crawler] Fetching product ${productId} via Firestore natively...`);
-      if (adminDb) {
-        try {
-          const docRef = adminDb.collection('products').doc(productId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            const data = docSnap.data();
-            const title = data.title || '';
-            const description = data.description || '';
-            const priceValue = data.price || 'Negotiable';
-            const images = Array.isArray(data.images) ? data.images : [];
-            const primaryImage = images[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
-            
-            const result = {
-              title,
-              description,
-              price: priceValue,
-              image: primaryImage,
-              images,
-              category: data.category || ''
-            };
-            productDataCache.set(productId, { data: result, timestamp: now });
-            return result;
-          }
-        } catch (adminErr: any) {
-          console.warn(`[Meta Crawler] Failed to fetch product ${productId} from Firestore via Admin SDK:`, adminErr.message || adminErr);
-        }
-      }
+    }
 
-      // REST fallback
-      try {
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
-        const response = await fetch(firestoreUrl);
-        if (response.ok) {
-          const doc = await response.json();
-          const fields = doc.fields || {};
-          
-          const parseVal = (val: any): any => {
-            if (!val) return undefined;
-            if ('stringValue' in val) return val.stringValue;
-            if ('integerValue' in val) return parseInt(val.integerValue, 10);
-            if ('doubleValue' in val) return parseFloat(val.doubleValue);
-            if ('booleanValue' in val) return val.booleanValue;
-            if ('arrayValue' in val) {
-              const arr = val.arrayValue?.values || [];
-              return arr.map((sub: any) => parseVal(sub));
-            }
-            if ('mapValue' in val) {
-              const mapFields = val.mapValue?.fields || {};
-              const mapResult: any = {};
-              for (const k of Object.keys(mapFields)) {
-                mapResult[k] = parseVal(mapFields[k]);
-              }
-              return mapResult;
-            }
-            return undefined;
-          };
+    if (!rawProduct) {
+      console.log(`[Meta Crawler Fallback] Fetching product ${productId} from Firestore REST`);
+      rawProduct = await getProductFromFirestoreREST(productId);
+    }
 
-          const title = fields.title ? parseVal(fields.title) : '';
-          const description = fields.description ? parseVal(fields.description) : '';
-          const priceValue = fields.price ? parseVal(fields.price) : 'Negotiable';
-          const images = fields.images ? parseVal(fields.images) : [];
-          const category = fields.category ? parseVal(fields.category) : '';
-          const primaryImage = Array.isArray(images) && images.length > 0 ? images[0] : 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=400&q=80';
+    if (rawProduct) {
+      const title = rawProduct.title || '';
+      const description = rawProduct.description || '';
+      const priceValue = rawProduct.price || 'Negotiable';
+      const images = Array.isArray(rawProduct.images) ? rawProduct.images : [];
+      // Default to empty string instead of hardcoded Unsplash fallback images
+      const primaryImage = images[0] || '';
 
-          const result = {
-            title,
-            description,
-            price: priceValue,
-            image: primaryImage,
-            images: Array.isArray(images) ? images : [],
-            category
-          };
-          productDataCache.set(productId, { data: result, timestamp: now });
-          return result;
-        }
-      } catch (restErr: any) {
-        console.warn(`[Meta Crawler] Failed to fetch product ${productId} from Firestore via REST:`, restErr.message || restErr);
-      }
+      const result = {
+        title,
+        description,
+        price: priceValue,
+        image: primaryImage,
+        images: rawProduct.images || [],
+        category: rawProduct.category || ''
+      };
+      productDataCache.set(productId, { data: result, timestamp: now });
+      return result;
     }
     
     productDataCache.set(productId, { data: null, timestamp: now });
@@ -2043,105 +2024,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       }
-    } else {
-      // Fetch natively from Firestore for products list
-      if (adminDb) {
-        try {
-          console.log(`[Products Data] Fetching products from Firestore via Admin SDK...`);
-          const snapshot = await adminDb.collection('products')
-            .orderBy('createdAt', 'desc')
-            .limit(300)
-            .get();
-          if (!snapshot.empty) {
-            snapshot.forEach((doc: any) => {
-              productsList.push({ id: doc.id, ...doc.data() });
-            });
-            console.log(`[Products Data] Successfully fetched ${productsList.length} products from Firestore via Admin SDK!`);
-          }
-        } catch (adminErr: any) {
-          console.warn(`[Products Data] Admin SDK fetch failed, falling back to REST:`, adminErr.message || adminErr);
-        }
-      }
-
-      // REST fallback
-      if (productsList.length === 0) {
-        try {
-          console.log(`[Products Data] Fetching products from Firestore via REST API...`);
-          const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-          const response = await fetch(firestoreUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              structuredQuery: {
-                from: [
-                  {
-                    collectionId: 'products',
-                    allDescendants: false
-                  }
-                ],
-                orderBy: [
-                  {
-                    field: { fieldPath: 'createdAt' },
-                    direction: 'DESCENDING'
-                  }
-                ],
-                limit: 300
-              }
-            })
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const results = Array.isArray(data) ? data : [];
-            const parseVal = (val: any): any => {
-              if (!val) return undefined;
-              if ('stringValue' in val) return val.stringValue;
-              if ('integerValue' in val) return parseInt(val.integerValue, 10);
-              if ('doubleValue' in val) return parseFloat(val.doubleValue);
-              if ('booleanValue' in val) return val.booleanValue;
-              if ('arrayValue' in val) {
-                const arr = val.arrayValue?.values || [];
-                return arr.map((sub: any) => parseVal(sub));
-              }
-              if ('mapValue' in val) {
-                const mapFields = val.mapValue?.fields || {};
-                const mapResult: any = {};
-                for (const k of Object.keys(mapFields)) {
-                  mapResult[k] = parseVal(mapFields[k]);
-                }
-                return mapResult;
-              }
-              return undefined;
-            };
-
-            productsList = results
-              .filter((item: any) => item && item.document)
-              .map((item: any) => {
-                const doc = item.document;
-                const fields = doc.fields || {};
-                const docId = doc.name ? doc.name.split('/').pop() : '';
-                const result: any = { id: docId };
-                for (const k of Object.keys(fields)) {
-                  result[k] = parseVal(fields[k]);
-                }
-                return result;
-              });
-            console.log(`[Products Data] Successfully fetched ${productsList.length} products from Firestore via REST!`);
-          }
-        } catch (restErr: any) {
-          console.error(`[Products Data] Firestore REST fetch failed:`, restErr.message || restErr);
-        }
-      }
-
-      // Format Firestore fetched list images & videos
-      productsList = productsList.map((row: any) => ({
-        ...row,
-        images: [`/api/products/${row.id}/image.jpg`],
-        videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
-        thumbnail: undefined
-      }));
     }
 
     // Process the products list (runtime expiration, priority scores, extra sorting fields)
@@ -2382,61 +2264,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       } catch (sbErr: any) {
         console.warn(`[Supabase Server] Fetch product ${productId} failed:`, sbErr?.message || sbErr);
       }
-    } else {
-      if (adminDb) {
-        try {
-          console.log(`[Firestore Server] Fetching product ${productId} via Admin SDK...`);
-          const docRef = adminDb.collection('products').doc(productId);
-          const docSnap = await docRef.get();
-          if (docSnap.exists) {
-            return { id: docSnap.id, ...docSnap.data() };
-          }
-        } catch (adminErr: any) {
-          console.warn(`[Firestore Server] Admin SDK fetch product ${productId} failed:`, adminErr.message || adminErr);
-        }
-      }
-
-      // REST fallback
-      try {
-        console.log(`[Firestore Server] Fetching product ${productId} via REST API fallback...`);
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
-        const response = await fetch(firestoreUrl);
-        if (response.ok) {
-          const doc = await response.json();
-          const fields = doc.fields || {};
-          
-          const parseVal = (val: any): any => {
-            if (!val) return undefined;
-            if ('stringValue' in val) return val.stringValue;
-            if ('integerValue' in val) return parseInt(val.integerValue, 10);
-            if ('doubleValue' in val) return parseFloat(val.doubleValue);
-            if ('booleanValue' in val) return val.booleanValue;
-            if ('arrayValue' in val) {
-              const arr = val.arrayValue?.values || [];
-              return arr.map((sub: any) => parseVal(sub));
-            }
-            if ('mapValue' in val) {
-              const mapFields = val.mapValue?.fields || {};
-              const mapResult: any = {};
-              for (const k of Object.keys(mapFields)) {
-                mapResult[k] = parseVal(mapFields[k]);
-              }
-              return mapResult;
-            }
-            return undefined;
-          };
-
-          const result: any = { id: productId };
-          for (const k of Object.keys(fields)) {
-            result[k] = parseVal(fields[k]);
-          }
-          return result;
-        }
-      } catch (restErr: any) {
-        console.warn(`[Firestore Server] REST API fetch product ${productId} failed:`, restErr.message || restErr);
-      }
     }
-    return null;
+    // Fallback: Fetch directly from Firestore REST!
+    console.log(`[Firestore Fallback] Fetching product ${productId} from Firestore REST...`);
+    return await getProductFromFirestoreREST(productId);
   }
 
   async function updateProductFirestoreREST(productId: string, updatedFields: any, customAuthToken?: string) {
@@ -2453,67 +2284,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           .eq('id', productId);
         if (!error) {
           console.log(`[Supabase Server] Successfully updated product ${productId}`);
-          return { name: `projects/${productId}/databases/(default)/documents/products/${productId}` };
+          return { name: `projects/${projectId}/databases/(default)/documents/products/${productId}` };
         }
         throw error;
       } catch (sbErr: any) {
         console.warn(`[Supabase Server] Failed to update product ${productId} in Supabase:`, sbErr?.message || sbErr);
-      }
-    } else {
-      if (adminDb) {
-        try {
-          console.log(`[Firestore Server] Updating product ${productId} via Admin SDK...`);
-          const docRef = adminDb.collection('products').doc(productId);
-          await docRef.update(updatedFields);
-          return { name: `projects/${productId}/databases/(default)/documents/products/${productId}` };
-        } catch (adminErr: any) {
-          console.warn(`[Firestore Server] Admin SDK update product ${productId} failed:`, adminErr.message || adminErr);
-        }
-      }
-
-      // REST fallback
-      try {
-        console.log(`[Firestore Server] Updating product ${productId} via REST API fallback...`);
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}?updateMask.fieldPaths=${Object.keys(updatedFields).join('&updateMask.fieldPaths=')}${apiKey ? `&key=${apiKey}` : ""}`;
-        
-        const buildValue = (val: any): any => {
-          if (val === undefined || val === null) return { nullValue: null };
-          if (typeof val === 'string') return { stringValue: val };
-          if (typeof val === 'number') {
-            if (Number.isInteger(val)) return { integerValue: String(val) };
-            return { doubleValue: val };
-          }
-          if (typeof val === 'boolean') return { booleanValue: val };
-          if (Array.isArray(val)) {
-            return { arrayValue: { values: val.map(sub => buildValue(sub)) } };
-          }
-          if (typeof val === 'object') {
-            const mapFields: any = {};
-            for (const k of Object.keys(val)) {
-              mapFields[k] = buildValue(val[k]);
-            }
-            return { mapValue: { fields: mapFields } };
-          }
-          return { nullValue: null };
-        };
-
-        const fields: any = {};
-        for (const k of Object.keys(updatedFields)) {
-          fields[k] = buildValue(updatedFields[k]);
-        }
-
-        const response = await fetch(firestoreUrl, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ fields })
-        });
-        if (response.ok) {
-          return await response.json();
-        }
-      } catch (restErr: any) {
-        console.warn(`[Firestore Server] REST API update product ${productId} failed:`, restErr.message || restErr);
       }
     }
     return null;
@@ -2536,77 +2311,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           });
         if (!error) {
           console.log('[Supabase Server] Successfully saved boost purchase record.');
-          return { name: `projects/${projectId}/databases/(default)/documents/boost_purchases/${purchaseData.id}` };
+          return;
         }
         throw error;
       } catch (sbErr: any) {
         console.warn('[Supabase Server] Creating boost purchase in Supabase failed:', sbErr?.message || sbErr);
       }
-    } else {
-      const id = purchaseData.id || `boost_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-      const payload = {
-        ...purchaseData,
-        id,
-        currency: purchaseData.currency || 'GHS',
-        createdAt: purchaseData.createdAt || new Date().toISOString()
-      };
-
-      if (adminDb) {
-        try {
-          console.log(`[Firestore Server] Creating boost purchase ${id} via Admin SDK...`);
-          await adminDb.collection('boost_purchases').doc(id).set(payload);
-          return { name: `projects/${projectId}/databases/(default)/documents/boost_purchases/${id}` };
-        } catch (adminErr: any) {
-          console.warn(`[Firestore Server] Admin SDK create boost purchase failed:`, adminErr.message || adminErr);
-        }
-      }
-
-      // REST fallback
-      try {
-        console.log(`[Firestore Server] Creating boost purchase ${id} via REST API fallback...`);
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/boost_purchases/${id}${apiKey ? `?key=${apiKey}` : ""}`;
-        
-        const buildValue = (val: any): any => {
-          if (val === undefined || val === null) return { nullValue: null };
-          if (typeof val === 'string') return { stringValue: val };
-          if (typeof val === 'number') {
-            if (Number.isInteger(val)) return { integerValue: String(val) };
-            return { doubleValue: val };
-          }
-          if (typeof val === 'boolean') return { booleanValue: val };
-          if (Array.isArray(val)) {
-            return { arrayValue: { values: val.map(sub => buildValue(sub)) } };
-          }
-          if (typeof val === 'object') {
-            const mapFields: any = {};
-            for (const k of Object.keys(val)) {
-              mapFields[k] = buildValue(val[k]);
-            }
-            return { mapValue: { fields: mapFields } };
-          }
-          return { nullValue: null };
-        };
-
-        const fields: any = {};
-        for (const k of Object.keys(payload)) {
-          fields[k] = buildValue(payload[k]);
-        }
-
-        const response = await fetch(firestoreUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ fields })
-        });
-        if (response.ok) {
-          return await response.json();
-        }
-      } catch (restErr: any) {
-        console.warn(`[Firestore Server] REST API create boost purchase failed:`, restErr.message || restErr);
-      }
     }
-    return null;
   }
 
   // Safe helper to verify administrator privileges by verifying JWT tokens or querying user settings from Firestore.
@@ -5818,6 +5529,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
+  function serveTransparentPixel(res: express.Response) {
+    const transparentPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=10');
+    return res.send(transparentPng);
+  }
+
   function getCategoryFallbackUrl(cat: string): string {
     if (!cat) return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
     const lower = cat.toLowerCase();
@@ -5963,11 +5681,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const fallbackUrl = getCategoryFallbackUrl(category);
     
     if (!originalBuffer && !productId && !queryImageUrl) {
-      return res.redirect(fallbackUrl);
+      return serveTransparentPixel(res);
     }
     
     if (!originalBuffer && !imageUrl) {
-      return res.redirect(fallbackUrl);
+      return serveTransparentPixel(res);
     }
     
     if (!originalBuffer && imageUrl && imageUrl.startsWith('data:')) {
@@ -5978,7 +5696,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           
           const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
           if (!allowedMimes.includes(originalMimeType.toLowerCase())) {
-            return res.redirect(fallbackUrl);
+            return serveTransparentPixel(res);
           }
           
           const base64Data = parts[1];
@@ -6015,7 +5733,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           
           const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
           if (!allowedMimes.includes(originalMimeType.toLowerCase())) {
-            return res.redirect(fallbackUrl);
+            return serveTransparentPixel(res);
           }
 
           originalBuffer = Buffer.from(await imageRes.arrayBuffer());
@@ -6037,7 +5755,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     if (!originalBuffer) {
-      return res.redirect(fallbackUrl);
+      return serveTransparentPixel(res);
     }
 
     // 6. DYNAMICALLY OPTIMIZE USING SHARP ENGINE!

@@ -1051,7 +1051,7 @@ const MarketplaceContent: React.FC = () => {
                           >
                             <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-slate-100 border border-slate-150 shrink-0">
                               <img
-                                src={product.images?.[0] || 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=120&q=80'}
+                                src={product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
                                 alt=""
                                 loading="lazy"
                                 decoding="async"

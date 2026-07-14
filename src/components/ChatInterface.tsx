@@ -139,20 +139,6 @@ export const ChatInterface: React.FC = () => {
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const getProductCategoryPlaceholder = (productId: string) => {
-    const prod = products.find(p => p.id === productId);
-    const categoryName = prod ? prod.category : '';
-    const cat = categoryName ? categoryName.toLowerCase() : '';
-    if (cat.includes('phone') || cat.includes('mobile')) return 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=120&q=80';
-    if (cat.includes('laptop') || cat.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=120&q=80';
-    if (cat.includes('fashion') || cat.includes('wear') || cat.includes('clothes') || cat.includes('bag')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=120&q=80';
-    if (cat.includes('vehicle') || cat.includes('car')) return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=120&q=80';
-    if (cat.includes('beauty') || cat.includes('care')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=120&q=80';
-    if (cat.includes('game') || cat.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=120&q=80';
-    if (cat.includes('appliance') || cat.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=120&q=80';
-    return 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=120&q=80';
-  };
-
   // Dynamic virtualized viewport tracking states
   const viewportRef = useRef<HTMLDivElement>(null);
   const [scrollState, setScrollState] = useState({ scrollTop: 0, clientHeight: 0 });
@@ -517,7 +503,7 @@ export const ChatInterface: React.FC = () => {
 
                       return (
                         <img
-                          src={thumbnail || getProductCategoryPlaceholder(chat.productId)}
+                          src={thumbnail || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
                           alt={chat.productTitle}
                           className="w-12 h-12 rounded-xl object-cover border border-slate-150 shrink-0"
                         />
@@ -660,7 +646,7 @@ export const ChatInterface: React.FC = () => {
 
                       return (
                         <img
-                          src={activeThumbnail || getProductCategoryPlaceholder(activeChat.productId)}
+                          src={activeThumbnail || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
                           alt={activeChat.productTitle}
                           onClick={viewProductDetails}
                           className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
