@@ -719,7 +719,9 @@ function injectMetaTags(html: string, product: { title: string; description: str
   
   let absoluteVideoUrl = '';
   if (rawVideoUrl) {
-    if (rawVideoUrl.startsWith('http://') || rawVideoUrl.startsWith('https://')) {
+    if (rawVideoUrl.startsWith('data:')) {
+      absoluteVideoUrl = `${protocol}://${host}/api/products/${productId}/video.mp4`;
+    } else if (rawVideoUrl.startsWith('http://') || rawVideoUrl.startsWith('https://')) {
       absoluteVideoUrl = rawVideoUrl;
     } else if (rawVideoUrl.startsWith('/')) {
       absoluteVideoUrl = `${protocol}://${host}${rawVideoUrl}`;
@@ -769,7 +771,7 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
-    <meta property="og:type" content="product" />
+    <meta property="og:type" content="${absoluteVideoUrl ? 'video.other' : 'product'}" />
     <meta property="og:site_name" content="TedBuy Ghana" />
     <meta property="og:locale" content="en_GH" />
     ${absoluteVideoUrl ? `
@@ -785,9 +787,11 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta name="twitter:description" content="${escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(image)}" />
     ${absoluteVideoUrl ? `
-    <meta name="twitter:player" content="${escapeHtml(absoluteVideoUrl)}" />
+    <meta name="twitter:player" content="${escapeHtml(canonicalUrl)}" />
     <meta name="twitter:player:width" content="640" />
     <meta name="twitter:player:height" content="1136" />
+    <meta name="twitter:player:stream" content="${escapeHtml(absoluteVideoUrl)}" />
+    <meta name="twitter:player:stream:content_type" content="video/mp4" />
     ` : ''}
     <!-- Additional Schema.org fallback for general platform scrapers -->
     <meta itemprop="name" content="${escapeHtml(title)}">

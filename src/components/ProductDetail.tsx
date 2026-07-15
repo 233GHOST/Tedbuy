@@ -237,24 +237,34 @@ export const ProductDetail: React.FC = () => {
       updateMetaTag('meta[property="og:url"]', 'property', 'og:url', window.location.href);
 
       const hasVideo = product.videos && product.videos.length > 0;
-      const mainImg = (hasVideo && product.videos?.[0]) 
-        ? product.videos[0] 
-        : (product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+      const mainImg = (product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
 
       updateMetaTag('meta[property="og:image"]', 'property', 'og:image', mainImg);
       updateMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', mainImg);
-      updateMetaTag('meta[property="og:type"]', 'property', 'og:type', 'product');
+      updateMetaTag('meta[property="og:type"]', 'property', 'og:type', hasVideo ? 'video.other' : 'product');
 
       if (hasVideo && product.videos?.[0]) {
-        updateMetaTag('meta[property="og:video"]', 'property', 'og:video', product.videos[0]);
-        updateMetaTag('meta[property="og:video:secure_url"]', 'property', 'og:video:secure_url', product.videos[0]);
+        let absVideoUrl = product.videos[0];
+        if (absVideoUrl.startsWith('data:')) {
+          absVideoUrl = `${window.location.protocol}//${window.location.host}/api/products/${product.id}/video.mp4`;
+        } else if (absVideoUrl.startsWith('/')) {
+          absVideoUrl = `${window.location.protocol}//${window.location.host}${absVideoUrl}`;
+        }
+        updateMetaTag('meta[property="og:video"]', 'property', 'og:video', absVideoUrl);
+        updateMetaTag('meta[property="og:video:secure_url"]', 'property', 'og:video:secure_url', absVideoUrl);
         updateMetaTag('meta[property="og:video:type"]', 'property', 'og:video:type', 'video/mp4');
-      }
+        updateMetaTag('meta[property="og:video:width"]', 'property', 'og:video:width', '640');
+        updateMetaTag('meta[property="og:video:height"]', 'property', 'og:video:height', '1136');
 
-      updateMetaTag('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
-      updateMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', parentTitle);
-      updateMetaTag('meta[name="twitter:description"]', 'name', 'twitter:description', product.description || `Check out this classified deal.`);
-      updateMetaTag('meta[name="twitter:image"]', 'name', 'twitter:image', mainImg);
+        updateMetaTag('meta[name="twitter:card"]', 'name', 'twitter:card', 'player');
+        updateMetaTag('meta[name="twitter:player"]', 'name', 'twitter:player', window.location.href);
+        updateMetaTag('meta[name="twitter:player:width"]', 'name', 'twitter:player:width', '640');
+        updateMetaTag('meta[name="twitter:player:height"]', 'name', 'twitter:player:height', '1136');
+        updateMetaTag('meta[name="twitter:player:stream"]', 'name', 'twitter:player:stream', absVideoUrl);
+        updateMetaTag('meta[name="twitter:player:stream:content_type"]', 'name', 'twitter:player:stream:content_type', 'video/mp4');
+      } else {
+        updateMetaTag('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
+      }
     } catch (err) {
       console.warn('Meta updater warning', err);
     }
@@ -270,9 +280,12 @@ export const ProductDetail: React.FC = () => {
   const pImg = params?.get('image') || params?.get('img');
   const pPrice = params?.get('price');
   const pLoc = params?.get('location');
+  const pVideo = params?.get('video');
 
   if (!product) {
     if (pId || pTitle) {
+      const previewVideoUrl = pVideo || (pImg && (pImg.includes('.mp4') || pImg.includes('.webm') || pImg.includes('/video')) ? pImg : null);
+      
       return (
         <div className="max-w-xl mx-auto px-4 py-8 animate-fade-in font-sans">
           {/* Back to main classifieds */}
@@ -300,29 +313,30 @@ export const ProductDetail: React.FC = () => {
               </p>
             </div>
 
-            {/* Product Image preview */}
-            {pImg ? (
+            {/* Product Image or Video preview */}
+            {previewVideoUrl ? (
               <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 shadow-sm flex items-center justify-center">
-                {(pImg.includes('.mp4') || pImg.includes('.webm') || pImg.includes('/video')) ? (
-                  <video
-                    src={pImg}
-                    controls
-                    autoPlay
-                    muted
-                    className="w-full h-full object-contain bg-black"
-                  />
-                ) : (
-                  <img 
-                    src={pImg} 
-                    alt={pTitle || "Shared deal preview"} 
-                    loading="lazy"
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                )}
+                <video
+                  src={previewVideoUrl}
+                  controls
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-full object-contain bg-black"
+                />
+              </div>
+            ) : pImg ? (
+              <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 shadow-sm flex items-center justify-center">
+                <img 
+                  src={pImg} 
+                  alt={pTitle || "Shared deal preview"} 
+                  loading="lazy"
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
               </div>
             ) : (
               <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 flex flex-col items-center justify-center text-slate-300">
