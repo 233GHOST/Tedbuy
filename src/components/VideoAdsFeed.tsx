@@ -142,7 +142,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
     setAuthMode,
     setShowAuthModal,
     followSeller,
-    users
+    users,
+    setIsBottomNavVisible
   } = useApp();
 
   const seller = users?.find(u => u.id === product.sellerId);
@@ -400,6 +401,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
     if (target.closest('.pointer-events-auto') || target.closest('input') || target.closest('button')) {
       return;
     }
+    setIsBottomNavVisible(false);
     handlePlayPause();
   };
 
@@ -409,7 +411,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
       <div 
         onClick={handleVideoContainerClick}
         onMouseMove={resetControlsTimeout}
-        onTouchStart={resetControlsTimeout}
+        onTouchStart={(e) => {
+          setIsBottomNavVisible(false);
+          resetControlsTimeout();
+        }}
         onMouseEnter={resetControlsTimeout}
         className="relative w-full h-full bg-slate-950 overflow-hidden group cursor-pointer flex items-center justify-center shrink-0 transition-all duration-300"
       >
@@ -755,31 +760,13 @@ export const VideoAdsFeed: React.FC = () => {
     };
   }, [videoProducts]);
 
-  // Hide bottom navigation on scroll down, show on scroll up inside the video feed container
+  // Hide bottom navigation on any scroll inside the video feed container
   useEffect(() => {
     const container = feedScrollContainerRef.current;
     if (!container) return;
 
-    let lastScrollTop = container.scrollTop;
-    let ticking = false;
-
     const handleScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          const currentScrollTop = container.scrollTop;
-          // Threshold of 12px scroll to prevent jittering
-          if (Math.abs(currentScrollTop - lastScrollTop) > 12) {
-            if (currentScrollTop > lastScrollTop && currentScrollTop > 60) {
-              setIsBottomNavVisible(false);
-            } else {
-              setIsBottomNavVisible(true);
-            }
-          }
-          lastScrollTop = Math.max(0, currentScrollTop);
-          ticking = false;
-        });
-        ticking = true;
-      }
+      setIsBottomNavVisible(false);
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });

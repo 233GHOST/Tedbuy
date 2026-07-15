@@ -111,6 +111,8 @@ export interface Product {
   condition?: string;
   images: string[]; // 1 to 10 images (urls or base64)
   videos?: string[]; // Optional: 1 to 2 videos (urls or base64)
+  primaryPicture?: string;
+  primaryVideo?: string;
   negotiable?: boolean;
   createdAt: string;
   viewsCount: number;

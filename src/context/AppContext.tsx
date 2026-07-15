@@ -2835,18 +2835,18 @@ Tedbuy Support`;
         return next;
       });
 
-      // Step C: Save to Firestore database and await completion to ensure backend consistency (especially for instant payment checkout)
-      try {
-        await setDoc(doc(db, 'products', prodId), cleanObject(newProduct));
-        console.log('[createProduct] Firestore document created successfully');
-        // Clear server sitemap cache so it is kept updated on publish
-        fetch('/api/sitemap/clear', { method: 'POST' }).catch(e => {
-          console.warn('[createProduct] Failed to clear sitemap cache:', e);
+      // Step C: Save to Firestore database in the background to ensure instant posting and zero UI delay
+      setDoc(doc(db, 'products', prodId), cleanObject(newProduct))
+        .then(() => {
+          console.log('[createProduct] Firestore document created successfully in background');
+          // Clear server sitemap cache so it is kept updated on publish
+          fetch('/api/sitemap/clear', { method: 'POST' }).catch(e => {
+            console.warn('[createProduct] Failed to clear sitemap cache:', e);
+          });
+        })
+        .catch((innerErr) => {
+          console.warn('[createProduct] Firestore server document create returned background error:', innerErr);
         });
-      } catch (innerErr) {
-        console.warn('[createProduct] Firestore server document create returned background error:', innerErr);
-        // Fallback: we still proceed since local list is updated optimistically
-      }
 
       // Update current user's rapid post score dynamically
       try {

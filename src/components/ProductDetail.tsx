@@ -58,6 +58,8 @@ export const ProductDetail: React.FC = () => {
   const [reportComment, setReportComment] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [showSafetyTips, setShowSafetyTips] = useState(false);
+  const [safetyTipsPendingAction, setSafetyTipsPendingAction] = useState<'message' | 'whatsapp' | null>(null);
 
   const [isDetailFetching, setIsDetailFetching] = useState(false);
 
@@ -373,8 +375,8 @@ export const ProductDetail: React.FC = () => {
       setIsVerificationBlockOpen(true);
       return;
     }
-    const chatId = startChat(product.id, "Hi, is this still available?");
-    setCurrentView('chats');
+    setSafetyTipsPendingAction('message');
+    setShowSafetyTips(true);
   };
 
   const handleMessageWhatsApp = () => {
@@ -389,17 +391,29 @@ export const ProductDetail: React.FC = () => {
       return;
     }
     if (!sellerUser?.whatsAppNumber) return;
+    setSafetyTipsPendingAction('whatsapp');
+    setShowSafetyTips(true);
+  };
 
-    let cleanNumber = sellerUser.whatsAppNumber.replace(/\D/g, '');
-    if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
-      cleanNumber = '233' + cleanNumber.substring(1);
-    } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
-      cleanNumber = '233' + cleanNumber;
+  const confirmSafetyTipsAction = () => {
+    setShowSafetyTips(false);
+    if (!product) return;
+    if (safetyTipsPendingAction === 'message') {
+      const chatId = startChat(product.id, "Hi, is this still available?");
+      setCurrentView('chats');
+    } else if (safetyTipsPendingAction === 'whatsapp') {
+      if (!sellerUser?.whatsAppNumber) return;
+      let cleanNumber = sellerUser.whatsAppNumber.replace(/\D/g, '');
+      if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
+        cleanNumber = '233' + cleanNumber.substring(1);
+      } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
+        cleanNumber = '233' + cleanNumber;
+      }
+      const prefilledText = `Hello! I'm interested in your listed item "${product.title}" on Tedbuy marketplace. Let's chat!`;
+      const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
+      window.open(finalUrl, '_blank', 'noopener,noreferrer');
     }
-
-    const prefilledText = `Hello! I'm interested in your listed item "${product.title}" on Tedbuy marketplace. Let's chat!`;
-    const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
-    window.open(finalUrl, '_blank', 'noopener,noreferrer');
+    setSafetyTipsPendingAction(null);
   };
 
   const handleToggleFollow = () => {
@@ -1760,6 +1774,44 @@ export const ProductDetail: React.FC = () => {
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Safety Tips Modal */}
+      {showSafetyTips && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200" onClick={() => { setShowSafetyTips(false); setSafetyTipsPendingAction(null); }}>
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl relative border border-slate-100 animate-in zoom-in-95 duration-200 text-center space-y-5" onClick={(e) => e.stopPropagation()}>
+            <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-xl">
+              ⚠️
+            </div>
+            <div className="space-y-3">
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider text-center">
+                Tedbuy Safety Tips
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed font-semibold text-center whitespace-pre-wrap">
+                Meet in public, check item status carefully, and DO NOT send cash deposits in advance of collecting your items!
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSafetyTips(false);
+                  setSafetyTipsPendingAction(null);
+                }}
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition cursor-pointer text-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmSafetyTipsAction}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl text-xs shadow-md transition duration-150 cursor-pointer text-center"
+              >
+                Continue
+              </button>
             </div>
           </div>
         </div>

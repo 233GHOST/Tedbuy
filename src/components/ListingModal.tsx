@@ -425,19 +425,20 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     const file = files[0];
     if (!file) return;
 
-    if (!file.type.startsWith('video/')) {
+    const isVideoExtension = /\.(mp4|webm|mov|m4v|3gp|mkv|avi|quicktime)$/i.test(file.name);
+    if (!file.type.startsWith('video/') && !isVideoExtension) {
       setErrorMsg('Only video files (MP4, WEBM, MOV) are supported.');
       return;
     }
     
-    // If the video is oversized (> 6MB), set the oversized file and prompt the user to compress it
-    if (file.size > 6 * 1024 * 1024) {
+    // If the video is oversized (> 30MB), set the oversized file and prompt the user to compress it
+    if (file.size > 30 * 1024 * 1024) {
       setOversizedVideoFile(file);
-      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). To ensure smooth uploading to our Supabase database, videos larger than 6MB must be optimized. Use our built-in high-quality compressor below.`);
+      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Videos larger than 30MB must be optimized. Use our built-in high-quality compressor below.`);
       return;
     }
 
-    // Preload video to validate its duration dynamically before converting/uploading
+    // Preload video to validate its format/metadata dynamically before converting/uploading
     const tempVideo = document.createElement('video');
     tempVideo.preload = 'metadata';
     
@@ -447,11 +448,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       
       if (isNaN(duration)) {
         setErrorMsg(`Could not read duration of "${file.name}". Please try a standard MP4 or WebM format.`);
-        return;
-      }
-      
-      if (duration > 30) {
-        setErrorMsg(`"${file.name}" is too long (${duration.toFixed(1)}s). Videos must be 30 seconds or less to ensure fast loading times. Please trim or record a shorter clip.`);
         return;
       }
 

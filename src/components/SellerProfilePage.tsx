@@ -28,6 +28,8 @@ export const SellerProfilePage: React.FC = () => {
   const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string; isEditable?: boolean } | null>(null);
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [activeFollowTab, setActiveFollowTab] = useState<'following' | 'followers'>('following');
+  const [showSafetyTips, setShowSafetyTips] = useState(false);
+  const [safetyTipsPendingAction, setSafetyTipsPendingAction] = useState<'whatsapp' | null>(null);
 
   const seller = users.find(u => u.id === selectedSellerId);
   const isSellerVerified = isUserVerified(seller);
@@ -77,17 +79,26 @@ export const SellerProfilePage: React.FC = () => {
       return;
     }
     if (!seller?.whatsAppNumber) return;
+    setSafetyTipsPendingAction('whatsapp');
+    setShowSafetyTips(true);
+  };
 
-    let cleanNumber = seller.whatsAppNumber.replace(/\D/g, '');
-    if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
-      cleanNumber = '233' + cleanNumber.substring(1);
-    } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
-      cleanNumber = '233' + cleanNumber;
+  const confirmSafetyTipsAction = () => {
+    setShowSafetyTips(false);
+    if (!seller) return;
+    if (safetyTipsPendingAction === 'whatsapp') {
+      if (!seller.whatsAppNumber) return;
+      let cleanNumber = seller.whatsAppNumber.replace(/\D/g, '');
+      if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
+        cleanNumber = '233' + cleanNumber.substring(1);
+      } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
+        cleanNumber = '233' + cleanNumber;
+      }
+      const prefilledText = `Hello! I see your store on Tedbuy marketplace and would love to chat.`;
+      const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
+      window.open(finalUrl, '_blank', 'noopener,noreferrer');
     }
-
-    const prefilledText = `Hello! I see your store on Tedbuy marketplace and would love to chat.`;
-    const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
-    window.open(finalUrl, '_blank', 'noopener,noreferrer');
+    setSafetyTipsPendingAction(null);
   };
 
   // Generate an approximate follow count based on seed/active metrics
@@ -819,6 +830,44 @@ export const SellerProfilePage: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Safety Tips Modal */}
+      {showSafetyTips && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200" onClick={() => { setShowSafetyTips(false); setSafetyTipsPendingAction(null); }}>
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl relative border border-slate-100 animate-in zoom-in-95 duration-200 text-center space-y-5" onClick={(e) => e.stopPropagation()}>
+            <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-xl">
+              ⚠️
+            </div>
+            <div className="space-y-3">
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider text-center">
+                Tedbuy Safety Tips
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed font-semibold text-center whitespace-pre-wrap">
+                Meet in public, check item status carefully, and DO NOT send cash deposits in advance of collecting your items!
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSafetyTips(false);
+                  setSafetyTipsPendingAction(null);
+                }}
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition cursor-pointer text-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmSafetyTipsAction}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl text-xs shadow-md transition duration-150 cursor-pointer text-center"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
