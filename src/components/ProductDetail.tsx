@@ -817,9 +817,11 @@ export const ProductDetail: React.FC = () => {
             <span className="absolute top-4 left-4 bg-slate-900/80 backdrop-blur-xs text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider z-10">
               {product.category}
             </span>
-            <span className="absolute bottom-4 right-4 bg-slate-900/80 backdrop-blur-xs text-slate-100 text-xs px-3 py-1 rounded-full font-mono z-10">
-              {mediaGallery[activeMediaIdx]?.type === 'video' ? 'Video' : 'Image'} {activeMediaIdx + 1} of {mediaGallery.length}
-            </span>
+            {mediaGallery.length > 1 && (
+              <span className="absolute bottom-4 right-4 bg-slate-900/80 backdrop-blur-xs text-slate-100 text-xs px-3 py-1 rounded-full font-mono z-10">
+                {mediaGallery[activeMediaIdx]?.type === 'video' ? 'Video' : 'Image'} {activeMediaIdx + 1} of {mediaGallery.length}
+              </span>
+            )}
 
             {/* Dots Pagination Indicator overlay */}
             {mediaGallery.length > 1 && (
@@ -1421,7 +1423,7 @@ export const ProductDetail: React.FC = () => {
                 {product.title}
               </span>
               <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                {mediaGallery[lightboxIndex]?.type === 'video' ? 'VIDEO PREVIEW' : 'IMAGE SPECIFICATION'} — {lightboxIndex + 1} of {mediaGallery.length}
+                {mediaGallery[lightboxIndex]?.type === 'video' ? 'VIDEO PREVIEW' : 'IMAGE SPECIFICATION'}{mediaGallery.length > 1 ? ` — ${lightboxIndex + 1} of ${mediaGallery.length}` : ''}
               </span>
             </div>
             <button

@@ -601,7 +601,8 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
           price: foundProduct.price || 'Negotiable',
           image: primaryImage,
           images: foundProduct.images || [],
-          category: foundProduct.category || ''
+          category: foundProduct.category || '',
+          videos: foundProduct.videos || []
         };
         productDataCache.set(productId, { data: result, timestamp: now });
         return result;
@@ -623,7 +624,8 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
             price: 'Negotiable',
             image: base64Data,
             images: [base64Data],
-            category: ''
+            category: '',
+            videos: []
           };
           productDataCache.set(productId, { data: result, timestamp: now });
           return result;
@@ -668,7 +670,8 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
         price: priceValue,
         image: primaryImage,
         images: rawProduct.images || [],
-        category: rawProduct.category || ''
+        category: rawProduct.category || '',
+        videos: rawProduct.videos || []
       };
       productDataCache.set(productId, { data: result, timestamp: now });
       return result;
@@ -694,7 +697,7 @@ function cleanHostHeader(host: string): string {
 }
 
 // Injects dynamic meta tags based on the fetched product
-function injectMetaTags(html: string, product: { title: string; description: string; price: string; image: string }, shareUrl: string, host: string, protocol: string, productId: string): string {
+function injectMetaTags(html: string, product: { title: string; description: string; price: string; image: string; videos?: string[] }, shareUrl: string, host: string, protocol: string, productId: string): string {
   const pricePrefix = product.price ? `GHS ${product.price}` : 'Negotiable';
   const title = `${product.title} - ${pricePrefix} | TedBuy Ghana`;
   const description = `${product.description.slice(0, 160)}${product.description.length > 160 ? '...' : ''} | Buy/Sell on TedBuy`;
@@ -702,6 +705,21 @@ function injectMetaTags(html: string, product: { title: string; description: str
   // ALWAYS use our dynamic image wrapper endpoint to deliver first-party, absolute, redirect-free, fully-qualified web-optimized JPG images.
   // This solves base64 size limits, external redirects and domain/port mismatch crawler bugs perfectly.
   const image = `${protocol}://${host}/api/products/${productId}/image.jpg`;
+
+  // Dynamic Video Detection
+  const hasVideo = product.videos && Array.isArray(product.videos) && product.videos.length > 0;
+  const rawVideoUrl = hasVideo ? product.videos![0] : '';
+  
+  let absoluteVideoUrl = '';
+  if (rawVideoUrl) {
+    if (rawVideoUrl.startsWith('http://') || rawVideoUrl.startsWith('https://')) {
+      absoluteVideoUrl = rawVideoUrl;
+    } else if (rawVideoUrl.startsWith('/')) {
+      absoluteVideoUrl = `${protocol}://${host}${rawVideoUrl}`;
+    } else {
+      absoluteVideoUrl = `${protocol}://${host}/${rawVideoUrl}`;
+    }
+  }
 
   // Generate dynamic JSON-LD Product Schema representation for googlebot search console indexing
   const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '';
@@ -728,7 +746,7 @@ function injectMetaTags(html: string, product: { title: string; description: str
     }
   };
 
-  console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Canonical URL: ${canonicalUrl}, Image URL: ${image}`);
+  console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Canonical URL: ${canonicalUrl}, Image URL: ${image}, Video URL: ${absoluteVideoUrl || 'none'}`);
 
   const tags = `
     <!-- Dynamic Social Share Meta Tags -->
@@ -747,11 +765,23 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:type" content="product" />
     <meta property="og:site_name" content="TedBuy Ghana" />
     <meta property="og:locale" content="en_GH" />
+    ${absoluteVideoUrl ? `
+    <meta property="og:video" content="${escapeHtml(absoluteVideoUrl)}" />
+    <meta property="og:video:secure_url" content="${escapeHtml(absoluteVideoUrl)}" />
+    <meta property="og:video:type" content="video/mp4" />
+    <meta property="og:video:width" content="640" />
+    <meta property="og:video:height" content="1136" />
+    ` : ''}
     <!-- Twitter / X -->
-    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:card" content="${absoluteVideoUrl ? 'player' : 'summary_large_image'}" />
     <meta name="twitter:title" content="${escapeHtml(title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(image)}" />
+    ${absoluteVideoUrl ? `
+    <meta name="twitter:player" content="${escapeHtml(absoluteVideoUrl)}" />
+    <meta name="twitter:player:width" content="640" />
+    <meta name="twitter:player:height" content="1136" />
+    ` : ''}
     <!-- Additional Schema.org fallback for general platform scrapers -->
     <meta itemprop="name" content="${escapeHtml(title)}">
     <meta itemprop="description" content="${escapeHtml(description)}">
@@ -5906,6 +5936,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           sellerId = sellerPathnameMatch[1];
         }
 
+        let queryVideo = '';
         if (!productId) {
           try {
             const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -5914,6 +5945,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
             queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
             queryDescription = parsedUrl.searchParams.get('description') || queryDescription || '';
+            queryVideo = parsedUrl.searchParams.get('video') || '';
           } catch (e) {
             // Ignored
           }
@@ -5923,12 +5955,16 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           let template = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf-8");
           template = await vite.transformIndexHtml(url, template);
           
-          if (queryTitle && queryImage) {
+          if (queryTitle && (queryImage || queryVideo)) {
+            if (!queryVideo && queryImage && (queryImage.endsWith('.mp4') || queryImage.includes('/video'))) {
+              queryVideo = queryImage;
+            }
             const product = {
               title: queryTitle,
               description: queryDescription || `Check out "${queryTitle}" on Tedbuy Ghana classifieds! Price: ${queryPrice || 'Negotiable'}. View photos, reviews and full details directly.`,
               price: queryPrice || '',
-              image: queryImage
+              image: queryImage,
+              videos: queryVideo ? [queryVideo] : []
             };
             const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
             const host = cleanHostHeader(rawHost);
@@ -6027,6 +6063,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         sellerId = sellerPathnameMatch[1];
       }
 
+      let queryVideo = '';
       if (!productId) {
         try {
           const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -6035,6 +6072,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
           queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
           queryDescription = parsedUrl.searchParams.get('description') || queryDescription || '';
+          queryVideo = parsedUrl.searchParams.get('video') || '';
         } catch (e) {
           // Ignored
         }
@@ -6045,12 +6083,16 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const cleanPathname = url.split('?')[0].replace(/^\/+|\/+$/g, '').toLowerCase();
         const isCategorySlug = categorySlugs.includes(cleanPathname);
         
-        if (queryTitle && queryImage) {
+        if (queryTitle && (queryImage || queryVideo)) {
+          if (!queryVideo && queryImage && (queryImage.endsWith('.mp4') || queryImage.includes('/video'))) {
+            queryVideo = queryImage;
+          }
           const product = {
             title: queryTitle,
             description: queryDescription || `Check out "${queryTitle}" on Tedbuy Ghana classifieds! Price: ${queryPrice || 'Negotiable'}. View photos, reviews and full details directly.`,
             price: queryPrice || '',
-            image: queryImage
+            image: queryImage,
+            videos: queryVideo ? [queryVideo] : []
           };
           const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
           const host = cleanHostHeader(rawHost);

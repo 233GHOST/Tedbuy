@@ -411,6 +411,53 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     }
   };
 
+  const generateVideoThumbnail = (videoFileOrUrl: File | Blob | string): Promise<string> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'auto';
+      video.muted = true;
+      video.playsInline = true;
+
+      let objectUrl = '';
+      if (typeof videoFileOrUrl === 'string') {
+        video.src = videoFileOrUrl;
+      } else {
+        objectUrl = URL.createObjectURL(videoFileOrUrl);
+        video.src = objectUrl;
+      }
+
+      video.onloadeddata = () => {
+        // Seek to 0.5s to capture a good frame instead of just black
+        video.currentTime = 0.5;
+      };
+
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+            resolve(dataUrl);
+            return;
+          }
+        } catch (e) {
+          console.warn("Failed to capture video frame via canvas:", e);
+        }
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        resolve('');
+      };
+
+      video.onerror = () => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        resolve('');
+      };
+    });
+  };
+
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMsg('');
     const files = e.target.files;
@@ -460,6 +507,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           // Set immediate local preview URL using the uploaded file's blob URL
           const blobUrl = URL.createObjectURL(file);
           setVideoPreviewUrl(blobUrl);
+          
+          // Generate thumbnail
+          generateVideoThumbnail(file).then((thumbnail) => {
+            if (thumbnail) {
+              setImages([thumbnail]);
+            }
+          });
         }
       };
       reader.readAsDataURL(file);
@@ -477,6 +531,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           setOversizedVideoFile(null);
           const blobUrl = URL.createObjectURL(file);
           setVideoPreviewUrl(blobUrl);
+          
+          // Generate thumbnail
+          generateVideoThumbnail(file).then((thumbnail) => {
+            if (thumbnail) {
+              setImages([thumbnail]);
+            }
+          });
         }
       };
       reader.readAsDataURL(file);
@@ -688,6 +749,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setCompressionProgress(null);
       setIsCompressing(false);
 
+      // Generate and set video frame thumbnail
+      generateVideoThumbnail(compressedBlob).then((thumbnail) => {
+        if (thumbnail) {
+          setImages([thumbnail]);
+        }
+      });
+
     } catch (err: any) {
       console.error(err);
       setErrorMsg(`Failed to compress video automatically: ${err.message || 'transcode process failed'}. Try manual optimization or short 5-second layouts.`);
@@ -762,7 +830,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return setErrorMsg('Please upload at least 1 video demonstrating your product ad (Max: 2).');
     }
 
-    const finalImages = mediaType === 'image' ? images : [];
+    const finalImages = mediaType === 'image' ? images : (images.length > 0 ? images : []);
     const finalVideos = mediaType === 'video' ? videos : [];
 
     const finalBrand = category === 'Services'
