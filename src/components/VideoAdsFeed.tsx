@@ -823,6 +823,9 @@ export const VideoAdsFeed: React.FC = () => {
 
   // Always reset bottom nav to visible and clear active timers when leaving/unmounting the video feed
   useEffect(() => {
+    // When switching to watch videos/initial mount, show bottom nav and auto-hide it after 2.5s
+    showBottomNavWith2_5SecAutoHide(setIsBottomNavVisible);
+
     return () => {
       if (globalBottomNavTimeout) {
         clearTimeout(globalBottomNavTimeout);
