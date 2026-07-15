@@ -5890,7 +5890,43 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
-  // Dynamic video delivery endpoint to stream base64 video uploads as binary MP4 streams on-the-fly
+  function streamVideoBuffer(req: any, res: any, buffer: Buffer, mimeType: string) {
+    const totalLength = buffer.length;
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+
+      if (start >= totalLength || end >= totalLength || start > end) {
+        res.set("Content-Range", `bytes */${totalLength}`);
+        return res.status(416).send("Requested Range Not Satisfiable");
+      }
+
+      const chunksize = (end - start) + 1;
+      const chunk = buffer.subarray(start, end + 1);
+
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${totalLength}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunksize,
+        "Content-Type": mimeType,
+        "Cache-Control": "public, max-age=86400"
+      });
+      return res.end(chunk);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": totalLength,
+        "Content-Type": mimeType,
+        "Cache-Control": "public, max-age=86400",
+        "Accept-Ranges": "bytes"
+      });
+      return res.end(buffer);
+    }
+  }
+
+  // Dynamic video delivery endpoint to stream base64 video uploads as binary MP4 streams on-the-fly with Range/Partial Content streaming
   app.get(['/api/products/:productId/video', '/api/products/:productId/video.mp4'], serverRateLimiter(60 * 1000, 100, "video-proxy"), async (req, res) => {
     const { productId } = req.params;
     if (!productId) {
@@ -5914,10 +5950,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           const mimeType = parts[0].replace('data:', '') || 'video/mp4'; // e.g., video/mp4
           const base64Data = parts[1];
           const buffer = Buffer.from(base64Data, 'base64');
-
-          res.set('Content-Type', mimeType);
-          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-          return res.send(buffer);
+          return streamVideoBuffer(req, res, buffer, mimeType);
         }
       } else if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
         // Direct stream proxy for external video URLs
@@ -5934,9 +5967,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (videoRes.ok) {
           const contentType = videoRes.headers.get('content-type') || 'video/mp4';
           const buffer = Buffer.from(await videoRes.arrayBuffer());
-          res.set('Content-Type', contentType);
-          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-          return res.send(buffer);
+          return streamVideoBuffer(req, res, buffer, contentType);
         }
       }
       return res.status(404).send('Video source invalid or unavailable');
@@ -5993,6 +6024,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         let queryPrice = req.query.price as string;
         let queryImage = (req.query.image || req.query.img) as string;
         let queryDescription = req.query.description as string;
+        let queryVideo = req.query.video as string || '';
 
         if (!productId) {
           // Attempt to extract product ID from pathname
@@ -6012,7 +6044,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           sellerId = sellerPathnameMatch[1];
         }
 
-        let queryVideo = '';
         if (!productId) {
           try {
             const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -6021,7 +6052,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
             queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
             queryDescription = parsedUrl.searchParams.get('description') || queryDescription || '';
-            queryVideo = parsedUrl.searchParams.get('video') || '';
+            queryVideo = parsedUrl.searchParams.get('video') || queryVideo || '';
           } catch (e) {
             // Ignored
           }
@@ -6120,6 +6151,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let queryPrice = req.query.price as string;
       let queryImage = (req.query.image || req.query.img) as string;
       let queryDescription = req.query.description as string;
+      let queryVideo = req.query.video as string || '';
 
       if (!productId) {
         // Attempt to extract product ID from pathname
@@ -6139,7 +6171,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         sellerId = sellerPathnameMatch[1];
       }
 
-      let queryVideo = '';
       if (!productId) {
         try {
           const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
@@ -6148,7 +6179,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
           queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
           queryDescription = parsedUrl.searchParams.get('description') || queryDescription || '';
-          queryVideo = parsedUrl.searchParams.get('video') || '';
+          queryVideo = parsedUrl.searchParams.get('video') || queryVideo || '';
         } catch (e) {
           // Ignored
         }
