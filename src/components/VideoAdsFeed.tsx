@@ -26,7 +26,8 @@ import {
   Share2,
   Flame,
   Eye,
-  X
+  X,
+  Home
 } from 'lucide-react';
 
 // Helper to convert base64 data URIs securely into highly compatible, sandboxing-safe Blob URLs.
@@ -105,6 +106,26 @@ const getProcessedUrl = (url: string): string => {
   return bUrl;
 };
 
+let globalBottomNavTimeout: NodeJS.Timeout | null = null;
+
+export const showBottomNavWith2_5SecAutoHide = (setIsBottomNavVisible: (vis: boolean) => void) => {
+  setIsBottomNavVisible(true);
+  if (globalBottomNavTimeout) {
+    clearTimeout(globalBottomNavTimeout);
+  }
+  globalBottomNavTimeout = setTimeout(() => {
+    setIsBottomNavVisible(false);
+  }, 2500);
+};
+
+export const hideBottomNavImmediately = (setIsBottomNavVisible: (vis: boolean) => void) => {
+  setIsBottomNavVisible(false);
+  if (globalBottomNavTimeout) {
+    clearTimeout(globalBottomNavTimeout);
+    globalBottomNavTimeout = null;
+  }
+};
+
 export interface ReelItemProps {
   product: Product;
   isActive: boolean;
@@ -143,7 +164,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
     setShowAuthModal,
     followSeller,
     users,
-    setIsBottomNavVisible
+    setIsBottomNavVisible,
+    isBottomNavVisible,
+    setHomeViewMode
   } = useApp();
 
   const seller = users?.find(u => u.id === product.sellerId);
@@ -401,7 +424,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
     if (target.closest('.pointer-events-auto') || target.closest('input') || target.closest('button')) {
       return;
     }
-    setIsBottomNavVisible(false);
+    if (isBottomNavVisible) {
+      hideBottomNavImmediately(setIsBottomNavVisible);
+    } else {
+      showBottomNavWith2_5SecAutoHide(setIsBottomNavVisible);
+    }
     handlePlayPause();
   };
 
@@ -412,7 +439,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
         onClick={handleVideoContainerClick}
         onMouseMove={resetControlsTimeout}
         onTouchStart={(e) => {
-          setIsBottomNavVisible(false);
           resetControlsTimeout();
         }}
         onMouseEnter={resetControlsTimeout}
@@ -503,23 +529,19 @@ const ReelItem: React.FC<ReelItemProps> = ({
         {/* Immersive bottom text details overlay */}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/100 via-black/65 to-transparent p-4 pb-7 text-left z-20 flex flex-col justify-end pointer-events-none">
           <div className="space-y-2 pointer-events-auto max-w-[72%]">
-            <div className="flex flex-wrap gap-1.5">
-              <span className="px-2.5 py-0.5 bg-[#FFFC00] text-slate-950 text-[9px] font-black rounded-md tracking-wider uppercase inline-flex items-center gap-1 shadow-md">
-                <Tag className="w-2.5 h-2.5" />
-                {product?.category}
-              </span>
-              {isPrioSeller && (
+            {isPrioSeller && (
+              <div className="flex flex-wrap gap-1.5">
                 <span className="px-2.5 py-0.5 bg-gradient-to-r from-[#FFFC00] to-yellow-400 text-slate-950 text-[9px] font-black rounded-md tracking-wider uppercase inline-flex items-center gap-1.5 shadow-md">
                   <Flame className="w-2.5 h-2.5 text-slate-900 fill-slate-900 animate-pulse" />
                   <span>Featured Seller</span>
                 </span>
-              )}
-            </div>
+              </div>
+            )}
             
             <h3 className="text-sm sm:text-base font-black text-white leading-tight truncate drop-shadow-md">{product?.title}</h3>
             
             <div className="flex items-center gap-2">
-              <p className="text-base font-black text-[#FFFC00] drop-shadow-md">{formatPrice(product?.price)}</p>
+              <p className="text-xs sm:text-sm font-black text-[#FFFC00] drop-shadow-md">{formatPrice(product?.price)}</p>
               <div className="text-[9px] font-extrabold text-[#FFFC00]/95 flex items-center gap-0.5 bg-white/10 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/10">
                 <MapPin className="w-2.5 h-2.5 text-[#FFFC00]" />
                 <span className="truncate max-w-[75px]">{product?.location}</span>
@@ -636,20 +658,23 @@ const ReelItem: React.FC<ReelItemProps> = ({
               Specs
             </span>
           </div>
-        </div>
 
-        {/* Minimalist interactive seeking timeline at the absolute bottom edge */}
-        <div className="absolute bottom-0 inset-x-0 h-1.5 bg-black/40 z-30 pointer-events-auto flex items-end">
-          <input
-            type="range"
-            min="0"
-            max={duration || 10}
-            step="0.01"
-            value={currentTime}
-            onChange={handleSeekChange}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full accent-[#FFFC00] hover:accent-[#FFFC00] h-1 bg-white/15 appearance-none cursor-pointer transition-all outline-none"
-          />
+          {/* Home button taking back to standard grid */}
+          <div className="flex flex-col items-center">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setHomeViewMode('grid');
+              }}
+              className="w-8.5 h-8.5 sm:w-10.5 sm:h-10.5 rounded-full bg-black/50 text-white flex items-center justify-center transition-all duration-300 shadow-xl hover:bg-black/80 hover:scale-110 active:scale-95 border border-white/20"
+              title="Return to standard grid"
+            >
+              <Home className="w-4 h-4 sm:w-5 sm:h-5 text-[#FFFC00]" />
+            </button>
+            <span className="text-[9px] sm:text-[10px] font-black text-white mt-1 sm:mt-1.5 tracking-wide drop-shadow-md select-none">
+              Home
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -760,13 +785,34 @@ export const VideoAdsFeed: React.FC = () => {
     };
   }, [videoProducts]);
 
-  // Hide bottom navigation on any scroll inside the video feed container
+  // Scroll listener to toggle bottom navigation dynamically
   useEffect(() => {
     const container = feedScrollContainerRef.current;
     if (!container) return;
 
+    let lastScrollTop = container.scrollTop;
+    let ticking = false;
+
     const handleScroll = () => {
-      setIsBottomNavVisible(false);
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollTop = container.scrollTop;
+          const diff = currentScrollTop - lastScrollTop;
+          // Threshold of 10px scroll to prevent jittering
+          if (Math.abs(diff) > 10) {
+            if (diff > 0) {
+              // Scrolling down the feed -> Hide navigation immediately
+              hideBottomNavImmediately(setIsBottomNavVisible);
+            } else {
+              // Scrolling up the feed -> Show navigation with 2.5 second auto-hide
+              showBottomNavWith2_5SecAutoHide(setIsBottomNavVisible);
+            }
+          }
+          lastScrollTop = Math.max(0, currentScrollTop);
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
@@ -775,9 +821,13 @@ export const VideoAdsFeed: React.FC = () => {
     };
   }, [setIsBottomNavVisible]);
 
-  // Always reset bottom nav to visible when leaving/unmounting the video feed
+  // Always reset bottom nav to visible and clear active timers when leaving/unmounting the video feed
   useEffect(() => {
     return () => {
+      if (globalBottomNavTimeout) {
+        clearTimeout(globalBottomNavTimeout);
+        globalBottomNavTimeout = null;
+      }
       setIsBottomNavVisible(true);
     };
   }, [setIsBottomNavVisible]);
