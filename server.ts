@@ -856,7 +856,7 @@ const CATEGORY_META: Record<string, { title: string; description: string; imageS
   'vehicles': {
     title: 'Verified Cars & Vehicles for Sale in Ghana | TedBuy',
     description: 'Reliable transport on a budget. Explore verified cars, motorbikes, bicycles, and vehicle accessories for sale in Ghana from trusted private sellers & dealers on TedBuy.',
-    imageSearch: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=600&q=80'
+    imageSearch: 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&w=600&q=80'
   },
   'services': {
     title: 'Verified Professional Services & Freelancers in Ghana | TedBuy',
@@ -5573,7 +5573,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (lower.includes('electronic') || lower.includes('tv') || lower.includes('audio') || lower.includes('camera')) return 'https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('laptop') || lower.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('fashion') || lower.includes('wear') || lower.includes('clothes')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=600&q=80';
-    if (lower.includes('vehicle') || lower.includes('car')) return 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('vehicle') || lower.includes('car')) return 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('beauty')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('game') || lower.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('appliance') || lower.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=600&q=80';

@@ -1050,14 +1050,25 @@ const MarketplaceContent: React.FC = () => {
                             className="flex items-center gap-3 p-1 rounded-xl hover:bg-slate-50 transition cursor-pointer group select-none"
                           >
                             <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-slate-100 border border-slate-150 shrink-0">
-                              <img
-                                src={product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
-                                alt=""
-                                loading="lazy"
-                                decoding="async"
-                                referrerPolicy="no-referrer"
-                                className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
-                              />
+                              {product.videos && product.videos.length > 0 ? (
+                                <video
+                                  src={product.videos[0]}
+                                  muted
+                                  loop
+                                  playsInline
+                                  autoPlay
+                                  className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
+                                />
+                              ) : (
+                                <img
+                                  src={product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
+                                  alt=""
+                                  loading="lazy"
+                                  decoding="async"
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
+                                />
+                              )}
                             </div>
                             <div className="min-w-0 flex-1">
                               <p className="text-[11px] font-bold text-slate-800 truncate group-hover:text-slate-950 transition duration-200 leading-tight">
