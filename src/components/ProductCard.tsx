@@ -236,6 +236,8 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                 muted
                 loop
                 playsInline
+                webkit-playsinline="true"
+                disablePictureInPicture
                 autoPlay
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
               />

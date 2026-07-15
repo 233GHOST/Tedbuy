@@ -1056,6 +1056,8 @@ const MarketplaceContent: React.FC = () => {
                                   muted
                                   loop
                                   playsInline
+                                  webkit-playsinline="true"
+                                  disablePictureInPicture
                                   autoPlay
                                   className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
                                 />

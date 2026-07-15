@@ -322,6 +322,9 @@ export const ProductDetail: React.FC = () => {
                   autoPlay
                   muted
                   playsInline
+                  webkit-playsinline="true"
+                  disablePictureInPicture
+                  controlsList="nodownload nofullscreen noremoteplayback"
                   className="w-full h-full object-contain bg-black"
                 />
               </div>
@@ -757,6 +760,10 @@ export const ProductDetail: React.FC = () => {
                 controls
                 autoPlay
                 muted
+                playsInline
+                webkit-playsinline="true"
+                disablePictureInPicture
+                controlsList="nodownload nofullscreen noremoteplayback"
               />
             ) : (
               <div className="relative w-full h-full flex items-center justify-center">
@@ -1477,6 +1484,10 @@ export const ProductDetail: React.FC = () => {
                   controls
                   autoPlay
                   muted
+                  playsInline
+                  webkit-playsinline="true"
+                  disablePictureInPicture
+                  controlsList="nodownload nofullscreen noremoteplayback"
                 />
               ) : (
                 <div className="relative max-w-full max-h-[70vh] flex items-center justify-center select-none group/lightbox-img">

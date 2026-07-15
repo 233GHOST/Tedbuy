@@ -482,6 +482,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
             muted={isMuted}
             playsInline
             webkit-playsinline="true"
+            disablePictureInPicture
+            controlsList="nodownload nofullscreen noremoteplayback"
             preload="auto"
             crossOrigin="anonymous"
             style={{ 

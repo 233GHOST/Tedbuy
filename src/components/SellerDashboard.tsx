@@ -280,6 +280,8 @@ export const SellerDashboard: React.FC = () => {
                           className="w-full h-full object-cover"
                           muted
                           playsInline
+                          webkit-playsinline="true"
+                          disablePictureInPicture
                         />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                           <Play className="w-3.5 h-3.5 text-white fill-white/80" />
@@ -450,6 +452,8 @@ export const SellerDashboard: React.FC = () => {
                           className="w-full h-full object-cover"
                           muted
                           playsInline
+                          webkit-playsinline="true"
+                          disablePictureInPicture
                         />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                           <Play className="w-3.5 h-3.5 text-white fill-white/80" />

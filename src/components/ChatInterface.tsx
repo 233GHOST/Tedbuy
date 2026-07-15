@@ -36,6 +36,8 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ videoUrl, alt, c
     video.crossOrigin = 'anonymous';
     video.muted = true;
     video.playsInline = true;
+    video.setAttribute('webkit-playsinline', 'true');
+    video.disablePictureInPicture = true;
     
     // Seek to 0.1s to get first frame
     video.currentTime = 0.1;
@@ -94,6 +96,8 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({ videoUrl, alt, c
         className="w-full h-full object-cover"
         muted
         playsInline
+        webkit-playsinline="true"
+        disablePictureInPicture
         preload="metadata"
       />
     </div>

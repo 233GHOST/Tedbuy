@@ -417,6 +417,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       video.preload = 'auto';
       video.muted = true;
       video.playsInline = true;
+      video.setAttribute('webkit-playsinline', 'true');
+      video.disablePictureInPicture = true;
 
       let objectUrl = '';
       if (typeof videoFileOrUrl === 'string') {
@@ -1290,6 +1292,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         muted 
                         loop 
                         playsInline 
+                        webkit-playsinline="true"
+                        disablePictureInPicture
                       />
                       <button
                         type="button"
@@ -1362,6 +1366,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             id="oversized-video-player"
                             src={oversizedVideoUrl}
                             controls
+                            playsInline
+                            webkit-playsinline="true"
+                            disablePictureInPicture
+                            controlsList="nodownload nofullscreen noremoteplayback"
                             className="w-full h-full object-contain"
                           />
                         </div>
