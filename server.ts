@@ -702,13 +702,20 @@ function injectMetaTags(html: string, product: { title: string; description: str
   const title = `${product.title} - ${pricePrefix} | TedBuy Ghana`;
   const description = `${product.description.slice(0, 160)}${product.description.length > 160 ? '...' : ''} | Buy/Sell on TedBuy`;
   
-  // ALWAYS use our dynamic image wrapper endpoint to deliver first-party, absolute, redirect-free, fully-qualified web-optimized JPG images.
-  // This solves base64 size limits, external redirects and domain/port mismatch crawler bugs perfectly.
-  const image = `${protocol}://${host}/api/products/${productId}/image.jpg`;
-
   // Dynamic Video Detection
   const hasVideo = product.videos && Array.isArray(product.videos) && product.videos.length > 0;
   const rawVideoUrl = hasVideo ? product.videos![0] : '';
+
+  // ALWAYS use our dynamic image wrapper endpoint to deliver first-party, absolute, redirect-free, fully-qualified web-optimized JPG images.
+  // This solves base64 size limits, external redirects and domain/port mismatch crawler bugs perfectly.
+  // We append key listing details as query parameters so the image proxy can generate high-quality card graphics instantly.
+  const imgParams = new URLSearchParams();
+  if (product.title) imgParams.set('title', product.title);
+  if (product.price) imgParams.set('price', String(product.price));
+  if (product.image) imgParams.set('image', product.image);
+  if (hasVideo && product.videos && product.videos[0]) imgParams.set('video', product.videos[0]);
+  const imgQuery = imgParams.toString() ? `?${imgParams.toString()}` : '';
+  const image = `${protocol}://${host}/api/products/${productId}/image.jpg${imgQuery}`;
   
   let absoluteVideoUrl = '';
   if (rawVideoUrl) {
@@ -5592,13 +5599,23 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 300, "image-proxy"), async (req, res) => {
     const { productId } = req.params;
     const queryImageUrl = req.query.image as string;
+    const queryVideoUrl = req.query.video as string;
     const idx = req.query.idx !== undefined ? parseInt(req.query.idx as string, 10) : 0;
 
     // Parse and normalize optimization query parameters to maximize cache effectiveness
     const w = req.query.w ? parseInt(req.query.w as string, 10) : undefined;
     const h = req.query.h ? parseInt(req.query.h as string, 10) : undefined;
     const q = req.query.q ? parseInt(req.query.q as string, 10) : 80;
-    const fmt = (req.query.fmt as string || 'webp').toLowerCase();
+    
+    // Dynamically match format to file extension for social crawlers (e.g., .jpg requests must return jpeg)
+    let defaultFormat = 'webp';
+    const reqPathLower = req.path.toLowerCase();
+    if (reqPathLower.endsWith('.png')) {
+      defaultFormat = 'png';
+    } else if (reqPathLower.endsWith('.jpg') || reqPathLower.endsWith('.jpeg')) {
+      defaultFormat = 'jpeg';
+    }
+    const fmt = (req.query.fmt as string || defaultFormat).toLowerCase();
 
     let width = w;
     if (width !== undefined) {
@@ -5716,6 +5733,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (!originalBuffer) {
       const isVideo = (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.includes('/video'))) ||
                       (queryImageUrl && (queryImageUrl.endsWith('.mp4') || queryImageUrl.includes('/video'))) ||
+                      (queryVideoUrl && (queryVideoUrl.endsWith('.mp4') || queryVideoUrl.includes('/video'))) ||
                       (productId && productId.includes('video')) ||
                       (dbProduct && dbProduct.videos && dbProduct.videos.length > 0);
                       
