@@ -120,13 +120,20 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
     return 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   };
 
-  const initialSrc = getOptimizedImageUrl(product.images?.[0] || getCategoryPlaceholder(product.category), 400);
+  const hasVideoAd = product.videos && product.videos.length > 0;
+  const isProxyImage = product.images?.[0]?.startsWith('/api/products/') && product.images?.[0]?.includes('/image');
+  const actualCoverImage = (hasVideoAd && isProxyImage) ? null : product.images?.[0];
+
+  const initialSrc = getOptimizedImageUrl(actualCoverImage || getCategoryPlaceholder(product.category), 400);
   const [imgSrc, setImgSrc] = React.useState<string>(initialSrc);
   const [processedVideoUrl, setProcessedVideoUrl] = React.useState<string>('');
 
   React.useEffect(() => {
-    setImgSrc(getOptimizedImageUrl(product.images?.[0] || getCategoryPlaceholder(product.category), 400));
-  }, [product.images, product.category]);
+    const hasVideo = product.videos && product.videos.length > 0;
+    const isProxy = product.images?.[0]?.startsWith('/api/products/') && product.images?.[0]?.includes('/image');
+    const actualImg = (hasVideo && isProxy) ? null : product.images?.[0];
+    setImgSrc(getOptimizedImageUrl(actualImg || getCategoryPlaceholder(product.category), 400));
+  }, [product.images, product.category, product.videos]);
 
   React.useEffect(() => {
     if (!isVisible) {

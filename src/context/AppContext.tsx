@@ -565,7 +565,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
     const params = new URLSearchParams(search);
-    const qProductId = params.get('productId');
+    const qProductId = params.get('productId') || params.get('product');
     if (qProductId) {
       const matchId = qProductId.match(/prod_[a-zA-Z0-9_]+/);
       if (matchId) {
@@ -1836,12 +1836,20 @@ Tedbuy Support`;
         if (found) {
           params.set('productId', selectedProductId);
           params.set('title', found.title);
-          if (found.images && found.images[0] && !found.images[0].startsWith('data:')) {
+          const hasVideo = found.videos && found.videos.length > 0;
+          const firstVideo = hasVideo ? found.videos[0] : null;
+          if (firstVideo) {
+            params.set('img', firstVideo);
+            params.set('image', firstVideo);
+            params.set('video', firstVideo);
+          } else if (found.images && found.images[0] && !found.images[0].startsWith('data:')) {
             params.set('img', found.images[0]);
             params.set('image', found.images[0]);
+            params.delete('video');
           } else {
             params.delete('img');
             params.delete('image');
+            params.delete('video');
           }
           params.set('price', typeof found.price === 'number' ? `GH₵${found.price}` : String(found.price));
           params.set('location', found.location);

@@ -128,8 +128,18 @@ export const ProductDetail: React.FC = () => {
   };
 
   const mediaGallery = product ? [
-    ...product.images.map(url => ({ type: 'image' as const, url: getOptimizedImageUrl(url, 800) })),
-    ...(product.videos || []).map(url => ({ type: 'video' as const, url }))
+    ...(product.videos || []).map(url => ({ type: 'video' as const, url })),
+    ...product.images
+      .filter(url => {
+        const hasVideos = product.videos && product.videos.length > 0;
+        if (hasVideos) {
+          // If product has videos, filter out the auto-generated proxy image URL
+          const isProxy = url.startsWith('/api/products/') && url.includes('/image');
+          return !isProxy;
+        }
+        return true;
+      })
+      .map(url => ({ type: 'image' as const, url: getOptimizedImageUrl(url, 800) }))
   ] : [];
 
   // Keyboard navigation support for Media Lightbox
@@ -226,10 +236,20 @@ export const ProductDetail: React.FC = () => {
       updateMetaTag('meta[property="og:description"]', 'property', 'og:description', product.description || `Check out this classified deal under ${product.category}.`);
       updateMetaTag('meta[property="og:url"]', 'property', 'og:url', window.location.href);
 
-      const mainImg = product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      const hasVideo = product.videos && product.videos.length > 0;
+      const mainImg = (hasVideo && product.videos?.[0]) 
+        ? product.videos[0] 
+        : (product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+
       updateMetaTag('meta[property="og:image"]', 'property', 'og:image', mainImg);
       updateMetaTag('meta[property="og:image:secure_url"]', 'property', 'og:image:secure_url', mainImg);
       updateMetaTag('meta[property="og:type"]', 'property', 'og:type', 'product');
+
+      if (hasVideo && product.videos?.[0]) {
+        updateMetaTag('meta[property="og:video"]', 'property', 'og:video', product.videos[0]);
+        updateMetaTag('meta[property="og:video:secure_url"]', 'property', 'og:video:secure_url', product.videos[0]);
+        updateMetaTag('meta[property="og:video:type"]', 'property', 'og:video:type', 'video/mp4');
+      }
 
       updateMetaTag('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
       updateMetaTag('meta[name="twitter:title"]', 'name', 'twitter:title', parentTitle);
@@ -283,16 +303,26 @@ export const ProductDetail: React.FC = () => {
             {/* Product Image preview */}
             {pImg ? (
               <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 shadow-sm flex items-center justify-center">
-                <img 
-                  src={pImg} 
-                  alt={pTitle || "Shared deal preview"} 
-                  loading="lazy"
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+                {(pImg.includes('.mp4') || pImg.includes('.webm') || pImg.includes('/video')) ? (
+                  <video
+                    src={pImg}
+                    controls
+                    autoPlay
+                    muted
+                    className="w-full h-full object-contain bg-black"
+                  />
+                ) : (
+                  <img 
+                    src={pImg} 
+                    alt={pTitle || "Shared deal preview"} 
+                    loading="lazy"
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                )}
               </div>
             ) : (
               <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 flex flex-col items-center justify-center text-slate-300">
