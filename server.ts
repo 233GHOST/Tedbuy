@@ -5800,7 +5800,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     }
 
-    // 2. Dynamically generate video-only product overlay cards or fallback layouts if it is a video product
+    // 2. Disable custom video overlay so WhatsApp shares display the clean original thumbnail image natively without any fake video play button/spotlight card overlay.
+    /*
     const isVideo = (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.includes('/video'))) ||
                     (queryImageUrl && (queryImageUrl.endsWith('.mp4') || queryImageUrl.includes('/video'))) ||
                     (queryVideoUrl && (queryVideoUrl.endsWith('.mp4') || queryVideoUrl.includes('/video'))) ||
@@ -5882,6 +5883,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         originalMimeType = 'image/svg+xml';
       }
     }
+    */
 
     if (!originalBuffer && !productId && !queryImageUrl) {
       return serveTransparentPixel(res);
