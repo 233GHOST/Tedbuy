@@ -5733,71 +5733,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     
     const fallbackUrl = getCategoryFallbackUrl(category);
     
-    // Dynamically generate a beautiful "VIDEO AD PLAYBACK" placeholder card if the request is for a video-only product
-    if (!originalBuffer) {
-      const isVideo = (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.includes('/video'))) ||
-                      (queryImageUrl && (queryImageUrl.endsWith('.mp4') || queryImageUrl.includes('/video'))) ||
-                      (queryVideoUrl && (queryVideoUrl.endsWith('.mp4') || queryVideoUrl.includes('/video'))) ||
-                      (productId && productId.includes('video')) ||
-                      (dbProduct && dbProduct.videos && dbProduct.videos.length > 0);
-                      
-      if (isVideo) {
-        const safeTitle = (req.query.title as string) || (dbProduct ? dbProduct.title : null) || (productId ? 'Spotlight Review' : 'Video Ad');
-        const rawPrice = (req.query.price as string) || (dbProduct ? dbProduct.price : null);
-        const safePrice = rawPrice ? `GHS ${rawPrice}` : 'Negotiable';
-        
-        const svgString = `
-          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#0f172a" />
-                <stop offset="100%" stop-color="#1e293b" />
-              </linearGradient>
-              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="40" result="blur" />
-                <feComposite in="SourceGraphic" in2="blur" operator="over" />
-              </filter>
-            </defs>
-            <rect width="1200" height="630" fill="url(#bgGrad)"/>
-            
-            <!-- Spotlight background grid/circles -->
-            <circle cx="600" cy="315" r="300" fill="#FFFC00" opacity="0.04" filter="url(#glow)"/>
-            
-            <!-- Glassmorphic media card design -->
-            <rect x="250" y="80" width="700" height="470" rx="24" fill="#1e293b" opacity="0.6" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2" />
-            
-            <!-- Outer play button ring -->
-            <circle cx="600" cy="275" r="65" fill="#1e293b" stroke="#FFFC00" stroke-width="4" opacity="0.9" />
-            <!-- Inner play button circle -->
-            <circle cx="600" cy="275" r="50" fill="#FFFC00" />
-            <!-- Play triangular arrow -->
-            <polygon points="585,250 630,275 585,300" fill="#0f172a" />
-            
-            <!-- Overlay badge for brand representation -->
-            <rect x="520" y="115" width="160" height="32" rx="16" fill="#0f172a" opacity="0.8" stroke="#ffffff" stroke-opacity="0.05" />
-            <text x="600" y="136" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFC00" text-anchor="middle" letter-spacing="3">SPOTLIGHT AD</text>
-
-            <!-- Main Listing Title -->
-            <text x="600" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1">${escapeHtml(safeTitle)}</text>
-            
-            <!-- Video playback label -->
-            <text x="600" y="465" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#FFFC00" text-anchor="middle" letter-spacing="1.5">🎬 ${escapeHtml(safePrice)}</text>
-            <text x="600" y="505" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">Click link to watch on TedBuy Ghana</text>
-          </svg>
-        `;
-        originalBuffer = Buffer.from(svgString);
-        originalMimeType = 'image/svg+xml';
-      }
-    }
-    
-    if (!originalBuffer && !productId && !queryImageUrl) {
-      return serveTransparentPixel(res);
-    }
-    
-    if (!originalBuffer && !imageUrl) {
-      return serveTransparentPixel(res);
-    }
-    
+    // 1. Resolve original image data first (if any) so we can use it as a background for video placeholders if present
     if (!originalBuffer && imageUrl && imageUrl.startsWith('data:')) {
       try {
         const parts = imageUrl.split(';base64,');
@@ -5862,6 +5798,97 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       } catch (error) {
         console.error('Error proxying external product image securely:', error);
       }
+    }
+
+    // 2. Dynamically generate video-only product overlay cards or fallback layouts if it is a video product
+    const isVideo = (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.includes('/video'))) ||
+                    (queryImageUrl && (queryImageUrl.endsWith('.mp4') || queryImageUrl.includes('/video'))) ||
+                    (queryVideoUrl && (queryVideoUrl.endsWith('.mp4') || queryVideoUrl.includes('/video'))) ||
+                    (productId && productId.includes('video')) ||
+                    (dbProduct && dbProduct.videos && dbProduct.videos.length > 0);
+
+    if (isVideo) {
+      const safeTitle = (req.query.title as string) || (dbProduct ? dbProduct.title : null) || (productId ? 'Spotlight Review' : 'Video Ad');
+      const rawPrice = (req.query.price as string) || (dbProduct ? dbProduct.price : null);
+      const safePrice = rawPrice ? `GHS ${rawPrice}` : 'Negotiable';
+
+      if (originalBuffer) {
+        // High-performance rich visual blending: overlay a semi-transparent media play icon directly on top of the actual video frame/thumbnail.
+        const base64ImageString = `data:${originalMimeType};base64,${originalBuffer.toString('base64')}`;
+        const svgString = `
+          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="30" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+            <!-- Real thumbnail background -->
+            <image href="${escapeHtml(base64ImageString)}" x="0" y="0" width="1200" height="630" preserveAspectRatio="xMidYMid slice" />
+            
+            <!-- Dark glassmorphic tint overlay to ensure high contrast and professional look -->
+            <rect x="0" y="0" width="1200" height="630" fill="#000000" opacity="0.25" />
+            
+            <!-- Large TikTok style play button in the center -->
+            <circle cx="600" cy="315" r="75" fill="#0f172a" fill-opacity="0.4" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8" filter="url(#glow)" />
+            <circle cx="600" cy="315" r="55" fill="#ffffff" fill-opacity="0.95" />
+            <polygon points="585,290 625,315 585,340" fill="#0f172a" />
+          </svg>
+        `;
+        originalBuffer = Buffer.from(svgString);
+        originalMimeType = 'image/svg+xml';
+      } else {
+        // Fallback slate-dark card design if no image exists
+        const svgString = `
+          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#0f172a" />
+                <stop offset="100%" stop-color="#1e293b" />
+              </linearGradient>
+              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="40" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+            <rect width="1200" height="630" fill="url(#bgGrad)"/>
+            
+            <!-- Spotlight background grid/circles -->
+            <circle cx="600" cy="315" r="300" fill="#FFFC00" opacity="0.04" filter="url(#glow)"/>
+            
+            <!-- Glassmorphic media card design -->
+            <rect x="250" y="80" width="700" height="470" rx="24" fill="#1e293b" opacity="0.6" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2" />
+            
+            <!-- Outer play button ring -->
+            <circle cx="600" cy="275" r="65" fill="#1e293b" stroke="#FFFC00" stroke-width="4" opacity="0.9" />
+            <!-- Inner play button circle -->
+            <circle cx="600" cy="275" r="50" fill="#FFFC00" />
+            <!-- Play triangular arrow -->
+            <polygon points="585,250 630,275 585,300" fill="#0f172a" />
+            
+            <!-- Overlay badge for brand representation -->
+            <rect x="520" y="115" width="160" height="32" rx="16" fill="#0f172a" opacity="0.8" stroke="#ffffff" stroke-opacity="0.05" />
+            <text x="600" y="136" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFC00" text-anchor="middle" letter-spacing="3">SPOTLIGHT AD</text>
+
+            <!-- Main Listing Title -->
+            <text x="600" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1">${escapeHtml(safeTitle)}</text>
+            
+            <!-- Video playback label -->
+            <text x="600" y="465" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#FFFC00" text-anchor="middle" letter-spacing="1.5">🎬 ${escapeHtml(safePrice)}</text>
+            <text x="600" y="505" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">Click link to watch on TedBuy Ghana</text>
+          </svg>
+        `;
+        originalBuffer = Buffer.from(svgString);
+        originalMimeType = 'image/svg+xml';
+      }
+    }
+
+    if (!originalBuffer && !productId && !queryImageUrl) {
+      return serveTransparentPixel(res);
+    }
+    
+    if (!originalBuffer && !imageUrl) {
+      return serveTransparentPixel(res);
     }
 
     if (!originalBuffer) {
