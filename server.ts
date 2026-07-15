@@ -856,7 +856,7 @@ const CATEGORY_META: Record<string, { title: string; description: string; imageS
   'vehicles': {
     title: 'Verified Cars & Vehicles for Sale in Ghana | TedBuy',
     description: 'Reliable transport on a budget. Explore verified cars, motorbikes, bicycles, and vehicle accessories for sale in Ghana from trusted private sellers & dealers on TedBuy.',
-    imageSearch: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80'
+    imageSearch: 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=600&q=80'
   },
   'services': {
     title: 'Verified Professional Services & Freelancers in Ghana | TedBuy',
@@ -5573,7 +5573,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (lower.includes('electronic') || lower.includes('tv') || lower.includes('audio') || lower.includes('camera')) return 'https://images.unsplash.com/photo-1498049794561-7780e7231661?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('laptop') || lower.includes('computer')) return 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('fashion') || lower.includes('wear') || lower.includes('clothes')) return 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=600&q=80';
-    if (lower.includes('vehicle') || lower.includes('car')) return 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=600&q=80';
+    if (lower.includes('vehicle') || lower.includes('car')) return 'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('beauty')) return 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('game') || lower.includes('toy')) return 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=600&q=80';
     if (lower.includes('appliance') || lower.includes('home')) return 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=600&q=80';
@@ -5663,6 +5663,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     let imageUrl = queryImageUrl;
     let category = '';
+    let dbProduct: any = null;
 
     // 4. Check if we have the original base64 on disk
     if (!originalBuffer && !imageUrl && productId) {
@@ -5681,6 +5682,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       try {
         const product = await getProductData(productId, idx > 0);
         if (product) {
+          dbProduct = product;
           // Determine which image URL/base64 to use based on index
           let targetImageUrl = '';
           if (product.images && Array.isArray(product.images) && product.images.length > idx) {
@@ -5709,6 +5711,62 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
     
     const fallbackUrl = getCategoryFallbackUrl(category);
+    
+    // Dynamically generate a beautiful "VIDEO AD PLAYBACK" placeholder card if the request is for a video-only product
+    if (!originalBuffer) {
+      const isVideo = (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.includes('/video'))) ||
+                      (queryImageUrl && (queryImageUrl.endsWith('.mp4') || queryImageUrl.includes('/video'))) ||
+                      (productId && productId.includes('video')) ||
+                      (dbProduct && dbProduct.videos && dbProduct.videos.length > 0);
+                      
+      if (isVideo) {
+        const safeTitle = (req.query.title as string) || (dbProduct ? dbProduct.title : null) || (productId ? 'Spotlight Review' : 'Video Ad');
+        const rawPrice = (req.query.price as string) || (dbProduct ? dbProduct.price : null);
+        const safePrice = rawPrice ? `GHS ${rawPrice}` : 'Negotiable';
+        
+        const svgString = `
+          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#0f172a" />
+                <stop offset="100%" stop-color="#1e293b" />
+              </linearGradient>
+              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="40" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
+            <rect width="1200" height="630" fill="url(#bgGrad)"/>
+            
+            <!-- Spotlight background grid/circles -->
+            <circle cx="600" cy="315" r="300" fill="#FFFC00" opacity="0.04" filter="url(#glow)"/>
+            
+            <!-- Glassmorphic media card design -->
+            <rect x="250" y="80" width="700" height="470" rx="24" fill="#1e293b" opacity="0.6" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2" />
+            
+            <!-- Outer play button ring -->
+            <circle cx="600" cy="275" r="65" fill="#1e293b" stroke="#FFFC00" stroke-width="4" opacity="0.9" />
+            <!-- Inner play button circle -->
+            <circle cx="600" cy="275" r="50" fill="#FFFC00" />
+            <!-- Play triangular arrow -->
+            <polygon points="585,250 630,275 585,300" fill="#0f172a" />
+            
+            <!-- Overlay badge for brand representation -->
+            <rect x="520" y="115" width="160" height="32" rx="16" fill="#0f172a" opacity="0.8" stroke="#ffffff" stroke-opacity="0.05" />
+            <text x="600" y="136" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFC00" text-anchor="middle" letter-spacing="3">SPOTLIGHT AD</text>
+
+            <!-- Main Listing Title -->
+            <text x="600" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1">${escapeHtml(safeTitle)}</text>
+            
+            <!-- Video playback label -->
+            <text x="600" y="465" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#FFFC00" text-anchor="middle" letter-spacing="1.5">🎬 ${escapeHtml(safePrice)}</text>
+            <text x="600" y="505" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">Click link to watch on TedBuy Ghana</text>
+          </svg>
+        `;
+        originalBuffer = Buffer.from(svgString);
+        originalMimeType = 'image/svg+xml';
+      }
+    }
     
     if (!originalBuffer && !productId && !queryImageUrl) {
       return serveTransparentPixel(res);
