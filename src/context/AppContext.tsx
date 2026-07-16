@@ -792,7 +792,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             initialUsername = `${initialUsername}_${Math.floor(100 + Math.random() * 900)}`;
           }
 
-          const isGoogleUser = firebaseUser.providerData.some(p => p.providerId === 'google.com') || (firebaseUser.email ? firebaseUser.email.endsWith('@gmail.com') : false);
+          const isGoogleUser = firebaseUser.providerData.some(p => p.providerId === 'google.com');
 
           // Construct a dynamic backup/fallback user structure
           const tempUser: User = {
@@ -841,7 +841,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 return;
               }
               const isEmailVerifiedNow = firebaseUser.emailVerified || false;
-              const isCurrentlyGoogle = firebaseUser.providerData.some(p => p.providerId === 'google.com') || (firebaseUser.email ? firebaseUser.email.endsWith('@gmail.com') : false);
+              const isCurrentlyGoogle = firebaseUser.providerData.some(p => p.providerId === 'google.com');
               
               const updates: any = {};
               // Prevent downgrading emailVerified to false if the user verified via OTP.

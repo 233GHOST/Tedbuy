@@ -4682,29 +4682,50 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           if (firebaseRes.ok) {
             const authData = await firebaseRes.json();
             if (authData && authData.localId) {
-              console.log(`[Backend Login] Firebase Auth REST API sign-in succeeded for ${matchedUser.email}! Syncing passwordHash to Firestore...`);
+              console.log(`[Backend Login] Firebase Auth REST API sign-in succeeded for ${matchedUser.email}! Syncing passwordHash and authProvider to DB...`);
               
               // Dynamically cache computed passwordHash in Firestore so future logins are ultra-fast
               if (adminDb) {
                 await adminDb.collection('users').doc(matchedUser.id).update({
-                  passwordHash: computedHash
+                  passwordHash: computedHash,
+                  authProvider: 'password_hash:' + computedHash,
+                  isGoogleAuth: false
                 }).catch((writeErr: any) => console.warn('[Backend Login] Failed to update Firestore with password hash:', writeErr));
+              }
+
+              // Also sync to Supabase if active
+              if (backendSupabase) {
+                backendSupabase
+                  .from('users')
+                  .update({
+                    authProvider: 'password_hash:' + computedHash,
+                    isGoogleAuth: false
+                  })
+                  .eq('id', matchedUser.id)
+                  .then(({ error: sbErr }: any) => {
+                    if (sbErr) console.warn('[Backend Login] Failed to update Supabase with password hash:', sbErr.message || sbErr);
+                  });
               }
               
               storedHash = computedHash;
               matchedUser.passwordHash = computedHash;
+              matchedUser.authProvider = 'password_hash:' + computedHash;
+              matchedUser.isGoogleAuth = false;
             }
           } else {
             const errData = await firebaseRes.json().catch(() => ({}));
             const errMsg = errData.error?.message || '';
             console.warn('[Backend Login] Firebase REST sign-in failed with message:', errMsg);
             
-            if (errMsg === 'INVALID_PASSWORD') {
+            if (errMsg === 'INVALID_PASSWORD' || errMsg === 'INVALID_LOGIN_CREDENTIALS') {
               return res.status(401).json({ success: false, error: "The password you entered is incorrect. Please try again." });
             } else if (errMsg === 'EMAIL_NOT_FOUND') {
               return res.status(404).json({ success: false, error: "No registered account was found matching these credentials." });
             } else if (errMsg === 'USER_DISABLED') {
               return res.status(403).json({ success: false, error: "This user account has been disabled." });
+            } else {
+              // General fallback for credentials or authentication failure
+              return res.status(401).json({ success: false, error: "The password you entered is incorrect. Please try again." });
             }
           }
         } catch (authFallbackErr: any) {
