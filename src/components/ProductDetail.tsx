@@ -90,7 +90,8 @@ export const ProductDetail: React.FC = () => {
 
   const handleShareProduct = async () => {
     if (!product) return;
-    const shareUrl = window.location.href;
+    const rawShareUrl = window.location.href;
+    const shareUrl = rawShareUrl.replace('/#/', '/').replace('/#', '/');
     const shareTitle = product.title;
     const shareText = `Check out "${product.title}" for ${formattedPrice} on TedBuy Ghana!`;
 
@@ -1754,7 +1755,8 @@ export const ProductDetail: React.FC = () => {
                 {/* WhatsApp */}
                 <button
                   onClick={() => {
-                    const text = `Check out *${product.title}* for *${formattedPrice}* on TedBuy!\n\nView here: ${window.location.href}`;
+                    const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
+                    const text = `Check out *${product.title}* for *${formattedPrice}* on TedBuy!\n\nView here: ${cleanShareUrl}`;
                     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
                     showToast("Opening WhatsApp...", "success");
@@ -1768,8 +1770,9 @@ export const ProductDetail: React.FC = () => {
                 {/* Telegram */}
                 <button
                   onClick={() => {
+                    const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
                     const text = `Check out ${product.title} for ${formattedPrice} on TedBuy!`;
-                    window.open(`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+                    window.open(`https://t.me/share/url?url=${encodeURIComponent(cleanShareUrl)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
                     showToast("Opening Telegram...", "success");
                   }}
@@ -1784,10 +1787,11 @@ export const ProductDetail: React.FC = () => {
                   <button
                     onClick={async () => {
                       try {
+                        const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
                         await navigator.share({
                           title: product.title,
                           text: `Check out ${product.title} for ${formattedPrice} on TedBuy!`,
-                          url: window.location.href
+                          url: cleanShareUrl
                         });
                         setIsShareModalOpen(false);
                         showToast("Shared successfully!", "success");
@@ -1808,7 +1812,8 @@ export const ProductDetail: React.FC = () => {
                 <button
                   onClick={async () => {
                     try {
-                      await navigator.clipboard.writeText(window.location.href);
+                      const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
+                      await navigator.clipboard.writeText(cleanShareUrl);
                       showToast("Link copied to clipboard! Paste it anywhere.", "success");
                       setIsShareModalOpen(false);
                     } catch (err) {
