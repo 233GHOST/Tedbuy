@@ -190,9 +190,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   const handleShareClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const shareUrl = `${window.location.origin}/product/${product.id}`;
+    const shareUrl = `${window.location.origin}/?product=${product.id}`;
     const shareTitle = product.title;
-    const shareText = `Check out this product on TedBuy.`;
+    const shareText = `Check out "${product.title}" for ${formatPrice(product.price)} on TedBuy Ghana!`;
 
     if (navigator.share) {
       try {
@@ -718,8 +718,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 {/* WhatsApp */}
                 <button
                   onClick={() => {
-                    const shareUrl = `${window.location.origin}/product/${product.id}`;
-                    const text = `Check out *${product.title}* on TedBuy!\n\nView here: ${shareUrl}`;
+                    const shareUrl = `${window.location.origin}/?product=${product.id}`;
+                    const text = `Check out *${product.title}* for *${formatPrice(product.price)}* on TedBuy!\n\nView here: ${shareUrl}`;
                     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
                     showToast?.("Opening WhatsApp...", "success");
@@ -733,8 +733,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 {/* Telegram */}
                 <button
                   onClick={() => {
-                    const shareUrl = `${window.location.origin}/product/${product.id}`;
-                    const text = `Check out ${product.title} on TedBuy!`;
+                    const shareUrl = `${window.location.origin}/?product=${product.id}`;
+                    const text = `Check out ${product.title} for ${formatPrice(product.price)} on TedBuy!`;
                     window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
                     showToast?.("Opening Telegram...", "success");
@@ -750,10 +750,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
                   <button
                     onClick={async () => {
                       try {
-                        const shareUrl = `${window.location.origin}/product/${product.id}`;
+                        const shareUrl = `${window.location.origin}/?product=${product.id}`;
                         await navigator.share({
                           title: product.title,
-                          text: `Check out this product on TedBuy.`,
+                          text: `Check out ${product.title} for ${formatPrice(product.price)} on TedBuy!`,
                           url: shareUrl
                         });
                         setIsShareModalOpen(false);
@@ -775,7 +775,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 <button
                   onClick={async () => {
                     try {
-                      const shareUrl = `${window.location.origin}/product/${product.id}`;
+                      const shareUrl = `${window.location.origin}/?product=${product.id}`;
                       await navigator.clipboard.writeText(shareUrl);
                       showToast?.("Link copied to clipboard! Paste it anywhere.", "success");
                       setIsShareModalOpen(false);

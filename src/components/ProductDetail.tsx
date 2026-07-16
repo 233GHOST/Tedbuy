@@ -90,9 +90,9 @@ export const ProductDetail: React.FC = () => {
 
   const handleShareProduct = async () => {
     if (!product) return;
-    const shareUrl = `${window.location.origin}/product/${product.id}`;
+    const shareUrl = window.location.href;
     const shareTitle = product.title;
-    const shareText = `Check out this product on TedBuy.`;
+    const shareText = `Check out "${product.title}" for ${formattedPrice} on TedBuy Ghana!`;
 
     if (navigator.share) {
       try {
