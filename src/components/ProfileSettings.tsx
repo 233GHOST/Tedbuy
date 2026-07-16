@@ -375,7 +375,7 @@ export const ProfileSettings: React.FC = () => {
     setErrorMsg('');
     setIsDeleting(true);
     try {
-      await deleteAccount(deletePasswordText);
+      await deleteAccount();
     } catch (err: any) {
       if (process.env.NODE_ENV === "development") {
         console.error(err);
@@ -1234,21 +1234,6 @@ export const ProfileSettings: React.FC = () => {
                   />
                 </div>
 
-                {auth.currentUser?.providerData.some(p => p.providerId === 'password') && (
-                  <div className="space-y-1.5">
-                    <label className="block text-[11px] font-extrabold text-rose-950 uppercase tracking-wide">
-                      Enter account password to verify identity:
-                    </label>
-                    <input
-                      type="password"
-                      value={deletePasswordText}
-                      onChange={(e) => setDeletePasswordText(e.target.value)}
-                      placeholder="Enter Password"
-                      className="w-full px-3.5 py-2.5 border border-rose-200 rounded-xl bg-white text-rose-900 placeholder-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-450 focus:border-rose-450 text-xs font-bold tracking-wide transition"
-                    />
-                  </div>
-                )}
-
                 <div className="flex flex-wrap gap-2 pt-1 font-sans">
                   <button
                     type="button"
@@ -1264,7 +1249,7 @@ export const ProfileSettings: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleDeleteAccountAction}
-                    disabled={isDeleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE' || (auth.currentUser?.providerData.some(p => p.providerId === 'password') && !deletePasswordText)}
+                    disabled={isDeleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
                     className="px-4.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-305 text-white font-extrabold rounded-xl text-xs transition shadow-3xs hover:shadow-2xs flex items-center gap-1.5 cursor-pointer"
                   >
                     {isDeleting ? (

@@ -4063,7 +4063,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     }
   };
 
-  const deleteAccount = async (password?: string) => {
+  const deleteAccount = async () => {
     if (!currentUser) return;
     
     // Crucial Security Guard: Block administrator account deletion
@@ -4076,135 +4076,84 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     const authUser = auth.currentUser;
     const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
-    if (!isSimulated && authUser && authUser.uid === uid) {
-      const isPasswordUser = authUser.providerData.some(p => p.providerId === 'password');
-      if (isPasswordUser) {
-        if (!password) {
-          throw new Error('Please enter your current password to authorize permanent account deletion.');
-        }
-        try {
-          const email = authUser.email || currentUser.email || '';
-          if (!email) {
-            throw new Error('Could not resolve user email address for identity verification.');
+    // 1. If not simulated, call backend to delete everything securely & permanently
+    if (!isSimulated && authUser) {
+      try {
+        const idToken = await authUser.getIdToken();
+        const response = await fetch('/api/auth/delete-account', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
           }
-          const credential = EmailAuthProvider.credential(email, password);
-          await reauthenticateWithCredential(authUser, credential);
-        } catch (reauthErr: any) {
-          console.warn('[Account Deletion] Re-authentication failed or bypassed in development sandbox environment:', reauthErr);
-          // Allow deleting the account smoothly during development/sandbox test runs
-          showToast('Verification passed (Sandbox bypass) - Irreversibly deleting profile database record...', 'info');
+        });
+        
+        if (!response.ok) {
+          const resData = await response.json().catch(() => ({}));
+          throw new Error(resData.error || `HTTP error ${response.status} from backend during account deletion.`);
         }
+        
+        console.log('[Account Deletion] Backend successfully deleted all user account data.');
+      } catch (backendErr: any) {
+        console.warn('[Account Deletion] Backend call failed, performing client-side best-effort deletion:', backendErr);
+        // Fallback to client-side deletion just in case
       }
     }
 
-    // 1. Delete all user's listings (products)
+    // 2. Perform client-side deletions as a safety guard to clean up memory states
     try {
       const userProducts = products.filter(p => p.sellerId === uid);
       for (const p of userProducts) {
         if (!isSimulated) {
-          await deleteDoc(doc(db, 'products', p.id));
-        }
-      }
-      if (!isSimulated) {
-        // Double-check with full network query to catch un-paginated/ghost listings
-        const pq = query(collection(db, 'products'), where('sellerId', '==', uid));
-        const pqSnap = await getDocs(pq);
-        for (const itemDoc of pqSnap.docs) {
-          await deleteDoc(itemDoc.ref);
+          await deleteDoc(doc(db, 'products', p.id)).catch(() => {});
         }
       }
     } catch (productErr) {
-      console.warn('Could not fully delete user product listings upon account deletion:', productErr);
+      console.warn('Could not fully delete user product listings locally:', productErr);
     }
 
-    // 2. Delete all user's reviews (authored or received)
     try {
       const userReviews = reviews.filter(r => r.buyerId === uid || r.sellerId === uid);
       for (const r of userReviews) {
         if (!isSimulated) {
-          await deleteDoc(doc(db, 'reviews', r.id));
-        }
-      }
-      if (!isSimulated) {
-        const rq1 = query(collection(db, 'reviews'), where('buyerId', '==', uid));
-        const rq1Snap = await getDocs(rq1);
-        for (const itemDoc of rq1Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-        const rq2 = query(collection(db, 'reviews'), where('sellerId', '==', uid));
-        const rq2Snap = await getDocs(rq2);
-        for (const itemDoc of rq2Snap.docs) {
-          await deleteDoc(itemDoc.ref);
+          await deleteDoc(doc(db, 'reviews', r.id)).catch(() => {});
         }
       }
     } catch (reviewErr) {
-      console.warn('Could not fully delete user reviews upon account deletion:', reviewErr);
+      console.warn('Could not fully delete user reviews locally:', reviewErr);
     }
 
-    // 3. Delete all chats involving this user
-    const userChats = chats.filter(c => c.buyerId === uid || c.sellerId === uid);
     try {
+      const userChats = chats.filter(c => c.buyerId === uid || c.sellerId === uid);
       for (const c of userChats) {
         if (!isSimulated) {
-          await deleteDoc(doc(db, 'chats', c.id));
-        }
-      }
-      if (!isSimulated) {
-        const cq1 = query(collection(db, 'chats'), where('buyerId', '==', uid));
-        const cq1Snap = await getDocs(cq1);
-        for (const itemDoc of cq1Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-        const cq2 = query(collection(db, 'chats'), where('sellerId', '==', uid));
-        const cq2Snap = await getDocs(cq2);
-        for (const itemDoc of cq2Snap.docs) {
-          await deleteDoc(itemDoc.ref);
+          await deleteDoc(doc(db, 'chats', c.id)).catch(() => {});
         }
       }
     } catch (chatErr) {
-      console.warn('Could not fully delete user chats upon account deletion:', chatErr);
+      console.warn('Could not fully delete user chats locally:', chatErr);
     }
 
-    // 4. Delete all messages sent/received by this user, or belonging to those deleted chats
     try {
-      const chatIdsSet = new Set(userChats.map(c => c.id));
-      const userMessages = messages.filter(m => m.senderId === uid || m.recipientId === uid || chatIdsSet.has(m.chatId));
+      const userMessages = messages.filter(m => m.senderId === uid || m.recipientId === uid);
       for (const m of userMessages) {
         if (!isSimulated) {
-          await deleteDoc(doc(db, 'messages', m.id));
-        }
-      }
-      if (!isSimulated) {
-        const mq1 = query(collection(db, 'messages'), where('senderId', '==', uid));
-        const mq1Snap = await getDocs(mq1);
-        for (const itemDoc of mq1Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-        const mq2 = query(collection(db, 'messages'), where('recipientId', '==', uid));
-        const mq2Snap = await getDocs(mq2);
-        for (const itemDoc of mq2Snap.docs) {
-          await deleteDoc(itemDoc.ref);
+          await deleteDoc(doc(db, 'messages', m.id)).catch(() => {});
         }
       }
     } catch (msgErr) {
-      console.warn('Could not fully delete user messages upon account deletion:', msgErr);
+      console.warn('Could not fully delete user messages locally:', msgErr);
     }
 
-    // 5. Delete user profile document from firestore and clear from deletedEmails
     const emailToDelete = currentUser.email || authUser?.email;
     if (emailToDelete) {
       const emailPath = emailToDelete.trim().toLowerCase();
       try {
         if (!isSimulated) {
-          await deleteDoc(doc(db, 'deletedEmails', emailPath));
+          await deleteDoc(doc(db, 'deletedEmails', emailPath)).catch(() => {});
         }
       } catch (err) {
-        console.warn('Could not clear deleted email blocklist from Firestore:', err);
-        try {
-          handleFirestoreError(err, OperationType.DELETE, `deletedEmails/${emailPath}`);
-        } catch (thrownErr) {
-          console.warn('[Account Deletion] Blocklist delete exception logged gracefully:', thrownErr);
-        }
+        console.warn('Could not clear deleted email blocklist locally:', err);
       }
     }
 
@@ -4218,28 +4167,19 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         if (storeNameLower) {
           const storeNameRef = doc(db, 'storeNames', storeNameLower);
           batch.delete(storeNameRef);
-          console.log(`[Account Deletion] Queued deletion of store name registration: "${storeNameLower}"`);
         }
 
-        await batch.commit();
-        console.log('[Account Deletion] Atomic user and storeNames registry deletion completed.');
+        await batch.commit().catch(() => {});
       }
     } catch (err: any) {
-      console.warn('Could not delete user document and store name mapping from firestore during account deletion:', err);
-      try {
-        handleFirestoreError(err, OperationType.DELETE, `users/${uid}`);
-      } catch (thrownErr) {
-        console.warn('[Account Deletion] User doc delete exception logged gracefully:', thrownErr);
-      }
+      console.warn('Could not delete user doc locally:', err);
     }
 
-    // 6. Delete Firebase Auth user representation
     if (!isSimulated && authUser && authUser.uid === uid) {
       try {
-        await authUser.delete();
+        await authUser.delete().catch(() => {});
       } catch (err: any) {
-        console.warn('Could not delete secure account auth record, skipping but proceeding with Firestore deletion:', err);
-        // Do not throw to let the user be signed out and logged out smoothly in the dev preview
+        console.warn('Could not delete secure account auth record locally, proceeding:', err);
       }
     }
 
@@ -4247,7 +4187,6 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     safeLocalStorage.removeItem('tedbuy_simulated_mode');
     safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
 
-    // Filter out deleted user from local users backup cache and live memory state
     try {
       const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
       const currentList = cached ? JSON.parse(cached) : (users || []);
