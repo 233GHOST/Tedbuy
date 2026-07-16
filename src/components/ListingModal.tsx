@@ -1501,46 +1501,25 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
             {/* Posting Option Selection */}
             {!productToEdit && (
-              <div className="bg-slate-50 border border-slate-250/50 rounded-2xl p-4 space-y-3 mt-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={`p-3.5 border rounded-2xl flex flex-col gap-1 cursor-pointer transition-all ${
-                    postOption === 'normal'
-                      ? 'border-slate-400 bg-white ring-2 ring-slate-100 shadow-3xs'
-                      : 'border-slate-200 bg-white/50 hover:bg-white'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">Post Normally</span>
-                      <input
-                        type="radio"
-                        name="postOption"
-                        checked={postOption === 'normal'}
-                        onChange={() => setPostOption('normal')}
-                        className="accent-slate-900 cursor-pointer"
-                      />
-                    </div>
-                    <span className="text-[10px] text-slate-450 font-sans mt-0.5">Free standard listing placement</span>
-                  </label>
-
-                  <label className={`p-3.5 border rounded-2xl flex flex-col gap-1 cursor-pointer transition-all ${
-                    postOption === 'boost'
-                      ? 'border-amber-400 bg-amber-50/20 ring-2 ring-amber-300/30 shadow-3xs'
-                      : 'border-slate-200 bg-white/50 hover:bg-white'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
-                        Boost Listing
-                      </span>
-                      <input
-                        type="radio"
-                        name="postOption"
-                        checked={postOption === 'boost'}
-                        onChange={() => setPostOption('boost')}
-                        className="accent-amber-500 cursor-pointer"
-                      />
-                    </div>
-                    <span className="text-[10px] text-amber-850 font-sans mt-0.5">Upgrade to top ad tier instantly</span>
-                  </label>
-                </div>
+              <div className="bg-slate-50 border border-slate-250/50 rounded-2xl p-4 mt-4">
+                <label className={`p-3.5 border rounded-2xl flex flex-col gap-1 cursor-pointer transition-all ${
+                  postOption === 'boost'
+                    ? 'border-amber-400 bg-amber-50/20 ring-2 ring-amber-300/30 shadow-3xs'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
+                      Boost Listing
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={postOption === 'boost'}
+                      onChange={(e) => setPostOption(e.target.checked ? 'boost' : 'normal')}
+                      className="accent-amber-500 cursor-pointer h-4 w-4"
+                    />
+                  </div>
+                  <span className="text-[10px] text-amber-850 font-sans mt-0.5">Upgrade to top ad tier instantly</span>
+                </label>
               </div>
             )}
 

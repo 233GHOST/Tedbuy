@@ -5687,7 +5687,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     let dbProduct: any = null;
 
     // 4. Check if we have the original base64 on disk
-    if (!originalBuffer && !imageUrl && productId) {
+    if (!originalBuffer && productId) {
       const txtFile = path.join(IMAGES_CACHE_DIR, `${resolvedProductId}.txt`);
       if (fs.existsSync(txtFile)) {
         try {
@@ -5698,8 +5698,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     }
     
-    // 5. Fetch from firestore if not cached on disk
-    if (!originalBuffer && !imageUrl && productId) {
+    // 5. Fetch from firestore if not cached on disk or if we want to ensure we get first-party database thumbnail/images for real products
+    if (!originalBuffer && productId && (productId.startsWith('prod_') || !imageUrl)) {
       try {
         const product = await getProductData(productId, idx > 0);
         if (product) {
@@ -5712,7 +5712,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             targetImageUrl = product.image || '';
           }
           
-          imageUrl = targetImageUrl;
+          if (targetImageUrl) {
+            imageUrl = targetImageUrl;
+          }
           category = product.category || '';
           
           if (imageUrl && imageUrl.startsWith('data:')) {
@@ -5800,8 +5802,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     }
 
-    // 2. Disable custom video overlay so WhatsApp shares display the clean original thumbnail image natively without any fake video play button/spotlight card overlay.
-    /*
+    // 2. Enable custom video overlay with real video thumbnail backgrounds and centered play button
     const isVideo = (imageUrl && (imageUrl.endsWith('.mp4') || imageUrl.includes('/video'))) ||
                     (queryImageUrl && (queryImageUrl.endsWith('.mp4') || queryImageUrl.includes('/video'))) ||
                     (queryVideoUrl && (queryVideoUrl.endsWith('.mp4') || queryVideoUrl.includes('/video'))) ||
@@ -5883,7 +5884,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         originalMimeType = 'image/svg+xml';
       }
     }
-    */
 
     if (!originalBuffer && !productId && !queryImageUrl) {
       return serveTransparentPixel(res);
@@ -6095,33 +6095,40 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           let template = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf-8");
           template = await vite.transformIndexHtml(url, template);
           
-          if (queryTitle && (queryImage || queryVideo)) {
+          let product: any = null;
+          if (productId && productId.startsWith('prod_')) {
+            try {
+              product = await getProductData(productId);
+            } catch (err) {
+              console.warn(`[Meta Crawler Dev] Error fetching product ${productId}:`, err);
+            }
+          }
+          
+          if (!product && queryTitle && (queryImage || queryVideo)) {
             if (!queryVideo && queryImage && (queryImage.endsWith('.mp4') || queryImage.includes('/video'))) {
               queryVideo = queryImage;
             }
-            const product = {
+            product = {
               title: queryTitle,
               description: queryDescription || `Check out "${queryTitle}" on Tedbuy Ghana classifieds! Price: ${queryPrice || 'Negotiable'}. View photos, reviews and full details directly.`,
               price: queryPrice || '',
               image: queryImage,
               videos: queryVideo ? [queryVideo] : []
             };
+          }
+
+          if (product) {
             const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
             const host = cleanHostHeader(rawHost);
             const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
             const fullUrl = `${protocol}://${host}${url}`;
             template = injectMetaTags(template, product, fullUrl, host, protocol, productId || 'temp');
           } else if (productId) {
-            const product = await getProductData(productId);
             const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
             const host = cleanHostHeader(rawHost);
             const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
             const fullUrl = `${protocol}://${host}${url}`;
-            if (product) {
-              template = injectMetaTags(template, product, fullUrl, host, protocol, productId);
-            } else {
-              template = injectHomepageMetaTags(template, fullUrl, host, protocol);
-            }
+            template = injectHomepageMetaTags(template, fullUrl, host, protocol);
           } else if (sellerId) {
             const seller = await getSellerData(sellerId);
             const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
@@ -6223,33 +6230,40 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const cleanPathname = url.split('?')[0].replace(/^\/+|\/+$/g, '').toLowerCase();
         const isCategorySlug = categorySlugs.includes(cleanPathname);
         
-        if (queryTitle && (queryImage || queryVideo)) {
+        let product: any = null;
+        if (productId && productId.startsWith('prod_')) {
+          try {
+            product = await getProductData(productId);
+          } catch (err) {
+            console.warn(`[Meta Crawler Prod] Error fetching product ${productId}:`, err);
+          }
+        }
+
+        if (!product && queryTitle && (queryImage || queryVideo)) {
           if (!queryVideo && queryImage && (queryImage.endsWith('.mp4') || queryImage.includes('/video'))) {
             queryVideo = queryImage;
           }
-          const product = {
+          product = {
             title: queryTitle,
             description: queryDescription || `Check out "${queryTitle}" on Tedbuy Ghana classifieds! Price: ${queryPrice || 'Negotiable'}. View photos, reviews and full details directly.`,
             price: queryPrice || '',
             image: queryImage,
             videos: queryVideo ? [queryVideo] : []
           };
+        }
+
+        if (product) {
           const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
           const host = cleanHostHeader(rawHost);
           const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
           const fullUrl = `${protocol}://${host}${url}`;
           template = injectMetaTags(template, product, fullUrl, host, protocol, productId || 'temp');
         } else if (productId) {
-          const product = await getProductData(productId);
           const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
           const host = cleanHostHeader(rawHost);
           const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
           const fullUrl = `${protocol}://${host}${url}`;
-          if (product) {
-            template = injectMetaTags(template, product, fullUrl, host, protocol, productId);
-          } else {
-            template = injectHomepageMetaTags(template, fullUrl, host, protocol);
-          }
+          template = injectHomepageMetaTags(template, fullUrl, host, protocol);
         } else if (sellerId) {
           const seller = await getSellerData(sellerId);
           const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy-fb79a.web.app';
