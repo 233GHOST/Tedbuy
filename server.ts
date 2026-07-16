@@ -5323,61 +5323,83 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           
           // A. Delete Products
           const productsSnap = await adminDb.collection('products').where('sellerId', '==', uid).get();
-          const pBatch = adminDb.batch();
-          productsSnap.forEach((doc: any) => pBatch.delete(doc.ref));
-          await pBatch.commit();
+          if (!productsSnap.empty) {
+            const pBatch = adminDb.batch();
+            productsSnap.forEach((doc: any) => pBatch.delete(doc.ref));
+            await pBatch.commit();
+          }
 
           // B. Delete Reviews (buyerId or sellerId == uid)
           const reviewsSnap1 = await adminDb.collection('reviews').where('buyerId', '==', uid).get();
           const reviewsSnap2 = await adminDb.collection('reviews').where('sellerId', '==', uid).get();
-          const rBatch = adminDb.batch();
-          reviewsSnap1.forEach((doc: any) => rBatch.delete(doc.ref));
-          reviewsSnap2.forEach((doc: any) => rBatch.delete(doc.ref));
-          await rBatch.commit();
+          if (!reviewsSnap1.empty || !reviewsSnap2.empty) {
+            const rBatch = adminDb.batch();
+            reviewsSnap1.forEach((doc: any) => rBatch.delete(doc.ref));
+            reviewsSnap2.forEach((doc: any) => rBatch.delete(doc.ref));
+            await rBatch.commit();
+          }
 
           // C. Delete Chats and Messages
           const chatsSnap1 = await adminDb.collection('chats').where('buyerId', '==', uid).get();
           const chatsSnap2 = await adminDb.collection('chats').where('sellerId', '==', uid).get();
           const chatIds = new Set<string>();
-          const cBatch = adminDb.batch();
-          chatsSnap1.forEach((doc: any) => {
-            chatIds.add(doc.id);
-            cBatch.delete(doc.ref);
-          });
-          chatsSnap2.forEach((doc: any) => {
-            chatIds.add(doc.id);
-            cBatch.delete(doc.ref);
-          });
-          await cBatch.commit();
+          if (!chatsSnap1.empty || !chatsSnap2.empty) {
+            const cBatch = adminDb.batch();
+            chatsSnap1.forEach((doc: any) => {
+              chatIds.add(doc.id);
+              cBatch.delete(doc.ref);
+            });
+            chatsSnap2.forEach((doc: any) => {
+              chatIds.add(doc.id);
+              cBatch.delete(doc.ref);
+            });
+            await cBatch.commit();
+          }
 
           // Delete messages sent/received, or of the deleted chats
           const mSnap1 = await adminDb.collection('messages').where('senderId', '==', uid).get();
           const mSnap2 = await adminDb.collection('messages').where('recipientId', '==', uid).get();
           const mBatch = adminDb.batch();
-          mSnap1.forEach((doc: any) => mBatch.delete(doc.ref));
-          mSnap2.forEach((doc: any) => mBatch.delete(doc.ref));
+          let mCount = 0;
+          mSnap1.forEach((doc: any) => {
+            mBatch.delete(doc.ref);
+            mCount++;
+          });
+          mSnap2.forEach((doc: any) => {
+            mBatch.delete(doc.ref);
+            mCount++;
+          });
           
           if (chatIds.size > 0) {
             for (const chatId of chatIds) {
               const chatMsgs = await adminDb.collection('messages').where('chatId', '==', chatId).get();
-              chatMsgs.forEach((doc: any) => mBatch.delete(doc.ref));
+              chatMsgs.forEach((doc: any) => {
+                mBatch.delete(doc.ref);
+                mCount++;
+              });
             }
           }
-          await mBatch.commit();
+          if (mCount > 0) {
+            await mBatch.commit();
+          }
 
           // D. Delete Notifications (userId == uid)
           const notifsSnap = await adminDb.collection('notifications').where('userId', '==', uid).get();
-          const nBatch = adminDb.batch();
-          notifsSnap.forEach((doc: any) => nBatch.delete(doc.ref));
-          await nBatch.commit();
+          if (!notifsSnap.empty) {
+            const nBatch = adminDb.batch();
+            notifsSnap.forEach((doc: any) => nBatch.delete(doc.ref));
+            await nBatch.commit();
+          }
 
           // E. Delete Boost Purchases (userId == uid)
           const bpSnap = await adminDb.collection('boost_purchases').where('userId', '==', uid).get();
           const bpSnap2 = await adminDb.collection('boostPurchases').where('userId', '==', uid).get();
-          const bpBatch = adminDb.batch();
-          bpSnap.forEach((doc: any) => bpBatch.delete(doc.ref));
-          bpSnap2.forEach((doc: any) => bpBatch.delete(doc.ref));
-          await bpBatch.commit();
+          if (!bpSnap.empty || !bpSnap2.empty) {
+            const bpBatch = adminDb.batch();
+            bpSnap.forEach((doc: any) => bpBatch.delete(doc.ref));
+            bpSnap2.forEach((doc: any) => bpBatch.delete(doc.ref));
+            await bpBatch.commit();
+          }
 
           // F. Delete StoreName mapping
           if (storeNameLower) {
