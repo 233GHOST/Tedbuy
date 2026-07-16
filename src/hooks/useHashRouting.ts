@@ -34,7 +34,7 @@ export function useHashRouting({
       } else {
         // While products are loading, preserve the current hash/pathname structure
         const currentPath = window.location.hash.replace(/^#/, '') || window.location.pathname;
-        if (currentPath.includes(`/product/${selectedProductId}`) || currentPath.includes(`/products/${selectedProductId}`)) {
+        if (currentPath.includes(`/p/${selectedProductId}`) || currentPath.includes(`/product/${selectedProductId}`) || currentPath.includes(`/products/${selectedProductId}`)) {
           targetPath = currentPath;
         } else {
           targetPath = `/product/${selectedProductId}`;

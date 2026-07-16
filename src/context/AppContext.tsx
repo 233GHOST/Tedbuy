@@ -497,10 +497,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Check if the link is a registered category slug
     const cleanPath = (pathname || '').replace(/^\//, '').toLowerCase();
     
-    // /products/:id or /product/:id
-    const productMatch = (pathname || '').match(/^\/products?\/([^\/]+)/);
+    // /p/:id or /product/:id or /products/:id
+    const productMatch = (pathname || '').match(/^\/(p|products?)\/([^\/]+)/);
     if (productMatch) {
-      const slugOrId = productMatch[1];
+      const slugOrId = productMatch[2];
       const matchId = slugOrId ? slugOrId.match(/prod_[a-zA-Z0-9_]+/) : null;
       if (matchId) {
         return { view: 'product-detail' as const, selectedProductId: matchId[0], selectedSellerId: null, category: null };

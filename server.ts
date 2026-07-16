@@ -5,6 +5,7 @@ import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
 import crypto from "crypto";
+import { exec } from "child_process";
 
 import dotenv from "dotenv";
 import net from "net";
@@ -537,6 +538,54 @@ function parseFirestoreDocument(doc: any): any {
   return result;
 }
 
+const execAsync = promisify(exec);
+
+async function generateThumbnailFromVideo(productId: string, videoUrl: string): Promise<Buffer | null> {
+  const tempDir = path.join(process.cwd(), 'images_cache', 'temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  const inputPath = path.join(tempDir, `${productId}_input.mp4`);
+  const outputPath = path.join(tempDir, `${productId}_thumb.jpg`);
+
+  try {
+    if (videoUrl.startsWith('data:')) {
+      const parts = videoUrl.split(';base64,');
+      if (parts.length === 2) {
+        const buffer = Buffer.from(parts[1], 'base64');
+        fs.writeFileSync(inputPath, buffer);
+      } else {
+        return null;
+      }
+    } else if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
+      // For remote URLs, we stream/extract directly via FFmpeg without downloading
+    } else {
+      return null;
+    }
+
+    const ffmpegInput = videoUrl.startsWith('data:') ? inputPath : videoUrl;
+    const command = `ffmpeg -y -ss 00:00:00.5 -i "${ffmpegInput}" -vframes 1 -q:v 2 "${outputPath}"`;
+    await execAsync(command);
+
+    if (fs.existsSync(outputPath)) {
+      const thumbBuffer = fs.readFileSync(outputPath);
+      try {
+        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      } catch (err) {}
+      return thumbBuffer;
+    }
+  } catch (err) {
+    console.error(`[FFmpeg Thumbnail Generator] Failed to generate thumbnail for product ${productId}:`, err);
+    try {
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    } catch (e) {}
+  }
+  return null;
+}
+
 async function getProductFromFirestoreREST(productId: string): Promise<any> {
   const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
   try {
@@ -661,15 +710,39 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
       const description = rawProduct.description || '';
       const priceValue = rawProduct.price || 'Negotiable';
       const images = Array.isArray(rawProduct.images) ? rawProduct.images : [];
-      // Default to empty string instead of hardcoded Unsplash fallback images
-      const primaryImage = images[0] || '';
+      let primaryImage = images[0] || rawProduct.image || '';
+
+      const videos = rawProduct.videos || [];
+      if (!primaryImage && videos.length > 0) {
+        const genThumbBinPath = path.join(IMAGES_CACHE_DIR, `${productId}_gen_thumb.bin`);
+        if (fs.existsSync(genThumbBinPath)) {
+          try {
+            const buffer = fs.readFileSync(genThumbBinPath);
+            primaryImage = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+          } catch (e) {
+            console.warn('[Thumbnail Cache] Failed to read cached generated thumbnail:', e);
+          }
+        } else {
+          console.log(`[Thumbnail Generator] Generating thumbnail for video-only product ${productId}`);
+          const buffer = await generateThumbnailFromVideo(productId, videos[0]);
+          if (buffer) {
+            try {
+              fs.writeFileSync(genThumbBinPath, buffer);
+              primaryImage = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+              fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}_gen_thumb.mime`), 'image/jpeg', 'utf-8');
+            } catch (writeErr) {
+              console.error('[Thumbnail Generator] Failed to save generated thumbnail to disk:', writeErr);
+            }
+          }
+        }
+      }
 
       const result = {
         title,
         description,
         price: priceValue,
         image: primaryImage,
-        images: rawProduct.images || [],
+        images: primaryImage ? [primaryImage, ...images] : images,
         category: rawProduct.category || '',
         videos: rawProduct.videos || []
       };
@@ -707,8 +780,6 @@ function injectMetaTags(html: string, product: { title: string; description: str
   const rawVideoUrl = hasVideo ? product.videos![0] : '';
 
   // ALWAYS use our dynamic image wrapper endpoint to deliver first-party, absolute, redirect-free, fully-qualified web-optimized JPG images.
-  // This solves base64 size limits, external redirects and domain/port mismatch crawler bugs perfectly.
-  // We append key listing details as query parameters so the image proxy can generate high-quality card graphics instantly.
   const imgParams = new URLSearchParams();
   if (product.title) imgParams.set('title', product.title);
   if (product.price) imgParams.set('price', String(product.price));
@@ -734,9 +805,9 @@ function injectMetaTags(html: string, product: { title: string; description: str
   const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '';
   const priceSchema = cleanPrice && !isNaN(Number(cleanPrice)) ? cleanPrice : '0';
 
-  // Build clean absolute product canonical URL to prevent GSC Google Bot parameter/redirect indexing splits
-  const titleSlug = product.title ? slugify(product.title) : '';
-  const canonicalUrl = `${protocol}://${host}/product/${productId}-${titleSlug}`;
+  // Build clean absolute product canonical URL
+  const canonicalUrl = `${protocol}://${host}/p/${productId}`;
+  const embedUrl = `${protocol}://${host}/embed/${productId}`;
 
   const schemaJson = {
     "@context": "https://schema.org/",
@@ -763,7 +834,7 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta name="description" content="${escapeHtml(description)}" />
     <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
     <!-- Open Graph / Facebook / WhatsApp -->
-    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:title" content="${escapeHtml(product.title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
     <meta property="og:image" content="${escapeHtml(image)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
@@ -771,8 +842,8 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
-    <meta property="og:type" content="${absoluteVideoUrl ? 'video.other' : 'product'}" />
-    <meta property="og:site_name" content="TedBuy Ghana" />
+    <meta property="og:type" content="video.other" />
+    <meta property="og:site_name" content="TedBuy" />
     <meta property="og:locale" content="en_GH" />
     ${absoluteVideoUrl ? `
     <meta property="og:video" content="${escapeHtml(absoluteVideoUrl)}" />
@@ -782,14 +853,14 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:video:height" content="1136" />
     ` : ''}
     <!-- Twitter / X -->
-    <meta name="twitter:card" content="${absoluteVideoUrl ? 'player' : 'summary_large_image'}" />
-    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:card" content="player" />
+    <meta name="twitter:title" content="${escapeHtml(product.title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(image)}" />
+    <meta name="twitter:player" content="${escapeHtml(embedUrl)}" />
+    <meta name="twitter:player:width" content="360" />
+    <meta name="twitter:player:height" content="640" />
     ${absoluteVideoUrl ? `
-    <meta name="twitter:player" content="${escapeHtml(canonicalUrl)}" />
-    <meta name="twitter:player:width" content="640" />
-    <meta name="twitter:player:height" content="1136" />
     <meta name="twitter:player:stream" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta name="twitter:player:stream:content_type" content="video/mp4" />
     ` : ''}
@@ -6010,6 +6081,110 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
+  app.get('/embed/:productId', async (req, res) => {
+    const { productId } = req.params;
+    if (!productId) {
+      return res.status(400).send('Missing product ID');
+    }
+
+    try {
+      const product = await getProductData(productId);
+      if (!product) {
+        return res.status(404).send('Product not found');
+      }
+
+      const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+      const host = cleanHostHeader(rawHost);
+      const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+      const productUrl = `${protocol}://${host}/p/${productId}`;
+      
+      let thumbnail = product.image || '';
+      if (thumbnail && thumbnail.startsWith('data:')) {
+        thumbnail = `${protocol}://${host}/api/products/${productId}/image.jpg`;
+      } else if (!thumbnail) {
+        thumbnail = 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80';
+      }
+
+      const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(product.title)} | TedBuy Embed</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #030712;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .tiktok-card {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 450px;
+      aspect-ratio: 9/16;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+    }
+    .overlay-grad {
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.4) 40%, rgba(0,0,0,0) 100%);
+    }
+  </style>
+</head>
+<body>
+  <div class="tiktok-card group" onclick="window.open('${productUrl}', '_blank')">
+    <img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(product.title)}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+    <div class="absolute inset-0 overlay-grad"></div>
+    <div class="absolute inset-0 flex items-center justify-center">
+      <div class="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/40 transition-all duration-300 group-hover:scale-110 group-hover:bg-white/30 shadow-2xl">
+        <svg class="w-10 h-10 text-white fill-current translate-x-1" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+      </div>
+    </div>
+    <div class="absolute bottom-0 left-0 right-0 p-6 flex flex-col gap-3">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-full bg-[#FFFC00] flex items-center justify-center shadow-lg">
+          <span class="text-black font-extrabold text-sm tracking-tight">TB</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-xs font-extrabold text-[#FFFC00] tracking-wider uppercase">TedBuy</span>
+          <span class="text-[10px] text-gray-400 font-medium">tedbuy.store</span>
+        </div>
+      </div>
+      <div>
+        <h3 class="text-lg font-black text-white leading-tight tracking-tight line-clamp-2 uppercase">${escapeHtml(product.title)}</h3>
+        <p class="text-sm font-bold text-[#FFFC00] mt-1">${product.price ? 'GH₵ ' + Number(product.price).toLocaleString('en-US') : 'Negotiable'}</p>
+        <p class="text-xs text-gray-300 font-medium mt-1 line-clamp-2">${escapeHtml(product.description)}</p>
+      </div>
+      <button class="mt-2 w-full py-3 bg-[#FFFC00] text-black font-extrabold text-xs rounded-xl hover:bg-yellow-400 active:scale-98 transition duration-200 uppercase tracking-wider shadow-lg">
+        Watch on TedBuy
+      </button>
+    </div>
+  </div>
+</body>
+</html>
+      `;
+      res.setHeader('Content-Type', 'text/html');
+      return res.status(200).send(html);
+    } catch (err) {
+      console.error('Error serving embed:', err);
+      return res.status(500).send('Internal Server Error');
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     // Development middleware integration with Vite.
     // Dynamically imported here (not at module top-level) so that production
@@ -6037,6 +6212,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
                              url === '/' || 
                              url.startsWith('/?') || 
                              isCategorySlug ||
+                             url.includes('/p/') ||
                              url.includes('/product/') ||
                              url.includes('/seller/') ||
                              url.includes('/chats') ||
@@ -6060,10 +6236,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         let queryVideo = req.query.video as string || '';
 
         if (!productId) {
-          // Attempt to extract product ID from pathname
-          const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
+          // Attempt to extract product ID from pathname supporting /p/ and /product/
+          const pathnameMatch = url.split('?')[0].match(/^\/(p|products?)\/([^\/]+)/);
           if (pathnameMatch) {
-            const slugOrId = pathnameMatch[1];
+            const slugOrId = pathnameMatch[2];
             const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
             if (matchId) {
               productId = matchId[0];
@@ -6194,10 +6370,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let queryVideo = req.query.video as string || '';
 
       if (!productId) {
-        // Attempt to extract product ID from pathname
-        const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
+        // Attempt to extract product ID from pathname supporting /p/ and /product/
+        const pathnameMatch = url.split('?')[0].match(/^\/(p|products?)\/([^\/]+)/);
         if (pathnameMatch) {
-          const slugOrId = pathnameMatch[1];
+          const slugOrId = pathnameMatch[2];
           const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
           if (matchId) {
             productId = matchId[0];
