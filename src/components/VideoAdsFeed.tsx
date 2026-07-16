@@ -108,12 +108,6 @@ const getProcessedUrl = (url: string): string => {
   return bUrl;
 };
 
-const formatPrice = (priceVal: string | number) => {
-  const num = Number(String(priceVal).replace(/GHS|GH₵|,/g, '').trim());
-  if (isNaN(num) || num <= 0) return 'Inquire';
-  return `GH₵${num.toLocaleString()}`;
-};
-
 let globalBottomNavTimeout: NodeJS.Timeout | null = null;
 
 export const showBottomNavWith2_5SecAutoHide = (setIsBottomNavVisible: (vis: boolean) => void) => {
@@ -194,28 +188,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const [showShareToast, setShowShareToast] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
-  const shareUrl = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set('productId', product.id);
-    params.set('title', product.title);
-    const hasVideo = product.videos && product.videos.length > 0;
-    const firstVideo = hasVideo ? product.videos[0] : null;
-    if (firstVideo) {
-      params.set('img', firstVideo);
-      params.set('image', firstVideo);
-      params.set('video', firstVideo);
-    } else if (product.images && product.images[0] && !product.images[0].startsWith('data:')) {
-      params.set('img', product.images[0]);
-      params.set('image', product.images[0]);
-    }
-    const formattedPrice = formatPrice(product.price);
-    params.set('price', formattedPrice);
-    params.set('location', product.location);
-    return `${window.location.origin}/?${params.toString()}`;
-  }, [product]);
-
   const handleShareClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    const shareUrl = `${window.location.origin}/?product=${product.id}`;
     const shareTitle = product.title;
     const shareText = `Check out "${product.title}" for ${formatPrice(product.price)} on TedBuy Ghana!`;
 
@@ -447,6 +422,12 @@ const ReelItem: React.FC<ReelItemProps> = ({
     const minutes = Math.floor(timeInSeconds / 60);
     const seconds = Math.floor(timeInSeconds % 60);
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
+
+  const formatPrice = (priceVal: string | number) => {
+    const num = Number(String(priceVal).replace(/GHS|GH₵|,/g, '').trim());
+    if (isNaN(num) || num <= 0) return 'Inquire';
+    return `GH₵${num.toLocaleString()}`;
   };
 
   const handleVideoContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -737,6 +718,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 {/* WhatsApp */}
                 <button
                   onClick={() => {
+                    const shareUrl = `${window.location.origin}/?product=${product.id}`;
                     const text = `Check out *${product.title}* for *${formatPrice(product.price)}* on TedBuy!\n\nView here: ${shareUrl}`;
                     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
@@ -751,6 +733,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 {/* Telegram */}
                 <button
                   onClick={() => {
+                    const shareUrl = `${window.location.origin}/?product=${product.id}`;
                     const text = `Check out ${product.title} for ${formatPrice(product.price)} on TedBuy!`;
                     window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
@@ -767,6 +750,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
                   <button
                     onClick={async () => {
                       try {
+                        const shareUrl = `${window.location.origin}/?product=${product.id}`;
                         await navigator.share({
                           title: product.title,
                           text: `Check out ${product.title} for ${formatPrice(product.price)} on TedBuy!`,
@@ -791,6 +775,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
                 <button
                   onClick={async () => {
                     try {
+                      const shareUrl = `${window.location.origin}/?product=${product.id}`;
                       await navigator.clipboard.writeText(shareUrl);
                       showToast?.("Link copied to clipboard! Paste it anywhere.", "success");
                       setIsShareModalOpen(false);
@@ -1003,6 +988,12 @@ export const VideoAdsFeed: React.FC = () => {
   const handleViewFullAd = (productId: string) => {
     setSelectedProductId(productId);
     setCurrentView('product-detail');
+  };
+
+  const formatPrice = (priceVal: string | number) => {
+    const num = Number(String(priceVal).replace(/GHS|GH₵|,/g, '').trim());
+    if (isNaN(num) || num <= 0) return 'Inquire';
+    return `GH₵${num.toLocaleString()}`;
   };
 
   if (videoProducts.length === 0) {

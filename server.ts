@@ -768,10 +768,10 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:image" content="${escapeHtml(image)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
     <meta property="og:image:type" content="image/jpeg" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:width" content="${hasVideo ? '600' : '1200'}" />
+    <meta property="og:image:height" content="${hasVideo ? '900' : '630'}" />
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
-    <meta property="og:type" content="${absoluteVideoUrl ? 'video.other' : 'product'}" />
+    <meta property="og:type" content="${hasVideo ? 'video.other' : 'product'}" />
     <meta property="og:site_name" content="TedBuy Ghana" />
     <meta property="og:locale" content="en_GH" />
     ${absoluteVideoUrl ? `
@@ -5635,6 +5635,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (quality < 1 || quality > 100) quality = 80;
     const format = ['webp', 'avif', 'png', 'jpeg', 'jpg'].includes(fmt) ? fmt : 'webp';
 
+    let isVideoCheck = (queryImageUrl && (queryImageUrl.endsWith('.mp4') || queryImageUrl.includes('/video'))) ||
+                       (queryVideoUrl && (queryVideoUrl.endsWith('.mp4') || queryVideoUrl.includes('/video'))) ||
+                       (productId && (productId.includes('video') || productId.includes('vid_')));
+
     const resolvedProductId = (idx && idx > 0) ? `${productId}_img${idx}` : productId;
     const imageId = resolvedProductId || (queryImageUrl ? getUrlHash(queryImageUrl) : null);
     const cacheKey = imageId ? `${imageId}_w${width || 'auto'}_h${height || 'auto'}_q${quality}_${format}` : null;
@@ -5704,12 +5708,29 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const product = await getProductData(productId, idx > 0);
         if (product) {
           dbProduct = product;
+          if (product.videos && product.videos.length > 0) {
+            isVideoCheck = true;
+          }
           // Determine which image URL/base64 to use based on index
           let targetImageUrl = '';
           if (product.images && Array.isArray(product.images) && product.images.length > idx) {
             targetImageUrl = product.images[idx];
           } else {
             targetImageUrl = product.image || '';
+          }
+
+          // If the selected image is a video, or if this product has a video, let's find a real non-video image thumbnail background
+          const productHasVideo = (product.videos && Array.isArray(product.videos) && product.videos.length > 0) ||
+                                  (targetImageUrl && (targetImageUrl.endsWith('.mp4') || targetImageUrl.includes('/video') || targetImageUrl.startsWith('data:video/')));
+          if (productHasVideo) {
+            const firstRealImage = product.images.find((img: string) => img && !img.endsWith('.mp4') && !img.includes('/video') && !img.startsWith('data:video/'));
+            if (firstRealImage) {
+              targetImageUrl = firstRealImage;
+            } else if (product.image && !product.image.endsWith('.mp4') && !product.image.includes('/video') && !product.image.startsWith('data:video/')) {
+              targetImageUrl = product.image;
+            } else {
+              targetImageUrl = ''; // Fallback to glassmorphic slate-dark gradient
+            }
           }
           
           if (targetImageUrl) {
@@ -5742,8 +5763,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (parts.length === 2) {
           originalMimeType = parts[0].replace('data:', '');
           
-          const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-          if (!allowedMimes.includes(originalMimeType.toLowerCase())) {
+          const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/svg+xml'];
+          if (!isVideoCheck && !allowedMimes.includes(originalMimeType.toLowerCase())) {
             return serveTransparentPixel(res);
           }
           
@@ -5779,8 +5800,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (imageRes.ok) {
           originalMimeType = imageRes.headers.get('content-type') || 'image/jpeg';
           
-          const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-          if (!allowedMimes.includes(originalMimeType.toLowerCase())) {
+          const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/svg+xml'];
+          if (!isVideoCheck && !allowedMimes.includes(originalMimeType.toLowerCase())) {
             return serveTransparentPixel(res);
           }
 
@@ -5810,74 +5831,96 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
                     (dbProduct && dbProduct.videos && dbProduct.videos.length > 0);
 
     if (isVideo) {
+      if (!width || !height) {
+        width = 600;
+        height = 900;
+      }
       const safeTitle = (req.query.title as string) || (dbProduct ? dbProduct.title : null) || (productId ? 'Spotlight Review' : 'Video Ad');
       const rawPrice = (req.query.price as string) || (dbProduct ? dbProduct.price : null);
       const safePrice = rawPrice ? `GHS ${rawPrice}` : 'Negotiable';
 
-      if (originalBuffer) {
+      const isBufferVideo = originalMimeType.toLowerCase().startsWith('video/') || (originalBuffer && originalBuffer.slice(0, 4).toString('hex') === '00000018');
+
+      if (originalBuffer && !isBufferVideo) {
         // High-performance rich visual blending: overlay a semi-transparent media play icon directly on top of the actual video frame/thumbnail.
-        const base64ImageString = `data:${originalMimeType};base64,${originalBuffer.toString('base64')}`;
-        const svgString = `
-          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="30" result="blur" />
-                <feComposite in="SourceGraphic" in2="blur" operator="over" />
-              </filter>
-            </defs>
-            <!-- Real thumbnail background -->
-            <image href="${escapeHtml(base64ImageString)}" x="0" y="0" width="1200" height="630" preserveAspectRatio="xMidYMid slice" />
-            
-            <!-- Dark glassmorphic tint overlay to ensure high contrast and professional look -->
-            <rect x="0" y="0" width="1200" height="630" fill="#000000" opacity="0.25" />
-            
-            <!-- Large TikTok style play button in the center -->
-            <circle cx="600" cy="315" r="75" fill="#0f172a" fill-opacity="0.4" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8" filter="url(#glow)" />
-            <circle cx="600" cy="315" r="55" fill="#ffffff" fill-opacity="0.95" />
-            <polygon points="585,290 625,315 585,340" fill="#0f172a" />
-          </svg>
-        `;
-        originalBuffer = Buffer.from(svgString);
-        originalMimeType = 'image/svg+xml';
+        try {
+          const svgOverlay = `
+            <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+              <!-- Dark glassmorphic tint overlay to ensure high contrast and professional look -->
+              <rect x="0" y="0" width="${width}" height="${height}" fill="#000000" fill-opacity="0.25" />
+              
+              <!-- Centered play button overlay -->
+              <!-- Background circle: Radius 75, opacity 0.4 -->
+              <circle cx="${width / 2}" cy="${height / 2}" r="75" fill="#000000" fill-opacity="0.4" />
+              
+              <!-- White circle inside: Radius 55, opacity 0.95 -->
+              <circle cx="${width / 2}" cy="${height / 2}" r="55" fill="#ffffff" fill-opacity="0.95" />
+              
+              <!-- Standard HTML5 play triangle -->
+              <polygon points="${(width / 2) - 12},${(height / 2) - 20} ${(width / 2) + 23},${(height / 2)} ${(width / 2) - 12},${(height / 2) + 20}" fill="#0f172a" />
+            </svg>
+          `;
+
+          // Resize background to target vertical dims first
+          const resizedBg = await sharp(originalBuffer)
+            .resize(width, height, { fit: 'cover' })
+            .toBuffer();
+
+          // Composite the SVG overlay on top of the resized background
+          originalBuffer = await sharp(resizedBg)
+            .composite([{ input: Buffer.from(svgOverlay), blend: 'over' }])
+            .toBuffer();
+          originalMimeType = `image/${format}`;
+        } catch (compErr) {
+          console.error('[Sharp Composite] Error in composite, fallback to base64 embedded SVG:', compErr);
+          const base64ImageString = `data:${originalMimeType};base64,${originalBuffer.toString('base64')}`;
+          const svgString = `
+            <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+              <image href="${escapeHtml(base64ImageString)}" x="0" y="0" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" />
+              <rect x="0" y="0" width="${width}" height="${height}" fill="#000000" fill-opacity="0.25" />
+              <circle cx="${width / 2}" cy="${height / 2}" r="75" fill="#000000" fill-opacity="0.4" />
+              <circle cx="${width / 2}" cy="${height / 2}" r="55" fill="#ffffff" fill-opacity="0.95" />
+              <polygon points="${(width / 2) - 12},${(height / 2) - 20} ${(width / 2) + 23},${(height / 2)} ${(width / 2) - 12},${(height / 2) + 20}" fill="#0f172a" />
+            </svg>
+          `;
+          originalBuffer = Buffer.from(svgString);
+          originalMimeType = 'image/svg+xml';
+        }
       } else {
-        // Fallback slate-dark card design if no image exists
+        // Fallback glassmorphic slate-dark gradient design if no image exists
         const svgString = `
-          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+          <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stop-color="#0f172a" />
-                <stop offset="100%" stop-color="#1e293b" />
+                <stop offset="50%" stop-color="#1e293b" />
+                <stop offset="100%" stop-color="#0f172a" />
               </linearGradient>
               <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
                 <feGaussianBlur stdDeviation="40" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
             </defs>
-            <rect width="1200" height="630" fill="url(#bgGrad)"/>
+            <rect width="${width}" height="${height}" fill="url(#bgGrad)"/>
             
-            <!-- Spotlight background grid/circles -->
-            <circle cx="600" cy="315" r="300" fill="#FFFC00" opacity="0.04" filter="url(#glow)"/>
+            <!-- Spotlight background glow in the center -->
+            <circle cx="${width / 2}" cy="${height / 2}" r="250" fill="#FFFC00" opacity="0.04" filter="url(#glow)"/>
             
-            <!-- Glassmorphic media card design -->
-            <rect x="250" y="80" width="700" height="470" rx="24" fill="#1e293b" opacity="0.6" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2" />
+            <!-- Centered glassmorphic card container -->
+            <rect x="40" y="150" width="${width - 80}" height="${height - 300}" rx="24" fill="#1e293b" fill-opacity="0.6" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2" />
             
-            <!-- Outer play button ring -->
-            <circle cx="600" cy="275" r="65" fill="#1e293b" stroke="#FFFC00" stroke-width="4" opacity="0.9" />
-            <!-- Inner play button circle -->
-            <circle cx="600" cy="275" r="50" fill="#FFFC00" />
-            <!-- Play triangular arrow -->
-            <polygon points="585,250 630,275 585,300" fill="#0f172a" />
+            <!-- Play button overlay in the center -->
+            <circle cx="${width / 2}" cy="${height / 2 - 40}" r="75" fill="#000000" fill-opacity="0.4" />
+            <circle cx="${width / 2}" cy="${height / 2 - 40}" r="55" fill="#ffffff" fill-opacity="0.95" />
+            <polygon points="${(width / 2) - 12},${(height / 2) - 60} ${(width / 2) + 23},${(height / 2) - 40} ${(width / 2) - 12},${(height / 2) - 20}" fill="#0f172a" />
             
-            <!-- Overlay badge for brand representation -->
-            <rect x="520" y="115" width="160" height="32" rx="16" fill="#0f172a" opacity="0.8" stroke="#ffffff" stroke-opacity="0.05" />
-            <text x="600" y="136" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFC00" text-anchor="middle" letter-spacing="3">SPOTLIGHT AD</text>
+            <!-- Text descriptors -->
+            <rect x="${width / 2 - 80}" y="${height / 2 + 75}" width="160" height="32" rx="16" fill="#0f172a" fill-opacity="0.8" stroke="#ffffff" stroke-opacity="0.05" />
+            <text x="${width / 2}" y="${height / 2 + 96}" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFC00" text-anchor="middle" letter-spacing="3">SPOTLIGHT AD</text>
 
-            <!-- Main Listing Title -->
-            <text x="600" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1">${escapeHtml(safeTitle)}</text>
-            
-            <!-- Video playback label -->
-            <text x="600" y="465" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#FFFC00" text-anchor="middle" letter-spacing="1.5">🎬 ${escapeHtml(safePrice)}</text>
-            <text x="600" y="505" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">Click link to watch on TedBuy Ghana</text>
+            <text x="${width / 2}" y="${height / 2 + 155}" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1">${escapeHtml(safeTitle)}</text>
+            <text x="${width / 2}" y="${height / 2 + 200}" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#FFFC00" text-anchor="middle" letter-spacing="1.5">🎬 ${escapeHtml(safePrice)}</text>
+            <text x="${width / 2}" y="${height / 2 + 240}" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">Click link to watch on TedBuy Ghana</text>
           </svg>
         `;
         originalBuffer = Buffer.from(svgString);
