@@ -103,14 +103,36 @@ app.all('/__/auth/*', async (req: express.Request, res: express.Response) => {
     response.headers.forEach((value, key) => {
       const lowerKey = key.toLowerCase();
       if (!['transfer-encoding', 'content-encoding', 'connection', 'content-length'].includes(lowerKey)) {
-        res.setHeader(key, value);
+        if (lowerKey === 'location') {
+          // Intercept redirects and replace firebaseapp.com/web.app domains with the custom domain
+          const cleanLocation = value
+            .replace(/tedbuy-fb79a\.firebaseapp\.com/g, 'tedbuy.store')
+            .replace(/tedbuy-fb79a\.web\.app/g, 'tedbuy.store');
+          res.setHeader(key, cleanLocation);
+        } else {
+          res.setHeader(key, value);
+        }
       }
     });
 
     res.status(response.status);
     
-    const arrayBuffer = await response.arrayBuffer();
-    res.send(Buffer.from(arrayBuffer));
+    const contentType = response.headers.get('content-type') || '';
+    if (
+      contentType.includes('text/html') ||
+      contentType.includes('application/javascript') ||
+      contentType.includes('text/javascript') ||
+      contentType.includes('application/json')
+    ) {
+      let text = await response.text();
+      // Replace all occurrences of the firebase domain with the custom domain in the body
+      text = text.replace(/tedbuy-fb79a\.firebaseapp\.com/g, 'tedbuy.store');
+      text = text.replace(/tedbuy-fb79a\.web\.app/g, 'tedbuy.store');
+      res.send(text);
+    } else {
+      const arrayBuffer = await response.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    }
   } catch (error) {
     console.error('[Firebase Auth Proxy Error]:', error);
     res.status(500).send('Authentication Gateway Error');
@@ -712,8 +734,15 @@ function injectMetaTags(html: string, product: { title: string; description: str
   const imgParams = new URLSearchParams();
   if (product.title) imgParams.set('title', product.title);
   if (product.price) imgParams.set('price', String(product.price));
-  if (product.image) imgParams.set('image', product.image);
-  if (hasVideo && product.videos && product.videos[0]) imgParams.set('video', product.videos[0]);
+  // Keep the URL clean, light, and short to fit inside social crawler size limits (typically 2KB-8KB).
+  // The server's /api/products/:productId/image.jpg endpoint automatically fetches the product from the database
+  // using its ID, so it does not need the actual base64/long URL in the query string at all.
+  if (product.image && !product.image.startsWith('data:') && product.image.length < 1000) {
+    imgParams.set('image', product.image);
+  }
+  if (hasVideo && product.videos && product.videos[0] && !product.videos[0].startsWith('data:') && product.videos[0].length < 1000) {
+    imgParams.set('video', product.videos[0]);
+  }
   const imgQuery = imgParams.toString() ? `?${imgParams.toString()}` : '';
   const image = `${protocol}://${host}/api/products/${productId}/image.jpg${imgQuery}`;
   
@@ -3964,9 +3993,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let errorDetail = '';
 
       const mailOptions = {
-        from: '"Tedbuy" <info.tedbuy@gmail.com>',
+        from: '"Tedbuy" <support@tedbuy.store>',
         to: cleanEmail,
-        replyTo: 'info.tedbuy@gmail.com',
+        replyTo: 'support@tedbuy.store',
         subject: `${otp} is your TedBuy Verification Code`,
         text: `Welcome to TedBuy!\n\nYour 6-digit security verification code is: ${otp}\n\nThis code is valid for 10 minutes. For your security, please do not share this code with anyone.\n\nThank you,\nTedBuy Support`,
         html: `<!DOCTYPE html>
@@ -4194,7 +4223,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (brevoApiKey) {
         console.log(`[Auth Register] Brevo API Key detected. Dispatching OTP via Brevo Transactional REST API for: ${cleanEmail}`);
         try {
-          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
           const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
           const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -4244,7 +4273,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           console.warn(`[Auth Register] Brevo configuration was detected but delivery failed:`, errorDetail);
           return res.status(400).json({
             success: false,
-            error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
+            error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
           });
         }
 
@@ -4626,7 +4655,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     if (matchedUser.isSuspended) {
-      return res.status(403).json({ success: false, error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@mail.com to appeal." });
+      return res.status(403).json({ success: false, error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at support@tedbuy.store to appeal." });
     }
 
     // Extract stored SHA256 hash (directly or from authProvider fallback)
@@ -4784,7 +4813,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (isSuspended) {
       return res.status(403).json({
         success: false,
-        error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. You are not allowed to reset your password. Please contact TedBuy Support at info.tedbuy@mail.com to appeal."
+        error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. You are not allowed to reset your password. Please contact TedBuy Support at support@tedbuy.store to appeal."
       });
     }
 
@@ -5044,7 +5073,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (brevoApiKey) {
         console.log(`[Auth Reset] Dispatching reset email via Brevo REST API for: ${cleanEmail}`);
         try {
-          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
           const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
           const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -5318,7 +5347,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       </p>
     </div>
     <div class="footer">
-      <p>This message was sent from <a href="mailto:info.tedbuy@gmail.com">info.tedbuy@gmail.com</a>. You can reply directly to this email to reach our support team.</p>
+      <p>This message was sent from <a href="mailto:support@tedbuy.store">support@tedbuy.store</a>. You can reply directly to this email to reach our support team.</p>
       <p>&copy; 2026 TedBuy Ghana. Accra, Ghana.</p>
     </div>
   </div>
@@ -5330,7 +5359,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (brevoApiKey) {
       console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${email}`);
       try {
-        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
         const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
         const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -5394,9 +5423,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
       
       const mailOptions = {
-        from: '"Tedbuy" <info.tedbuy@gmail.com>',
+        from: '"Tedbuy" <support@tedbuy.store>',
         to: email,
-        replyTo: 'info.tedbuy@gmail.com',
+        replyTo: 'support@tedbuy.store',
         subject: subject,
         text: textContent,
         html: htmlContent
