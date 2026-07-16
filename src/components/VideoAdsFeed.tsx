@@ -24,6 +24,8 @@ import {
   Heart,
   Plus,
   Share2,
+  Send,
+  Forward,
   Flame,
   Eye,
   X,
@@ -651,7 +653,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
               onClick={handleShareClick}
               className="w-8.5 h-8.5 sm:w-10.5 sm:h-10.5 rounded-full bg-[#FFFC00]/15 backdrop-blur-md border border-[#FFFC00]/30 text-[#FFFC00] flex items-center justify-center transition-all duration-300 shadow-xl hover:bg-[#FFFC00]/30 hover:scale-110 active:scale-95"
             >
-              <Share2 className="w-4 h-4 sm:w-5 sm:h-5 text-[#FFFC00] stroke-[2.2]" />
+              <Forward className="w-4.5 h-4.5 sm:w-5.5 sm:h-5.5 text-[#FFFC00] stroke-[2.2]" />
             </button>
             <span className="text-[9px] sm:text-[10px] font-extrabold text-[#FFFC00] mt-1 sm:mt-1.5 drop-shadow-md select-none">
               Share
