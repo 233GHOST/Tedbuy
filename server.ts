@@ -712,8 +712,8 @@ function injectMetaTags(html: string, product: { title: string; description: str
   const imgParams = new URLSearchParams();
   if (product.title) imgParams.set('title', product.title);
   if (product.price) imgParams.set('price', String(product.price));
-  if (product.image) imgParams.set('image', product.image);
-  if (hasVideo && product.videos && product.videos[0]) imgParams.set('video', product.videos[0]);
+  if (product.image && !product.image.startsWith('data:')) imgParams.set('image', product.image);
+  if (hasVideo && product.videos && product.videos[0] && !product.videos[0].startsWith('data:')) imgParams.set('video', product.videos[0]);
   const imgQuery = imgParams.toString() ? `?${imgParams.toString()}` : '';
   const image = `${protocol}://${host}/api/products/${productId}/image.jpg${imgQuery}`;
   
@@ -5819,9 +5819,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const safePrice = rawPrice ? `GH¢ ${rawPrice}` : 'Negotiable';
 
       if (originalBuffer) {
-        // High-performance rich visual blending: overlay a semi-transparent media play icon directly on top of the actual video frame/thumbnail.
-        const base64ImageString = `data:${originalMimeType};base64,${originalBuffer.toString('base64')}`;
-        const svgString = `
+        // Native C++ Sharp Compositing: Instead of placing base64 inside SVG, overlay the vector controls natively.
+        // This avoids large Base64 encoding inside SVG XML string, solving librsvg rendering and size failures completely.
+        const svgOverlay = `
           <svg width="576" height="1024" viewBox="0 0 576 1024" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -5834,8 +5834,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
                 <stop offset="100%" stop-color="#000000" stop-opacity="0.85" />
               </linearGradient>
             </defs>
-            <!-- Real thumbnail background -->
-            <image href="${escapeHtml(base64ImageString)}" x="0" y="0" width="576" height="1024" preserveAspectRatio="xMidYMid slice" />
             
             <!-- Dark glassmorphic gradient overlay -->
             <rect x="0" y="0" width="576" height="1024" fill="url(#overlayGrad)" />
@@ -5898,10 +5896,23 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             </g>
           </svg>
         `;
-        originalBuffer = Buffer.from(svgString);
-        originalMimeType = 'image/svg+xml';
+        try {
+          // Native Sharp resizing & composition for absolute reliability
+          const background = sharp(originalBuffer).resize(576, 1024, { fit: 'cover' });
+          const overlay = Buffer.from(svgOverlay);
+          originalBuffer = await background
+            .composite([{ input: overlay, top: 0, left: 0 }])
+            .jpeg({ quality: 85 })
+            .toBuffer();
+          originalMimeType = 'image/jpeg';
+          // Disable further resizing in downstream optimizeImageBuffer as it is already resized and optimized
+          width = undefined;
+          height = undefined;
+        } catch (composeErr) {
+          console.error('[Sharp Composite] Failed to composite overlay:', composeErr);
+        }
       } else {
-        // Fallback slate-dark card design if no image exists
+        // Fallback slate-dark card design if no image exists, pre-compiled to JPEG using Sharp to prevent SVG output
         const svgString = `
           <svg width="576" height="1024" viewBox="0 0 576 1024" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -5983,8 +5994,18 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             </g>
           </svg>
         `;
-        originalBuffer = Buffer.from(svgString);
-        originalMimeType = 'image/svg+xml';
+        try {
+          originalBuffer = await sharp(Buffer.from(svgString))
+            .jpeg({ quality: 85 })
+            .toBuffer();
+          originalMimeType = 'image/jpeg';
+          width = undefined;
+          height = undefined;
+        } catch (svgErr) {
+          console.error('[Sharp SVG Fallback] Failed to render fallback SVG to JPEG:', svgErr);
+          originalBuffer = Buffer.from(svgString);
+          originalMimeType = 'image/svg+xml';
+        }
       }
     }
 
