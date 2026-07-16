@@ -1023,7 +1023,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   photoUrl: firebaseUser.photoURL || undefined,
                   followingSellers: [],
                   savedProductIds: [],
-                  emailVerified: firebaseUser.emailVerified,
+                  emailVerified: true, // Google accounts are pre-verified by Google
                   isAdmin: isSuperAdmin ? true : undefined,
                   isGoogleAuth: true,
                   authProvider: 'google.com'
@@ -1677,7 +1677,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    if (!targetUser.emailVerified) {
+    const isVerified = targetUser.emailVerified || targetUser.isGoogleAuth;
+    if (!isVerified) {
       console.log(`[Welcome Trigger] Bypassing welcome package for ${targetUser.username} because email is not verified yet.`);
       return;
     }
@@ -1809,7 +1810,8 @@ Tedbuy Support`;
   };
 
   useEffect(() => {
-    if (!currentUser || !currentUser.email || currentUser.welcomeSent || !currentUser.emailVerified) return;
+    const isVerified = currentUser?.emailVerified || currentUser?.isGoogleAuth;
+    if (!currentUser || !currentUser.email || currentUser.welcomeSent || !isVerified) return;
     
     // Ensure welcome messages are only sent to users who just registered an account, NOT users signing into an existing account.
     if (!justRegisteredUserIds.current.has(currentUser.id)) {
