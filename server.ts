@@ -4882,9 +4882,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       // Rewrite and brand-clean the reset link if generated successfully
       if (resetLink) {
-        // Swap generic Firebase-hosted domain with tedbuy.store custom domain
-        resetLink = resetLink.replace(/tedbuy-fb79a\.firebaseapp\.com/g, "tedbuy.store");
-        resetLink = resetLink.replace(/tedbuy-fb79a\.web\.app/g, "tedbuy.store");
+        // High-reliability brand replacement: Swap any generic Firebase-hosted domains with tedbuy.store custom domain
+        resetLink = resetLink.replace(/[a-zA-Z0-9-]+\.firebaseapp\.com/g, "tedbuy.store");
+        resetLink = resetLink.replace(/[a-zA-Z0-9-]+\.web\.app/g, "tedbuy.store");
         resetLink = resetLink.replace(/www\.tedbuy\.store/g, "tedbuy.store");
         console.log(`[Auth Reset] Cleaned reset link: ${resetLink}`);
       }
