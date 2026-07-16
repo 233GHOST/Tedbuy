@@ -537,8 +537,8 @@ function parseFirestoreDocument(doc: any): any {
   return result;
 }
 
-async function getProductFromFirestoreREST(productId: string): Promise<any> {
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${productId}${apiKey ? `?key=${apiKey}` : ""}`;
+async function getProductFromFirestoreREST(prodId: string): Promise<any> {
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/products/${prodId}${apiKey ? `?key=${apiKey}` : ""}`;
   try {
     const res = await fetch(url);
     if (res.ok) {
@@ -546,7 +546,7 @@ async function getProductFromFirestoreREST(productId: string): Promise<any> {
       return parseFirestoreDocument(doc);
     }
   } catch (err) {
-    console.warn(`[Firestore REST] Failed to fetch product ${productId} from Firestore:`, err);
+    console.warn(`[Firestore REST] Failed to fetch product ${prodId} from Firestore:`, err);
   }
   return null;
 }
@@ -768,8 +768,8 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:image" content="${escapeHtml(image)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
     <meta property="og:image:type" content="image/jpeg" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:width" content="${absoluteVideoUrl ? '576' : '1200'}" />
+    <meta property="og:image:height" content="${absoluteVideoUrl ? '1024' : '630'}" />
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
     <meta property="og:type" content="${absoluteVideoUrl ? 'video.other' : 'product'}" />
     <meta property="og:site_name" content="TedBuy Ghana" />
@@ -778,8 +778,8 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta property="og:video" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta property="og:video:secure_url" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta property="og:video:type" content="video/mp4" />
-    <meta property="og:video:width" content="640" />
-    <meta property="og:video:height" content="1136" />
+    <meta property="og:video:width" content="576" />
+    <meta property="og:video:height" content="1024" />
     ` : ''}
     <!-- Twitter / X -->
     <meta name="twitter:card" content="${absoluteVideoUrl ? 'player' : 'summary_large_image'}" />
@@ -788,8 +788,8 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <meta name="twitter:image" content="${escapeHtml(image)}" />
     ${absoluteVideoUrl ? `
     <meta name="twitter:player" content="${escapeHtml(canonicalUrl)}" />
-    <meta name="twitter:player:width" content="640" />
-    <meta name="twitter:player:height" content="1136" />
+    <meta name="twitter:player:width" content="576" />
+    <meta name="twitter:player:height" content="1024" />
     <meta name="twitter:player:stream" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta name="twitter:player:stream:content_type" content="video/mp4" />
     ` : ''}
@@ -5810,31 +5810,92 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
                     (dbProduct && dbProduct.videos && dbProduct.videos.length > 0);
 
     if (isVideo) {
+      if (!w && !h) {
+        width = 576;
+        height = 1024;
+      }
       const safeTitle = (req.query.title as string) || (dbProduct ? dbProduct.title : null) || (productId ? 'Spotlight Review' : 'Video Ad');
       const rawPrice = (req.query.price as string) || (dbProduct ? dbProduct.price : null);
-      const safePrice = rawPrice ? `GHS ${rawPrice}` : 'Negotiable';
+      const safePrice = rawPrice ? `GH¢ ${rawPrice}` : 'Negotiable';
 
       if (originalBuffer) {
         // High-performance rich visual blending: overlay a semi-transparent media play icon directly on top of the actual video frame/thumbnail.
         const base64ImageString = `data:${originalMimeType};base64,${originalBuffer.toString('base64')}`;
         const svgString = `
-          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+          <svg width="576" height="1024" viewBox="0 0 576 1024" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
                 <feGaussianBlur stdDeviation="30" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
+              <linearGradient id="overlayGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#000000" stop-opacity="0.3" />
+                <stop offset="60%" stop-color="#000000" stop-opacity="0.1" />
+                <stop offset="100%" stop-color="#000000" stop-opacity="0.85" />
+              </linearGradient>
             </defs>
             <!-- Real thumbnail background -->
-            <image href="${escapeHtml(base64ImageString)}" x="0" y="0" width="1200" height="630" preserveAspectRatio="xMidYMid slice" />
+            <image href="${escapeHtml(base64ImageString)}" x="0" y="0" width="576" height="1024" preserveAspectRatio="xMidYMid slice" />
             
-            <!-- Dark glassmorphic tint overlay to ensure high contrast and professional look -->
-            <rect x="0" y="0" width="1200" height="630" fill="#000000" opacity="0.25" />
+            <!-- Dark glassmorphic gradient overlay -->
+            <rect x="0" y="0" width="576" height="1024" fill="url(#overlayGrad)" />
             
-            <!-- Large TikTok style play button in the center -->
-            <circle cx="600" cy="315" r="75" fill="#0f172a" fill-opacity="0.4" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8" filter="url(#glow)" />
-            <circle cx="600" cy="315" r="55" fill="#ffffff" fill-opacity="0.95" />
-            <polygon points="585,290 625,315 585,340" fill="#0f172a" />
+            <!-- Glowing Spotlight header bar -->
+            <rect x="188" y="40" width="200" height="34" rx="17" fill="#0f172a" fill-opacity="0.75" stroke="#ffffff" stroke-opacity="0.15" stroke-width="1.5" />
+            <circle cx="210" cy="57" r="5" fill="#FFFC00" />
+            <text x="298" y="62" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="2">WATCH VIDEO</text>
+
+            <!-- Large TikTok style play button in the absolute center -->
+            <g transform="translate(0, -30)">
+              <circle cx="288" cy="512" r="70" fill="#000000" fill-opacity="0.4" stroke="#ffffff" stroke-width="4.5" stroke-opacity="0.8" filter="url(#glow)" />
+              <circle cx="288" cy="512" r="50" fill="#ffffff" fill-opacity="0.95" />
+              <polygon points="275,487 315,512 275,537" fill="#0f172a" />
+            </g>
+
+            <!-- TikTok Right Sidebar Icons -->
+            <!-- Profile Icon -->
+            <circle cx="510" cy="480" r="24" fill="#1e293b" stroke="#ffffff" stroke-width="2" />
+            <path d="M510,468 A12,12 0 0,1 522,480 A12,12 0 0,1 510,492 A12,12 0 0,1 498,480 Z" fill="#94a3b8" opacity="0.3" />
+            <circle cx="510" cy="476" r="7" fill="#ffffff" />
+            <path d="M496,494 C496,488 502,485 510,485 C518,485 524,488 524,494 Z" fill="#ffffff" />
+            <circle cx="510" cy="504" r="7" fill="#FF1E56" />
+            <text x="510" y="508" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle">+</text>
+
+            <!-- Heart Icon -->
+            <g transform="translate(486, 540)">
+              <path d="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" fill="#FF1E56" />
+            </g>
+            <text x="510" y="582" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle">24.5K</text>
+
+            <!-- Comment Icon -->
+            <g transform="translate(486, 610)">
+              <path d="M20,2H4C2.9,2 2,2.9 2,4V22L6,18H20C21.1,18 22,17.1 22,16V4C22,2.9 21.1,2 20,2M20,16H5.17L4,17.17V4H20V16Z" fill="#ffffff" />
+            </g>
+            <text x="510" y="652" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle">482</text>
+
+            <!-- Share Icon -->
+            <g transform="translate(486, 680)">
+              <path d="M14,9V5L21,12L14,19V14.9C9,14.9 5.5,16.5 3,20C4,15 7,10 14,9Z" fill="#00f2fe" />
+            </g>
+            <text x="510" y="722" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle">1.2K</text>
+
+            <!-- Beautiful Music Spin Icon -->
+            <circle cx="510" cy="775" r="18" fill="#111827" stroke="#374151" stroke-width="2" />
+            <circle cx="510" cy="775" r="6" fill="#FFFC00" />
+
+            <!-- Bottom Metadata Text Overlay -->
+            <g transform="translate(35, 830)">
+              <text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="800" fill="#ffffff">@tedbuy_marketplace</text>
+              <text x="0" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="900" fill="#ffffff">${escapeHtml(safeTitle)}</text>
+              
+              <!-- Price Tag Badge -->
+              <g transform="translate(0, 50)">
+                <rect x="0" y="0" width="180" height="38" rx="8" fill="#FFFC00" />
+                <text x="90" y="25" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="900" fill="#0f172a" text-anchor="middle">${escapeHtml(safePrice)}</text>
+              </g>
+              
+              <text x="0" y="115" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500" fill="#94a3b8">⚡ Double tap to open &amp; buy on TedBuy</text>
+            </g>
           </svg>
         `;
         originalBuffer = Buffer.from(svgString);
@@ -5842,42 +5903,84 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       } else {
         // Fallback slate-dark card design if no image exists
         const svgString = `
-          <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+          <svg width="576" height="1024" viewBox="0 0 576 1024" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stop-color="#0f172a" />
-                <stop offset="100%" stop-color="#1e293b" />
+                <stop offset="50%" stop-color="#1e293b" />
+                <stop offset="100%" stop-color="#0f172a" />
               </linearGradient>
               <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="40" result="blur" />
+                <feGaussianBlur stdDeviation="35" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
             </defs>
-            <rect width="1200" height="630" fill="url(#bgGrad)"/>
+            <!-- Rich Background Gradient -->
+            <rect width="576" height="1024" fill="url(#bgGrad)"/>
             
-            <!-- Spotlight background grid/circles -->
-            <circle cx="600" cy="315" r="300" fill="#FFFC00" opacity="0.04" filter="url(#glow)"/>
-            
-            <!-- Glassmorphic media card design -->
-            <rect x="250" y="80" width="700" height="470" rx="24" fill="#1e293b" opacity="0.6" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2" />
-            
-            <!-- Outer play button ring -->
-            <circle cx="600" cy="275" r="65" fill="#1e293b" stroke="#FFFC00" stroke-width="4" opacity="0.9" />
-            <!-- Inner play button circle -->
-            <circle cx="600" cy="275" r="50" fill="#FFFC00" />
-            <!-- Play triangular arrow -->
-            <polygon points="585,250 630,275 585,300" fill="#0f172a" />
-            
-            <!-- Overlay badge for brand representation -->
-            <rect x="520" y="115" width="160" height="32" rx="16" fill="#0f172a" opacity="0.8" stroke="#ffffff" stroke-opacity="0.05" />
-            <text x="600" y="136" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFC00" text-anchor="middle" letter-spacing="3">SPOTLIGHT AD</text>
+            <!-- Abstract Glowing Spotlights in background -->
+            <circle cx="288" cy="450" r="220" fill="#FFFC00" opacity="0.04" filter="url(#glow)"/>
+            <circle cx="100" cy="800" r="180" fill="#00f2fe" opacity="0.03" filter="url(#glow)"/>
 
-            <!-- Main Listing Title -->
-            <text x="600" y="420" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1">${escapeHtml(safeTitle)}</text>
+            <!-- Brand header bar -->
+            <rect x="188" y="40" width="200" height="34" rx="17" fill="#1e293b" fill-opacity="0.8" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1.5" />
+            <circle cx="210" cy="57" r="5" fill="#FFFC00" />
+            <text x="298" y="62" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="2">DYNAMIC AD</text>
+
+            <!-- Phone Frame / Glassmorphic Card outline -->
+            <rect x="30" y="100" width="516" height="820" rx="40" fill="#ffffff" fill-opacity="0.015" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2" />
             
-            <!-- Video playback label -->
-            <text x="600" y="465" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#FFFC00" text-anchor="middle" letter-spacing="1.5">🎬 ${escapeHtml(safePrice)}</text>
-            <text x="600" y="505" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="500" fill="#94a3b8" text-anchor="middle" letter-spacing="0.5">Click link to watch on TedBuy Ghana</text>
+            <!-- Inner Glassmorphic Media Player container -->
+            <rect x="50" y="150" width="476" height="520" rx="24" fill="#0f172a" fill-opacity="0.5" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1.5" />
+
+            <!-- Large TikTok style play button in the center of the glass container -->
+            <g transform="translate(0, -30)">
+              <circle cx="288" cy="410" r="65" fill="#1e293b" stroke="#FFFC00" stroke-width="4.5" opacity="0.9" filter="url(#glow)" />
+              <circle cx="288" cy="410" r="48" fill="#FFFC00" />
+              <polygon points="275,385 312,410 275,435" fill="#0f172a" />
+            </g>
+
+            <!-- Video/Live badge overlay -->
+            <rect x="238" y="550" width="100" height="26" rx="13" fill="#FF1E56" />
+            <text x="288" y="567" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1">LIVE VIDEO</text>
+
+            <!-- TikTok Right Sidebar Icons (Simulated) -->
+            <!-- Profile Icon -->
+            <circle cx="490" cy="400" r="20" fill="#1e293b" stroke="#ffffff" stroke-width="1.5" />
+            <circle cx="490" cy="397" r="6" fill="#ffffff" />
+            <path d="M479,411 C479,406 484,403 490,403 C496,403 501,406 501,411 Z" fill="#ffffff" />
+            
+            <!-- Heart Icon -->
+            <g transform="translate(470, 440) scale(0.85)">
+              <path d="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" fill="#FF1E56" />
+            </g>
+            <text x="490" y="475" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" fill="#94a3b8" text-anchor="middle">12.8K</text>
+
+            <!-- Comment Icon -->
+            <g transform="translate(470, 495) scale(0.85)">
+              <path d="M20,2H4C2.9,2 2,2.9 2,4V22L6,18H20C21.1,18 22,17.1 22,16V4C22,2.9 21.1,2 20,2M20,16H5.17L4,17.17V4H20V16Z" fill="#ffffff" />
+            </g>
+            <text x="490" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" fill="#94a3b8" text-anchor="middle">356</text>
+
+            <!-- Share Icon -->
+            <g transform="translate(470, 550) scale(0.85)">
+              <path d="M14,9V5L21,12L14,19V14.9C9,14.9 5.5,16.5 3,20C4,15 7,10 14,9Z" fill="#00f2fe" />
+            </g>
+            <text x="490" y="585" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" fill="#94a3b8" text-anchor="middle">920</text>
+
+            <!-- Bottom Metadata Text Overlay -->
+            <g transform="translate(50, 710)">
+              <text x="0" y="0" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="800" fill="#ffffff">@tedbuy_ghana</text>
+              <text x="0" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="900" fill="#ffffff" fill-opacity="0.95">${escapeHtml(safeTitle)}</text>
+              
+              <!-- Price Tag Badge -->
+              <g transform="translate(0, 52)">
+                <rect x="0" y="0" width="190" height="42" rx="10" fill="#FFFC00" />
+                <text x="95" y="27" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="900" fill="#0f172a" text-anchor="middle">${escapeHtml(safePrice)}</text>
+              </g>
+              
+              <text x="0" y="125" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500" fill="#94a3b8">⚡ Double tap to watch full video on TedBuy</text>
+            </g>
           </svg>
         `;
         originalBuffer = Buffer.from(svgString);

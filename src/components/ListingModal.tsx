@@ -1216,7 +1216,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 </button>
               </div>
               <p className="text-[10px] text-slate-400 mt-1.5">
-                💡 Select **Dynamic Video Ad** to showcase your product or services with a fully immersive video feed displayed prominently on the Home screen!
+                💡 Select <strong className="font-semibold text-slate-500">Dynamic Video Ad</strong> to showcase your product or services with a fully immersive video feed displayed prominently on the Home screen!
               </p>
             </div>
 
@@ -1263,7 +1263,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   )}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2">
-                  **Tip**: Click &ldquo;Add Photos&rdquo; to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
+                  <strong className="font-semibold text-slate-500">Tip</strong>: Click &ldquo;Add Photos&rdquo; to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
                 </p>
               </div>
             )}
@@ -1494,7 +1494,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 )}
 
                 <p className="text-[10px] text-slate-400 mt-2">
-                  **Tip**: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 30MB) showing proof of functionality or live product demo.
+                  <strong className="font-semibold text-slate-500">Tip</strong>: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 30MB) showing proof of functionality or live product demo.
                 </p>
               </div>
             )}
