@@ -552,12 +552,15 @@ async function getProductFromFirestoreREST(productId: string): Promise<any> {
 }
 
 // REST API helper to fetch product info directly from Firestore
-async function getProductData(productId: string, bypassListCache: boolean = false) {
+async function getProductData(productId: string, bypassListCache: boolean = false, requireMetadata: boolean = true) {
   const now = Date.now();
   const cached = productDataCache.get(productId);
   if (!bypassListCache && cached && (now - cached.timestamp < 120000)) {
-    console.log(`[Meta Crawler] Serving product ${productId} from memory cache`);
-    return cached.data;
+    // If we require metadata, check if the cached entry actually has it
+    if (!requireMetadata || (cached.data && cached.data.title)) {
+      console.log(`[Meta Crawler] Serving product ${productId} from memory cache`);
+      return cached.data;
+    }
   }
 
   // 1. Check if the product is in our cachedProducts list first!
@@ -611,7 +614,7 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
   }
 
   // 2. Check local images_cache on disk next
-  if (!bypassListCache) {
+  if (!bypassListCache && !requireMetadata) {
     const imageCacheFile = path.join(IMAGES_CACHE_DIR, `${productId}.txt`);
     if (fs.existsSync(imageCacheFile)) {
       try {
@@ -5763,7 +5766,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     // 5. Fetch from firestore if not cached on disk or if we want to ensure we get first-party database thumbnail/images for real products
     if (!originalBuffer && productId && (productId.startsWith('prod_') || !imageUrl)) {
       try {
-        const product = await getProductData(productId, idx > 0);
+        const product = await getProductData(productId, idx > 0, false);
         if (product) {
           dbProduct = product;
           // Determine which image URL/base64 to use based on index
@@ -5937,9 +5940,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             <rect x="0" y="0" width="1200" height="630" fill="#000000" opacity="0.25" />
             
             <!-- Large TikTok style play button in the center -->
-            <circle cx="600" cy="315" r="75" fill="#0f172a" fill-opacity="0.4" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8" filter="url(#glow)" />
-            <circle cx="600" cy="315" r="55" fill="#ffffff" fill-opacity="0.95" />
-            <polygon points="585,290 625,315 585,340" fill="#0f172a" />
+            <circle cx="600" cy="315" r="70" fill="#000000" fill-opacity="0.55" stroke="#ffffff" stroke-width="4" stroke-opacity="0.9" />
+            <polygon points="588,285 632,315 588,345" fill="#ffffff" />
           </svg>
         `;
         originalBuffer = Buffer.from(svgString);
@@ -5966,12 +5968,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             <!-- Glassmorphic media card design -->
             <rect x="250" y="80" width="700" height="470" rx="24" fill="#1e293b" opacity="0.6" stroke="#ffffff" stroke-opacity="0.1" stroke-width="2" />
             
-            <!-- Outer play button ring -->
-            <circle cx="600" cy="275" r="65" fill="#1e293b" stroke="#FFFC00" stroke-width="4" opacity="0.9" />
-            <!-- Inner play button circle -->
-            <circle cx="600" cy="275" r="50" fill="#FFFC00" />
-            <!-- Play triangular arrow -->
-            <polygon points="585,250 630,275 585,300" fill="#0f172a" />
+            <!-- Large TikTok style play button in the center -->
+            <circle cx="600" cy="275" r="70" fill="#000000" fill-opacity="0.55" stroke="#ffffff" stroke-width="4" stroke-opacity="0.9" />
+            <polygon points="588,245 632,275 588,305" fill="#ffffff" />
             
             <!-- Overlay badge for brand representation -->
             <rect x="520" y="115" width="160" height="32" rx="16" fill="#0f172a" opacity="0.8" stroke="#ffffff" stroke-opacity="0.05" />
