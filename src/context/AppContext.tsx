@@ -1721,12 +1721,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
     }
 
-    const welcomeMessageBody = `Welcome to Tedbuy
+    const welcomeMessageBody = `Welcome to TedBuy
 
-I wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type here in this chat (or hit reply on your email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights. 
+I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.
+All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.
+Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.
 
-Gratefully yours, 
-Tedbuy Support`;
+Gratefully yours,
+
+Vincent Asumadu,
+CEO, Tedbuy Inc`;
 
     if (!chatExists) {
       try {

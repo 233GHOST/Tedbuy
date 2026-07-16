@@ -5530,7 +5530,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const escapedName = escapeHtml(cleanName);
 
     const subject = 'Welcome to Tedbuy Ghana';
-    const textContent = `Welcome to Tedbuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with Tedbuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day. All replies to this email inbox are monitored by Tedbuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on Tedbuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to. Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nTedbuy Support`;
+    const textContent = `Welcome to TedBuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.\n\nAll replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`;
     
     const htmlContent = `<!DOCTYPE html>
 <html>
@@ -5683,13 +5683,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       
       <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.</p>
 
-      <p>All replies to this email inbox are monitored by TedBuy Support, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
+      <p>All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
 
       <p>Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
       
       <p style="margin-top: 40px; line-height: 1.5; font-size: 14px;">
         Gratefully yours,<br/><br/>
-        <strong style="font-size: 16px; color: #0f172a;" class="greeting-welcome">TedBuy Support</strong>
+        <strong style="font-size: 16px; color: #0f172a;" class="greeting-welcome">Vincent Asumadu,<br/>CEO, Tedbuy Inc</strong>
       </p>
     </div>
     <div class="footer">
