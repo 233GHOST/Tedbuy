@@ -698,16 +698,17 @@ function cleanHostHeader(host: string): string {
 
 // Injects dynamic meta tags based on the fetched product
 function injectMetaTags(html: string, product: { title: string; description: string; price: string; image: string; videos?: string[] }, shareUrl: string, host: string, protocol: string, productId: string): string {
-  const pricePrefix = product.price ? `GHS ${product.price}` : 'Negotiable';
-  const title = `${product.title} - ${pricePrefix} | TedBuy Ghana`;
-  const description = `${product.description.slice(0, 160)}${product.description.length > 160 ? '...' : ''} | Buy/Sell on TedBuy`;
+  const pricePrefix = product.price && String(product.price).trim() !== '' && String(product.price).trim() !== 'Negotiable'
+    ? `GH₵${String(product.price).replace(/[^\d,.]/g, '')}`
+    : 'Negotiable';
+  const title = `${product.title} - ${pricePrefix}`;
+  const description = `${product.description.slice(0, 160)}${product.description.length > 160 ? '...' : ''}`;
   
   // Dynamic Video Detection
   const hasVideo = product.videos && Array.isArray(product.videos) && product.videos.length > 0;
   const rawVideoUrl = hasVideo ? product.videos![0] : '';
 
   // ALWAYS use our dynamic image wrapper endpoint to deliver first-party, absolute, redirect-free, fully-qualified web-optimized JPG images.
-  // This solves base64 size limits, external redirects and domain/port mismatch crawler bugs perfectly.
   // We append key listing details as query parameters so the image proxy can generate high-quality card graphics instantly.
   const imgParams = new URLSearchParams();
   if (product.title) imgParams.set('title', product.title);
@@ -715,19 +716,11 @@ function injectMetaTags(html: string, product: { title: string; description: str
   if (product.image) imgParams.set('image', product.image);
   if (hasVideo && product.videos && product.videos[0]) imgParams.set('video', product.videos[0]);
   const imgQuery = imgParams.toString() ? `?${imgParams.toString()}` : '';
-  const image = `${protocol}://${host}/api/products/${productId}/image.jpg${imgQuery}`;
+  const image = `${protocol}://${host}/api/thumbnail/${productId}.jpg${imgQuery}`;
   
   let absoluteVideoUrl = '';
   if (rawVideoUrl) {
-    if (rawVideoUrl.startsWith('data:')) {
-      absoluteVideoUrl = `${protocol}://${host}/api/products/${productId}/video.mp4`;
-    } else if (rawVideoUrl.startsWith('http://') || rawVideoUrl.startsWith('https://')) {
-      absoluteVideoUrl = rawVideoUrl;
-    } else if (rawVideoUrl.startsWith('/')) {
-      absoluteVideoUrl = `${protocol}://${host}${rawVideoUrl}`;
-    } else {
-      absoluteVideoUrl = `${protocol}://${host}/${rawVideoUrl}`;
-    }
+    absoluteVideoUrl = `${protocol}://${host}/api/video/${productId}.mp4`;
   }
 
   // Generate dynamic JSON-LD Product Schema representation for googlebot search console indexing
@@ -757,45 +750,49 @@ function injectMetaTags(html: string, product: { title: string; description: str
 
   console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Canonical URL: ${canonicalUrl}, Image URL: ${image}, Video URL: ${absoluteVideoUrl || 'none'}`);
 
+  const mainPageTitle = `${product.title} | TedBuy`;
+  const mainPageDescription = product.description || `Watch this product video on TedBuy`;
+  const ogDescription = hasVideo ? `Watch this product video on TedBuy` : mainPageDescription;
+
   const tags = `
     <!-- Dynamic Social Share Meta Tags -->
-    <title>${escapeHtml(title)}</title>
-    <meta name="description" content="${escapeHtml(description)}" />
+    <title>${escapeHtml(mainPageTitle)}</title>
+    <meta name="description" content="${escapeHtml(mainPageDescription)}" />
     <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
     <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:title" content="${escapeHtml(title)}" />
-    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:description" content="${escapeHtml(ogDescription)}" />
     <meta property="og:image" content="${escapeHtml(image)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
-    <meta property="og:type" content="${absoluteVideoUrl ? 'video.other' : 'product'}" />
-    <meta property="og:site_name" content="TedBuy Ghana" />
+    <meta property="og:type" content="${hasVideo ? 'video.other' : 'product'}" />
+    <meta property="og:site_name" content="TedBuy" />
     <meta property="og:locale" content="en_GH" />
-    ${absoluteVideoUrl ? `
+    ${hasVideo ? `
     <meta property="og:video" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta property="og:video:secure_url" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta property="og:video:type" content="video/mp4" />
-    <meta property="og:video:width" content="640" />
-    <meta property="og:video:height" content="1136" />
+    <meta property="og:video:width" content="720" />
+    <meta property="og:video:height" content="1280" />
     ` : ''}
     <!-- Twitter / X -->
-    <meta name="twitter:card" content="${absoluteVideoUrl ? 'player' : 'summary_large_image'}" />
-    <meta name="twitter:title" content="${escapeHtml(title)}" />
-    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:card" content="${hasVideo ? 'player' : 'summary_large_image'}" />
+    <meta name="twitter:title" content="${escapeHtml(product.title)}" />
+    <meta name="twitter:description" content="${hasVideo ? 'Watch on TedBuy' : escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(image)}" />
-    ${absoluteVideoUrl ? `
-    <meta name="twitter:player" content="${escapeHtml(canonicalUrl)}" />
-    <meta name="twitter:player:width" content="640" />
-    <meta name="twitter:player:height" content="1136" />
+    ${hasVideo ? `
+    <meta name="twitter:player" content="${protocol}://${host}/embed/${productId}" />
+    <meta name="twitter:player:width" content="720" />
+    <meta name="twitter:player:height" content="1280" />
     <meta name="twitter:player:stream" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta name="twitter:player:stream:content_type" content="video/mp4" />
     ` : ''}
     <!-- Additional Schema.org fallback for general platform scrapers -->
-    <meta itemprop="name" content="${escapeHtml(title)}">
-    <meta itemprop="description" content="${escapeHtml(description)}">
+    <meta itemprop="name" content="${escapeHtml(mainPageTitle)}">
+    <meta itemprop="description" content="${escapeHtml(mainPageDescription)}">
     <meta itemprop="image" content="${escapeHtml(image)}">
     <!-- Legacy / Crawler Fallbacks -->
     <link rel="image_src" href="${escapeHtml(image)}" />
@@ -5599,7 +5596,72 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       hash = hash & hash; // Convert to 32bit integer
     }
     return 'ext_' + Math.abs(hash).toString(36);
-  }  // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files with on-the-fly Sharp optimization
+  }
+
+  // Extracts a high-quality video thumbnail using FFmpeg
+  async function extractThumbnailWithFFmpeg(productId: string, videoUrl: string): Promise<Buffer | null> {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const os = await import('os');
+    const execAsync = promisify(exec);
+    
+    const tempDir = os.tmpdir();
+    const inputPath = path.join(tempDir, `${productId}_temp_input.mp4`);
+    const outputPath = path.join(tempDir, `${productId}_temp_output.jpg`);
+    
+    try {
+      let videoBuffer: Buffer | null = null;
+      if (videoUrl.startsWith('data:')) {
+        const parts = videoUrl.split(';base64,');
+        if (parts.length === 2) {
+          videoBuffer = Buffer.from(parts[1], 'base64');
+        }
+      } else if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
+        const res = await fetch(videoUrl);
+        if (res.ok) {
+          videoBuffer = Buffer.from(await res.arrayBuffer());
+        }
+      } else {
+        // Local file or relative URL
+        const localPath = path.join(process.cwd(), videoUrl.startsWith('/') ? videoUrl.slice(1) : videoUrl);
+        if (fs.existsSync(localPath)) {
+          videoBuffer = fs.readFileSync(localPath);
+        }
+      }
+
+      if (!videoBuffer) {
+        console.warn(`[FFmpeg Thumb] Could not retrieve video buffer for product ${productId}`);
+        return null;
+      }
+
+      fs.writeFileSync(inputPath, videoBuffer);
+
+      console.log(`[FFmpeg Thumb] Extracting frame from video for product ${productId}...`);
+      try {
+        await execAsync(`ffmpeg -y -ss 00:00:00.5 -i "${inputPath}" -vframes 1 -f image2 "${outputPath}"`);
+      } catch (ffmpegErr) {
+        console.warn(`[FFmpeg Thumb] Extraction at 0.5s failed, retrying at 0s:`, ffmpegErr);
+        await execAsync(`ffmpeg -y -ss 00:00:00 -i "${inputPath}" -vframes 1 -f image2 "${outputPath}"`);
+      }
+
+      if (fs.existsSync(outputPath)) {
+        const frameBuffer = fs.readFileSync(outputPath);
+        console.log(`[FFmpeg Thumb] Successfully extracted video frame for product ${productId} (${frameBuffer.length} bytes)`);
+        return frameBuffer;
+      }
+    } catch (err: any) {
+      console.error(`[FFmpeg Thumb] Error generating thumbnail for product ${productId}:`, err?.message || err);
+    } finally {
+      // Cleanup temp files
+      try {
+        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // Dynamic image delivery endpoint to decode and serve base64 uploads as binary image files with on-the-fly Sharp optimization
   app.get(['/api/products/:productId/image', '/api/products/:productId/image.jpg', '/api/products/:productId/image.png', '/api/products/:productId/image.jpeg'], serverRateLimiter(60 * 1000, 300, "image-proxy"), async (req, res) => {
     const { productId } = req.params;
     const queryImageUrl = req.query.image as string;
@@ -5809,6 +5871,49 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
                     (productId && productId.includes('video')) ||
                     (dbProduct && dbProduct.videos && dbProduct.videos.length > 0);
 
+    if (isVideo && !originalBuffer) {
+      const videoUrl = (dbProduct && dbProduct.videos && dbProduct.videos[0]) || queryVideoUrl || queryImageUrl || imageUrl;
+      if (videoUrl) {
+        console.log(`[FFmpeg Thumb] No image for video product ${productId}. Generating on-the-fly using FFmpeg...`);
+        const extractedBuffer = await extractThumbnailWithFFmpeg(productId, videoUrl);
+        if (extractedBuffer) {
+          originalBuffer = extractedBuffer;
+          originalMimeType = 'image/jpeg';
+          
+          try {
+            fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${resolvedProductId}.bin`), originalBuffer);
+            fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${resolvedProductId}.mime`), originalMimeType, 'utf-8');
+            setBinaryImageInCache(resolvedProductId, originalBuffer, originalMimeType);
+            
+            const base64Text = `data:image/jpeg;base64,${originalBuffer.toString('base64')}`;
+            fs.writeFileSync(path.join(IMAGES_CACHE_DIR, `${productId}.txt`), base64Text, 'utf-8');
+            
+            console.log(`[FFmpeg Thumb] Updating product ${productId} in DB with generated thumbnail...`);
+            if (adminDb) {
+              await adminDb.collection('products').doc(productId).update({
+                image: base64Text,
+                images: adminDb.FieldValue ? adminDb.FieldValue.arrayUnion(base64Text) : [base64Text]
+              }).catch((dbErr: any) => console.warn('[FFmpeg DB Update] Failed to update Firestore:', dbErr));
+            }
+            if (backendSupabase) {
+              const { error: sbErr } = await backendSupabase.from('products').update({
+                image: base64Text,
+                images: [base64Text]
+              }).eq('id', productId);
+              if (sbErr) {
+                console.warn('[FFmpeg DB Update] Failed to update Supabase:', sbErr);
+              }
+            }
+            // Clear memory caches so it reflects immediately on subsequent reads
+            productDataCache.delete(productId);
+            cachedProducts = null;
+          } catch (cacheWriteErr) {
+            console.error(`[Images Cache] Error caching FFmpeg generated thumbnail:`, cacheWriteErr);
+          }
+        }
+      }
+    }
+
     if (isVideo) {
       const safeTitle = (req.query.title as string) || (dbProduct ? dbProduct.title : null) || (productId ? 'Spotlight Review' : 'Video Ad');
       const rawPrice = (req.query.price as string) || (dbProduct ? dbProduct.price : null);
@@ -6007,6 +6112,62 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } catch (err) {
       console.error('Error in secure video proxy endpoint:', err);
       return res.status(500).send('Internal Server Error');
+    }
+  });
+
+  // Rewrite /api/thumbnail/:productId.jpg (or other extensions) to /api/products/:productId/image.jpg
+  app.get(['/api/thumbnail/:productId', '/api/thumbnail/:productId.jpg', '/api/thumbnail/:productId.png', '/api/thumbnail/:productId.jpeg'], (req, res, next) => {
+    const qIndex = req.url.indexOf('?');
+    const query = qIndex >= 0 ? req.url.substring(qIndex) : '';
+    req.url = `/api/products/${req.params.productId}/image.jpg${query}`;
+    next();
+  });
+
+  // Rewrite /api/video/:productId.mp4 to /api/products/:productId/video.mp4
+  app.get(['/api/video/:productId', '/api/video/:productId.mp4'], (req, res, next) => {
+    const qIndex = req.url.indexOf('?');
+    const query = qIndex >= 0 ? req.url.substring(qIndex) : '';
+    req.url = `/api/products/${req.params.productId}/video.mp4${query}`;
+    next();
+  });
+
+  // Embed Player endpoint for rich Twitter Card media players
+  app.get('/embed/:productId', async (req, res) => {
+    const { productId } = req.params;
+    try {
+      const product = await getProductData(productId);
+      if (!product) {
+        return res.status(404).send('Product not found');
+      }
+      const hasVideo = product.videos && Array.isArray(product.videos) && product.videos.length > 0;
+      if (!hasVideo) {
+        return res.status(404).send('This product has no video.');
+      }
+      
+      const host = cleanHostHeader(req.headers.host || 'tedbuy.store');
+      const protocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const videoUrl = `${protocol}://${host}/api/products/${productId}/video.mp4`;
+      
+      res.send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${escapeHtml(product.title)} | Embed Player</title>
+          <style>
+            body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; display: flex; align-items: center; justify-content: center; }
+            video { width: 100%; height: 100%; object-fit: contain; max-width: 100%; max-height: 100%; }
+          </style>
+        </head>
+        <body>
+          <video src="${escapeHtml(videoUrl)}" controls autoplay loop playsinline muted></video>
+        </body>
+        </html>
+      `);
+    } catch (err) {
+      console.error('Error serving embed player:', err);
+      res.status(500).send('Internal Server Error');
     }
   });
 
