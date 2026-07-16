@@ -1013,6 +1013,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   return;
                 }
               } else {
+                // Register UID early to avoid race conditions with onSnapshot and useEffect triggers
+                justRegisteredUserIds.current.add(firebaseUser.uid);
+
                 // Create the user document in Firestore asynchronously if first time
                 const newUser: User = {
                   id: firebaseUser.uid,
