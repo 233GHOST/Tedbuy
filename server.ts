@@ -4819,21 +4819,80 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     try {
       let resetLink = "";
+      
+      // Strategy 1: Attempt to generate link via Firebase Admin SDK
       try {
-        const { getApps } = await import("firebase-admin/app");
-        if (getApps().length > 0) {
-          const { getAuth } = await import("firebase-admin/auth");
-          resetLink = await getAuth().generatePasswordResetLink(cleanEmail);
-          console.log(`[Auth Reset] Generated Admin SDK password reset link for: ${cleanEmail}`);
+        const { getApps, initializeApp: initializeAdminApp, cert } = await import("firebase-admin/app");
+        if (getApps().length === 0) {
+          if (parsedServiceAccountJson) {
+            initializeAdminApp({
+              credential: cert(parsedServiceAccountJson),
+              projectId: parsedServiceAccountJson.project_id || projectId,
+            });
+          } else if (isGCPServiceAccountAuthorized) {
+            initializeAdminApp({
+              projectId: projectId,
+            });
+          } else {
+            // Development/sandbox fallback
+            initializeAdminApp({
+              projectId: projectId,
+            });
+          }
         }
+        const { getAuth } = await import("firebase-admin/auth");
+        resetLink = await getAuth().generatePasswordResetLink(cleanEmail);
+        console.log(`[Auth Reset] Generated Admin SDK password reset link for: ${cleanEmail}`);
       } catch (authErr: any) {
         console.warn('[Auth Reset] Admin SDK failed to generate reset link:', authErr?.message || authErr);
       }
 
-      // If Admin SDK link generation is unavailable/failed, try calling the Firebase Auth REST API 
-      // directly to dispatch standard password reset email from Firebase!
+      // Strategy 2: If Admin SDK fails/unauthorized, generate actionLink via Firebase Auth REST API with Google Cloud Run Metadata service token
+      if (!resetLink && isGCPServiceAccountAuthorized) {
+        try {
+          const metadataToken = await getGCPMetadataToken();
+          if (metadataToken && apiKey) {
+            console.log(`[Auth Reset] Attempting to generate actionLink via sendOobCode REST API with metadata token for: ${cleanEmail}`);
+            const firebaseRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${metadataToken}`
+              },
+              body: JSON.stringify({
+                requestType: "PASSWORD_RESET",
+                email: cleanEmail
+              })
+            });
+            if (firebaseRes.ok) {
+              const data = await firebaseRes.json();
+              if (data && data.actionLink) {
+                resetLink = data.actionLink;
+                console.log(`[Auth Reset] Successfully generated reset link via REST API sendOobCode with metadata token.`);
+              }
+            } else {
+              const errText = await firebaseRes.text();
+              console.warn(`[Auth Reset] sendOobCode REST API with metadata token failed:`, errText);
+            }
+          }
+        } catch (tokenErr: any) {
+          console.warn(`[Auth Reset] Failed to generate reset link via REST API fallback with metadata token:`, tokenErr?.message || tokenErr);
+        }
+      }
+
+      // Rewrite and brand-clean the reset link if generated successfully
+      if (resetLink) {
+        // Swap generic Firebase-hosted domain with tedbuy.store custom domain
+        resetLink = resetLink.replace(/tedbuy-fb79a\.firebaseapp\.com/g, "tedbuy.store");
+        resetLink = resetLink.replace(/tedbuy-fb79a\.web\.app/g, "tedbuy.store");
+        resetLink = resetLink.replace(/www\.tedbuy\.store/g, "tedbuy.store");
+        console.log(`[Auth Reset] Cleaned reset link: ${resetLink}`);
+      }
+
+      // Strategy 3: Last Resort Fallback - If we can't generate the link on server, and Brevo/SMTP is not active,
+      // let Firebase dispatch the email directly. (Only happens in sandbox or if server email config is completely absent).
       if (!resetLink && apiKey) {
-        console.log(`[Auth Reset] Using Firebase Auth REST API to dispatch reset email directly for: ${cleanEmail}`);
+        console.log(`[Auth Reset] No reset link generated. Falling back to sending directly via Firebase Auth REST API for: ${cleanEmail}`);
         const firebaseRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -4851,13 +4910,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
 
-      if (resetLink) {
-        // High-reliability brand replacement: Swap generic Firebase-hosted domain with tedbuy.store custom domain
-        resetLink = resetLink.replace("tedbuy-fb79a.firebaseapp.com", "tedbuy.store");
-        resetLink = resetLink.replace("tedbuy-fb79a.web.app", "tedbuy.store");
-      }
-
-      // If no reset link and we can't dispatch REST API directly, check if we have Brevo/SMTP configured
+      // Verify that we have a generated link to send via Brevo/SMTP
       if (!resetLink) {
         if (!brevoApiKey && !hasSmtp) {
           console.log(`[Auth Reset] Neither Brevo nor SMTP configured on the server. Instructing client to fallback.`);
