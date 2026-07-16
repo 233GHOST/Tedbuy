@@ -121,7 +121,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
 
       const paystack = (window as any).PaystackPop.setup({
         key: publicKey,
-        email: currentUser?.email || '',
+        email: currentUser?.email || 'asumaduvincent7@gmail.com',
         amount: activePlan.priceGHS * 100, // GHS to Pesewas
         currency: 'GHS',
         ref: ref,
@@ -215,7 +215,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
           productId: product.id,
           planId: selectedPlanId,
           paymentMethod: paymentMethod === 'momo' ? `momo_${momoProvider}` : 'card',
-          email: currentUser?.email || '',
+          email: currentUser?.email || 'asumaduvincent7@gmail.com',
           amountGHS: activePlan.priceGHS
         })
       });
@@ -439,7 +439,6 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                         value={cardName}
                         onChange={(e) => setCardName(e.target.value)}
                         placeholder="e.g. Vincent Asumadu"
-                        autoComplete="off"
                         className="w-full px-3 py-2.5 border border-slate-250 bg-white text-slate-900 text-xs font-semibold rounded-xl outline-hidden focus:ring-2 focus:ring-slate-900 focus:border-slate-900"
                       />
                     </div>
@@ -458,7 +457,6 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                             setCardNumber(formatted);
                           }}
                           placeholder="e.g. 4111 2222 3333 4444"
-                          autoComplete="off" autoCorrect="off" autoCapitalize="off"
                           className="w-full pl-10 pr-4 py-2.5 border border-slate-250 bg-white text-slate-900 text-xs font-mono rounded-xl outline-hidden focus:ring-2 focus:ring-slate-900 focus:border-slate-900"
                         />
                       </div>
@@ -480,7 +478,6 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                             }
                           }}
                           placeholder="MM/YY"
-                          autoComplete="off" autoCorrect="off"
                           className="w-full px-3 py-2.5 border border-slate-250 bg-white text-slate-900 text-xs font-mono rounded-xl outline-hidden focus:ring-2 focus:ring-slate-900 focus:border-slate-900 text-center"
                         />
                       </div>
@@ -489,7 +486,6 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                         <input
                           type="password"
                           required
-                          autoComplete="off" autoCorrect="off"
                           value={cardCvv}
                           onChange={(e) => setCardCvv(e.target.value.replace(/[^0-9]/g, '').substr(0, 3))}
                           placeholder="e.g. 123"

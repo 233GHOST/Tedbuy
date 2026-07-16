@@ -157,134 +157,28 @@ CREATE TABLE IF NOT EXISTS public.boost_purchases (
 );
 
 -- ====================================================================
--- ENABLE ROW LEVEL SECURITY (RLS) FOR RAPID HYBRID INTEGRATION
+-- DISABLE ROW LEVEL SECURITY (RLS) FOR RAPID HYBRID INTEGRATION
 -- This ensures client-side operations and backend operations can 
 -- write/read seamlessly without complex RLS policy setups.
 -- ====================================================================
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.store_names ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.boost_purchases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chats DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.messages DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reviews DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.store_names DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.boost_purchases DISABLE ROW LEVEL SECURITY;
 
--- Grant SELECT to anon for public reads (products, reviews, store_names)
-GRANT SELECT ON TABLE public.products TO anon;
-GRANT SELECT ON TABLE public.reviews TO anon;
-GRANT SELECT ON TABLE public.store_names TO anon;
-
--- Grant full access to authenticated users via RLS policies
-GRANT ALL ON TABLE public.users TO authenticated, service_role;
-GRANT ALL ON TABLE public.products TO authenticated, service_role;
-GRANT ALL ON TABLE public.chats TO authenticated, service_role;
-GRANT ALL ON TABLE public.messages TO authenticated, service_role;
-GRANT ALL ON TABLE public.reviews TO authenticated, service_role;
-GRANT ALL ON TABLE public.notifications TO authenticated, service_role;
-GRANT ALL ON TABLE public.store_names TO authenticated, service_role;
-GRANT ALL ON TABLE public.boost_purchases TO authenticated, service_role;
-
--- ====================================================================
--- ROW LEVEL SECURITY POLICIES
--- ====================================================================
-
--- USERS: Users can read all profiles (public marketplace), update own, admin sees all
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "users_select_public" ON public.users FOR SELECT USING (true);
-CREATE POLICY "users_insert_own" ON public.users FOR INSERT WITH CHECK (auth.uid() = id);
-CREATE POLICY "users_update_own" ON public.users FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
-CREATE POLICY "users_admin_all" ON public.users FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-
--- PRODUCTS: Public read, sellers manage own, admin manages all
-ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "products_select_public" ON public.products FOR SELECT USING (true);
-CREATE POLICY "products_insert_own" ON public.products FOR INSERT WITH CHECK (auth.uid() = "sellerId");
-CREATE POLICY "products_update_own" ON public.products FOR UPDATE USING (auth.uid() = "sellerId")
-  WITH CHECK (
-    auth.uid() = "sellerId"
-    AND NOT ("boostStatus" IS DISTINCT FROM (SELECT "boostStatus" FROM public.products WHERE id = public.products.id))
-    AND NOT ("boostPriority" IS DISTINCT FROM (SELECT "boostPriority" FROM public.products WHERE id = public.products.id))
-    AND NOT ("priorityScore" IS DISTINCT FROM (SELECT "priorityScore" FROM public.products WHERE id = public.products.id))
-  );
-CREATE POLICY "products_admin_all" ON public.products FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-
--- CHATS: Participants can read their chats, create as buyer, update as participant
-ALTER TABLE public.chats ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "chats_select_own" ON public.chats FOR SELECT USING (
-  auth.uid() = "buyerId" OR auth.uid() = "sellerId" OR
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-CREATE POLICY "chats_insert_buyer" ON public.chats FOR INSERT WITH CHECK (auth.uid() = "buyerId");
-CREATE POLICY "chats_update_participant" ON public.chats FOR UPDATE USING (
-  auth.uid() = "buyerId" OR auth.uid() = "sellerId" OR
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-CREATE POLICY "chats_admin_all" ON public.chats FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-
--- MESSAGES: Participants can read, send as participant, mark own as read
-ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "messages_select_participant" ON public.messages FOR SELECT USING (
-  auth.uid() = "senderId" OR auth.uid() = "recipientId" OR
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-CREATE POLICY "messages_insert_participant" ON public.messages FOR INSERT WITH CHECK (auth.uid() = "senderId");
-CREATE POLICY "messages_update_recipient" ON public.messages FOR UPDATE USING (auth.uid() = "recipientId")
-  WITH CHECK (auth.uid() = "recipientId");
-CREATE POLICY "messages_admin_all" ON public.messages FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-
--- REVIEWS: Public read, create as buyer, admin manages
-ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "reviews_select_public" ON public.reviews FOR SELECT USING (true);
-CREATE POLICY "reviews_insert_buyer" ON public.reviews FOR INSERT WITH CHECK (
-  auth.uid() = "buyerId" AND auth.uid() != "sellerId"
-);
-CREATE POLICY "reviews_admin_all" ON public.reviews FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-
--- NOTIFICATIONS: Users read own, system creates, users update own
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "notifications_select_own" ON public.notifications FOR SELECT USING (
-  auth.uid() = "userId" OR
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-CREATE POLICY "notifications_insert_system" ON public.notifications FOR INSERT WITH CHECK (
-  auth.uid() = "userId" OR
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-CREATE POLICY "notifications_update_own" ON public.notifications FOR UPDATE USING (auth.uid() = "userId");
-CREATE POLICY "notifications_admin_all" ON public.notifications FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-
--- STORE_NAMES: Public read, own create/update
-ALTER TABLE public.store_names ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "store_names_select_public" ON public.store_names FOR SELECT USING (true);
-CREATE POLICY "store_names_insert_own" ON public.store_names FOR INSERT WITH CHECK (auth.uid() = "userId");
-CREATE POLICY "store_names_update_own" ON public.store_names FOR UPDATE USING (auth.uid() = "userId") WITH CHECK (auth.uid() = "userId");
-CREATE POLICY "store_names_admin_all" ON public.store_names FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-
--- BOOST_PURCHASES: Users read own, system creates, admin manages
-ALTER TABLE public.boost_purchases ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "boost_purchases_select_own" ON public.boost_purchases FOR SELECT USING (
-  auth.uid() = "userId" OR
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
-CREATE POLICY "boost_purchases_insert_own" ON public.boost_purchases FOR INSERT WITH CHECK (auth.uid() = "userId");
-CREATE POLICY "boost_purchases_admin_all" ON public.boost_purchases FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND "isAdmin" = true)
-);
+-- Grant all privileges to the anon and authenticated roles
+GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.products TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.chats TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.messages TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.reviews TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.notifications TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.store_names TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.boost_purchases TO anon, authenticated, service_role;
 
 -- Done! You're ready to go. Run this in your Supabase SQL editor.
 --

@@ -5,7 +5,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self' https: data: blob: 'unsafe-inline'; connect-src 'self' https: wss:; img-src 'self' https: data: blob: android-webview-video-poster:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; frame-src 'self' https:; frame-ancestors 'self';"
+          "value": "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob: android-webview-video-poster:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https:;"
         },
         {
           "key": "X-Frame-Options",
@@ -26,113 +26,46 @@
         {
           "key": "Link",
           "value": "</sitemap.xml>; rel=\"sitemap\", </.well-known/api-catalog>; rel=\"api-catalog\", </auth.md>; rel=\"service-doc\""
-        },
-        {
-          "key": "Strict-Transport-Security",
-          "value": "max-age=31536000; includeSubDomains; preload"
         }
       ]
     },
     {
       "source": "/.well-known/oauth-protected-resource",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json; charset=utf-8"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }]
     },
     {
       "source": "/.well-known/oauth-authorization-server",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json; charset=utf-8"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }]
     },
     {
       "source": "/.well-known/openid-configuration",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json; charset=utf-8"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }]
     },
     {
       "source": "/.well-known/api-catalog",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json; charset=utf-8"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }]
     },
     {
       "source": "/.well-known/dns-aid",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json; charset=utf-8"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }]
     },
     {
       "source": "/.well-known/dns-records",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json; charset=utf-8"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "application/json; charset=utf-8" }]
     }
   ],
   "cleanUrls": true,
   "rewrites": [
-    {
-      "source": "/__/auth/:path*",
-      "destination": "https://tedbuy-fb79a.firebaseapp.com/__/auth/:path*"
-    },
-    {
-      "source": "/robots.txt",
-      "destination": "/api/robots"
-    },
-    {
-      "source": "/sitemap.xml",
-      "destination": "/api/sitemap"
-    },
-    {
-      "source": "/sitemap-static.xml",
-      "destination": "/api/sitemap-static"
-    },
-    {
-      "source": "/sitemap-categories.xml",
-      "destination": "/api/sitemap-categories"
-    },
-    {
-      "source": "/sitemap-products-:page.xml",
-      "destination": "/api/sitemap-products-:page"
-    },
-    {
-      "source": "/sitemap-stores-:page.xml",
-      "destination": "/api/sitemap-stores-:page"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "/api"
-    },
-    {
-      "source": "/api",
-      "destination": "/api"
-    },
-    {
-      "source": "/auth.md",
-      "destination": "/api"
-    },
-    {
-      "source": "/:path*",
-      "destination": "/index.html"
-    }
+    { "source": "/__/auth/:path*", "destination": "https://tedbuy-fb79a.firebaseapp.com/__/auth/:path*" },
+    { "source": "/robots.txt", "destination": "/api/robots" },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/sitemap-static.xml", "destination": "/api/sitemap-static" },
+    { "source": "/sitemap-categories.xml", "destination": "/api/sitemap-categories" },
+    { "source": "/sitemap-products-:page.xml", "destination": "/api/sitemap-products-:page" },
+    { "source": "/sitemap-stores-:page.xml", "destination": "/api/sitemap-stores-:page" },
+    { "source": "/api/:path*", "destination": "/api" },
+    { "source": "/api", "destination": "/api" },
+    { "source": "/auth.md", "destination": "/api" },
+    { "source": "/:path*", "destination": "/index.html" }
   ]
 }

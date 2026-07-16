@@ -140,35 +140,8 @@ export const getOptimizedImageUrl = (
     return `${baseUrl}?${params.toString()}`;
   }
 
-  // 4. External URL Proxy Routing (with SSRF protection)
+  // 4. External URL Proxy Routing
   if (url.startsWith('http://') || url.startsWith('https://')) {
-    // SSRF prevention: Block internal/private IP ranges and non-standard ports
-    try {
-      const parsedUrl = new URL(url);
-      const hostname = parsedUrl.hostname.toLowerCase();
-      // Block private/loopback/link-local/reserved IP ranges
-      if (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '0.0.0.0' ||
-        hostname.endsWith('.local') ||
-        hostname.endsWith('.internal') ||
-        /^10\./.test(hostname) ||
-        /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname) ||
-        /^192\.168\./.test(hostname) ||
-        /^169\.254\./.test(hostname) ||
-        hostname === '[::1]' ||
-        /^fd[0-9a-f]{2}:/i.test(hostname) ||
-        /^fe80:/i.test(hostname)
-      ) {
-        console.warn('[imageOptimizer] Blocked internal/private URL:', url);
-        return url; // Return original without proxying
-      }
-    } catch {
-      console.warn('[imageOptimizer] Invalid URL for proxy:', url);
-      return url;
-    }
-
     const params = new URLSearchParams();
     params.set('image', url);
     if (width !== undefined) params.set('w', String(width));
