@@ -1515,7 +1515,7 @@ async function startServer() {
           pass,
         },
         tls: {
-          rejectUnauthorized: false
+          rejectUnauthorized: true
         }
       });
     } else {
@@ -2390,13 +2390,58 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   }
 
+  const JWT_SECRET = process.env.PAYSTACK_SECRET_KEY || 'tedbuy-server-fallback-secret-key-12345';
+
+  function generateCustomJWT(payload: any): string {
+    const header = { alg: "HS256", typ: "JWT" };
+    const base64Header = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    
+    const signature = crypto
+      .createHmac('sha256', JWT_SECRET)
+      .update(`${base64Header}.${base64Payload}`)
+      .digest('base64url');
+      
+    return `${base64Header}.${base64Payload}.${signature}`;
+  }
+
+  function verifyCustomJWT(token: string): any {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      
+      const [header, payload, signature] = parts;
+      const expectedSignature = crypto
+        .createHmac('sha256', JWT_SECRET)
+        .update(`${header}.${payload}`)
+        .digest('base64url');
+        
+      if (signature !== expectedSignature) {
+        return null;
+      }
+      
+      return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    } catch (err) {
+      return null;
+    }
+  }
+
   // Safe helper to verify administrator privileges by verifying JWT tokens or querying user settings from Firestore.
   async function verifyAdmin(authHeader: string | undefined): Promise<boolean> {
     if (!authHeader) return false;
+
+    const token = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
+
+    // 0. Try verification of our custom JWT first
+    const customPayload = verifyCustomJWT(token);
+    if (customPayload) {
+      if (customPayload.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || customPayload.isAdmin === true) {
+        return true;
+      }
+    }
     
     // 1. Try Admin SDK
     if (adminDb && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split('Bearer ')[1];
       try {
         const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
         const decoded = await getAdminAuth().verifyIdToken(token);
@@ -2412,54 +2457,23 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     }
 
-    // 2. Try REST API lookup (useful for local sandbox, or when Admin SDK is fallback)
-    try {
-      const token = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        let payload: any;
-        try {
-          payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-        } catch (_) {
-          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-          payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
-        }
-        const uid = payload.user_id || payload.sub;
-        const email = payload.email;
-        if (email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') {
-          return true;
-        }
-        
-        if (uid) {
-          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${uid}`;
-          const res = await fetch(url, {
-            headers: { 'Authorization': authHeader }
-          });
-          if (res.ok) {
-            const userDoc = await res.json();
-            const fields = userDoc.fields || {};
-            const isAdminValue = fields.isAdmin?.booleanValue === true;
-            const emailValue = fields.email?.stringValue || '';
-            if (isAdminValue || emailValue.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
-              return true;
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[verifyAdmin] REST verification failed:', err);
-    }
-
     return false;
   }
 
   // Safe helper to verify authenticated users by verifying JWT tokens or fallback to parsing payload
   async function verifyUser(authHeader: string | undefined): Promise<{ uid: string; email: string } | null> {
     if (!authHeader) return null;
+
+    const token = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
+
+    // 0. Try verification of our custom JWT first
+    const customPayload = verifyCustomJWT(token);
+    if (customPayload) {
+      return { uid: customPayload.user_id || customPayload.sub, email: customPayload.email || '' };
+    }
     
     // 1. Try Admin SDK
     if (adminDb && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split('Bearer ')[1];
       try {
         const { getAuth: getAdminAuth } = await import("firebase-admin/auth");
         const decoded = await getAdminAuth().verifyIdToken(token);
@@ -2469,28 +2483,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       } catch (err) {
         console.warn('[verifyUser] Admin SDK token verification failed:', err);
       }
-    }
-
-    // 2. Try REST API lookup / JWT Parsing fallback (useful for local sandbox, or when Admin SDK is fallback)
-    try {
-      const token = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        let payload: any;
-        try {
-          payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-        } catch (_) {
-          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-          payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
-        }
-        const uid = payload.user_id || payload.sub;
-        const email = payload.email || '';
-        if (uid) {
-          return { uid, email };
-        }
-      }
-    } catch (err) {
-      console.error('[verifyUser] JWT parse verification failed:', err);
     }
 
     return null;
@@ -2825,6 +2817,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       return res.status(400).json({ success: false, error: "Missing required fields: paymentReference, productId, and planId are required." });
     }
 
+    const plans: Record<string, { days: number; price: number; name: string }> = {
+      '3days': { days: 3, price: 1, name: '3 Days Boost' },
+      '7days': { days: 7, price: 3, name: '7 Days Boost' },
+      '14days': { days: 14, price: 7, name: '14 Days Boost' },
+      '30days': { days: 30, price: 12, name: '30 Days Boost' },
+      '90days': { days: 90, price: 20, name: '90 Days Boost' }
+    };
+
+    const selectedPlan = plans[planId];
+    if (!selectedPlan) {
+      return res.status(400).json({ success: false, error: `Invalid plan specified: ${planId}` });
+    }
+
     try {
       let isVerified = false;
       let verifiedAmount = amountGHS || 1;
@@ -2848,7 +2853,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         isVerified = true;
         verifiedAmount = 0;
         gatewayUsed = 'admin-bypass';
-      } else if (paystackSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
+      } else if (paystackSecret && !paymentReference.startsWith('TEDBUY_DEMO_') && !paymentReference.startsWith('TST_')) {
         gatewayUsed = 'paystack';
         const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(paymentReference)}`, {
           headers: {
@@ -2864,7 +2869,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             verifiedAmount = payload.data.amount / 100;
           }
         }
-      } else if (flutterwaveSecret && !paymentReference.startsWith('TEDBUY_DEMO_')) {
+      } else if (flutterwaveSecret && !paymentReference.startsWith('TEDBUY_DEMO_') && !paymentReference.startsWith('TST_')) {
         gatewayUsed = 'flutterwave';
         const flwRes = await fetch(`https://api.flutterwave.com/v3/transactions/${encodeURIComponent(paymentReference)}/verify`, {
           headers: {
@@ -2881,14 +2886,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       } else {
-        if (paymentReference.startsWith('TEDBUY_DEMO_') || paymentReference.startsWith('TST_') || process.env.NODE_ENV !== 'production') {
-          isVerified = true;
-          gatewayUsed = 'sandbox-simulator';
+        // Only allow demo/sandbox payment reference if NOT in production
+        if (process.env.NODE_ENV !== 'production') {
+          if (paymentReference.startsWith('TEDBUY_DEMO_') || paymentReference.startsWith('TST_')) {
+            isVerified = true;
+            gatewayUsed = 'sandbox-simulator';
+            verifiedAmount = selectedPlan.price;
+          }
+        } else {
+          return res.status(400).json({ success: false, error: "Sandbox/Demo payment references are strictly disabled in production." });
         }
       }
 
       if (!isVerified) {
         return res.status(400).json({ success: false, error: "Payment verification failed or was cancelled by the provider." });
+      }
+
+      // Verify payment amount matches plan price
+      if (gatewayUsed !== 'admin-bypass' && verifiedAmount < selectedPlan.price) {
+        return res.status(400).json({
+          success: false,
+          error: `Payment verification failed: Paid GHS ${verifiedAmount}, but plan "${selectedPlan.name}" requires GHS ${selectedPlan.price}.`
+        });
       }
 
       // Execute shared boost activation pipeline
@@ -4012,7 +4031,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
 
       // 3. Generate 6-digit secure OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otp = crypto.randomInt(100000, 1000000).toString();
       const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes lifespan
 
       // Store in verification sessions
@@ -4600,13 +4619,22 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       // Delete verification session
       verificationSessions.delete(cleanEmail);
 
+      const customToken = generateCustomJWT({
+        user_id: uid,
+        sub: uid,
+        email: session.email,
+        isAdmin: session.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com',
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) // 7 days expiration
+      });
+
       return res.json({
         success: true,
         message: "Account verified and registered successfully!",
         user: newUser,
         simulatedMode: isSimulated,
+        customToken,
         // If simulated mode, client will use this password to finalize client-side auth locally
-        tempPassword: session.password 
+        tempPassword: isSimulated ? session.password : undefined 
       });
 
     } catch (err: any) {
@@ -4790,8 +4818,17 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     // Login successful!
     console.log(`[Backend Login] Successful authentication for user: ${matchedUser.email} / ${matchedUser.username}`);
+    const customToken = generateCustomJWT({
+      user_id: matchedUser.id,
+      sub: matchedUser.id,
+      email: matchedUser.email,
+      isAdmin: matchedUser.isAdmin === true || matchedUser.email?.toLowerCase() === 'asumaduvincent7@gmail.com',
+      exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7) // 7 days expiration
+    });
+
     return res.json({
       success: true,
+      customToken,
       user: {
         id: matchedUser.id,
         username: matchedUser.username,
@@ -4825,9 +4862,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       isValid = trimmed === serverCustomPin.trim();
       console.log(`[Admin PIN Verify] Verifying against custom server-side pin: ${isValid ? 'Success' : 'Failed'}`);
     } else {
-      // Default fallback is 559102
-      isValid = trimmed === '559102';
-      console.log(`[Admin PIN Verify] Verifying against default fallback pin: ${isValid ? 'Success' : 'Failed'}`);
+      console.warn(`[Admin PIN Verify] Rejection: ADMIN_PIN environment variable is not configured on the server.`);
     }
 
     return res.json({ success: isValid });

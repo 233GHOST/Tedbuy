@@ -5,6 +5,8 @@ import { Navbar } from './components/Navbar';
 import { AdminSecurityGate } from './components/AdminSecurityGate';
 import { ProductCard } from './components/ProductCard';
 import { PWAInstallPrompt } from './components/PWAInstallPrompt';
+import { CookieConsent } from './components/CookieConsent';
+import { PrivacyPolicyModal } from './components/PrivacyPolicyModal';
 
 import { ProfileSettings } from './components/ProfileSettings';
 import { ChatInterface } from './components/ChatInterface';
@@ -17,7 +19,23 @@ const VerificationBlockModal = lazy(() => import('./components/VerificationBlock
 const SuspendedBlockModal = lazy(() => import('./components/SuspendedBlockModal').then(m => ({ default: m.SuspendedBlockModal })));
 
 import { Category, Product } from './types';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info, ShieldAlert } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info, ShieldAlert, Facebook, Instagram } from 'lucide-react';
+
+const Tiktok = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5" />
+  </svg>
+);
+
 import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { getRegionForLocation } from './regions';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
@@ -343,6 +361,7 @@ const MarketplaceContent: React.FC = () => {
   }, [recentlyViewedIds, products]);
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
 
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
@@ -1262,12 +1281,66 @@ const MarketplaceContent: React.FC = () => {
       {/* Persistent platform footer */}
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
         <footer className="bg-white border-t border-slate-205 text-slate-500 text-xs py-10 mt-12 mb-16 md:mb-0">
-          <div className="max-w-7xl mx-auto px-4 space-y-8">
-            <div className="text-center space-y-2 pt-6">
+          <div className="max-w-7xl mx-auto px-4 space-y-6">
+            <div className="text-center space-y-3 pt-6">
               <p className="font-sans font-bold text-slate-800">Tedbuy Marketplace &copy; 2026</p>
               <p className="text-[11px] text-slate-400 max-w-md mx-auto leading-relaxed">
                 Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
               </p>
+              <div className="flex items-center justify-center space-x-4 pt-2">
+                <a
+                  id="footer-facebook-link"
+                  href="https://www.facebook.com/profile.php?id=61590789224238"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-slate-500 hover:text-blue-600 font-medium transition-colors duration-200"
+                >
+                  <Facebook className="w-3.5 h-3.5" />
+                  <span>Facebook</span>
+                </a>
+                <span className="text-slate-300">•</span>
+                <a
+                  id="footer-instagram-link"
+                  href="https://www.instagram.com/tedbuyghana"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-slate-500 hover:text-pink-600 font-medium transition-colors duration-200"
+                >
+                  <Instagram className="w-3.5 h-3.5" />
+                  <span>Instagram</span>
+                </a>
+                <span className="text-slate-300">•</span>
+                <a
+                  id="footer-tiktok-link"
+                  href="https://www.tiktok.com/@tedbuy.store"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-slate-500 hover:text-slate-900 font-medium transition-colors duration-200"
+                >
+                  <Tiktok className="w-3.5 h-3.5" />
+                  <span>TikTok</span>
+                </a>
+              </div>
+              
+              {/* Privacy Legal Row */}
+              <div className="flex items-center justify-center space-x-3 pt-3 text-[11px] text-slate-400">
+                <button
+                  onClick={() => setIsPrivacyModalOpen(true)}
+                  className="hover:text-slate-900 transition-colors duration-200 cursor-pointer underline font-semibold bg-transparent border-none p-0"
+                >
+                  Privacy Policy
+                </button>
+                <span>•</span>
+                <button
+                  onClick={() => {
+                    setCurrentView('profile-settings');
+                    window.location.hash = '#/terms';
+                  }}
+                  className="hover:text-slate-900 transition-colors duration-200 cursor-pointer underline font-semibold bg-transparent border-none p-0"
+                >
+                  Terms of Service
+                </button>
+              </div>
             </div>
           </div>
         </footer>
@@ -1488,6 +1561,8 @@ const MarketplaceContent: React.FC = () => {
       <AdminSecurityGate />
       <WebMCPInitializer />
       <PWAInstallPrompt />
+      <CookieConsent onOpenPrivacyPolicy={() => setIsPrivacyModalOpen(true)} />
+      <PrivacyPolicyModal isOpen={isPrivacyModalOpen} onClose={() => setIsPrivacyModalOpen(false)} />
     </div>
   );
 };

@@ -1001,7 +1001,10 @@ export const ProductDetail: React.FC = () => {
                                 onClick={async () => {
                                   setIsAdminBoosting(true);
                                   try {
-                                    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                                    let token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                                    if (!token) {
+                                      token = localStorage.getItem('tedbuy_custom_auth_token') || '';
+                                    }
                                     const cleanToken = token;
                                     const res = await fetch('/api/admin/boost-control', {
                                       method: 'POST',
@@ -1090,7 +1093,10 @@ export const ProductDetail: React.FC = () => {
                           onClick={async () => {
                             setIsAdminBoosting(true);
                             try {
-                              const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                              let token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                              if (!token) {
+                                token = localStorage.getItem('tedbuy_custom_auth_token') || '';
+                              }
                               // Use the token directly without regex stripping to prevent token corruption
                               const cleanToken = token;
                               const res = await fetch('/api/admin/boost-control', {
@@ -1139,7 +1145,7 @@ export const ProductDetail: React.FC = () => {
                   <div className="flex gap-2.5">
                     <button
                       onClick={() => setShowEditModal(true)}
-                      className="flex-1 py-2.5 bg-slate-905 hover:bg-slate-800 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
+                      className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                       <span>Edit Ad Details</span>
@@ -1188,7 +1194,7 @@ export const ProductDetail: React.FC = () => {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setShowEditModal(true)}
-                      className="flex-1 py-2.5 bg-slate-905 hover:bg-slate-800 text-white font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
+                      className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                       <span>Edit Ad Details</span>

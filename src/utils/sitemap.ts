@@ -54,7 +54,7 @@ function escapeXml(unsafe: string): string {
  * Loads firebase config to retrieve projectId and apiKey dynamically
  */
 function getFirebaseConfig() {
-  let projectId = 'tedbuy-fb79a'; // Fallback
+  let projectId = 'tedbuy-production'; // Fallback
   let apiKey = '';
   try {
     const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');

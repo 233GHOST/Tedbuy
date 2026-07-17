@@ -1,10 +1,8 @@
+import DOMPurify from 'dompurify';
+
 export function sanitizeText(text: string): string {
   if (!text) return '';
-  // Force clean string and strip basic HTML tags to block embedded tags
-  return text
-    .replace(/<[^>]*>/g, '') 
-    .replace(/javascript:/gi, '') // prevent script hrefs
-    .trim();
+  return DOMPurify.sanitize(text).trim();
 }
 
 export function validateInputLength(text: string, maxLen: number, minLen = 0): { isValid: boolean; error?: string } {

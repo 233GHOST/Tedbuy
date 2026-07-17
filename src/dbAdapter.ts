@@ -96,7 +96,8 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     'id', 'buyerId', 'buyerName', 'sellerId', 'rating', 'comment', 'productTitle', 'createdAt'
   ]),
   notifications: new Set([
-    'id', 'userId', 'title', 'message', 'type', 'read', 'createdAt', 'relatedId'
+    'id', 'userId', 'title', 'message', 'type', 'read', 'createdAt', 'relatedId',
+    'triggerUserId', 'triggerUsername', 'triggerUserPhoto', 'productId', 'productTitle', 'productPrice', 'productImage', 'chatId'
   ]),
   store_names: new Set([
     'id', 'userId', 'username'

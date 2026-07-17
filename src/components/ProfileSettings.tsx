@@ -29,7 +29,12 @@ export const ProfileSettings: React.FC = () => {
     setDashboardTab,
     canInstall,
     triggerPWAInstall,
-    isStandalone
+    isStandalone,
+    products,
+    chats,
+    messages,
+    reviews,
+    notifications
   } = useApp();
 
   if (!currentUser) {
@@ -74,6 +79,125 @@ export const ProfileSettings: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletePasswordText, setDeletePasswordText] = useState('');
+
+  // Personal Data Portability State & Function
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportPersonalData = async () => {
+    if (!currentUser) return;
+    setIsExporting(true);
+    try {
+      // 1. Filter data belonging to this user
+      const userProducts = products?.filter(p => p.sellerId === currentUser.id) || [];
+      const userReviewsWritten = reviews?.filter(r => r.buyerId === currentUser.id) || [];
+      const userReviewsReceived = reviews?.filter(r => r.sellerId === currentUser.id) || [];
+      const userChats = chats?.filter(c => c.buyerId === currentUser.id || c.sellerId === currentUser.id) || [];
+      const userNotifications = notifications?.filter(n => n.userId === currentUser.id) || [];
+      
+      // Filter messages belonging to user's chats
+      const userChatIds = new Set(userChats.map(c => c.id));
+      const userMessages = messages?.filter(m => userChatIds.has(m.chatId) || m.senderId === currentUser.id || m.recipientId === currentUser.id) || [];
+
+      // 2. Format a highly descriptive, readable data package
+      const dataPackage = {
+        platform: "Tedbuy Ghana Classifieds",
+        exportDate: new Date().toISOString(),
+        description: "Personal Data Portability Export.",
+        rightsNotice: "You hold the Right to Erasure (to be forgotten), Right to Rectification, and Right to Restrict Processing. To erase this data from Tedbuy permanently, use the Delete Account feature in your Profile Settings.",
+        personalProfile: {
+          id: currentUser.id,
+          username: currentUser.username,
+          email: currentUser.email,
+          phoneNumber: currentUser.phoneNumber,
+          whatsAppNumber: currentUser.whatsAppNumber,
+          role: currentUser.role,
+          verified: isUserVerified(currentUser),
+          joinDate: currentUser.joinDate || "N/A",
+          followingSellersCount: currentUser.followingSellers?.length || 0,
+          followingSellers: currentUser.followingSellers || [],
+        },
+        listingsCount: userProducts.length,
+        listings: userProducts.map(p => ({
+          id: p.id,
+          title: p.title,
+          price: p.price,
+          category: p.category,
+          location: p.location,
+          description: p.description,
+          viewsCount: p.viewsCount || 0,
+          likesCount: p.likesCount || 0,
+          createdAt: p.createdAt || "N/A",
+        })),
+        reviews: {
+          writtenCount: userReviewsWritten.length,
+          written: userReviewsWritten.map(r => ({
+            id: r.id,
+            sellerId: r.sellerId,
+            rating: r.rating,
+            comment: r.comment,
+            productTitle: r.productTitle,
+            createdAt: r.createdAt || "N/A",
+          })),
+          receivedCount: userReviewsReceived.length,
+          received: userReviewsReceived.map(r => ({
+            id: r.id,
+            buyerId: r.buyerId,
+            rating: r.rating,
+            comment: r.comment,
+            productTitle: r.productTitle,
+            createdAt: r.createdAt || "N/A",
+          })),
+        },
+        chatsCount: userChats.length,
+        chats: userChats.map(c => {
+          const chatMsgs = userMessages.filter(m => m.chatId === c.id);
+          return {
+            id: c.id,
+            productId: c.productId,
+            productTitle: c.productTitle,
+            productPrice: c.productPrice,
+            buyerId: c.buyerId,
+            sellerId: c.sellerId,
+            lastMessageText: c.lastMessageText,
+            lastMessageTime: c.lastMessageTime,
+            messages: chatMsgs.map(m => ({
+              id: m.id,
+              senderId: m.senderId,
+              recipientId: m.recipientId,
+              text: m.text,
+              createdAt: m.createdAt || "N/A",
+              read: m.read || false,
+            })),
+          };
+        }),
+        notificationsCount: userNotifications.length,
+        notifications: userNotifications.map(n => ({
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          createdAt: n.createdAt,
+          read: n.read || false,
+        })),
+      };
+
+      // 3. Create a clean file download
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dataPackage, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `tedbuy-personal-data-${currentUser.username || 'user'}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      showToast("Personal data package compiled and downloaded successfully.", "success");
+    } catch (err: any) {
+      console.error(err);
+      showToast("Failed to compile personal data package.", "error");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Settings PWA states
   const [showiOSSettingsGuide, setShowiOSSettingsGuide] = useState(false);
@@ -186,7 +310,10 @@ export const ProfileSettings: React.FC = () => {
     setMigrationStats(null);
     try {
       const { collection, getDocs } = await import('firebase/firestore');
-      const idToken = await auth.currentUser?.getIdToken();
+      let idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        idToken = localStorage.getItem('tedbuy_custom_auth_token') || undefined;
+      }
 
       const collectionsToMigrate = [
         { firestoreName: 'users', supabaseName: 'users' },
@@ -1195,6 +1322,42 @@ export const ProfileSettings: React.FC = () => {
             </div>
           )}
 
+          {/* Privacy Compliance & Data Portability */}
+          <div className="bg-slate-50 border border-slate-205 rounded-3xl p-6 sm:p-8 mt-8 space-y-4 text-left">
+            <div className="flex items-center gap-2 text-slate-800">
+              <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+              <h3 className="text-xs font-black uppercase tracking-wider">Data Portability</h3>
+            </div>
+            
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-slate-850">Export Personal Data</h4>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                You have the right to request a complete machine-readable copy of all personal data we process. You can download a secured package containing your profile settings, active listings, peer chat logs, received feedback, and platform notifications in structured JSON format.
+              </p>
+            </div>
+
+            <div className="pt-1 text-left">
+              <button
+                type="button"
+                onClick={handleExportPersonalData}
+                disabled={isExporting}
+                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-3xs flex items-center gap-2"
+              >
+                {isExporting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                    <span>Compiling Data...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Personal Data (JSON)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
           {/* Danger Zone: Account Deletion */}
           <div className="bg-rose-50/25 border border-rose-150 rounded-3xl p-6 sm:p-8 mt-8 space-y-4">
             <div className="flex items-center gap-2 text-rose-800">
@@ -1311,11 +1474,11 @@ export const ProfileSettings: React.FC = () => {
               {[
                 {
                   q: "How do I buy on TedBuy Ghana?",
-                  a: "Browse listings in your preferred categories and regions. When you find an item of interest, tap the listing card to view detailed specifications. You can message the seller directly using our secure in-app peer chat, or click the WhatsApp button to initiate a direct chat to negotiate, arrange trade, or meet."
+                  a: "Browse listings on our official tedbuy.store domain in your preferred categories and regions. When you find an item of interest, tap the listing card to view detailed specifications. You can message the seller directly using our secure in-app peer chat, or click the WhatsApp button to initiate a direct chat to negotiate, arrange trade, or meet."
                 },
                 {
                   q: "How do I post a classified ad?",
-                  a: "Tapping the 'Sell' button at the center of the mobile bottom nav bar or the top desktop header opens the listing form. Fill in details, upload clear pictures or a 9:16 interactive video ad, choose your region and price, then publish. Note: verified active accounts receive higher query priority!"
+                  a: "Tapping the 'Sell' button at the center of the mobile bottom nav bar or the top desktop header opens the listing form. Fill in details, upload clear pictures or a 9:16 interactive video ad, choose your region and price, then publish. Note: verified active accounts receive higher query priority! All inputs are sanitized using industry-standard DOMPurify to eliminate security vulnerabilities."
                 },
                 {
                   q: "How do the dynamic search specs and brand filters work?",
@@ -1323,7 +1486,7 @@ export const ProfileSettings: React.FC = () => {
                 },
                 {
                   q: "What is Ad Boosting and how does it help my ads get noticed?",
-                  a: "Ad Boosting is our premium promotional feature that places your listings at the top of the search feed with high priority indexing. Sellers can choose from five distinct boosting tiers (3 Days Fast Boost, 7 Days Hot Deal Boost, 14 Days Premium Boost, 30 Days Elite Merchant Boost, or 90 Days Mega Store Boost) with secure payments processed via Mobile Money (MoMo) or card. Once boosted, our caching layer is instantly refreshed so buyers see your listing as a featured deal right away!"
+                  a: "Ad Boosting is our premium promotional feature that places your listings at the top of the search feed with high priority indexing. Sellers can choose from five distinct boosting tiers (3 Days Fast Boost, 7 Days Hot Deal Boost, 14 Days Premium Boost, 30 Days Elite Merchant Boost, or 90 Days Mega Store Boost) with secure payments processed via Mobile Money (MoMo) or card. On our production platform, all payments are securely verified against the exact plan tier pricing, and simulation/sandbox modes are strictly disabled to prevent fraud."
                 },
                 {
                   q: "What are interactive 9:16 Video Ads?",
@@ -1331,7 +1494,11 @@ export const ProfileSettings: React.FC = () => {
                 },
                 {
                   q: "What is Account Verification?",
-                  a: "To ensure a clean marketplace, buyers and sellers can undergo system verification. This validates active email accounts and increases community safety. Complete your verification securely inside your Profile Settings."
+                  a: "To ensure a clean marketplace, buyers and sellers can undergo system verification. This validates active email accounts using cryptographically secure 6-digit OTPs and increases community safety. Complete your verification securely inside your Profile Settings."
+                },
+                {
+                  q: "Can I delete my listings?",
+                  a: "Yes! You can easily delete any of your active listings from the product details or your profile page. To protect seller ownership, listings can only be deleted by the original listing owner or verified system administrators."
                 },
                 {
                   q: "How does the secure peer trade delivery tracking work?",
@@ -1376,7 +1543,7 @@ export const ProfileSettings: React.FC = () => {
             <div className="space-y-4 text-slate-600 text-xs leading-relaxed max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 animate-fade-in text-left">
               <div className="space-y-1.5">
                 <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">1. Agreement to Terms</h4>
-                <p>Welcome to Tedbuy Ghana Classifieds (tedbuy-fb79a.web.app). By creating an account or browsing listings, you agree to comply with our commercial marketplace policies. Services are provided of mutual peer communication.</p>
+                <p>Welcome to Tedbuy Ghana Classifieds (tedbuy.store). By creating an account or browsing listings, you agree to comply with our commercial marketplace policies. Services are provided of mutual peer communication.</p>
               </div>
               <div className="space-y-1.5">
                 <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">2. Use & Listing Guidelines</h4>

@@ -1080,7 +1080,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             console.error('[User Doc Stream] Firebase onSnapshot error:', error);
           });
         } else {
-          const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+          const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
           if (isSimulated) {
             const storedSimulated = safeLocalStorage.getItem('tedbuy_local_current_user_backup');
             if (storedSimulated) {
@@ -1137,7 +1137,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           safeLocalStorage.setItem('tedbuy_user_profiles_cache', JSON.stringify(cache));
         } catch (_) {}
       } else {
-        const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+        const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
         if (!isSimulated) {
           safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
         }
@@ -1786,7 +1786,10 @@ CEO, Tedbuy Inc`;
 
     // 5. Send Welcome Email synchronously via server SMTP / Brevo REST
     try {
-      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      if (!idToken) {
+        idToken = safeLocalStorage.getItem('tedbuy_custom_auth_token') || '';
+      }
       const emailResponse = await fetch('/api/send-welcome-email', {
         method: 'POST',
         headers: {
@@ -2317,7 +2320,14 @@ CEO, Tedbuy Inc`;
         throw new Error(data.error || 'Failed to verify code.');
       }
 
-      const { user, simulatedMode, tempPassword } = data;
+      const { user, simulatedMode, tempPassword, customToken } = data;
+
+      // Persist custom JWT if provided by server
+      if (customToken) {
+        safeLocalStorage.setItem('tedbuy_custom_auth_token', customToken);
+      } else {
+        safeLocalStorage.removeItem('tedbuy_custom_auth_token');
+      }
 
       if (simulatedMode) {
         console.log('[verifyAndCompleteRegistration] Sandbox mode active. Completing registration client-side.');
@@ -2425,6 +2435,13 @@ CEO, Tedbuy Inc`;
       }
 
       const matchedUser = data.user as User;
+
+      // Persist custom JWT if provided by server
+      if (data.customToken) {
+        safeLocalStorage.setItem('tedbuy_custom_auth_token', data.customToken);
+      } else {
+        safeLocalStorage.removeItem('tedbuy_custom_auth_token');
+      }
 
       // Ensure we clear any old simulation mode flags
       safeLocalStorage.removeItem('tedbuy_simulated_mode');
@@ -2605,6 +2622,7 @@ CEO, Tedbuy Inc`;
       safeLocalStorage.removeItem('tedbuy_simulated_user');
       safeLocalStorage.removeItem('tedbuy_local_created_products');
       safeLocalStorage.removeItem('tedbuy_local_products_overrides');
+      safeLocalStorage.removeItem('tedbuy_custom_auth_token');
       setCurrentUserState(null);
       setCurrentView('browse');
     } catch (err) {
@@ -2637,19 +2655,8 @@ CEO, Tedbuy Inc`;
       if (customPin) {
         isValid = trimmed === customPin.trim();
       } else {
-        try {
-          const msgBuffer = new TextEncoder().encode(trimmed);
-          const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-          const hashArray = Array.from(new Uint8Array(hashBuffer));
-          const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-          // Accept correct SHA-256 hash of "559102" OR the legacy incorrect hash OR straight comparison
-          isValid = hashHex === 'cbb62298dbcde91c2cb21ccb75a2f5c33286e98e789bd109b551a29d67ca6314' ||
-                    hashHex === '8e6c708cc0e62f01f01c76f6b0f16f316a75f148419619623e1e9ecda267b2d5' ||
-                    trimmed === '559102';
-        } catch (cryptoErr) {
-          console.error('Crypto error during PIN verification fallback:', cryptoErr);
-          isValid = trimmed === '559102';
-        }
+        console.warn('[verifyAdminPIN] Client fallback verification failed: VITE_ADMIN_PIN is not configured.');
+        isValid = false;
       }
     }
     
@@ -2717,6 +2724,11 @@ CEO, Tedbuy Inc`;
 
   // Switch Active User (Dynamic Register/Sign In Seamless Simulator Hybrid)
   const switchUserSimulated = async (userId: string) => {
+    if ((import.meta as any).env.PROD) {
+      console.error('[Security] Simulated mode is disabled in production.');
+      showToast('Error: Simulated mode is disabled in production.', 'error');
+      return;
+    }
     const seed = SEED_USERS.find(u => u.id === userId);
     if (!seed) return;
 
@@ -3034,11 +3046,21 @@ CEO, Tedbuy Inc`;
             .then(() => console.log('[updateProduct] Firestore document updated successfully (social-only)'))
             .catch(innerErr => console.warn('[updateProduct] Firestore server Write warning (using local fallback state):', innerErr));
         } else {
+          // Keep original seller information and prevent accidental fallback to admin/moderator user ID
+          const originalSellerId = localProduct?.sellerId || updatedData.sellerId;
+          const fallbackSellerId = (currentUser && !currentUser.isAdmin) ? currentUser.id : '';
+          const finalSellerId = originalSellerId || fallbackSellerId || '';
+
+          const originalSellerName = localProduct?.sellerName || updatedData.sellerName;
+          const fallbackSellerName = (currentUser && !currentUser.isAdmin) ? currentUser.username : '';
+          const finalSellerName = originalSellerName || fallbackSellerName || '';
+
           const fullProductUpdate = {
             ...localProduct,
             ...updatedData,
             id,
-            sellerId: localProduct.sellerId || currentUser?.id || '',
+            sellerId: finalSellerId,
+            sellerName: finalSellerName,
           };
           setDoc(productRef, cleanObject(fullProductUpdate))
             .then(() => console.log('[updateProduct] Firestore document updated successfully (full)'))
@@ -3110,6 +3132,20 @@ CEO, Tedbuy Inc`;
   };
 
   const deleteProduct = async (id: string) => {
+    if (!currentUser) {
+      showToast('Authentication Required: You must be logged in to delete listings.', 'error');
+      throw new Error('Authentication Required: You must be logged in to delete listings.');
+    }
+
+    const localProduct = products.find(p => p.id === id);
+    const isSuperAdmin = currentUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com';
+    const isAdmin = currentUser.isAdmin || isSuperAdmin;
+    
+    if (localProduct && localProduct.sellerId !== currentUser.id && !isAdmin) {
+      showToast('Unauthorized: You can only delete your own listings.', 'error');
+      throw new Error('Unauthorized: You can only delete your own listings.');
+    }
+
     // Add to optimistic deleted product IDs state instantly
     setOptimisticDeletedProductIds(prev => {
       const next = new Set(prev);
@@ -4083,7 +4119,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     const uid = currentUser.id;
     const authUser = auth.currentUser;
-    const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+    const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
     // 1. If not simulated, call backend to delete everything securely & permanently
     if (!isSimulated && authUser) {
@@ -4160,7 +4196,10 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       onProgress(i, total, logs + prepMessage);
 
       try {
-        const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+        let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+        if (!idToken) {
+          idToken = safeLocalStorage.getItem('tedbuy_custom_auth_token') || '';
+        }
         const emailResponse = await fetch('/api/send-welcome-email', {
           method: 'POST',
           headers: {
@@ -4202,7 +4241,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       throw new Error("Unauthorized: Only administrators can delete store profiles.");
     }
 
-    const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+    const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
     // Check system to verify if this user still exists in the master database (Firestore)
     let existsInDb = false;
@@ -4419,7 +4458,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be suspended.');
     }
 
-    const isSimulated = safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+    const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
     console.log(`[Admin] ${suspend ? 'Suspending' : 'Unsuspending'} user profile for: ${targetUser.username} (${userId})`);
 
