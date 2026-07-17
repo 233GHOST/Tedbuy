@@ -98,17 +98,11 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ isOpen, 
             <p>
               You hold the following fundamental personal data rights:
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <div className="p-3 border border-slate-150 rounded-2xl bg-slate-50/50">
                 <h5 className="font-bold text-slate-800 text-[11px] mb-1">Right to Access</h5>
                 <p className="text-[10px] text-slate-500 leading-normal">
                   View and update all your settings, profiles, and listing details transparently via Settings.
-                </p>
-              </div>
-              <div className="p-3 border border-slate-150 rounded-2xl bg-slate-50/50">
-                <h5 className="font-bold text-slate-800 text-[11px] mb-1">Right to Portability</h5>
-                <p className="text-[10px] text-slate-500 leading-normal">
-                  Export your entire profile, reviews, listings, and message logs as a clean machine-readable JSON at any time.
                 </p>
               </div>
               <div className="p-3 border border-slate-150 rounded-2xl bg-slate-50/50">

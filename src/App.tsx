@@ -4,7 +4,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Navbar } from './components/Navbar';
 import { AdminSecurityGate } from './components/AdminSecurityGate';
 import { ProductCard } from './components/ProductCard';
-import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { CookieConsent } from './components/CookieConsent';
 import { PrivacyPolicyModal } from './components/PrivacyPolicyModal';
 
@@ -1560,7 +1559,6 @@ const MarketplaceContent: React.FC = () => {
       )}
       <AdminSecurityGate />
       <WebMCPInitializer />
-      <PWAInstallPrompt />
       <CookieConsent onOpenPrivacyPolicy={() => setIsPrivacyModalOpen(true)} />
       <PrivacyPolicyModal isOpen={isPrivacyModalOpen} onClose={() => setIsPrivacyModalOpen(false)} />
     </div>

@@ -17,7 +17,8 @@ import {
   reauthenticateWithCredential,
   signInAnonymously,
   fetchSignInMethodsForEmail,
-  linkWithCredential
+  linkWithCredential,
+  deleteUser
 } from 'firebase/auth';
 import {
   collection,
@@ -4121,8 +4122,27 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     const authUser = auth.currentUser;
     const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
-    // 1. If not simulated, call backend to delete everything securely & permanently
+    // 1. If not simulated, do database and authentication cleanup
     if (!isSimulated && authUser) {
+      // Step A: Best-effort client-side Firestore cleanup first (since Web SDK has direct authorization for user owned data)
+      try {
+        console.log('[Account Deletion] Performing client-side Firestore cleanup...');
+        // Delete user's own products
+        const myProducts = products.filter(p => p.sellerId === uid);
+        await Promise.all(myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})));
+        
+        // Delete storeName mapping
+        if (currentUser.username) {
+          await deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {});
+        }
+        
+        // Delete user profile document
+        await deleteDoc(doc(db, 'users', uid)).catch(() => {});
+      } catch (cleanupErr) {
+        console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
+      }
+
+      // Step B: Call backend API to delete remaining global references & Supabase if active
       const idToken = await authUser.getIdToken();
       const response = await fetch('/api/auth/delete-account', {
         method: 'POST',
@@ -4137,7 +4157,18 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         throw new Error(resData.error || `Failed to delete account. Backend returned status ${response.status}.`);
       }
       
-      console.log('[Account Deletion] Backend successfully deleted all user account data.');
+      const resData = await response.json().catch(() => ({}));
+      console.log('[Account Deletion] Backend successfully processed account data deletion:', resData);
+
+      // Step C: Delete the actual Firebase Auth User account directly on client-side as a reliable fallback
+      if (!resData?.authDeleted) {
+        try {
+          await deleteUser(authUser);
+          console.log('[Account Deletion] Successfully deleted Firebase Auth user directly on client-side.');
+        } catch (authErr) {
+          console.warn('[Account Deletion] Client-side deleteUser failed or requires reauthentication:', authErr);
+        }
+      }
     }
 
     // 2. Local memory and storage cleanup

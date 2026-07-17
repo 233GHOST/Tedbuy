@@ -1322,41 +1322,7 @@ export const ProfileSettings: React.FC = () => {
             </div>
           )}
 
-          {/* Privacy Compliance & Data Portability */}
-          <div className="bg-slate-50 border border-slate-205 rounded-3xl p-6 sm:p-8 mt-8 space-y-4 text-left">
-            <div className="flex items-center gap-2 text-slate-800">
-              <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
-              <h3 className="text-xs font-black uppercase tracking-wider">Data Portability</h3>
-            </div>
-            
-            <div className="space-y-1">
-              <h4 className="text-xs font-bold text-slate-850">Export Personal Data</h4>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                You have the right to request a complete machine-readable copy of all personal data we process. You can download a secured package containing your profile settings, active listings, peer chat logs, received feedback, and platform notifications in structured JSON format.
-              </p>
-            </div>
 
-            <div className="pt-1 text-left">
-              <button
-                type="button"
-                onClick={handleExportPersonalData}
-                disabled={isExporting}
-                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-3xs flex items-center gap-2"
-              >
-                {isExporting ? (
-                  <>
-                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                    <span>Compiling Data...</span>
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Personal Data (JSON)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
 
           {/* Danger Zone: Account Deletion */}
           <div className="bg-rose-50/25 border border-rose-150 rounded-3xl p-6 sm:p-8 mt-8 space-y-4">
