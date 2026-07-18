@@ -5712,12 +5712,38 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       console.log(`[Account Deletion API] Starting full deletion for user UID: ${uid} (${cleanEmail})`);
 
+      // 0. Inner Helper Functions for account deletion timeouts and chunking
+      async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
+        let timeoutHandle: any;
+        const timeoutPromise = new Promise<T>((resolve) => {
+          timeoutHandle = setTimeout(() => {
+            console.warn(`[Timeout Guard] Operation timed out after ${timeoutMs}ms.`);
+            resolve(defaultValue);
+          }, timeoutMs);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => {
+          clearTimeout(timeoutHandle);
+        });
+      }
+
+      async function deleteDocumentsInChunks(adminDb: any, queryResult: any) {
+        if (!queryResult || queryResult.empty) return;
+        const docs = queryResult.docs;
+        const chunkSize = 400;
+        for (let i = 0; i < docs.length; i += chunkSize) {
+          const chunk = docs.slice(i, i + chunkSize);
+          const batch = adminDb.batch();
+          chunk.forEach((doc: any) => batch.delete(doc.ref));
+          await batch.commit();
+        }
+      }
+
       // 1. Get user details from Firestore to resolve the store names/username
       let username = '';
       if (adminDb) {
         try {
-          const userSnap = await adminDb.collection('users').doc(uid).get();
-          if (userSnap.exists) {
+          const userSnap = await withTimeout(adminDb.collection('users').doc(uid).get(), 5000, null);
+          if (userSnap && userSnap.exists) {
             username = userSnap.data()?.username || '';
           }
         } catch (err) {
@@ -5772,133 +5798,225 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       // 2. Perform deletions in Firestore using Admin SDK or REST fallback
       if (adminDb) {
+        console.log('[Account Deletion API] Deleting user documents from Firestore via Admin SDK...');
+        
+        // A. Delete Products
         try {
-          console.log('[Account Deletion API] Deleting user documents from Firestore via Admin SDK...');
+          const productsSnap = await withTimeout(
+            adminDb.collection('products').where('sellerId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (productsSnap && !productsSnap.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, productsSnap), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API] Failed to delete products:', err);
+        }
+
+        // B. Delete Reviews (buyerId or sellerId == uid)
+        try {
+          const reviewsSnap1 = await withTimeout(
+            adminDb.collection('reviews').where('buyerId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (reviewsSnap1 && !reviewsSnap1.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap1), 10000, undefined);
+          }
           
-          // A. Delete Products
-          const productsSnap = await adminDb.collection('products').where('sellerId', '==', uid).get();
-          if (!productsSnap.empty) {
-            const pBatch = adminDb.batch();
-            productsSnap.forEach((doc: any) => pBatch.delete(doc.ref));
-            await pBatch.commit();
+          const reviewsSnap2 = await withTimeout(
+            adminDb.collection('reviews').where('sellerId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (reviewsSnap2 && !reviewsSnap2.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap2), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API] Failed to delete reviews:', err);
+        }
+
+        // C. Delete Chats and Messages
+        const chatIds = new Set<string>();
+        try {
+          const chatsSnap1 = await withTimeout(
+            adminDb.collection('chats').where('buyerId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (chatsSnap1 && !chatsSnap1.empty) {
+            (chatsSnap1 as any).forEach((doc: any) => chatIds.add(doc.id));
+            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap1), 10000, undefined);
           }
 
-          // B. Delete Reviews (buyerId or sellerId == uid)
-          const reviewsSnap1 = await adminDb.collection('reviews').where('buyerId', '==', uid).get();
-          const reviewsSnap2 = await adminDb.collection('reviews').where('sellerId', '==', uid).get();
-          if (!reviewsSnap1.empty || !reviewsSnap2.empty) {
-            const rBatch = adminDb.batch();
-            reviewsSnap1.forEach((doc: any) => rBatch.delete(doc.ref));
-            reviewsSnap2.forEach((doc: any) => rBatch.delete(doc.ref));
-            await rBatch.commit();
+          const chatsSnap2 = await withTimeout(
+            adminDb.collection('chats').where('sellerId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (chatsSnap2 && !chatsSnap2.empty) {
+            (chatsSnap2 as any).forEach((doc: any) => chatIds.add(doc.id));
+            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap2), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API] Failed to delete chats:', err);
+        }
+
+        try {
+          const mSnap1 = await withTimeout(
+            adminDb.collection('messages').where('senderId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (mSnap1 && !mSnap1.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap1), 10000, undefined);
           }
 
-          // C. Delete Chats and Messages
-          const chatsSnap1 = await adminDb.collection('chats').where('buyerId', '==', uid).get();
-          const chatsSnap2 = await adminDb.collection('chats').where('sellerId', '==', uid).get();
-          const chatIds = new Set<string>();
-          if (!chatsSnap1.empty || !chatsSnap2.empty) {
-            const cBatch = adminDb.batch();
-            chatsSnap1.forEach((doc: any) => {
-              chatIds.add(doc.id);
-              cBatch.delete(doc.ref);
-            });
-            chatsSnap2.forEach((doc: any) => {
-              chatIds.add(doc.id);
-              cBatch.delete(doc.ref);
-            });
-            await cBatch.commit();
+          const mSnap2 = await withTimeout(
+            adminDb.collection('messages').where('recipientId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (mSnap2 && !mSnap2.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap2), 10000, undefined);
           }
 
-          // Delete messages sent/received, or of the deleted chats
-          const mSnap1 = await adminDb.collection('messages').where('senderId', '==', uid).get();
-          const mSnap2 = await adminDb.collection('messages').where('recipientId', '==', uid).get();
-          const mBatch = adminDb.batch();
-          let mCount = 0;
-          mSnap1.forEach((doc: any) => {
-            mBatch.delete(doc.ref);
-            mCount++;
-          });
-          mSnap2.forEach((doc: any) => {
-            mBatch.delete(doc.ref);
-            mCount++;
-          });
-          
           if (chatIds.size > 0) {
             for (const chatId of chatIds) {
-              const chatMsgs = await adminDb.collection('messages').where('chatId', '==', chatId).get();
-              chatMsgs.forEach((doc: any) => {
-                mBatch.delete(doc.ref);
-                mCount++;
-              });
+              const chatMsgs = await withTimeout(
+                adminDb.collection('messages').where('chatId', '==', chatId).get(),
+                5000,
+                { empty: true, docs: [] }
+              );
+              if (chatMsgs && !chatMsgs.empty) {
+                await withTimeout(deleteDocumentsInChunks(adminDb, chatMsgs), 10000, undefined);
+              }
             }
           }
-          if (mCount > 0) {
-            await mBatch.commit();
+        } catch (err) {
+          console.warn('[Account Deletion API] Failed to delete messages:', err);
+        }
+
+        // D. Delete Notifications (userId == uid)
+        try {
+          const notifsSnap = await withTimeout(
+            adminDb.collection('notifications').where('userId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (notifsSnap && !notifsSnap.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, notifsSnap), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API] Failed to delete notifications:', err);
+        }
+
+        // E. Delete Boost Purchases (userId == uid)
+        try {
+          const bpSnap = await withTimeout(
+            adminDb.collection('boost_purchases').where('userId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (bpSnap && !bpSnap.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap), 10000, undefined);
           }
 
-          // D. Delete Notifications (userId == uid)
-          const notifsSnap = await adminDb.collection('notifications').where('userId', '==', uid).get();
-          if (!notifsSnap.empty) {
-            const nBatch = adminDb.batch();
-            notifsSnap.forEach((doc: any) => nBatch.delete(doc.ref));
-            await nBatch.commit();
+          const bpSnap2 = await withTimeout(
+            adminDb.collection('boostPurchases').where('userId', '==', uid).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (bpSnap2 && !bpSnap2.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap2), 10000, undefined);
           }
+        } catch (err) {
+          console.warn('[Account Deletion API] Failed to delete boost purchases:', err);
+        }
 
-          // E. Delete Boost Purchases (userId == uid)
-          const bpSnap = await adminDb.collection('boost_purchases').where('userId', '==', uid).get();
-          const bpSnap2 = await adminDb.collection('boostPurchases').where('userId', '==', uid).get();
-          if (!bpSnap.empty || !bpSnap2.empty) {
-            const bpBatch = adminDb.batch();
-            bpSnap.forEach((doc: any) => bpBatch.delete(doc.ref));
-            bpSnap2.forEach((doc: any) => bpBatch.delete(doc.ref));
-            await bpBatch.commit();
+        // F. Delete StoreName mapping
+        if (storeNameLower) {
+          try {
+            await withTimeout(
+              adminDb.collection('storeNames').doc(storeNameLower).delete(),
+              5000,
+              undefined
+            );
+          } catch (err) {
+            console.warn('[Account Deletion API] Failed to delete storeName mapping:', err);
           }
+        }
 
-          // F. Delete StoreName mapping
-          if (storeNameLower) {
-            await adminDb.collection('storeNames').doc(storeNameLower).delete().catch(() => {});
+        // G. Delete User Profile Doc
+        try {
+          await withTimeout(
+            adminDb.collection('users').doc(uid).delete(),
+            5000,
+            undefined
+          );
+          console.log('[Account Deletion API] User profile document successfully deleted.');
+        } catch (err) {
+          console.warn('[Account Deletion API] Failed to delete user profile document:', err);
+        }
+
+        // H. Delete any deletedEmails blocklist entry for this email
+        if (cleanEmail) {
+          try {
+            await withTimeout(
+              adminDb.collection('deletedEmails').doc(cleanEmail).delete(),
+              5000,
+              undefined
+            );
+          } catch (err) {
+            console.warn('[Account Deletion API] Failed to delete deletedEmails entry:', err);
           }
-
-          // G. Delete User Profile Doc
-          await adminDb.collection('users').doc(uid).delete();
-
-          // H. Delete any deletedEmails blocklist entry for this email (to allow registering again)
-          if (cleanEmail) {
-            await adminDb.collection('deletedEmails').doc(cleanEmail).delete().catch(() => {});
-          }
-
-          console.log('[Account Deletion API] Firestore documents successfully deleted via Admin SDK.');
-        } catch (fsErr: any) {
-          console.warn('[Account Deletion API] Admin SDK Firestore delete failed:', fsErr);
         }
       } else {
         // Fallback REST API deletion for Firestore
+        console.log('[Account Deletion API] Deleting user documents from Firestore via REST API fallback...');
+        
+        // A. Delete Products
         try {
-          console.log('[Account Deletion API] Deleting user documents from Firestore via REST API fallback...');
-          
-          // A. Delete Products
           const productIds = await queryDocumentsREST('products', 'sellerId', uid, authHeader);
-          await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader)));
+          if (productIds && productIds.length > 0) {
+            await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API REST] Failed to delete products:', err);
+        }
 
-          // B. Delete Reviews
+        // B. Delete Reviews
+        try {
           const buyerReviews = await queryDocumentsREST('reviews', 'buyerId', uid, authHeader);
           const sellerReviews = await queryDocumentsREST('reviews', 'sellerId', uid, authHeader);
           const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
-          await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader)));
+          if (reviewIds.length > 0) {
+            await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API REST] Failed to delete reviews:', err);
+        }
 
-          // C. Delete Chats and Messages
+        // C. Delete Chats and Messages
+        const chatIds: string[] = [];
+        try {
           const buyerChats = await queryDocumentsREST('chats', 'buyerId', uid, authHeader);
           const sellerChats = await queryDocumentsREST('chats', 'sellerId', uid, authHeader);
-          const chatIds = Array.from(new Set([...buyerChats, ...sellerChats]));
-          await Promise.all(chatIds.map(cid => deleteDocumentREST('chats', cid, authHeader)));
+          const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
+          resolvedChats.forEach(cid => chatIds.push(cid));
+          if (resolvedChats.length > 0) {
+            await Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API REST] Failed to delete chats:', err);
+        }
 
-          // Messages
+        try {
           const senderMsgs = await queryDocumentsREST('messages', 'senderId', uid, authHeader);
           const recipientMsgs = await queryDocumentsREST('messages', 'recipientId', uid, authHeader);
           const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
           
-          // Also fetch messages in chats
           if (chatIds.length > 0) {
             for (const cid of chatIds) {
               const chatMsgs = await queryDocumentsREST('messages', 'chatId', cid, authHeader);
@@ -5906,35 +6024,60 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             }
           }
           const uniqueMsgIds = Array.from(new Set(msgIds));
-          await Promise.all(uniqueMsgIds.map(mid => deleteDocumentREST('messages', mid, authHeader)));
+          if (uniqueMsgIds.length > 0) {
+            await Promise.all(uniqueMsgIds.map(mid => deleteDocumentREST('messages', mid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API REST] Failed to delete messages:', err);
+        }
 
-          // D. Delete Notifications
+        // D. Delete Notifications
+        try {
           const notifIds = await queryDocumentsREST('notifications', 'userId', uid, authHeader);
-          await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader)));
+          if (notifIds.length > 0) {
+            await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API REST] Failed to delete notifications:', err);
+        }
 
-          // E. Delete Boost Purchases
+        // E. Delete Boost Purchases
+        try {
           const bp1 = await queryDocumentsREST('boost_purchases', 'userId', uid, authHeader);
           const bp2 = await queryDocumentsREST('boostPurchases', 'userId', uid, authHeader);
           const bpIds = Array.from(new Set([...bp1, ...bp2]));
-          await Promise.all(bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader)));
-          await Promise.all(bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader)));
+          if (bpIds.length > 0) {
+            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader)));
+            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API REST] Failed to delete boost purchases:', err);
+        }
 
-          // F. Delete StoreName mapping
-          if (storeNameLower) {
+        // F. Delete StoreName mapping
+        if (storeNameLower) {
+          try {
             await deleteDocumentREST('storeNames', storeNameLower, authHeader);
+          } catch (err) {
+            console.warn('[Account Deletion API REST] Failed to delete store name mapping:', err);
           }
+        }
 
-          // G. Delete User Profile Doc
+        // G. Delete User Profile Doc
+        try {
           await deleteDocumentREST('users', uid, authHeader);
+          console.log('[Account Deletion API REST] User profile document successfully deleted.');
+        } catch (err) {
+          console.warn('[Account Deletion API REST] Failed to delete user profile document:', err);
+        }
 
-          // H. Delete any deletedEmails blocklist entry for this email (to allow registering again)
-          if (cleanEmail) {
+        // H. Delete any deletedEmails blocklist entry for this email
+        if (cleanEmail) {
+          try {
             await deleteDocumentREST('deletedEmails', cleanEmail, authHeader);
+          } catch (err) {
+            console.warn('[Account Deletion API REST] Failed to delete deletedEmails entry:', err);
           }
-
-          console.log('[Account Deletion API] Firestore documents successfully deleted via REST API.');
-        } catch (fsErr: any) {
-          console.warn('[Account Deletion API] REST API Firestore delete failed:', fsErr);
         }
       }
 
@@ -5985,7 +6128,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const { getApps } = await import("firebase-admin/app");
         if (getApps().length > 0) {
           const { getAuth } = await import("firebase-admin/auth");
-          await getAuth().deleteUser(uid);
+          await withTimeout(getAuth().deleteUser(uid), 8000, undefined);
           console.log(`[Account Deletion API] Successfully deleted auth user ${uid} from Firebase Auth.`);
           authDeleted = true;
         }

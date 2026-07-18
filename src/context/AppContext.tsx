@@ -4142,23 +4142,35 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
       }
 
-      // Step B: Call backend API to delete remaining global references & Supabase if active
-      const idToken = await authUser.getIdToken();
-      const response = await fetch('/api/auth/delete-account', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+      // Step B: Call backend API to delete remaining global references & Supabase if active with a robust timeout guard
+      let resData: any = {};
+      try {
+        console.log('[Account Deletion] Invoking backend deletion API...');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+        const idToken = await authUser.getIdToken();
+        const response = await fetch('/api/auth/delete-account', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to delete account. Backend returned status ${response.status}.`);
         }
-      });
-      
-      if (!response.ok) {
-        const resData = await response.json().catch(() => ({}));
-        throw new Error(resData.error || `Failed to delete account. Backend returned status ${response.status}.`);
+        
+        resData = await response.json().catch(() => ({}));
+        console.log('[Account Deletion] Backend successfully processed account data deletion:', resData);
+      } catch (apiErr: any) {
+        console.warn('[Account Deletion] Backend deletion API call failed or timed out. Attempting client-side fallback:', apiErr);
       }
-      
-      const resData = await response.json().catch(() => ({}));
-      console.log('[Account Deletion] Backend successfully processed account data deletion:', resData);
 
       // Step C: Delete the actual Firebase Auth User account directly on client-side as a reliable fallback
       if (!resData?.authDeleted) {
