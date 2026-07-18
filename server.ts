@@ -6225,6 +6225,18 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           });
         }
       }
+      
+      // If we listed users from Firebase Authentication successfully, they represent the absolute set of registered accounts.
+      // Therefore, if authUsers is not empty, we filter out any Firestore profiles that do not exist in Firebase Auth (orphaned records).
+      if (authUsers.length > 0) {
+        const authUids = new Set(authUsers.map(u => u.uid));
+        for (const [uid, _] of mergedMap.entries()) {
+          if (!authUids.has(uid)) {
+            console.log(`[Admin API] Removing orphaned Firestore user profile for UID: ${uid} (not found in Firebase Auth)`);
+            mergedMap.delete(uid);
+          }
+        }
+      }
 
       const mergedList = Array.from(mergedMap.values());
       console.log(`[Admin API] Returning ${mergedList.length} merged user profiles.`);
