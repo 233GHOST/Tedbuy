@@ -4123,21 +4123,27 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         }
 
         // Step B: Best-effort client-side Firestore cleanup as fallback/additional safety
-        try {
-          console.log('[Account Deletion] Performing client-side Firestore cleanup...');
-          // Delete user's own products
-          const myProducts = products.filter(p => p.sellerId === uid);
-          await Promise.all(myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})));
-          
-          // Delete storeName mapping
-          if (currentUser.username) {
-            await deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {});
+        // Skip entirely if backend succeeded, to prevent client-side credential issues from hanging the promise
+        if (!resData?.success) {
+          try {
+            console.log('[Account Deletion] Performing client-side Firestore cleanup fallback...');
+            const myProducts = products.filter(p => p.sellerId === uid);
+            
+            // Limit client-side writes to a strict 3-second maximum so offline/sandboxed SDKs can't hang the flow
+            await Promise.race([
+              Promise.all([
+                ...myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})),
+                currentUser.username ? deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {}) : Promise.resolve(),
+                deleteDoc(doc(db, 'users', uid)).catch(() => {})
+              ]),
+              new Promise((resolve) => setTimeout(resolve, 3000))
+            ]);
+            console.log('[Account Deletion] Client-side Firestore cleanup fallback completed.');
+          } catch (cleanupErr) {
+            console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
           }
-          
-          // Delete user profile document
-          await deleteDoc(doc(db, 'users', uid)).catch(() => {});
-        } catch (cleanupErr) {
-          console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
+        } else {
+          console.log('[Account Deletion] Backend successfully processed data deletion. Skipping client-side Firestore writes.');
         }
 
         // Step C: Delete the actual Firebase Auth User account directly on client-side if backend couldn't do it
@@ -4186,7 +4192,11 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
       if (!isSimulated) {
         try {
-          await signOut(auth);
+          // Wrap signOut with a 2-second timeout to prevent any potential hangs from blocking the UI transition
+          await Promise.race([
+            signOut(auth),
+            new Promise((resolve) => setTimeout(resolve, 2000))
+          ]);
         } catch (signOutErr) {
           console.warn('Could not complete signOut on Firebase Auth:', signOutErr);
         }
