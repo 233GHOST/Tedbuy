@@ -4673,14 +4673,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
 
         try {
-          const diagResult = await diagnoseSMTPAndVerify(transporter);
-          if (!diagResult.success) {
-            console.warn(`[Auth Register] SMTP pre-flight failed.`);
-            return res.status(400).json({
-              success: false,
-              error: "Failed to send verification code. SMTP connection test failed. Please contact TedBuy support."
-            });
-          }
           await transporter.sendMail(mailOptions);
           emailSent = true;
         } catch (err: any) {
@@ -5587,19 +5579,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         console.log(`[Auth Reset] Falling back to SMTP for: ${cleanEmail}`);
         try {
           const transporter = getMailTransporter();
-          const diagResult = await diagnoseSMTPAndVerify(transporter);
-          if (diagResult.success) {
-            await transporter.sendMail({
-              from: `"Tedbuy Support" <${process.env.SMTP_USER}>`,
-              to: cleanEmail,
-              subject: "Reset Your TedBuy Password",
-              text: textContent,
-              html: htmlContent
-            });
-            emailSent = true;
-          } else {
-            throw new Error(`SMTP connection test failed: ${diagResult.details?.error || 'Unknown error'}`);
-          }
+          await transporter.sendMail({
+            from: `"Tedbuy Support" <${process.env.SMTP_USER}>`,
+            to: cleanEmail,
+            subject: "Reset Your TedBuy Password",
+            text: textContent,
+            html: htmlContent
+          });
+          emailSent = true;
         } catch (smtpErr: any) {
           console.error(`[Auth Reset] SMTP delivery failed:`, smtpErr?.message || smtpErr);
           errorDetail = smtpErr?.message || String(smtpErr);
@@ -5890,21 +5877,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           };
 
           // Execute everything concurrently with a solid timeout guard
-          await withTimeout(
-            Promise.all([
-              deleteProducts(),
-              deleteReviews(),
-              deleteChatsAndMessages(),
-              deleteNotifications(),
-              deleteBoostPurchases(),
-              deleteProfileAndStoreNames()
-            ]) as Promise<any>,
-            10000,
-            []
-          );
-          console.log('[Account Deletion API] User data and profile successfully deleted from Firestore.');
+          // Await critical profile and store name deletion synchronously
+          await deleteProfileAndStoreNames().catch(err => console.warn('[Account Deletion] Critical profile delete error:', err));
+          
+          // Fire-and-forget background cleanup of non-essential related documents to prevent blocking the response
+          Promise.all([
+            deleteProducts(),
+            deleteReviews(),
+            deleteChatsAndMessages(),
+            deleteNotifications(),
+            deleteBoostPurchases()
+          ]).catch(err => console.warn('[Account Deletion Admin Background] Cleanup failed:', err));
+          
+          console.log('[Account Deletion API] Critical user profile and store name successfully deleted from Firestore. Background cleanup dispatched.');
         } catch (err) {
-          console.error('[Account Deletion API] Error during parallel Firestore deletion:', err);
+          console.error('[Account Deletion API] Error during Firestore deletion:', err);
         }
       } else {
         // Fallback REST API deletion for Firestore in parallel
@@ -5994,17 +5981,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             await Promise.all(promises);
           };
 
-          await Promise.all([
+          // Await critical profile and store name deletion synchronously
+          await deleteProfileAndStoreNamesREST().catch(err => console.warn('[Account Deletion REST] Critical profile delete error:', err));
+          
+          // Fire-and-forget background cleanup of non-essential related documents to prevent blocking the response
+          Promise.all([
             deleteProductsREST(),
             deleteReviewsREST(),
             deleteChatsAndMessagesREST(),
             deleteNotificationsREST(),
-            deleteBoostPurchasesREST(),
-            deleteProfileAndStoreNamesREST()
-          ]);
-          console.log('[Account Deletion API REST] User profile and data successfully deleted from Firestore.');
+            deleteBoostPurchasesREST()
+          ]).catch(err => console.warn('[Account Deletion REST Background] Cleanup failed:', err));
+          
+          console.log('[Account Deletion API REST] Critical user profile and store name successfully deleted from Firestore. Background cleanup dispatched.');
         } catch (err) {
-          console.error('[Account Deletion API REST] Error during parallel REST Firestore deletion:', err);
+          console.error('[Account Deletion API REST] Error during REST Firestore deletion:', err);
         }
       }
 
@@ -6957,21 +6948,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     // 2. Fall back to standard SMTP Transporter
     try {
       const transporter = getMailTransporter();
-
-      // Run pre-flight network connection, handshake, and authentication diagnostic check
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        console.log(`[Email Engine] Running pre-flight SMTP diagnostics for recipient: ${email}...`);
-        const diagResult = await diagnoseSMTPAndVerify(transporter);
-        if (!diagResult.success) {
-          console.warn(`[Email Engine] Pre-flight SMTP block: Diagnostics failed prior to dispatch to ${email}. Gracefully bypassing to simulate success.`);
-          return res.json({
-            success: true,
-            messageId: 'simulated_delivery_bypass_id',
-            simulated: true,
-            warning: 'SMTP pre-flight diagnostic failed or host is offline. Onboarding flow completed with simulation.'
-          });
-        }
-      }
       
       const mailOptions = {
         from: '"Tedbuy" <support@tedbuy.store>',

@@ -4159,26 +4159,12 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     try {
       // 1. If not simulated, do database and authentication cleanup
       if (!isSimulated && authUser) {
-        // Step A: Best-effort client-side Firestore cleanup first (since Web SDK has direct authorization for user owned data)
-        try {
-          console.log('[Account Deletion] Performing client-side Firestore cleanup...');
-          // Delete user's own products
-          const myProducts = products.filter(p => p.sellerId === uid);
-          await Promise.all(myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})));
-          
-          // Delete storeName mapping
-          if (currentUser.username) {
-            await deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {});
-          }
-          
-          // Delete user profile document
-          await deleteDoc(doc(db, 'users', uid)).catch(() => {});
-        } catch (cleanupErr) {
-          console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
-        }
-
-        // Step B: Call backend API to delete remaining global references & Supabase if active with a robust timeout guard
         let resData: any = {};
+        
+        // Step A: Call backend API FIRST to delete global references & Supabase & Firebase Auth under Admin privilege.
+        // This is crucial because the backend needs to read the user's Firestore profile to get their username
+        // in order to correctly delete their storeName document. If we delete the profile client-side first,
+        // the backend cannot resolve the username, leaving orphaned store name mappings in the database.
         try {
           console.log('[Account Deletion] Invoking backend deletion API...');
           const controller = new AbortController();
@@ -4207,7 +4193,25 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
           console.warn('[Account Deletion] Backend deletion API call failed or timed out. Attempting client-side fallback:', apiErr);
         }
 
-        // Step C: Delete the actual Firebase Auth User account directly on client-side as a reliable fallback
+        // Step B: Best-effort client-side Firestore cleanup as fallback/additional safety
+        try {
+          console.log('[Account Deletion] Performing client-side Firestore cleanup...');
+          // Delete user's own products
+          const myProducts = products.filter(p => p.sellerId === uid);
+          await Promise.all(myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})));
+          
+          // Delete storeName mapping
+          if (currentUser.username) {
+            await deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {});
+          }
+          
+          // Delete user profile document
+          await deleteDoc(doc(db, 'users', uid)).catch(() => {});
+        } catch (cleanupErr) {
+          console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
+        }
+
+        // Step C: Delete the actual Firebase Auth User account directly on client-side if backend couldn't do it
         if (!resData?.authDeleted) {
           try {
             await deleteUser(authUser);
