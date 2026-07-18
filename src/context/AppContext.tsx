@@ -686,6 +686,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!active) return;
 
+      if (safeLocalStorage.getItem('tedbuy_deleting_account') === 'true') {
+        console.log('[Auth Observer] Account deletion in progress. Ignoring auth state changes.');
+        if (!firebaseUser) {
+          safeLocalStorage.removeItem('tedbuy_deleting_account');
+          setCurrentUserState(null);
+          setIsAuthLoading(false);
+        }
+        return;
+      }
+
       // Clean up previous real-time subscriber if any
       if (userSubUnsub) {
         userSubUnsub();
@@ -828,6 +838,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const userRef = doc(db, 'users', firebaseUser.uid);
           userSubUnsub = onSnapshot(userRef, async (userDoc) => {
             if (!active) return;
+            if (safeLocalStorage.getItem('tedbuy_deleting_account') === 'true') {
+              console.log('[User Doc Stream] Account deletion in progress. Ignoring document snapshot.');
+              return;
+            }
             
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
@@ -4122,94 +4136,104 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     const authUser = auth.currentUser;
     const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
-    // 1. If not simulated, do database and authentication cleanup
-    if (!isSimulated && authUser) {
-      // Step A: Best-effort client-side Firestore cleanup first (since Web SDK has direct authorization for user owned data)
-      try {
-        console.log('[Account Deletion] Performing client-side Firestore cleanup...');
-        // Delete user's own products
-        const myProducts = products.filter(p => p.sellerId === uid);
-        await Promise.all(myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})));
-        
-        // Delete storeName mapping
-        if (currentUser.username) {
-          await deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {});
-        }
-        
-        // Delete user profile document
-        await deleteDoc(doc(db, 'users', uid)).catch(() => {});
-      } catch (cleanupErr) {
-        console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
-      }
-
-      // Step B: Call backend API to delete remaining global references & Supabase if active with a robust timeout guard
-      let resData: any = {};
-      try {
-        console.log('[Account Deletion] Invoking backend deletion API...');
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-        const idToken = await authUser.getIdToken();
-        const response = await fetch('/api/auth/delete-account', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error || `Failed to delete account. Backend returned status ${response.status}.`);
-        }
-        
-        resData = await response.json().catch(() => ({}));
-        console.log('[Account Deletion] Backend successfully processed account data deletion:', resData);
-      } catch (apiErr: any) {
-        console.warn('[Account Deletion] Backend deletion API call failed or timed out. Attempting client-side fallback:', apiErr);
-      }
-
-      // Step C: Delete the actual Firebase Auth User account directly on client-side as a reliable fallback
-      if (!resData?.authDeleted) {
-        try {
-          await deleteUser(authUser);
-          console.log('[Account Deletion] Successfully deleted Firebase Auth user directly on client-side.');
-        } catch (authErr) {
-          console.warn('[Account Deletion] Client-side deleteUser failed or requires reauthentication:', authErr);
-        }
-      }
-    }
-
-    // 2. Local memory and storage cleanup
-    safeLocalStorage.removeItem('tedbuy_simulated_user');
-    safeLocalStorage.removeItem('tedbuy_simulated_mode');
-    safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+    // Set the account deletion flag to prevent snapshot auto-recreation
+    safeLocalStorage.setItem('tedbuy_deleting_account', 'true');
 
     try {
-      const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
-      const currentList = cached ? JSON.parse(cached) : (users || []);
-      const filtered = currentList.filter((u: User) => u.id !== uid);
-      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
-      setUsers(filtered);
-    } catch (cacheErr) {
-      console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
-      setUsers(prev => prev.filter(u => u.id !== uid));
-    }
+      // 1. If not simulated, do database and authentication cleanup
+      if (!isSimulated && authUser) {
+        // Step A: Best-effort client-side Firestore cleanup first (since Web SDK has direct authorization for user owned data)
+        try {
+          console.log('[Account Deletion] Performing client-side Firestore cleanup...');
+          // Delete user's own products
+          const myProducts = products.filter(p => p.sellerId === uid);
+          await Promise.all(myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})));
+          
+          // Delete storeName mapping
+          if (currentUser.username) {
+            await deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {});
+          }
+          
+          // Delete user profile document
+          await deleteDoc(doc(db, 'users', uid)).catch(() => {});
+        } catch (cleanupErr) {
+          console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
+        }
 
-    if (!isSimulated) {
-      try {
-        await signOut(auth);
-      } catch (signOutErr) {
-        console.warn('Could not complete signOut on Firebase Auth:', signOutErr);
+        // Step B: Call backend API to delete remaining global references & Supabase if active with a robust timeout guard
+        let resData: any = {};
+        try {
+          console.log('[Account Deletion] Invoking backend deletion API...');
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+          const idToken = await authUser.getIdToken();
+          const response = await fetch('/api/auth/delete-account', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+            },
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to delete account. Backend returned status ${response.status}.`);
+          }
+          
+          resData = await response.json().catch(() => ({}));
+          console.log('[Account Deletion] Backend successfully processed account data deletion:', resData);
+        } catch (apiErr: any) {
+          console.warn('[Account Deletion] Backend deletion API call failed or timed out. Attempting client-side fallback:', apiErr);
+        }
+
+        // Step C: Delete the actual Firebase Auth User account directly on client-side as a reliable fallback
+        if (!resData?.authDeleted) {
+          try {
+            await deleteUser(authUser);
+            console.log('[Account Deletion] Successfully deleted Firebase Auth user directly on client-side.');
+          } catch (authErr) {
+            console.warn('[Account Deletion] Client-side deleteUser failed or requires reauthentication:', authErr);
+          }
+        }
       }
+
+      // 2. Local memory and storage cleanup
+      safeLocalStorage.removeItem('tedbuy_simulated_user');
+      safeLocalStorage.removeItem('tedbuy_simulated_mode');
+      safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+
+      try {
+        const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
+        const currentList = cached ? JSON.parse(cached) : (users || []);
+        const filtered = currentList.filter((u: User) => u.id !== uid);
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+        setUsers(filtered);
+      } catch (cacheErr) {
+        console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
+        setUsers(prev => prev.filter(u => u.id !== uid));
+      }
+
+      if (!isSimulated) {
+        try {
+          await signOut(auth);
+        } catch (signOutErr) {
+          console.warn('Could not complete signOut on Firebase Auth:', signOutErr);
+        }
+      }
+      
+      setCurrentUserState(null);
+      showToast('Your account and all associated data have been permanently deleted.', 'success');
+      setCurrentView('browse');
+    } catch (err) {
+      safeLocalStorage.removeItem('tedbuy_deleting_account');
+      throw err;
+    } finally {
+      safeLocalStorage.removeItem('tedbuy_deleting_account');
     }
-    
-    setCurrentUserState(null);
-    showToast('Your account and all associated data have been permanently deleted.', 'success');
-    setCurrentView('browse');
   };
 
   const sendWelcomeEmailToAll = async (
