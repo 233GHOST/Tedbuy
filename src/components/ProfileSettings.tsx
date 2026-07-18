@@ -270,6 +270,11 @@ export const ProfileSettings: React.FC = () => {
   const [migrationLog, setMigrationLog] = useState<string | null>(null);
   const [migrationStats, setMigrationStats] = useState<any>(null);
 
+  // Firestore reverse migration states
+  const [isMigratingToFirestore, setIsMigratingToFirestore] = useState(false);
+  const [firestoreMigrationLog, setFirestoreMigrationLog] = useState<string | null>(null);
+  const [firestoreMigrationStats, setFirestoreMigrationStats] = useState<any>(null);
+
   // Admin Store Manager States
   const [storeSearch, setStoreSearch] = useState('');
   const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
@@ -406,6 +411,42 @@ export const ProfileSettings: React.FC = () => {
       showToast(err.message || 'Data migration failed', 'error');
     } finally {
       setIsMigrating(false);
+    }
+  };
+
+  const handleMigrateToFirestore = async () => {
+    if (isMigratingToFirestore) return;
+    setIsMigratingToFirestore(true);
+    setFirestoreMigrationLog('Initiating secure server-driven reverse migration pipeline (Supabase -> Firestore)...');
+    setFirestoreMigrationStats(null);
+    try {
+      let idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        idToken = localStorage.getItem('tedbuy_custom_auth_token') || undefined;
+      }
+
+      const response = await fetch('/api/admin/migrate-to-firestore', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': idToken ? `Bearer ${idToken}` : '',
+        }
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Server rejected migration request.');
+      }
+
+      setFirestoreMigrationLog('Supabase to Firestore reverse sync finished successfully!');
+      setFirestoreMigrationStats(resData.stats || {});
+      showToast('Successfully migrated all collections back to Firestore!', 'success');
+    } catch (err: any) {
+      console.error('[Reverse Migration Exception]:', err);
+      setFirestoreMigrationLog(`Migration failed: ${err.message || err}`);
+      showToast(err.message || 'Reverse migration failed', 'error');
+    } finally {
+      setIsMigratingToFirestore(false);
     }
   };
 
@@ -1173,6 +1214,117 @@ export const ProfileSettings: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Database Migration & Resync Center */}
+                <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-1.5 bg-slate-800 rounded-lg text-orange-400">
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">Database Sync & Migration Center</h4>
+                      <p className="text-[10px] text-slate-400">Synchronize state between Cloud Databases</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-350 leading-relaxed">
+                    Easily migrate your collections between Firebase Firestore and Supabase. Running migrations client-side or server-side ensures complete data consistency.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {/* Firestore to Supabase */}
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-extrabold text-orange-400 uppercase tracking-wide block">Firestore → Supabase</span>
+                        <p className="text-[10px] text-slate-400 leading-snug">
+                          Uploads Firestore document snapshots into equivalents on Supabase in batches.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleMigrateToSupabase}
+                        disabled={isMigrating || isMigratingToFirestore}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-750 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        {isMigrating ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                            <span>Migrating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Migrate to Supabase</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Supabase to Firestore */}
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-extrabold text-indigo-400 uppercase tracking-wide block">Supabase → Firestore</span>
+                        <p className="text-[10px] text-slate-400 leading-snug">
+                          Pulls Supabase table rows and merges them back securely into active Firestore collections.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleMigrateToFirestore}
+                        disabled={isMigrating || isMigratingToFirestore}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        {isMigratingToFirestore ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                            <span>Migrating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Migrate to Firestore</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Migration Logs / Outputs */}
+                  {(migrationLog || firestoreMigrationLog) && (
+                    <div className="rounded-2xl bg-slate-950 p-4 border border-slate-850 font-mono text-[11px] leading-relaxed mt-2 text-left">
+                      <span className="text-slate-400 text-[10px] uppercase font-bold mb-2 block font-sans tracking-wide">Migration Logs & Results</span>
+                      <div className="text-slate-300 max-h-28 overflow-y-auto whitespace-pre-wrap select-all font-mono">
+                        {migrationLog || firestoreMigrationLog}
+                      </div>
+
+                      {/* Display table of statistics if available */}
+                      {(migrationStats || firestoreMigrationStats) && (
+                        <div className="mt-3 border-t border-slate-850 pt-3">
+                          <table className="w-full text-[10px] font-sans border-collapse">
+                            <thead>
+                              <tr className="text-slate-400 border-b border-slate-850">
+                                <th className="text-left py-1 font-bold">Collection</th>
+                                <th className="text-right py-1 font-bold">Fetched</th>
+                                <th className="text-right py-1 font-bold">Migrated</th>
+                                <th className="text-right py-1 font-bold">Failed</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-900">
+                              {Object.entries(migrationStats || firestoreMigrationStats).map(([collectionName, colStat]: [string, any]) => (
+                                <tr key={collectionName} className="text-slate-300">
+                                  <td className="py-1.5 font-mono">{collectionName}</td>
+                                  <td className="text-right py-1.5 font-mono">{colStat.fetched}</td>
+                                  <td className="text-right py-1.5 text-emerald-400 font-mono">{colStat.migrated}</td>
+                                  <td className="text-right py-1.5 font-mono text-rose-400">{colStat.failed}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 {/* User Account Suspension & Safety Hub */}
                 <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">

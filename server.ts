@@ -2094,6 +2094,86 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       }
+    } else {
+      // Fetch directly from Firestore (Admin SDK first, falling back to REST)
+      if (adminDb) {
+        try {
+          console.log('[Products Data] Fetching products from Firestore via Admin SDK (Supabase inactive)...');
+          const snapshot = await adminDb.collection('products').get();
+          if (!snapshot.empty) {
+            snapshot.forEach((doc: any) => {
+              productsList.push({ id: doc.id, ...doc.data() });
+            });
+            console.log(`[Products Data] Successfully loaded ${productsList.length} products from Firestore Admin SDK!`);
+          }
+        } catch (adminErr: any) {
+          console.warn('[Products Data] Admin SDK fetch failed for products:', adminErr.message || adminErr);
+        }
+      }
+
+      if (productsList.length === 0) {
+        try {
+          console.log('[Products Data] Fetching products from Firestore via REST API (Supabase inactive)...');
+          const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+          
+          const response = await fetch(firestoreUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              structuredQuery: {
+                from: [{ collectionId: 'products', allDescendants: false }],
+                limit: 1000
+              }
+            })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            const results = Array.isArray(data) ? data : [];
+            const parsedDocs = results
+              .filter((item: any) => item && item.document)
+              .map((item: any) => {
+                const doc = item.document;
+                const fields = doc.fields || {};
+                const result: any = {};
+                
+                const parseVal = (val: any): any => {
+                  if (!val) return undefined;
+                  if ('stringValue' in val) return val.stringValue;
+                  if ('integerValue' in val) return parseInt(val.integerValue, 10);
+                  if ('doubleValue' in val) return parseFloat(val.doubleValue);
+                  if ('booleanValue' in val) return val.booleanValue;
+                  if ('arrayValue' in val) {
+                    const arr = val.arrayValue?.values || [];
+                    return arr.map((sub: any) => parseVal(sub));
+                  }
+                  if ('mapValue' in val) {
+                    const mapFields = val.mapValue?.fields || {};
+                    const mapResult: any = {};
+                    for (const k of Object.keys(mapFields)) {
+                      mapResult[k] = parseVal(mapFields[k]);
+                    }
+                    return mapResult;
+                  }
+                  return undefined;
+                };
+
+                for (const key of Object.keys(fields)) {
+                  result[key] = parseVal(fields[key]);
+                }
+                const docName = doc.name || "";
+                const id = docName.split("/").pop() || "";
+                return { id, ...result };
+              });
+            productsList = parsedDocs;
+            console.log(`[Products Data] Successfully loaded ${productsList.length} products from Firestore REST API!`);
+          } else {
+            console.warn('[Products Data] Firestore REST API returned error status:', response.status);
+          }
+        } catch (restErr: any) {
+          console.error('[Products Data] REST API fallback failed completely:', restErr.message || restErr);
+        }
+      }
     }
 
     // Process the products list (runtime expiration, priority scores, extra sorting fields)
@@ -3470,6 +3550,106 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     } catch (err: any) {
       console.error('[Supabase Migration Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error during data migration." });
+    }
+  });
+
+  async function runSupabaseToFirestoreSync(): Promise<any> {
+    if (!backendSupabase) {
+      throw new Error("Supabase integration is not active. We cannot migrate data from a deactivated Supabase client.");
+    }
+    if (!adminDb) {
+      throw new Error("Firebase Admin SDK is not initialized. Please ensure your firebase-applet-config.json has valid service credentials.");
+    }
+
+    const stats: any = {};
+    const tablesToMigrate = [
+      { supabase: 'users', firestore: 'users' },
+      { supabase: 'products', firestore: 'products' },
+      { supabase: 'chats', firestore: 'chats' },
+      { supabase: 'messages', firestore: 'messages' },
+      { supabase: 'reviews', firestore: 'reviews' },
+      { supabase: 'notifications', firestore: 'notifications' },
+      { supabase: 'store_names', firestore: 'storeNames' },
+      { supabase: 'boost_purchases', firestore: 'boostPurchases' }
+    ];
+
+    for (const mapping of tablesToMigrate) {
+      stats[mapping.firestore] = { fetched: 0, migrated: 0, failed: 0, errors: [] };
+      try {
+        console.log(`[Supabase -> Firestore Sync] Fetching all records from Supabase table "${mapping.supabase}"...`);
+        const { data, error } = await backendSupabase
+          .from(mapping.supabase)
+          .select('*');
+
+        if (error) {
+          throw error;
+        }
+
+        if (data && data.length > 0) {
+          stats[mapping.firestore].fetched = data.length;
+          console.log(`[Supabase -> Firestore Sync] Found ${data.length} records. Writing to Firestore collection "${mapping.firestore}"...`);
+          
+          for (const row of data) {
+            try {
+              const id = row.id;
+              if (!id) continue;
+
+              // Clean up row fields if necessary (remove id from body if writing to doc with that ID)
+              const docData = { ...row };
+              delete docData.id;
+
+              await adminDb.collection(mapping.firestore).doc(id).set(docData, { merge: true });
+              stats[mapping.firestore].migrated += 1;
+            } catch (writeErr: any) {
+              stats[mapping.firestore].failed += 1;
+              stats[mapping.firestore].errors.push(`Doc id ${row.id || 'unknown'} failed: ${writeErr.message || writeErr}`);
+            }
+          }
+        } else {
+          console.log(`[Supabase -> Firestore Sync] No records found in Supabase table "${mapping.supabase}".`);
+        }
+      } catch (err: any) {
+        console.error(`[Supabase -> Firestore Sync] Error migrating table "${mapping.supabase}":`, err);
+        stats[mapping.firestore].errors.push(err.message || String(err));
+      }
+
+      // Small pause to avoid hitting rate limits
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    cachedProducts = null; // Invalidate cache
+    return stats;
+  }
+
+  app.post('/api/admin/migrate-to-firestore', async (req, res) => {
+    const authHeader = req.headers.authorization;
+
+    try {
+      // 1. Verify admin privilege
+      const isAdmin = await verifyAdmin(authHeader);
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: "Access Denied: Administrative privileges required." });
+      }
+
+      // 2. Ensure Supabase backend client is active
+      if (!backendSupabase) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Supabase integration is not active. We cannot fetch from Supabase if it's disabled." 
+        });
+      }
+
+      const stats = await runSupabaseToFirestoreSync();
+
+      return res.json({
+        success: true,
+        message: "Data migration from Supabase back to Firestore completed successfully!",
+        stats
+      });
+
+    } catch (err: any) {
+      console.error('[Firestore Reverse Migration Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during data migration." });
     }
   });
