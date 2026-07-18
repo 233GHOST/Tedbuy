@@ -2556,15 +2556,23 @@ CEO, Tedbuy Inc`;
         if (googleUser && googleUser.email) {
           const emailClean = googleUser.email.trim().toLowerCase();
 
-          const userRef = doc(db, 'users', googleUser.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            const dbData = userSnap.data() as User;
-            if (dbData.isSuspended) {
-              await signOut(auth);
-              setIsSuspendedBlockOpen(true);
-              throw new Error("Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@mail.com to appeal.");
+          try {
+            const userRef = doc(db, 'users', googleUser.uid);
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+              const dbData = userSnap.data() as User;
+              if (dbData.isSuspended) {
+                await signOut(auth);
+                setIsSuspendedBlockOpen(true);
+                throw new Error("Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@mail.com to appeal.");
+              }
             }
+          } catch (checkErr: any) {
+            // Rethrow the suspension error if it's the one we explicitly threw
+            if (checkErr?.message?.includes('suspended') || checkErr?.message?.includes('appeal')) {
+              throw checkErr;
+            }
+            console.warn('[Google Sign-In] Best-effort suspension check bypassed (offline/network lag):', checkErr);
           }
 
           // Just let the Google Sign-In succeed. The onAuthStateChanged listener
