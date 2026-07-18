@@ -5622,7 +5622,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   // API to delete a user account and all associated data from the system (Firestore and Supabase)
-  app.post('/api/auth/delete-account', async (req, res) => {
+  const deleteAccountHandler = async (req: express.Request, res: express.Response) => {
     // 0. Inner Helper Functions for Firestore REST API fallback
     async function queryDocumentsREST(collection: string, field: string, value: string, userAuthHeader?: string): Promise<string[]> {
       const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
@@ -6099,6 +6099,145 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } catch (err: any) {
       console.error('[Account Deletion API Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during account deletion." });
+    }
+  };
+
+  app.post('/api/auth/delete-account', deleteAccountHandler);
+  app.delete('/api/users/delete-account', deleteAccountHandler);
+
+  // API to fetch all registered users for admin dashboard
+  app.get('/api/admin/registered-users', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const isAdmin = await verifyAdmin(authHeader);
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: "Unauthorized: Only administrators can fetch the registered users." });
+      }
+
+      console.log('[Admin API] Fetching all registered users from auth and database...');
+
+      let authUsers: any[] = [];
+      let firestoreUsers: any[] = [];
+      
+      // 1. Fetch users from Firebase Auth Admin SDK
+      try {
+        const { getApps } = await import("firebase-admin/app");
+        if (getApps().length > 0) {
+          const { getAuth } = await import("firebase-admin/auth");
+          let nextPageToken: string | undefined = undefined;
+          do {
+            const listUsersResult: any = await getAuth().listUsers(1000, nextPageToken);
+            authUsers.push(...listUsersResult.users);
+            nextPageToken = listUsersResult.pageToken;
+          } while (nextPageToken);
+          console.log(`[Admin API] Successfully listed ${authUsers.length} users from Firebase Auth.`);
+        }
+      } catch (authErr: any) {
+        console.warn('[Admin API] Firebase Auth listUsers failed (Admin SDK might not be fully configured):', authErr);
+      }
+
+      // 2. Fetch users from Firestore collection 'users'
+      if (adminDb) {
+        try {
+          const snapshot = await adminDb.collection('users').get();
+          snapshot.forEach((doc: any) => {
+            firestoreUsers.push({ id: doc.id, ...doc.data() });
+          });
+          console.log(`[Admin API] Successfully fetched ${firestoreUsers.length} users from Firestore.`);
+        } catch (dbErr: any) {
+          console.warn('[Admin API] Firestore users fetch failed via Admin SDK:', dbErr);
+        }
+      } else {
+        // Fallback to fetch via REST query
+        try {
+          const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users${apiKey ? `?key=${apiKey}` : ""}`;
+          const headers: Record<string, string> = {};
+          const metadataToken = await getGCPMetadataToken();
+          if (metadataToken) {
+            headers['Authorization'] = `Bearer ${metadataToken}`;
+          } else if (authHeader) {
+            headers['Authorization'] = authHeader;
+          }
+          const response = await fetch(firestoreUrl, { headers });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.documents && Array.isArray(data.documents)) {
+              for (const doc of data.documents) {
+                const parsed = parseFirestoreDocument(doc);
+                if (parsed) {
+                  firestoreUsers.push({
+                    id: doc.name.split('/').pop(),
+                    ...parsed
+                  });
+                }
+              }
+            }
+            console.log(`[Admin API] Successfully fetched ${firestoreUsers.length} users via Firestore REST.`);
+          }
+        } catch (restErr) {
+          console.warn('[Admin API] Firestore users fetch failed via REST:', restErr);
+        }
+      }
+
+      // 3. Merge the lists: Firebase Auth users is the source of truth for account existences, Firestore for profile details
+      const mergedMap = new Map<string, any>();
+
+      // A. Populate from Firestore profile documents first
+      for (const fu of firestoreUsers) {
+        const uid = fu.id || fu.uid;
+        if (uid) {
+          mergedMap.set(uid, {
+            id: uid,
+            username: fu.username || fu.email?.split('@')[0] || 'User',
+            email: fu.email || '',
+            phoneNumber: fu.phoneNumber || '',
+            role: fu.role || 'both',
+            welcomeSent: fu.welcomeSent || false,
+            isSuspended: fu.isSuspended || false,
+            createdAt: fu.createdAt || null,
+            isAdmin: fu.isAdmin || (fu.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com')
+          });
+        }
+      }
+
+      // B. Merge with Firebase Auth records (and add any that don't have Firestore documents yet)
+      for (const au of authUsers) {
+        const uid = au.uid;
+        const existing = mergedMap.get(uid);
+        if (existing) {
+          mergedMap.set(uid, {
+            ...existing,
+            email: au.email || existing.email,
+            phoneNumber: au.phoneNumber || existing.phoneNumber,
+            createdAt: existing.createdAt || au.metadata?.creationTime || null
+          });
+        } else {
+          mergedMap.set(uid, {
+            id: uid,
+            username: au.displayName || au.email?.split('@')[0] || 'User',
+            email: au.email || '',
+            phoneNumber: au.phoneNumber || '',
+            role: 'both',
+            welcomeSent: au.welcomeSent || false,
+            isSuspended: au.disabled || false,
+            createdAt: au.metadata?.creationTime || null,
+            isAdmin: au.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com'
+          });
+        }
+      }
+
+      const mergedList = Array.from(mergedMap.values());
+      console.log(`[Admin API] Returning ${mergedList.length} merged user profiles.`);
+
+      return res.json({
+        success: true,
+        count: mergedList.length,
+        users: mergedList
+      });
+
+    } catch (err: any) {
+      console.error('[Admin API Registered Users Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error during user count retrieval." });
     }
   });
 

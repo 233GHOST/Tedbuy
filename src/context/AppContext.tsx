@@ -169,6 +169,7 @@ interface AppContextType {
     whatsAppNumber?: string;
   }) => Promise<void>;
   deleteAccount: (password?: string) => Promise<void>;
+  refreshUsers: () => Promise<void>;
   adminDeleteUserProfile: (userId: string, forceDeleteActive?: boolean) => Promise<void>;
   sendWelcomeEmailToAll: (onlyUnsent: boolean, onProgress: (current: number, total: number, logMsg: string) => void) => Promise<void>;
   selectedProductId: string | null;
@@ -1479,6 +1480,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       clearTimeout(timer);
     };
   }, []);
+
+  // Synchronize users using backend Admin endpoint when admin session becomes active
+  useEffect(() => {
+    if (isAdminSessionVerified && currentUser) {
+      refreshUsers();
+    }
+  }, [isAdminSessionVerified, currentUser]);
 
   // 2. Real-time Products Synchronization
   useEffect(() => {
@@ -4177,8 +4185,8 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
           const timeoutId = setTimeout(() => controller.abort(), 12000);
 
           const idToken = await authUser.getIdToken();
-          const response = await fetch('/api/auth/delete-account', {
-            method: 'POST',
+          const response = await fetch('/api/users/delete-account', {
+            method: 'DELETE',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${idToken}`
@@ -4252,13 +4260,63 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       }
       
       setCurrentUserState(null);
-      showToast('Your account and all associated data have been permanently deleted.', 'success');
+      showToast('Account deleted successfully.', 'success');
       setCurrentView('browse');
+      setAuthMode('login');
+      setShowAuthModal(true);
     } catch (err) {
       safeLocalStorage.removeItem('tedbuy_deleting_account');
       throw err;
     } finally {
       safeLocalStorage.removeItem('tedbuy_deleting_account');
+    }
+  };
+
+  const refreshUsers = async () => {
+    try {
+      const isUserAdmin = currentUser?.isAdmin || (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com');
+      const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+
+      if (isUserAdmin && !isSimulated) {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (token) {
+            console.log('[refreshUsers] Fetching rich registered users list from admin backend...');
+            const response = await fetch('/api/admin/registered-users', {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && Array.isArray(data.users)) {
+                console.log(`[refreshUsers] Backend returned ${data.users.length} registered users.`);
+                setUsers(data.users);
+                safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(data.users));
+                return;
+              }
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[refreshUsers] Backend fetch failed, falling back to client-side Firestore:', apiErr);
+        }
+      }
+
+      // Fallback/standard public fetch
+      console.log('[refreshUsers] Querying public users collection from Firestore...');
+      const snapshot = await getDocs(collection(db, 'users'));
+      const uList: User[] = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        uList.push({
+          ...data,
+          id: docSnap.id || data.id
+        } as User);
+      });
+      setUsers(uList);
+      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
+    } catch (err) {
+      console.error('[refreshUsers] Error:', err);
     }
   };
 
@@ -4816,6 +4874,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       toggleSaveProduct,
       updateUserProfile,
       deleteAccount,
+      refreshUsers,
       adminDeleteUserProfile,
       adminToggleUserSuspension,
       sendWelcomeEmailToAll,
