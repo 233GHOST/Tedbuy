@@ -3554,12 +3554,74 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
+  function serializeValue(val: any): any {
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'string') {
+      return { stringValue: val };
+    }
+    if (typeof val === 'number') {
+      if (Number.isInteger(val)) {
+        return { integerValue: String(val) };
+      } else {
+        return { doubleValue: val };
+      }
+    }
+    if (typeof val === 'boolean') {
+      return { booleanValue: val };
+    }
+    if (Array.isArray(val)) {
+      const values = val.map(sub => serializeValue(sub)).filter(Boolean);
+      return { arrayValue: { values } };
+    }
+    if (typeof val === 'object') {
+      const fields: any = {};
+      for (const [k, v] of Object.entries(val)) {
+        const s = serializeValue(v);
+        if (s) fields[k] = s;
+      }
+      return { mapValue: { fields } };
+    }
+    return null;
+  }
+
+  function serializeToFirestoreREST(obj: any): any {
+    const fields: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value === undefined || value === null) {
+        continue;
+      }
+      const serialized = serializeValue(value);
+      if (serialized) {
+        fields[key] = serialized;
+      }
+    }
+    return { fields };
+  }
+
+  async function writeToFirestoreREST(collection: string, docId: string, data: any): Promise<boolean> {
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}/${docId}${apiKey ? `?key=${apiKey}` : ""}`;
+    const body = serializeToFirestoreREST(data);
+    try {
+      const response = await fetch(url, {
+        method: 'PATCH', // PATCH acts as a set/upsert on specific document in Firestore REST
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        console.warn(`[Firestore REST Write] Failed to write document ${docId} to collection ${collection}: ${errText}`);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.error(`[Firestore REST Write Exception] for ${docId} in ${collection}:`, err.message || err);
+      return false;
+    }
+  }
+
   async function runSupabaseToFirestoreSync(): Promise<any> {
     if (!backendSupabase) {
       throw new Error("Supabase integration is not active. We cannot migrate data from a deactivated Supabase client.");
-    }
-    if (!adminDb) {
-      throw new Error("Firebase Admin SDK is not initialized. Please ensure your firebase-applet-config.json has valid service credentials.");
     }
 
     const stats: any = {};
@@ -3573,6 +3635,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       { supabase: 'store_names', firestore: 'storeNames' },
       { supabase: 'boost_purchases', firestore: 'boostPurchases' }
     ];
+
+    const isUsingAdminSDK = !!adminDb;
+    console.log(`[Supabase -> Firestore Sync] Starting sync. Method: ${isUsingAdminSDK ? "Firebase Admin SDK" : "Firestore REST API (Resilient Fallback)"}`);
 
     for (const mapping of tablesToMigrate) {
       stats[mapping.firestore] = { fetched: 0, migrated: 0, failed: 0, errors: [] };
@@ -3599,7 +3664,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               const docData = { ...row };
               delete docData.id;
 
-              await adminDb.collection(mapping.firestore).doc(id).set(docData, { merge: true });
+              if (adminDb) {
+                await adminDb.collection(mapping.firestore).doc(id).set(docData, { merge: true });
+              } else {
+                const ok = await writeToFirestoreREST(mapping.firestore, id, docData);
+                if (!ok) {
+                  throw new Error("Firestore REST API write rejected.");
+                }
+              }
               stats[mapping.firestore].migrated += 1;
             } catch (writeErr: any) {
               stats[mapping.firestore].failed += 1;
