@@ -1215,6 +1215,69 @@ export const ProfileSettings: React.FC = () => {
                   </div>
                 )}
 
+                {/* Active Database Engine Status & Hot Switch Selector */}
+                <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-1.5 bg-slate-800 rounded-lg text-indigo-400">
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">Database Engine Selector</h4>
+                      <p className="text-[10px] text-slate-400">Switch database routing instantly</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Active Storage Layer</span>
+                      {isSupabaseActive ? (
+                        <span className="px-2 py-0.5 text-[9px] font-black bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20 uppercase tracking-wider animate-pulse">
+                          Supabase active
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-[9px] font-black bg-orange-500/10 text-orange-400 rounded-full border border-orange-500/20 uppercase tracking-wider animate-pulse">
+                          Firestore active
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-350 leading-relaxed">
+                      {isSupabaseActive ? (
+                        "All client database read/write queries are currently being routed to your Supabase PostgreSQL database. If your Supabase instance is empty or hasn't been migrated yet, this might explain why you see 0 registered users."
+                      ) : (
+                        "All client database read/write queries are currently being routed to native Google Cloud Firestore. Offline persistence, local synchronization, and memory caching are fully active."
+                      )}
+                    </p>
+
+                    <div className="flex items-center gap-3.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isSupabaseActive) {
+                            localStorage.setItem('tedbuy_disable_supabase', 'true');
+                            showToast('Switched database engine to native Firestore! Reloading...', 'success');
+                            setTimeout(() => window.location.reload(), 1500);
+                          } else {
+                            // Check if Supabase credentials are configured in the environment before allowing switch
+                            const sbUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
+                            const sbKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+                            if (!sbUrl || !sbKey) {
+                              showToast('Supabase credentials are not configured in your .env file!', 'error');
+                              return;
+                            }
+                            localStorage.removeItem('tedbuy_disable_supabase');
+                            showToast('Switched database engine to Supabase PostgreSQL! Reloading...', 'success');
+                            setTimeout(() => window.location.reload(), 1500);
+                          }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+                      >
+                        {isSupabaseActive ? "Switch to Native Firestore" : "Switch to Supabase PostgreSQL"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Database Migration & Resync Center */}
                 <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">
                   <div className="flex items-center gap-3">

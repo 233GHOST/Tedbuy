@@ -15,6 +15,7 @@ import {
   sendEmailVerification,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
   signInAnonymously,
   fetchSignInMethodsForEmail,
   linkWithCredential,
@@ -4203,8 +4204,25 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
           try {
             await deleteUser(authUser);
             console.log('[Account Deletion] Successfully deleted Firebase Auth user directly on client-side.');
-          } catch (authErr) {
+          } catch (authErr: any) {
             console.warn('[Account Deletion] Client-side deleteUser failed or requires reauthentication:', authErr);
+            if (authErr?.code === 'auth/requires-recent-login' || authErr?.message?.includes('requires-recent-login') || authErr?.message?.includes('CREDENTIAL_TOO_OLD')) {
+              // Reauthenticate Google users automatically
+              if (currentUser.isGoogleAuth || authUser.providerData.some(p => p.providerId === 'google.com')) {
+                try {
+                  const provider = new GoogleAuthProvider();
+                  await reauthenticateWithPopup(authUser, provider);
+                  await deleteUser(authUser);
+                  console.log('[Account Deletion] Successfully deleted Firebase Auth user after Google reauthentication.');
+                } catch (reauthErr: any) {
+                  showToast('For security, please sign out, sign back in, and try deleting your account again.', 'error');
+                  throw new Error('This sensitive operation requires a recent login. Please sign out, sign back in, and try again.');
+                }
+              } else {
+                showToast('For security, please sign out, sign back in, and try deleting your account again.', 'error');
+                throw new Error('This sensitive operation requires a recent login. Please sign out, sign back in, and try again.');
+              }
+            }
           }
         }
       }
@@ -4493,6 +4511,31 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
         await batch.commit();
         console.log('[Admin Delete] Atomic user and storeNames registry deletion completed.');
+
+        // Invoke backend admin delete API to delete Firebase Auth user account and clean up Supabase
+        try {
+          const authUser = auth.currentUser;
+          if (authUser) {
+            const idToken = await authUser.getIdToken();
+            const response = await fetch('/api/admin/delete-user', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+              },
+              body: JSON.stringify({ targetUserId: userId })
+            });
+            if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              console.warn('[Admin Delete] Backend delete API returned error status:', response.status, errData);
+            } else {
+              const resData = await response.json();
+              console.log('[Admin Delete] Backend successfully processed target user account deletion:', resData);
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[Admin Delete] Backend admin delete API call failed:', apiErr);
+        }
       }
     } catch (err: any) {
       console.error('Could not delete user document and store name mapping from firestore during admin deletion:', err);

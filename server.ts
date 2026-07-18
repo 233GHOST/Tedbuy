@@ -284,7 +284,8 @@ let adminDb: any = null;
 const sbUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const sbKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 const isSbUrlValid = typeof sbUrl === 'string' && (sbUrl.startsWith('http://') || sbUrl.startsWith('https://'));
-const backendSupabase = sbUrl && sbKey && isSbUrlValid ? createClient(sbUrl, sbKey) : null;
+const disableSupabase = process.env.VITE_DISABLE_SUPABASE === 'true' || process.env.DISABLE_SUPABASE === 'true';
+const backendSupabase = !disableSupabase && sbUrl && sbKey && isSbUrlValid ? createClient(sbUrl, sbKey) : null;
 
 if (backendSupabase) {
   console.log('[Supabase Server] Initialized backend Supabase client successfully!');
@@ -6172,6 +6173,520 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } catch (err: any) {
       console.error('[Account Deletion API Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during account deletion." });
+    }
+  });
+
+  // API to let administrator delete another user account and all associated data from the system (Firestore and Supabase)
+  app.post('/api/admin/delete-user', async (req, res) => {
+    // 0. Inner Helper Functions for Firestore REST API fallback
+    async function queryDocumentsREST(collection: string, field: string, value: string, userAuthHeader?: string): Promise<string[]> {
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const metadataToken = await getGCPMetadataToken();
+        if (metadataToken) {
+          headers['Authorization'] = `Bearer ${metadataToken}`;
+        } else if (userAuthHeader) {
+          headers['Authorization'] = userAuthHeader;
+        }
+        const response = await fetch(firestoreUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: collection, allDescendants: false }],
+              where: {
+                fieldFilter: {
+                  field: { fieldPath: field },
+                  op: 'EQUAL',
+                  value: { stringValue: value }
+                }
+              }
+            }
+          })
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          console.warn(`[queryDocumentsREST admin] Failed with status ${response.status}: ${text}`);
+          return [];
+        }
+        const data = await response.json();
+        if (!Array.isArray(data)) return [];
+        const docIds: string[] = [];
+        for (const item of data) {
+          if (item.document) {
+            const docPath = item.document.name;
+            const parts = docPath.split('/');
+            const docId = parts[parts.length - 1];
+            if (docId) {
+              docIds.push(docId);
+            }
+          }
+        }
+        return docIds;
+      } catch (err) {
+        console.error(`[queryDocumentsREST admin] Failed for ${collection} where ${field} = ${value}:`, err);
+        return [];
+      }
+    }
+
+    async function deleteDocumentREST(collection: string, docId: string, userAuthHeader?: string): Promise<boolean> {
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}/${docId}${apiKey ? `?key=${apiKey}` : ""}`;
+      try {
+        const headers: Record<string, string> = {};
+        const metadataToken = await getGCPMetadataToken();
+        if (metadataToken) {
+          headers['Authorization'] = `Bearer ${metadataToken}`;
+        } else if (userAuthHeader) {
+          headers['Authorization'] = userAuthHeader;
+        }
+        const response = await fetch(url, {
+          method: 'DELETE',
+          headers
+        });
+        return response.ok;
+      } catch (err: any) {
+        console.error(`[deleteDocumentREST admin] Failed for ${collection}/${docId}:`, err);
+        return false;
+      }
+    }
+
+    try {
+      const authHeader = req.headers.authorization;
+      const isAdmin = await verifyAdmin(authHeader);
+      if (!isAdmin) {
+        return res.status(401).json({ success: false, error: "Unauthorized: Administrator privileges are required to delete user accounts." });
+      }
+
+      const { targetUserId } = req.body;
+      if (!targetUserId) {
+        return res.status(400).json({ success: false, error: "Bad Request: targetUserId is required." });
+      }
+
+      console.log(`[Admin Account Deletion] Admin initiated deletion for user UID: ${targetUserId}`);
+
+      async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
+        let timeoutHandle: any;
+        const timeoutPromise = new Promise<T>((resolve) => {
+          timeoutHandle = setTimeout(() => {
+            console.warn(`[Timeout Guard admin] Operation timed out after ${timeoutMs}ms.`);
+            resolve(defaultValue);
+          }, timeoutMs);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => {
+          clearTimeout(timeoutHandle);
+        });
+      }
+
+      async function deleteDocumentsInChunks(adminDb: any, queryResult: any) {
+        if (!queryResult || queryResult.empty) return;
+        const docs = queryResult.docs;
+        const chunkSize = 400;
+        for (let i = 0; i < docs.length; i += chunkSize) {
+          const chunk = docs.slice(i, i + chunkSize);
+          const batch = adminDb.batch();
+          chunk.forEach((doc: any) => batch.delete(doc.ref));
+          await batch.commit();
+        }
+      }
+
+      // 1. Resolve username & email of the target user
+      let username = '';
+      let targetEmail = '';
+      if (adminDb) {
+        try {
+          const userSnap = await withTimeout(adminDb.collection('users').doc(targetUserId).get(), 5000, null);
+          if (userSnap && userSnap.exists) {
+            username = userSnap.data()?.username || '';
+            targetEmail = userSnap.data()?.email || '';
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to fetch target user doc from Firestore:', err);
+        }
+      } else {
+        // Fallback REST API fetch user username via REST
+        try {
+          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${targetUserId}${apiKey ? `?key=${apiKey}` : ""}`;
+          const headers: Record<string, string> = {};
+          const metadataToken = await getGCPMetadataToken();
+          if (metadataToken) {
+            headers['Authorization'] = `Bearer ${metadataToken}`;
+          } else if (authHeader) {
+            headers['Authorization'] = authHeader;
+          }
+          const response = await fetch(url, { headers });
+          if (response.ok) {
+            const userDoc = await response.json();
+            const parsed = parseFirestoreDocument(userDoc);
+            if (parsed) {
+              username = parsed.username || '';
+              targetEmail = parsed.email || '';
+            }
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] REST fallback fetch user doc failed:', err);
+        }
+      }
+
+      // If we don't have username/email, let's check Supabase
+      if ((!username || !targetEmail) && backendSupabase) {
+        try {
+          const { data, error } = await backendSupabase
+            .from('users')
+            .select('username, email')
+            .eq('id', targetUserId)
+            .maybeSingle();
+          if (!error && data) {
+            username = username || data.username || '';
+            targetEmail = targetEmail || data.email || '';
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to fetch user from Supabase:', err);
+        }
+      }
+
+      // Check if target user is the protected super administrator
+      if (targetEmail && targetEmail.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+        return res.status(403).json({ success: false, error: "Crucial Security Guard: The super-administrator account is protected and cannot be deleted." });
+      }
+
+      const storeNameLower = username ? username.trim().toLowerCase() : '';
+
+      // 2. Perform deletions in Firestore
+      if (adminDb) {
+        console.log('[Admin Account Deletion] Deleting target user documents from Firestore via Admin SDK...');
+        
+        // A. Delete Products
+        try {
+          const productsSnap = await withTimeout(
+            adminDb.collection('products').where('sellerId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (productsSnap && !productsSnap.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, productsSnap), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to delete products:', err);
+        }
+
+        // B. Delete Reviews
+        try {
+          const reviewsSnap1 = await withTimeout(
+            adminDb.collection('reviews').where('buyerId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (reviewsSnap1 && !reviewsSnap1.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap1), 10000, undefined);
+          }
+          
+          const reviewsSnap2 = await withTimeout(
+            adminDb.collection('reviews').where('sellerId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (reviewsSnap2 && !reviewsSnap2.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap2), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to delete reviews:', err);
+        }
+
+        // C. Delete Chats and Messages
+        const chatIds = new Set<string>();
+        try {
+          const chatsSnap1 = await withTimeout(
+            adminDb.collection('chats').where('buyerId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (chatsSnap1 && !chatsSnap1.empty) {
+            (chatsSnap1 as any).forEach((doc: any) => chatIds.add(doc.id));
+            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap1), 10000, undefined);
+          }
+
+          const chatsSnap2 = await withTimeout(
+            adminDb.collection('chats').where('sellerId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (chatsSnap2 && !chatsSnap2.empty) {
+            (chatsSnap2 as any).forEach((doc: any) => chatIds.add(doc.id));
+            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap2), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to delete chats:', err);
+        }
+
+        try {
+          const mSnap1 = await withTimeout(
+            adminDb.collection('messages').where('senderId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (mSnap1 && !mSnap1.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap1), 10000, undefined);
+          }
+
+          const mSnap2 = await withTimeout(
+            adminDb.collection('messages').where('recipientId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (mSnap2 && !mSnap2.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap2), 10000, undefined);
+          }
+
+          if (chatIds.size > 0) {
+            for (const chatId of chatIds) {
+              const chatMsgs = await withTimeout(
+                adminDb.collection('messages').where('chatId', '==', chatId).get(),
+                5000,
+                { empty: true, docs: [] }
+              );
+              if (chatMsgs && !chatMsgs.empty) {
+                await withTimeout(deleteDocumentsInChunks(adminDb, chatMsgs), 10000, undefined);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to delete messages:', err);
+        }
+
+        // D. Delete Notifications
+        try {
+          const notifsSnap = await withTimeout(
+            adminDb.collection('notifications').where('userId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (notifsSnap && !notifsSnap.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, notifsSnap), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to delete notifications:', err);
+        }
+
+        // E. Delete Boost Purchases
+        try {
+          const bpSnap = await withTimeout(
+            adminDb.collection('boost_purchases').where('userId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (bpSnap && !bpSnap.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap), 10000, undefined);
+          }
+
+          const bpSnap2 = await withTimeout(
+            adminDb.collection('boostPurchases').where('userId', '==', targetUserId).get(),
+            8000,
+            { empty: true, docs: [] }
+          );
+          if (bpSnap2 && !bpSnap2.empty) {
+            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap2), 10000, undefined);
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to delete boost purchases:', err);
+        }
+
+        // F. Delete StoreName mapping
+        if (storeNameLower) {
+          try {
+            await withTimeout(
+              adminDb.collection('storeNames').doc(storeNameLower).delete(),
+              5000,
+              undefined
+            );
+          } catch (err) {
+            console.warn('[Admin Account Deletion] Failed to delete storeName mapping:', err);
+          }
+        }
+
+        // G. Delete User Profile Doc
+        try {
+          await withTimeout(
+            adminDb.collection('users').doc(targetUserId).delete(),
+            5000,
+            undefined
+          );
+        } catch (err) {
+          console.warn('[Admin Account Deletion] Failed to delete user profile document:', err);
+        }
+
+        // H. Delete deletedEmails
+        if (targetEmail) {
+          const cleanEmail = targetEmail.trim().toLowerCase();
+          try {
+            await withTimeout(
+              adminDb.collection('deletedEmails').doc(cleanEmail).delete(),
+              5000,
+              undefined
+            );
+          } catch (err) {
+            console.warn('[Admin Account Deletion] Failed to delete deletedEmails entry:', err);
+          }
+        }
+      } else {
+        // Fallback REST API deletion for Firestore
+        console.log('[Admin Account Deletion] Deleting user documents from Firestore via REST API fallback...');
+        
+        // A. Delete Products
+        try {
+          const productIds = await queryDocumentsREST('products', 'sellerId', targetUserId, authHeader);
+          if (productIds && productIds.length > 0) {
+            await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion REST] Failed to delete products:', err);
+        }
+
+        // B. Delete Reviews
+        try {
+          const buyerReviews = await queryDocumentsREST('reviews', 'buyerId', targetUserId, authHeader);
+          const sellerReviews = await queryDocumentsREST('reviews', 'sellerId', targetUserId, authHeader);
+          const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
+          if (reviewIds.length > 0) {
+            await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion REST] Failed to delete reviews:', err);
+        }
+
+        // C. Delete Chats and Messages
+        const chatIds: string[] = [];
+        try {
+          const buyerChats = await queryDocumentsREST('chats', 'buyerId', targetUserId, authHeader);
+          const sellerChats = await queryDocumentsREST('chats', 'sellerId', targetUserId, authHeader);
+          const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
+          resolvedChats.forEach(cid => chatIds.push(cid));
+          if (resolvedChats.length > 0) {
+            await Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion REST] Failed to delete chats:', err);
+        }
+
+        try {
+          const senderMsgs = await queryDocumentsREST('messages', 'senderId', targetUserId, authHeader);
+          const recipientMsgs = await queryDocumentsREST('messages', 'recipientId', targetUserId, authHeader);
+          const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
+          
+          if (chatIds.length > 0) {
+            for (const cid of chatIds) {
+              const chatMsgs = await queryDocumentsREST('messages', 'chatId', cid, authHeader);
+              chatMsgs.forEach(mid => msgIds.push(mid));
+            }
+          }
+          const uniqueMsgIds = Array.from(new Set(msgIds));
+          if (uniqueMsgIds.length > 0) {
+            await Promise.all(uniqueMsgIds.map(mid => deleteDocumentREST('messages', mid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion REST] Failed to delete messages:', err);
+        }
+
+        // D. Delete Notifications
+        try {
+          const notifIds = await queryDocumentsREST('notifications', 'userId', targetUserId, authHeader);
+          if (notifIds.length > 0) {
+            await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion REST] Failed to delete notifications:', err);
+        }
+
+        // E. Delete Boost Purchases
+        try {
+          const bp1 = await queryDocumentsREST('boost_purchases', 'userId', targetUserId, authHeader);
+          const bp2 = await queryDocumentsREST('boostPurchases', 'userId', targetUserId, authHeader);
+          const bpIds = Array.from(new Set([...bp1, ...bp2]));
+          if (bpIds.length > 0) {
+            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader)));
+            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader)));
+          }
+        } catch (err) {
+          console.warn('[Admin Account Deletion REST] Failed to delete boost purchases:', err);
+        }
+
+        // F. Delete StoreName mapping
+        if (storeNameLower) {
+          try {
+            await deleteDocumentREST('storeNames', storeNameLower, authHeader);
+          } catch (err) {
+            console.warn('[Admin Account Deletion REST] Failed to delete store name mapping:', err);
+          }
+        }
+
+        // G. Delete User Profile Doc
+        try {
+          await deleteDocumentREST('users', targetUserId, authHeader);
+        } catch (err) {
+          console.warn('[Admin Account Deletion REST] Failed to delete user profile document:', err);
+        }
+
+        // H. Delete deletedEmails blocklist entry
+        if (targetEmail) {
+          const cleanEmail = targetEmail.trim().toLowerCase();
+          try {
+            await deleteDocumentREST('deletedEmails', cleanEmail, authHeader);
+          } catch (err) {
+            console.warn('[Admin Account Deletion REST] Failed to delete deletedEmails entry:', err);
+          }
+        }
+      }
+
+      // 3. Perform deletions in Supabase if active
+      if (backendSupabase) {
+        try {
+          console.log('[Admin Account Deletion] Deleting user rows from Supabase...');
+          await backendSupabase.from('messages').delete().eq('senderId', targetUserId);
+          await backendSupabase.from('messages').delete().eq('recipientId', targetUserId);
+          await backendSupabase.from('chats').delete().eq('buyerId', targetUserId);
+          await backendSupabase.from('chats').delete().eq('sellerId', targetUserId);
+          await backendSupabase.from('products').delete().eq('sellerId', targetUserId);
+          await backendSupabase.from('reviews').delete().eq('buyerId', targetUserId);
+          await backendSupabase.from('reviews').delete().eq('sellerId', targetUserId);
+          await backendSupabase.from('notifications').delete().eq('userId', targetUserId);
+          await backendSupabase.from('boost_purchases').delete().eq('userId', targetUserId);
+          await backendSupabase.from('store_names').delete().eq('userId', targetUserId);
+          if (storeNameLower) {
+            await backendSupabase.from('store_names').delete().eq('id', storeNameLower);
+          }
+          await backendSupabase.from('users').delete().eq('id', targetUserId);
+          console.log('[Admin Account Deletion] Supabase rows successfully deleted.');
+        } catch (sbErr: any) {
+          console.warn('[Admin Account Deletion] Supabase delete failed:', sbErr);
+        }
+      }
+
+      // 4. Delete the Firebase Auth User account
+      let authDeleted = false;
+      try {
+        const { getApps } = await import("firebase-admin/app");
+        if (getApps().length > 0) {
+          const { getAuth } = await import("firebase-admin/auth");
+          await withTimeout(getAuth().deleteUser(targetUserId), 8000, undefined);
+          console.log(`[Admin Account Deletion] Successfully deleted auth user ${targetUserId} from Firebase Auth.`);
+          authDeleted = true;
+        }
+      } catch (authErr: any) {
+        console.warn('[Admin Account Deletion] Firebase Auth deleteUser failed:', authErr);
+      }
+
+      // Clear product list cache so changes are instantly reflected on browse view
+      cachedProducts = null;
+
+      return res.json({ 
+        success: true, 
+        message: "The user account and all associated data have been permanently deleted from the system.",
+        authDeleted
+      });
+
+    } catch (err: any) {
+      console.error('[Admin Account Deletion Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error during admin-initiated account deletion." });
     }
   });
 

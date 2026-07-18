@@ -22,12 +22,22 @@ import { db as fsDb } from './firebase';
 // -------------------------------------------------------------
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+const disableSupabaseEnv = (import.meta as any).env.VITE_DISABLE_SUPABASE === 'true';
 
 const isValidUrl = (url: string) => {
   return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
 };
 
-export const isSupabaseActive = !!(supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl));
+let isLocalDisable = false;
+if (typeof window !== 'undefined') {
+  try {
+    isLocalDisable = localStorage.getItem('tedbuy_disable_supabase') === 'true';
+  } catch (e) {
+    isLocalDisable = false;
+  }
+}
+
+export const isSupabaseActive = !disableSupabaseEnv && !isLocalDisable && !!(supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl));
 
 export const supabase = isSupabaseActive
   ? createClient(supabaseUrl, supabaseAnonKey)
