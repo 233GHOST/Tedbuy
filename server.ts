@@ -459,12 +459,7 @@ if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
 
 let isGCPServiceAccountAuthorized = process.env.K_SERVICE !== undefined || process.env.GOOGLE_APPLICATION_CREDENTIALS !== undefined || parsedServiceAccountJson !== null;
 
-if (backendSupabase) {
-  console.log('[Firebase Admin] Routing database operations exclusively to Supabase. Disabling Firestore Admin client, keeping Auth token verification active.');
-  adminDb = null;
-} else {
-  console.log('[Firebase Admin] Supabase not configured. Enabling Firestore Admin client for secure server-side operations.');
-}
+console.log('[Firebase Admin] Enabling Firestore Admin client for secure server-side and migration operations.');
 
 if (isGCPServiceAccountAuthorized) {
   (async () => {
@@ -485,14 +480,12 @@ if (isGCPServiceAccountAuthorized) {
       }
       console.log('[Firebase Admin] App successfully initialized for admin auth token verification.');
 
-      if (!backendSupabase) {
-        try {
-          const { getFirestore } = await import("firebase-admin/firestore");
-          adminDb = getFirestore();
-          console.log('[Firebase Admin] Firestore Admin DB client initialized successfully!');
-        } catch (dbInitErr: any) {
-          console.warn('[Firebase Admin] Failed to initialize Firestore Admin DB client:', dbInitErr.message || dbInitErr);
-        }
+      try {
+        const { getFirestore } = await import("firebase-admin/firestore");
+        adminDb = getFirestore();
+        console.log('[Firebase Admin] Firestore Admin DB client initialized successfully!');
+      } catch (dbInitErr: any) {
+        console.warn('[Firebase Admin] Failed to initialize Firestore Admin DB client:', dbInitErr.message || dbInitErr);
       }
     } catch (err: any) {
       console.warn('[Firebase Admin] Failed to initialize Firebase Admin app for verification:', err.message || err);
@@ -3598,28 +3591,40 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     return { fields };
   }
 
-  async function writeToFirestoreREST(collection: string, docId: string, data: any): Promise<boolean> {
+  async function writeToFirestoreREST(collection: string, docId: string, data: any, userAuthHeader?: string): Promise<{ success: boolean; error?: string }> {
     const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}/${docId}${apiKey ? `?key=${apiKey}` : ""}`;
     const body = serializeToFirestoreREST(data);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      
+      // Attempt to get secure service account token from GCP Metadata server first (highly authoritative)
+      const metadataToken = await getGCPMetadataToken();
+      if (metadataToken) {
+        headers['Authorization'] = `Bearer ${metadataToken}`;
+        console.log(`[Firestore REST Write] Bypassing security rules using GCP metadata service account token.`);
+      } else if (userAuthHeader) {
+        headers['Authorization'] = userAuthHeader;
+        console.log(`[Firestore REST Write] Authenticating REST request as the user with authHeader.`);
+      }
+
       const response = await fetch(url, {
         method: 'PATCH', // PATCH acts as a set/upsert on specific document in Firestore REST
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body)
       });
       if (!response.ok) {
         const errText = await response.text();
         console.warn(`[Firestore REST Write] Failed to write document ${docId} to collection ${collection}: ${errText}`);
-        return false;
+        return { success: false, error: errText };
       }
-      return true;
+      return { success: true };
     } catch (err: any) {
       console.error(`[Firestore REST Write Exception] for ${docId} in ${collection}:`, err.message || err);
-      return false;
+      return { success: false, error: err.message || String(err) };
     }
   }
 
-  async function runSupabaseToFirestoreSync(): Promise<any> {
+  async function runSupabaseToFirestoreSync(userAuthHeader?: string): Promise<any> {
     if (!backendSupabase) {
       throw new Error("Supabase integration is not active. We cannot migrate data from a deactivated Supabase client.");
     }
@@ -3667,9 +3672,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               if (adminDb) {
                 await adminDb.collection(mapping.firestore).doc(id).set(docData, { merge: true });
               } else {
-                const ok = await writeToFirestoreREST(mapping.firestore, id, docData);
-                if (!ok) {
-                  throw new Error("Firestore REST API write rejected.");
+                const res = await writeToFirestoreREST(mapping.firestore, id, docData, userAuthHeader);
+                if (!res.success) {
+                  throw new Error(res.error || "Firestore REST API write rejected.");
                 }
               }
               stats[mapping.firestore].migrated += 1;
@@ -3712,7 +3717,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         });
       }
 
-      const stats = await runSupabaseToFirestoreSync();
+      const stats = await runSupabaseToFirestoreSync(authHeader);
 
       return res.json({
         success: true,
