@@ -6004,37 +6004,27 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         try {
           console.log('[Account Deletion API] Deleting user rows from Supabase...');
           
-          // A. Delete messages of the user
-          await backendSupabase.from('messages').delete().eq('senderId', uid);
-          await backendSupabase.from('messages').delete().eq('recipientId', uid);
+          // A. Delete critical elements synchronously to prevent username hijacking and ensure clean state transitions
+          await Promise.all([
+            backendSupabase.from('store_names').delete().eq('userId', uid),
+            ...(storeNameLower ? [backendSupabase.from('store_names').delete().eq('id', storeNameLower)] : []),
+            backendSupabase.from('users').delete().eq('id', uid)
+          ]);
 
-          // B. Delete chats of the user
-          await backendSupabase.from('chats').delete().eq('buyerId', uid);
-          await backendSupabase.from('chats').delete().eq('sellerId', uid);
+          // B. Non-critical elements run in background (fire-and-forget) to keep deletion latency ultra-low and prevent timeouts
+          Promise.all([
+            backendSupabase.from('messages').delete().eq('senderId', uid),
+            backendSupabase.from('messages').delete().eq('recipientId', uid),
+            backendSupabase.from('chats').delete().eq('buyerId', uid),
+            backendSupabase.from('chats').delete().eq('sellerId', uid),
+            backendSupabase.from('products').delete().eq('sellerId', uid),
+            backendSupabase.from('reviews').delete().eq('buyerId', uid),
+            backendSupabase.from('reviews').delete().eq('sellerId', uid),
+            backendSupabase.from('notifications').delete().eq('userId', uid),
+            backendSupabase.from('boost_purchases').delete().eq('userId', uid)
+          ]).catch(sbBgErr => console.warn('[Account Deletion Supabase Background] Background tables deletion failed:', sbBgErr));
 
-          // C. Delete products of the user
-          await backendSupabase.from('products').delete().eq('sellerId', uid);
-
-          // D. Delete reviews of the user
-          await backendSupabase.from('reviews').delete().eq('buyerId', uid);
-          await backendSupabase.from('reviews').delete().eq('sellerId', uid);
-
-          // E. Delete notifications of the user
-          await backendSupabase.from('notifications').delete().eq('userId', uid);
-
-          // F. Delete boost purchases of the user
-          await backendSupabase.from('boost_purchases').delete().eq('userId', uid);
-
-          // G. Delete store names mapping of the user
-          await backendSupabase.from('store_names').delete().eq('userId', uid);
-          if (storeNameLower) {
-            await backendSupabase.from('store_names').delete().eq('id', storeNameLower);
-          }
-
-          // H. Delete user profile row
-          await backendSupabase.from('users').delete().eq('id', uid);
-
-          console.log('[Account Deletion API] Supabase rows successfully deleted.');
+          console.log('[Account Deletion API] Supabase critical rows successfully deleted. Background cleanup dispatched.');
         } catch (sbErr: any) {
           console.warn('[Account Deletion API] Supabase delete failed:', sbErr);
         }
@@ -6637,21 +6627,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (backendSupabase) {
         try {
           console.log('[Admin Account Deletion] Deleting user rows from Supabase...');
-          await backendSupabase.from('messages').delete().eq('senderId', targetUserId);
-          await backendSupabase.from('messages').delete().eq('recipientId', targetUserId);
-          await backendSupabase.from('chats').delete().eq('buyerId', targetUserId);
-          await backendSupabase.from('chats').delete().eq('sellerId', targetUserId);
-          await backendSupabase.from('products').delete().eq('sellerId', targetUserId);
-          await backendSupabase.from('reviews').delete().eq('buyerId', targetUserId);
-          await backendSupabase.from('reviews').delete().eq('sellerId', targetUserId);
-          await backendSupabase.from('notifications').delete().eq('userId', targetUserId);
-          await backendSupabase.from('boost_purchases').delete().eq('userId', targetUserId);
-          await backendSupabase.from('store_names').delete().eq('userId', targetUserId);
-          if (storeNameLower) {
-            await backendSupabase.from('store_names').delete().eq('id', storeNameLower);
-          }
-          await backendSupabase.from('users').delete().eq('id', targetUserId);
-          console.log('[Admin Account Deletion] Supabase rows successfully deleted.');
+          
+          // A. Delete critical elements synchronously to prevent username hijacking and ensure clean state transitions
+          await Promise.all([
+            backendSupabase.from('store_names').delete().eq('userId', targetUserId),
+            ...(storeNameLower ? [backendSupabase.from('store_names').delete().eq('id', storeNameLower)] : []),
+            backendSupabase.from('users').delete().eq('id', targetUserId)
+          ]);
+
+          // B. Non-critical elements run in background (fire-and-forget) to keep deletion latency ultra-low and prevent timeouts
+          Promise.all([
+            backendSupabase.from('messages').delete().eq('senderId', targetUserId),
+            backendSupabase.from('messages').delete().eq('recipientId', targetUserId),
+            backendSupabase.from('chats').delete().eq('buyerId', targetUserId),
+            backendSupabase.from('chats').delete().eq('sellerId', targetUserId),
+            backendSupabase.from('products').delete().eq('sellerId', targetUserId),
+            backendSupabase.from('reviews').delete().eq('buyerId', targetUserId),
+            backendSupabase.from('reviews').delete().eq('sellerId', targetUserId),
+            backendSupabase.from('notifications').delete().eq('userId', targetUserId),
+            backendSupabase.from('boost_purchases').delete().eq('userId', targetUserId)
+          ]).catch(sbBgErr => console.warn('[Admin Account Deletion Supabase Background] Background tables deletion failed:', sbBgErr));
+
+          console.log('[Admin Account Deletion] Supabase critical rows successfully deleted. Background cleanup dispatched.');
         } catch (sbErr: any) {
           console.warn('[Admin Account Deletion] Supabase delete failed:', sbErr);
         }
