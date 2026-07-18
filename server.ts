@@ -5622,6 +5622,79 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
   // API to delete a user account and all associated data from the system (Firestore and Supabase)
   app.post('/api/auth/delete-account', async (req, res) => {
+    // 0. Inner Helper Functions for Firestore REST API fallback
+    async function queryDocumentsREST(collection: string, field: string, value: string, userAuthHeader?: string): Promise<string[]> {
+      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const metadataToken = await getGCPMetadataToken();
+        if (metadataToken) {
+          headers['Authorization'] = `Bearer ${metadataToken}`;
+        } else if (userAuthHeader) {
+          headers['Authorization'] = userAuthHeader;
+        }
+        const response = await fetch(firestoreUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: collection, allDescendants: false }],
+              where: {
+                fieldFilter: {
+                  field: { fieldPath: field },
+                  op: 'EQUAL',
+                  value: { stringValue: value }
+                }
+              }
+            }
+          })
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          console.warn(`[queryDocumentsREST] Failed with status ${response.status}: ${text}`);
+          return [];
+        }
+        const data = await response.json();
+        if (!Array.isArray(data)) return [];
+        const docIds: string[] = [];
+        for (const item of data) {
+          if (item.document) {
+            const docPath = item.document.name;
+            const parts = docPath.split('/');
+            const docId = parts[parts.length - 1];
+            if (docId) {
+              docIds.push(docId);
+            }
+          }
+        }
+        return docIds;
+      } catch (err) {
+        console.error(`[queryDocumentsREST] Failed for ${collection} where ${field} = ${value}:`, err);
+        return [];
+      }
+    }
+
+    async function deleteDocumentREST(collection: string, docId: string, userAuthHeader?: string): Promise<boolean> {
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}/${docId}${apiKey ? `?key=${apiKey}` : ""}`;
+      try {
+        const headers: Record<string, string> = {};
+        const metadataToken = await getGCPMetadataToken();
+        if (metadataToken) {
+          headers['Authorization'] = `Bearer ${metadataToken}`;
+        } else if (userAuthHeader) {
+          headers['Authorization'] = userAuthHeader;
+        }
+        const response = await fetch(url, {
+          method: 'DELETE',
+          headers
+        });
+        return response.ok;
+      } catch (err: any) {
+        console.error(`[deleteDocumentREST] Failed for ${collection}/${docId}:`, err);
+        return false;
+      }
+    }
+
     try {
       const authHeader = req.headers.authorization;
       const verified = await verifyUser(authHeader);
@@ -5649,6 +5722,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         } catch (err) {
           console.warn('[Account Deletion API] Failed to fetch user doc from Firestore:', err);
+        }
+      } else {
+        // Fallback to fetch user username via REST
+        try {
+          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${uid}${apiKey ? `?key=${apiKey}` : ""}`;
+          const headers: Record<string, string> = {};
+          const metadataToken = await getGCPMetadataToken();
+          if (metadataToken) {
+            headers['Authorization'] = `Bearer ${metadataToken}`;
+          } else if (authHeader) {
+            headers['Authorization'] = authHeader;
+          }
+          const response = await fetch(url, { headers });
+          if (response.ok) {
+            const userDoc = await response.json();
+            const parsed = parseFirestoreDocument(userDoc);
+            if (parsed) {
+              username = parsed.username || '';
+            }
+          }
+        } catch (err) {
+          console.warn('[Account Deletion API] REST fallback fetch user doc failed:', err);
         }
       }
 
@@ -5777,6 +5872,70 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         } catch (fsErr: any) {
           console.warn('[Account Deletion API] Admin SDK Firestore delete failed:', fsErr);
         }
+      } else {
+        // Fallback REST API deletion for Firestore
+        try {
+          console.log('[Account Deletion API] Deleting user documents from Firestore via REST API fallback...');
+          
+          // A. Delete Products
+          const productIds = await queryDocumentsREST('products', 'sellerId', uid, authHeader);
+          await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader)));
+
+          // B. Delete Reviews
+          const buyerReviews = await queryDocumentsREST('reviews', 'buyerId', uid, authHeader);
+          const sellerReviews = await queryDocumentsREST('reviews', 'sellerId', uid, authHeader);
+          const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
+          await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader)));
+
+          // C. Delete Chats and Messages
+          const buyerChats = await queryDocumentsREST('chats', 'buyerId', uid, authHeader);
+          const sellerChats = await queryDocumentsREST('chats', 'sellerId', uid, authHeader);
+          const chatIds = Array.from(new Set([...buyerChats, ...sellerChats]));
+          await Promise.all(chatIds.map(cid => deleteDocumentREST('chats', cid, authHeader)));
+
+          // Messages
+          const senderMsgs = await queryDocumentsREST('messages', 'senderId', uid, authHeader);
+          const recipientMsgs = await queryDocumentsREST('messages', 'recipientId', uid, authHeader);
+          const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
+          
+          // Also fetch messages in chats
+          if (chatIds.length > 0) {
+            for (const cid of chatIds) {
+              const chatMsgs = await queryDocumentsREST('messages', 'chatId', cid, authHeader);
+              chatMsgs.forEach(mid => msgIds.push(mid));
+            }
+          }
+          const uniqueMsgIds = Array.from(new Set(msgIds));
+          await Promise.all(uniqueMsgIds.map(mid => deleteDocumentREST('messages', mid, authHeader)));
+
+          // D. Delete Notifications
+          const notifIds = await queryDocumentsREST('notifications', 'userId', uid, authHeader);
+          await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader)));
+
+          // E. Delete Boost Purchases
+          const bp1 = await queryDocumentsREST('boost_purchases', 'userId', uid, authHeader);
+          const bp2 = await queryDocumentsREST('boostPurchases', 'userId', uid, authHeader);
+          const bpIds = Array.from(new Set([...bp1, ...bp2]));
+          await Promise.all(bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader)));
+          await Promise.all(bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader)));
+
+          // F. Delete StoreName mapping
+          if (storeNameLower) {
+            await deleteDocumentREST('storeNames', storeNameLower, authHeader);
+          }
+
+          // G. Delete User Profile Doc
+          await deleteDocumentREST('users', uid, authHeader);
+
+          // H. Delete any deletedEmails blocklist entry for this email (to allow registering again)
+          if (cleanEmail) {
+            await deleteDocumentREST('deletedEmails', cleanEmail, authHeader);
+          }
+
+          console.log('[Account Deletion API] Firestore documents successfully deleted via REST API.');
+        } catch (fsErr: any) {
+          console.warn('[Account Deletion API] REST API Firestore delete failed:', fsErr);
+        }
       }
 
       // 3. Perform deletions in Supabase if active
@@ -5832,6 +5991,30 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       } catch (authErr: any) {
         console.warn('[Account Deletion API] Firebase Auth deleteUser failed:', authErr);
+      }
+
+      // Fallback REST deletion of Firebase Auth account using their JWT
+      if (!authDeleted && apiKey) {
+        try {
+          const token = authHeader?.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
+          if (token) {
+            console.log(`[Account Deletion API] Attempting Firebase Auth account deletion via Identity Toolkit REST API for UID ${uid}...`);
+            const authDelRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ idToken: token })
+            });
+            if (authDelRes.ok) {
+              console.log(`[Account Deletion API] Successfully deleted auth user ${uid} via REST API.`);
+              authDeleted = true;
+            } else {
+              const errBody = await authDelRes.text();
+              console.warn(`[Account Deletion API] REST Auth delete failed: status ${authDelRes.status}, body: ${errBody}`);
+            }
+          }
+        } catch (restAuthErr) {
+          console.warn('[Account Deletion API] REST Auth delete exception:', restAuthErr);
+        }
       }
 
       // Clear product list cache so changes are instantly reflected on browse view
