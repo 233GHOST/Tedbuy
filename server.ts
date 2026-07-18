@@ -5799,286 +5799,212 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       // 2. Perform deletions in Firestore using Admin SDK or REST fallback
       if (adminDb) {
-        console.log('[Account Deletion API] Deleting user documents from Firestore via Admin SDK...');
+        console.log('[Account Deletion API] Deleting user documents from Firestore via Admin SDK in parallel...');
         
-        // A. Delete Products
         try {
-          const productsSnap = await withTimeout(
-            adminDb.collection('products').where('sellerId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (productsSnap && !productsSnap.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, productsSnap), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API] Failed to delete products:', err);
-        }
+          const deleteProducts = async () => {
+            const productsSnap = await adminDb.collection('products').where('sellerId', '==', uid).get().catch(() => null);
+            if (productsSnap && !productsSnap.empty) {
+              await deleteDocumentsInChunks(adminDb, productsSnap).catch(() => {});
+            }
+          };
 
-        // B. Delete Reviews (buyerId or sellerId == uid)
-        try {
-          const reviewsSnap1 = await withTimeout(
-            adminDb.collection('reviews').where('buyerId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (reviewsSnap1 && !reviewsSnap1.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap1), 10000, undefined);
-          }
-          
-          const reviewsSnap2 = await withTimeout(
-            adminDb.collection('reviews').where('sellerId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (reviewsSnap2 && !reviewsSnap2.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap2), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API] Failed to delete reviews:', err);
-        }
+          const deleteReviews = async () => {
+            const [reviewsSnap1, reviewsSnap2] = await Promise.all([
+              adminDb.collection('reviews').where('buyerId', '==', uid).get().catch(() => null),
+              adminDb.collection('reviews').where('sellerId', '==', uid).get().catch(() => null)
+            ]);
+            const promises: Promise<any>[] = [];
+            if (reviewsSnap1 && !reviewsSnap1.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap1).catch(() => {}));
+            if (reviewsSnap2 && !reviewsSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap2).catch(() => {}));
+            await Promise.all(promises);
+          };
 
-        // C. Delete Chats and Messages
-        const chatIds = new Set<string>();
-        try {
-          const chatsSnap1 = await withTimeout(
-            adminDb.collection('chats').where('buyerId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (chatsSnap1 && !chatsSnap1.empty) {
-            (chatsSnap1 as any).forEach((doc: any) => chatIds.add(doc.id));
-            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap1), 10000, undefined);
-          }
+          const deleteChatsAndMessages = async () => {
+            const [chatsSnap1, chatsSnap2] = await Promise.all([
+              adminDb.collection('chats').where('buyerId', '==', uid).get().catch(() => null),
+              adminDb.collection('chats').where('sellerId', '==', uid).get().catch(() => null)
+            ]);
+            const chatIds = new Set<string>();
+            const promises: Promise<any>[] = [];
+            if (chatsSnap1 && !chatsSnap1.empty) {
+              chatsSnap1.forEach((doc: any) => chatIds.add(doc.id));
+              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap1).catch(() => {}));
+            }
+            if (chatsSnap2 && !chatsSnap2.empty) {
+              chatsSnap2.forEach((doc: any) => chatIds.add(doc.id));
+              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap2).catch(() => {}));
+            }
+            await Promise.all(promises);
 
-          const chatsSnap2 = await withTimeout(
-            adminDb.collection('chats').where('sellerId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (chatsSnap2 && !chatsSnap2.empty) {
-            (chatsSnap2 as any).forEach((doc: any) => chatIds.add(doc.id));
-            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap2), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API] Failed to delete chats:', err);
-        }
-
-        try {
-          const mSnap1 = await withTimeout(
-            adminDb.collection('messages').where('senderId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (mSnap1 && !mSnap1.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap1), 10000, undefined);
-          }
-
-          const mSnap2 = await withTimeout(
-            adminDb.collection('messages').where('recipientId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (mSnap2 && !mSnap2.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap2), 10000, undefined);
-          }
-
-          if (chatIds.size > 0) {
-            for (const chatId of chatIds) {
-              const chatMsgs = await withTimeout(
-                adminDb.collection('messages').where('chatId', '==', chatId).get(),
-                5000,
-                { empty: true, docs: [] }
-              );
-              if (chatMsgs && !chatMsgs.empty) {
-                await withTimeout(deleteDocumentsInChunks(adminDb, chatMsgs), 10000, undefined);
+            const [mSnap1, mSnap2] = await Promise.all([
+              adminDb.collection('messages').where('senderId', '==', uid).get().catch(() => null),
+              adminDb.collection('messages').where('recipientId', '==', uid).get().catch(() => null)
+            ]);
+            const msgPromises: Promise<any>[] = [];
+            if (mSnap1 && !mSnap1.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap1).catch(() => {}));
+            if (mSnap2 && !mSnap2.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap2).catch(() => {}));
+            
+            if (chatIds.size > 0) {
+              for (const chatId of chatIds) {
+                msgPromises.push(
+                  adminDb.collection('messages').where('chatId', '==', chatId).get()
+                    .then((snap: any) => {
+                      if (snap && !snap.empty) return deleteDocumentsInChunks(adminDb, snap);
+                    })
+                    .catch(() => {})
+                );
               }
             }
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API] Failed to delete messages:', err);
-        }
+            await Promise.all(msgPromises);
+          };
 
-        // D. Delete Notifications (userId == uid)
-        try {
-          const notifsSnap = await withTimeout(
-            adminDb.collection('notifications').where('userId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (notifsSnap && !notifsSnap.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, notifsSnap), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API] Failed to delete notifications:', err);
-        }
+          const deleteNotifications = async () => {
+            const notifsSnap = await adminDb.collection('notifications').where('userId', '==', uid).get().catch(() => null);
+            if (notifsSnap && !notifsSnap.empty) {
+              await deleteDocumentsInChunks(adminDb, notifsSnap).catch(() => {});
+            }
+          };
 
-        // E. Delete Boost Purchases (userId == uid)
-        try {
-          const bpSnap = await withTimeout(
-            adminDb.collection('boost_purchases').where('userId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (bpSnap && !bpSnap.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap), 10000, undefined);
-          }
+          const deleteBoostPurchases = async () => {
+            const [bpSnap, bpSnap2] = await Promise.all([
+              adminDb.collection('boost_purchases').where('userId', '==', uid).get().catch(() => null),
+              adminDb.collection('boostPurchases').where('userId', '==', uid).get().catch(() => null)
+            ]);
+            const promises: Promise<any>[] = [];
+            if (bpSnap && !bpSnap.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap).catch(() => {}));
+            if (bpSnap2 && !bpSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap2).catch(() => {}));
+            await Promise.all(promises);
+          };
 
-          const bpSnap2 = await withTimeout(
-            adminDb.collection('boostPurchases').where('userId', '==', uid).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (bpSnap2 && !bpSnap2.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap2), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API] Failed to delete boost purchases:', err);
-        }
+          const deleteProfileAndStoreNames = async () => {
+            const promises: Promise<any>[] = [];
+            if (storeNameLower) {
+              promises.push(adminDb.collection('storeNames').doc(storeNameLower).delete().catch(() => {}));
+            }
+            promises.push(adminDb.collection('users').doc(uid).delete().catch(() => {}));
+            if (cleanEmail) {
+              promises.push(adminDb.collection('deletedEmails').doc(cleanEmail).delete().catch(() => {}));
+            }
+            await Promise.all(promises);
+          };
 
-        // F. Delete StoreName mapping
-        if (storeNameLower) {
-          try {
-            await withTimeout(
-              adminDb.collection('storeNames').doc(storeNameLower).delete(),
-              5000,
-              undefined
-            );
-          } catch (err) {
-            console.warn('[Account Deletion API] Failed to delete storeName mapping:', err);
-          }
-        }
-
-        // G. Delete User Profile Doc
-        try {
+          // Execute everything concurrently with a solid timeout guard
           await withTimeout(
-            adminDb.collection('users').doc(uid).delete(),
-            5000,
-            undefined
+            Promise.all([
+              deleteProducts(),
+              deleteReviews(),
+              deleteChatsAndMessages(),
+              deleteNotifications(),
+              deleteBoostPurchases(),
+              deleteProfileAndStoreNames()
+            ]) as Promise<any>,
+            10000,
+            []
           );
-          console.log('[Account Deletion API] User profile document successfully deleted.');
+          console.log('[Account Deletion API] User data and profile successfully deleted from Firestore.');
         } catch (err) {
-          console.warn('[Account Deletion API] Failed to delete user profile document:', err);
-        }
-
-        // H. Delete any deletedEmails blocklist entry for this email
-        if (cleanEmail) {
-          try {
-            await withTimeout(
-              adminDb.collection('deletedEmails').doc(cleanEmail).delete(),
-              5000,
-              undefined
-            );
-          } catch (err) {
-            console.warn('[Account Deletion API] Failed to delete deletedEmails entry:', err);
-          }
+          console.error('[Account Deletion API] Error during parallel Firestore deletion:', err);
         }
       } else {
-        // Fallback REST API deletion for Firestore
-        console.log('[Account Deletion API] Deleting user documents from Firestore via REST API fallback...');
+        // Fallback REST API deletion for Firestore in parallel
+        console.log('[Account Deletion API] Deleting user documents from Firestore via REST API fallback in parallel...');
         
-        // A. Delete Products
         try {
-          const productIds = await queryDocumentsREST('products', 'sellerId', uid, authHeader);
-          if (productIds && productIds.length > 0) {
-            await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API REST] Failed to delete products:', err);
-        }
-
-        // B. Delete Reviews
-        try {
-          const buyerReviews = await queryDocumentsREST('reviews', 'buyerId', uid, authHeader);
-          const sellerReviews = await queryDocumentsREST('reviews', 'sellerId', uid, authHeader);
-          const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
-          if (reviewIds.length > 0) {
-            await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API REST] Failed to delete reviews:', err);
-        }
-
-        // C. Delete Chats and Messages
-        const chatIds: string[] = [];
-        try {
-          const buyerChats = await queryDocumentsREST('chats', 'buyerId', uid, authHeader);
-          const sellerChats = await queryDocumentsREST('chats', 'sellerId', uid, authHeader);
-          const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
-          resolvedChats.forEach(cid => chatIds.push(cid));
-          if (resolvedChats.length > 0) {
-            await Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API REST] Failed to delete chats:', err);
-        }
-
-        try {
-          const senderMsgs = await queryDocumentsREST('messages', 'senderId', uid, authHeader);
-          const recipientMsgs = await queryDocumentsREST('messages', 'recipientId', uid, authHeader);
-          const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
-          
-          if (chatIds.length > 0) {
-            for (const cid of chatIds) {
-              const chatMsgs = await queryDocumentsREST('messages', 'chatId', cid, authHeader);
-              chatMsgs.forEach(mid => msgIds.push(mid));
+          const deleteProductsREST = async () => {
+            const productIds = await queryDocumentsREST('products', 'sellerId', uid, authHeader);
+            if (productIds && productIds.length > 0) {
+              await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader).catch(() => {})));
             }
-          }
-          const uniqueMsgIds = Array.from(new Set(msgIds));
-          if (uniqueMsgIds.length > 0) {
-            await Promise.all(uniqueMsgIds.map(mid => deleteDocumentREST('messages', mid, authHeader)));
-          }
+          };
+
+          const deleteReviewsREST = async () => {
+            const [buyerReviews, sellerReviews] = await Promise.all([
+              queryDocumentsREST('reviews', 'buyerId', uid, authHeader),
+              queryDocumentsREST('reviews', 'sellerId', uid, authHeader)
+            ]);
+            const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
+            if (reviewIds.length > 0) {
+              await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader).catch(() => {})));
+            }
+          };
+
+          const deleteChatsAndMessagesREST = async () => {
+            const [buyerChats, sellerChats] = await Promise.all([
+              queryDocumentsREST('chats', 'buyerId', uid, authHeader),
+              queryDocumentsREST('chats', 'sellerId', uid, authHeader)
+            ]);
+            const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
+            const promises: Promise<any>[] = [];
+            if (resolvedChats.length > 0) {
+              promises.push(Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader).catch(() => {}))));
+            }
+
+            const [senderMsgs, recipientMsgs] = await Promise.all([
+              queryDocumentsREST('messages', 'senderId', uid, authHeader),
+              queryDocumentsREST('messages', 'recipientId', uid, authHeader)
+            ]);
+            const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
+            
+            if (resolvedChats.length > 0) {
+              for (const cid of resolvedChats) {
+                promises.push(
+                  queryDocumentsREST('messages', 'chatId', cid, authHeader)
+                    .then(chatMsgs => Promise.all(chatMsgs.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))))
+                    .catch(() => {})
+                );
+              }
+            }
+            if (msgIds.length > 0) {
+              promises.push(Promise.all(msgIds.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))));
+            }
+            await Promise.all(promises);
+          };
+
+          const deleteNotificationsREST = async () => {
+            const notifIds = await queryDocumentsREST('notifications', 'userId', uid, authHeader);
+            if (notifIds.length > 0) {
+              await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader).catch(() => {})));
+            }
+          };
+
+          const deleteBoostPurchasesREST = async () => {
+            const [bp1, bp2] = await Promise.all([
+              queryDocumentsREST('boost_purchases', 'userId', uid, authHeader),
+              queryDocumentsREST('boostPurchases', 'userId', uid, authHeader)
+            ]);
+            const bpIds = Array.from(new Set([...bp1, ...bp2]));
+            if (bpIds.length > 0) {
+              await Promise.all([
+                ...bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader).catch(() => {})),
+                ...bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader).catch(() => {}))
+              ]);
+            }
+          };
+
+          const deleteProfileAndStoreNamesREST = async () => {
+            const promises: Promise<any>[] = [];
+            if (storeNameLower) {
+              promises.push(deleteDocumentREST('storeNames', storeNameLower, authHeader).catch(() => {}));
+            }
+            promises.push(deleteDocumentREST('users', uid, authHeader).catch(() => {}));
+            if (cleanEmail) {
+              promises.push(deleteDocumentREST('deletedEmails', cleanEmail, authHeader).catch(() => {}));
+            }
+            await Promise.all(promises);
+          };
+
+          await Promise.all([
+            deleteProductsREST(),
+            deleteReviewsREST(),
+            deleteChatsAndMessagesREST(),
+            deleteNotificationsREST(),
+            deleteBoostPurchasesREST(),
+            deleteProfileAndStoreNamesREST()
+          ]);
+          console.log('[Account Deletion API REST] User profile and data successfully deleted from Firestore.');
         } catch (err) {
-          console.warn('[Account Deletion API REST] Failed to delete messages:', err);
-        }
-
-        // D. Delete Notifications
-        try {
-          const notifIds = await queryDocumentsREST('notifications', 'userId', uid, authHeader);
-          if (notifIds.length > 0) {
-            await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API REST] Failed to delete notifications:', err);
-        }
-
-        // E. Delete Boost Purchases
-        try {
-          const bp1 = await queryDocumentsREST('boost_purchases', 'userId', uid, authHeader);
-          const bp2 = await queryDocumentsREST('boostPurchases', 'userId', uid, authHeader);
-          const bpIds = Array.from(new Set([...bp1, ...bp2]));
-          if (bpIds.length > 0) {
-            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader)));
-            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API REST] Failed to delete boost purchases:', err);
-        }
-
-        // F. Delete StoreName mapping
-        if (storeNameLower) {
-          try {
-            await deleteDocumentREST('storeNames', storeNameLower, authHeader);
-          } catch (err) {
-            console.warn('[Account Deletion API REST] Failed to delete store name mapping:', err);
-          }
-        }
-
-        // G. Delete User Profile Doc
-        try {
-          await deleteDocumentREST('users', uid, authHeader);
-          console.log('[Account Deletion API REST] User profile document successfully deleted.');
-        } catch (err) {
-          console.warn('[Account Deletion API REST] Failed to delete user profile document:', err);
-        }
-
-        // H. Delete any deletedEmails blocklist entry for this email
-        if (cleanEmail) {
-          try {
-            await deleteDocumentREST('deletedEmails', cleanEmail, authHeader);
-          } catch (err) {
-            console.warn('[Account Deletion API REST] Failed to delete deletedEmails entry:', err);
-          }
+          console.error('[Account Deletion API REST] Error during parallel REST Firestore deletion:', err);
         }
       }
 
@@ -6354,286 +6280,214 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       // 2. Perform deletions in Firestore
       if (adminDb) {
-        console.log('[Admin Account Deletion] Deleting target user documents from Firestore via Admin SDK...');
+        console.log('[Admin Account Deletion] Deleting target user documents from Firestore via Admin SDK in parallel...');
         
-        // A. Delete Products
         try {
-          const productsSnap = await withTimeout(
-            adminDb.collection('products').where('sellerId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (productsSnap && !productsSnap.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, productsSnap), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to delete products:', err);
-        }
+          const deleteProducts = async () => {
+            const productsSnap = await adminDb.collection('products').where('sellerId', '==', targetUserId).get().catch(() => null);
+            if (productsSnap && !productsSnap.empty) {
+              await deleteDocumentsInChunks(adminDb, productsSnap).catch(() => {});
+            }
+          };
 
-        // B. Delete Reviews
-        try {
-          const reviewsSnap1 = await withTimeout(
-            adminDb.collection('reviews').where('buyerId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (reviewsSnap1 && !reviewsSnap1.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap1), 10000, undefined);
-          }
-          
-          const reviewsSnap2 = await withTimeout(
-            adminDb.collection('reviews').where('sellerId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (reviewsSnap2 && !reviewsSnap2.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, reviewsSnap2), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to delete reviews:', err);
-        }
+          const deleteReviews = async () => {
+            const [reviewsSnap1, reviewsSnap2] = await Promise.all([
+              adminDb.collection('reviews').where('buyerId', '==', targetUserId).get().catch(() => null),
+              adminDb.collection('reviews').where('sellerId', '==', targetUserId).get().catch(() => null)
+            ]);
+            const promises: Promise<any>[] = [];
+            if (reviewsSnap1 && !reviewsSnap1.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap1).catch(() => {}));
+            if (reviewsSnap2 && !reviewsSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap2).catch(() => {}));
+            await Promise.all(promises);
+          };
 
-        // C. Delete Chats and Messages
-        const chatIds = new Set<string>();
-        try {
-          const chatsSnap1 = await withTimeout(
-            adminDb.collection('chats').where('buyerId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (chatsSnap1 && !chatsSnap1.empty) {
-            (chatsSnap1 as any).forEach((doc: any) => chatIds.add(doc.id));
-            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap1), 10000, undefined);
-          }
+          const deleteChatsAndMessages = async () => {
+            const [chatsSnap1, chatsSnap2] = await Promise.all([
+              adminDb.collection('chats').where('buyerId', '==', targetUserId).get().catch(() => null),
+              adminDb.collection('chats').where('sellerId', '==', targetUserId).get().catch(() => null)
+            ]);
+            const chatIds = new Set<string>();
+            const promises: Promise<any>[] = [];
+            if (chatsSnap1 && !chatsSnap1.empty) {
+              chatsSnap1.forEach((doc: any) => chatIds.add(doc.id));
+              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap1).catch(() => {}));
+            }
+            if (chatsSnap2 && !chatsSnap2.empty) {
+              chatsSnap2.forEach((doc: any) => chatIds.add(doc.id));
+              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap2).catch(() => {}));
+            }
+            await Promise.all(promises);
 
-          const chatsSnap2 = await withTimeout(
-            adminDb.collection('chats').where('sellerId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (chatsSnap2 && !chatsSnap2.empty) {
-            (chatsSnap2 as any).forEach((doc: any) => chatIds.add(doc.id));
-            await withTimeout(deleteDocumentsInChunks(adminDb, chatsSnap2), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to delete chats:', err);
-        }
-
-        try {
-          const mSnap1 = await withTimeout(
-            adminDb.collection('messages').where('senderId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (mSnap1 && !mSnap1.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap1), 10000, undefined);
-          }
-
-          const mSnap2 = await withTimeout(
-            adminDb.collection('messages').where('recipientId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (mSnap2 && !mSnap2.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, mSnap2), 10000, undefined);
-          }
-
-          if (chatIds.size > 0) {
-            for (const chatId of chatIds) {
-              const chatMsgs = await withTimeout(
-                adminDb.collection('messages').where('chatId', '==', chatId).get(),
-                5000,
-                { empty: true, docs: [] }
-              );
-              if (chatMsgs && !chatMsgs.empty) {
-                await withTimeout(deleteDocumentsInChunks(adminDb, chatMsgs), 10000, undefined);
+            const [mSnap1, mSnap2] = await Promise.all([
+              adminDb.collection('messages').where('senderId', '==', targetUserId).get().catch(() => null),
+              adminDb.collection('messages').where('recipientId', '==', targetUserId).get().catch(() => null)
+            ]);
+            const msgPromises: Promise<any>[] = [];
+            if (mSnap1 && !mSnap1.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap1).catch(() => {}));
+            if (mSnap2 && !mSnap2.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap2).catch(() => {}));
+            
+            if (chatIds.size > 0) {
+              for (const chatId of chatIds) {
+                msgPromises.push(
+                  adminDb.collection('messages').where('chatId', '==', chatId).get()
+                    .then((snap: any) => {
+                      if (snap && !snap.empty) return deleteDocumentsInChunks(adminDb, snap);
+                    })
+                    .catch(() => {})
+                );
               }
             }
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to delete messages:', err);
-        }
+            await Promise.all(msgPromises);
+          };
 
-        // D. Delete Notifications
-        try {
-          const notifsSnap = await withTimeout(
-            adminDb.collection('notifications').where('userId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (notifsSnap && !notifsSnap.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, notifsSnap), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to delete notifications:', err);
-        }
+          const deleteNotifications = async () => {
+            const notifsSnap = await adminDb.collection('notifications').where('userId', '==', targetUserId).get().catch(() => null);
+            if (notifsSnap && !notifsSnap.empty) {
+              await deleteDocumentsInChunks(adminDb, notifsSnap).catch(() => {});
+            }
+          };
 
-        // E. Delete Boost Purchases
-        try {
-          const bpSnap = await withTimeout(
-            adminDb.collection('boost_purchases').where('userId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (bpSnap && !bpSnap.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap), 10000, undefined);
-          }
+          const deleteBoostPurchases = async () => {
+            const [bpSnap, bpSnap2] = await Promise.all([
+              adminDb.collection('boost_purchases').where('userId', '==', targetUserId).get().catch(() => null),
+              adminDb.collection('boostPurchases').where('userId', '==', targetUserId).get().catch(() => null)
+            ]);
+            const promises: Promise<any>[] = [];
+            if (bpSnap && !bpSnap.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap).catch(() => {}));
+            if (bpSnap2 && !bpSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap2).catch(() => {}));
+            await Promise.all(promises);
+          };
 
-          const bpSnap2 = await withTimeout(
-            adminDb.collection('boostPurchases').where('userId', '==', targetUserId).get(),
-            8000,
-            { empty: true, docs: [] }
-          );
-          if (bpSnap2 && !bpSnap2.empty) {
-            await withTimeout(deleteDocumentsInChunks(adminDb, bpSnap2), 10000, undefined);
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to delete boost purchases:', err);
-        }
+          const deleteProfileAndStoreNames = async () => {
+            const promises: Promise<any>[] = [];
+            if (storeNameLower) {
+              promises.push(adminDb.collection('storeNames').doc(storeNameLower).delete().catch(() => {}));
+            }
+            promises.push(adminDb.collection('users').doc(targetUserId).delete().catch(() => {}));
+            if (targetEmail) {
+              const cleanEmail = targetEmail.trim().toLowerCase();
+              promises.push(adminDb.collection('deletedEmails').doc(cleanEmail).delete().catch(() => {}));
+            }
+            await Promise.all(promises);
+          };
 
-        // F. Delete StoreName mapping
-        if (storeNameLower) {
-          try {
-            await withTimeout(
-              adminDb.collection('storeNames').doc(storeNameLower).delete(),
-              5000,
-              undefined
-            );
-          } catch (err) {
-            console.warn('[Admin Account Deletion] Failed to delete storeName mapping:', err);
-          }
-        }
-
-        // G. Delete User Profile Doc
-        try {
+          // Execute everything concurrently with a solid timeout guard
           await withTimeout(
-            adminDb.collection('users').doc(targetUserId).delete(),
-            5000,
-            undefined
+            Promise.all([
+              deleteProducts(),
+              deleteReviews(),
+              deleteChatsAndMessages(),
+              deleteNotifications(),
+              deleteBoostPurchases(),
+              deleteProfileAndStoreNames()
+            ]) as Promise<any>,
+            10000,
+            []
           );
+          console.log('[Admin Account Deletion] User data and profile successfully deleted from Firestore via Admin SDK.');
         } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to delete user profile document:', err);
-        }
-
-        // H. Delete deletedEmails
-        if (targetEmail) {
-          const cleanEmail = targetEmail.trim().toLowerCase();
-          try {
-            await withTimeout(
-              adminDb.collection('deletedEmails').doc(cleanEmail).delete(),
-              5000,
-              undefined
-            );
-          } catch (err) {
-            console.warn('[Admin Account Deletion] Failed to delete deletedEmails entry:', err);
-          }
+          console.error('[Admin Account Deletion] Error during parallel Firestore deletion:', err);
         }
       } else {
-        // Fallback REST API deletion for Firestore
-        console.log('[Admin Account Deletion] Deleting user documents from Firestore via REST API fallback...');
+        // Fallback REST API deletion for Firestore in parallel
+        console.log('[Admin Account Deletion] Deleting user documents from Firestore via REST API fallback in parallel...');
         
-        // A. Delete Products
         try {
-          const productIds = await queryDocumentsREST('products', 'sellerId', targetUserId, authHeader);
-          if (productIds && productIds.length > 0) {
-            await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion REST] Failed to delete products:', err);
-        }
-
-        // B. Delete Reviews
-        try {
-          const buyerReviews = await queryDocumentsREST('reviews', 'buyerId', targetUserId, authHeader);
-          const sellerReviews = await queryDocumentsREST('reviews', 'sellerId', targetUserId, authHeader);
-          const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
-          if (reviewIds.length > 0) {
-            await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion REST] Failed to delete reviews:', err);
-        }
-
-        // C. Delete Chats and Messages
-        const chatIds: string[] = [];
-        try {
-          const buyerChats = await queryDocumentsREST('chats', 'buyerId', targetUserId, authHeader);
-          const sellerChats = await queryDocumentsREST('chats', 'sellerId', targetUserId, authHeader);
-          const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
-          resolvedChats.forEach(cid => chatIds.push(cid));
-          if (resolvedChats.length > 0) {
-            await Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion REST] Failed to delete chats:', err);
-        }
-
-        try {
-          const senderMsgs = await queryDocumentsREST('messages', 'senderId', targetUserId, authHeader);
-          const recipientMsgs = await queryDocumentsREST('messages', 'recipientId', targetUserId, authHeader);
-          const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
-          
-          if (chatIds.length > 0) {
-            for (const cid of chatIds) {
-              const chatMsgs = await queryDocumentsREST('messages', 'chatId', cid, authHeader);
-              chatMsgs.forEach(mid => msgIds.push(mid));
+          const deleteProductsREST = async () => {
+            const productIds = await queryDocumentsREST('products', 'sellerId', targetUserId, authHeader);
+            if (productIds && productIds.length > 0) {
+              await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader).catch(() => {})));
             }
-          }
-          const uniqueMsgIds = Array.from(new Set(msgIds));
-          if (uniqueMsgIds.length > 0) {
-            await Promise.all(uniqueMsgIds.map(mid => deleteDocumentREST('messages', mid, authHeader)));
-          }
+          };
+
+          const deleteReviewsREST = async () => {
+            const [buyerReviews, sellerReviews] = await Promise.all([
+              queryDocumentsREST('reviews', 'buyerId', targetUserId, authHeader),
+              queryDocumentsREST('reviews', 'sellerId', targetUserId, authHeader)
+            ]);
+            const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
+            if (reviewIds.length > 0) {
+              await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader).catch(() => {})));
+            }
+          };
+
+          const deleteChatsAndMessagesREST = async () => {
+            const [buyerChats, sellerChats] = await Promise.all([
+              queryDocumentsREST('chats', 'buyerId', targetUserId, authHeader),
+              queryDocumentsREST('chats', 'sellerId', targetUserId, authHeader)
+            ]);
+            const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
+            const promises: Promise<any>[] = [];
+            if (resolvedChats.length > 0) {
+              promises.push(Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader).catch(() => {}))));
+            }
+
+            const [senderMsgs, recipientMsgs] = await Promise.all([
+              queryDocumentsREST('messages', 'senderId', targetUserId, authHeader),
+              queryDocumentsREST('messages', 'recipientId', targetUserId, authHeader)
+            ]);
+            const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
+            
+            if (resolvedChats.length > 0) {
+              for (const cid of resolvedChats) {
+                promises.push(
+                  queryDocumentsREST('messages', 'chatId', cid, authHeader)
+                    .then(chatMsgs => Promise.all(chatMsgs.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))))
+                    .catch(() => {})
+                );
+              }
+            }
+            if (msgIds.length > 0) {
+              promises.push(Promise.all(msgIds.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))));
+            }
+            await Promise.all(promises);
+          };
+
+          const deleteNotificationsREST = async () => {
+            const notifIds = await queryDocumentsREST('notifications', 'userId', targetUserId, authHeader);
+            if (notifIds.length > 0) {
+              await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader).catch(() => {})));
+            }
+          };
+
+          const deleteBoostPurchasesREST = async () => {
+            const [bp1, bp2] = await Promise.all([
+              queryDocumentsREST('boost_purchases', 'userId', targetUserId, authHeader),
+              queryDocumentsREST('boostPurchases', 'userId', targetUserId, authHeader)
+            ]);
+            const bpIds = Array.from(new Set([...bp1, ...bp2]));
+            if (bpIds.length > 0) {
+              await Promise.all([
+                ...bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader).catch(() => {})),
+                ...bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader).catch(() => {}))
+              ]);
+            }
+          };
+
+          const deleteProfileAndStoreNamesREST = async () => {
+            const promises: Promise<any>[] = [];
+            if (storeNameLower) {
+              promises.push(deleteDocumentREST('storeNames', storeNameLower, authHeader).catch(() => {}));
+            }
+            promises.push(deleteDocumentREST('users', targetUserId, authHeader).catch(() => {}));
+            if (targetEmail) {
+              const cleanEmail = targetEmail.trim().toLowerCase();
+              promises.push(deleteDocumentREST('deletedEmails', cleanEmail, authHeader).catch(() => {}));
+            }
+            await Promise.all(promises);
+          };
+
+          await Promise.all([
+            deleteProductsREST(),
+            deleteReviewsREST(),
+            deleteChatsAndMessagesREST(),
+            deleteNotificationsREST(),
+            deleteBoostPurchasesREST(),
+            deleteProfileAndStoreNamesREST()
+          ]);
+          console.log('[Admin Account Deletion REST] User profile and data successfully deleted from Firestore.');
         } catch (err) {
-          console.warn('[Admin Account Deletion REST] Failed to delete messages:', err);
-        }
-
-        // D. Delete Notifications
-        try {
-          const notifIds = await queryDocumentsREST('notifications', 'userId', targetUserId, authHeader);
-          if (notifIds.length > 0) {
-            await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion REST] Failed to delete notifications:', err);
-        }
-
-        // E. Delete Boost Purchases
-        try {
-          const bp1 = await queryDocumentsREST('boost_purchases', 'userId', targetUserId, authHeader);
-          const bp2 = await queryDocumentsREST('boostPurchases', 'userId', targetUserId, authHeader);
-          const bpIds = Array.from(new Set([...bp1, ...bp2]));
-          if (bpIds.length > 0) {
-            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader)));
-            await Promise.all(bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader)));
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion REST] Failed to delete boost purchases:', err);
-        }
-
-        // F. Delete StoreName mapping
-        if (storeNameLower) {
-          try {
-            await deleteDocumentREST('storeNames', storeNameLower, authHeader);
-          } catch (err) {
-            console.warn('[Admin Account Deletion REST] Failed to delete store name mapping:', err);
-          }
-        }
-
-        // G. Delete User Profile Doc
-        try {
-          await deleteDocumentREST('users', targetUserId, authHeader);
-        } catch (err) {
-          console.warn('[Admin Account Deletion REST] Failed to delete user profile document:', err);
-        }
-
-        // H. Delete deletedEmails blocklist entry
-        if (targetEmail) {
-          const cleanEmail = targetEmail.trim().toLowerCase();
-          try {
-            await deleteDocumentREST('deletedEmails', cleanEmail, authHeader);
-          } catch (err) {
-            console.warn('[Admin Account Deletion REST] Failed to delete deletedEmails entry:', err);
-          }
+          console.error('[Admin Account Deletion REST] Error during parallel REST Firestore deletion:', err);
         }
       }
 

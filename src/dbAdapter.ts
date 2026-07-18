@@ -28,12 +28,18 @@ const isValidUrl = (url: string) => {
   return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
 };
 
-let isLocalDisable = false;
+let isLocalDisable = true;
 if (typeof window !== 'undefined') {
   try {
-    isLocalDisable = localStorage.getItem('tedbuy_disable_supabase') === 'true';
+    const stored = localStorage.getItem('tedbuy_disable_supabase');
+    if (stored !== null) {
+      isLocalDisable = stored === 'true';
+    } else {
+      localStorage.setItem('tedbuy_disable_supabase', 'true');
+      isLocalDisable = true;
+    }
   } catch (e) {
-    isLocalDisable = false;
+    isLocalDisable = true;
   }
 }
 
