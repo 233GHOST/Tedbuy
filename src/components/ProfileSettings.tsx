@@ -1244,17 +1244,29 @@ export const ProfileSettings: React.FC = () => {
                       {migrationStats && (
                         <div className="pt-2 border-t border-slate-900 text-[10px] space-y-1 text-slate-300">
                           <span className="font-bold text-slate-400 uppercase tracking-wider block mb-1">Synchronization Metrics (To Supabase):</span>
-                          {Object.keys(migrationStats).map(table => (
-                            <div key={table} className="flex justify-between font-mono">
-                              <span className="text-slate-400">{table}</span>
-                              <span className="text-slate-200">
-                                Fetched: {migrationStats[table].fetched} | Migrated: {migrationStats[table].migrated}
-                                {migrationStats[table].failed > 0 && (
-                                  <span className="text-red-400 ml-1">({migrationStats[table].failed} failed)</span>
+                          {Object.keys(migrationStats).map(table => {
+                            const hasErrors = Array.isArray(migrationStats[table].errors) && migrationStats[table].errors.length > 0;
+                            return (
+                              <div key={table} className="space-y-0.5">
+                                <div className="flex justify-between font-mono">
+                                  <span className="text-slate-400">{table}</span>
+                                  <span className="text-slate-200">
+                                    Fetched: {migrationStats[table].fetched} | Migrated: {migrationStats[table].migrated}
+                                    {migrationStats[table].failed > 0 && (
+                                      <span className="text-red-400 ml-1">({migrationStats[table].failed} failed)</span>
+                                    )}
+                                  </span>
+                                </div>
+                                {hasErrors && (
+                                  <div className="text-[9px] text-rose-400 font-mono bg-rose-950/30 p-1 rounded border border-rose-900/30 whitespace-pre-wrap max-h-24 overflow-y-auto">
+                                    {migrationStats[table].errors.map((err: string, idx: number) => (
+                                      <div key={idx}>⚠️ {err}</div>
+                                    ))}
+                                  </div>
                                 )}
-                              </span>
-                            </div>
-                          ))}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
 

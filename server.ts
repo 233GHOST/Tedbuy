@@ -282,13 +282,18 @@ let adminDb: any = null;
 
 // Initialize backend Supabase client if configured
 const sbUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const sbKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const isServiceRoleUsed = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 const isSbUrlValid = typeof sbUrl === 'string' && (sbUrl.startsWith('http://') || sbUrl.startsWith('https://'));
 const disableSupabase = process.env.VITE_DISABLE_SUPABASE === 'true' || process.env.DISABLE_SUPABASE === 'true';
 const backendSupabase = !disableSupabase && sbUrl && sbKey && isSbUrlValid ? createClient(sbUrl, sbKey) : null;
 
 if (backendSupabase) {
-  console.log('[Supabase Server] Initialized backend Supabase client successfully!');
+  if (isServiceRoleUsed) {
+    console.log('[Supabase Server] Initialized backend Supabase client with SERVICE_ROLE_KEY successfully! (RLS Bypassed)');
+  } else {
+    console.log('[Supabase Server] Initialized backend Supabase client with ANON_KEY. Note: Database operations might fail if RLS is enabled on Supabase tables.');
+  }
 } else {
   console.log('[Supabase Server] Credentials not detected. Server-side Supabase client inactive.');
 }
@@ -3198,6 +3203,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       result.isGoogleAuth = result.isGoogleAuth === true;
       result.isAdmin = result.isAdmin === true;
       result.welcomeSent = result.welcomeSent === true;
+      result.isSuspended = result.isSuspended === true;
       if (result.followingSellers && typeof result.followingSellers === 'string') {
         try { result.followingSellers = JSON.parse(result.followingSellers); } catch (_) { result.followingSellers = []; }
       }
@@ -3251,7 +3257,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       users: new Set([
         'id', 'username', 'email', 'phoneNumber', 'whatsAppNumber', 'role', 
         'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 
-        'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'createdAt'
+        'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'isSuspended', 'createdAt'
       ]),
       products: new Set([
         'id', 'title', 'description', 'price', 'category', 'location', 
@@ -3260,7 +3266,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
         'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice', 
         'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase', 
-        'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved'
+        'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved', 'hasVideo'
       ]),
       chats: new Set([
         'id', 'productId', 'productTitle', 'productPrice', 'productImage', 
