@@ -4387,9 +4387,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let errorDetail = '';
 
       const mailOptions = {
-        from: '"Tedbuy" <support@tedbuy.store>',
+        from: `"Tedbuy" <${process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com'}>`,
         to: cleanEmail,
-        replyTo: 'support@tedbuy.store',
+        replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
         subject: `${otp} is your TedBuy Verification Code`,
         text: `Welcome to TedBuy!\n\nYour 6-digit security verification code is: ${otp}\n\nThis code is valid for 10 minutes. For your security, please do not share this code with anyone.\n\nThank you,\nTedBuy Support`,
         html: `<!DOCTYPE html>
@@ -4617,7 +4617,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (brevoApiKey) {
         console.log(`[Auth Register] Brevo API Key detected. Dispatching OTP via Brevo Transactional REST API for: ${cleanEmail}`);
         try {
-          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
           const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
           const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -4667,7 +4667,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           console.warn(`[Auth Register] Brevo configuration was detected but delivery failed:`, errorDetail);
           return res.status(400).json({
             success: false,
-            error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
+            error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
           });
         }
 
@@ -5050,7 +5050,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     if (matchedUser.isSuspended) {
-      return res.status(403).json({ success: false, error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at support@tedbuy.store to appeal." });
+      return res.status(403).json({ success: false, error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@gmail.com to appeal." });
     }
 
     // Extract stored SHA256 hash (directly or from authProvider fallback)
@@ -5236,7 +5236,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (isSuspended) {
       return res.status(403).json({
         success: false,
-        error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. You are not allowed to reset your password. Please contact TedBuy Support at support@tedbuy.store to appeal."
+        error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. You are not allowed to reset your password. Please contact TedBuy Support at info.tedbuy@gmail.com to appeal."
       });
     }
 
@@ -5549,7 +5549,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (brevoApiKey) {
         console.log(`[Auth Reset] Dispatching reset email via Brevo REST API for: ${cleanEmail}`);
         try {
-          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
           const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
           const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -7048,7 +7048,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       </p>
     </div>
     <div class="footer">
-      <p>This message was sent from <a href="mailto:support@tedbuy.store">support@tedbuy.store</a>. You can reply directly to this email to reach our support team.</p>
+      <p>This message was sent from <a href="mailto:info.tedbuy@gmail.com">info.tedbuy@gmail.com</a>. You can reply directly to this email to reach our support team.</p>
       <p>&copy; 2026 TedBuy Ghana. Accra, Ghana.</p>
     </div>
   </div>
@@ -7060,7 +7060,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (brevoApiKey) {
       console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${email}`);
       try {
-        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
+        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
         const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
         const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -7109,9 +7109,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const transporter = getMailTransporter();
       
       const mailOptions = {
-        from: '"Tedbuy" <support@tedbuy.store>',
+        from: `"Tedbuy" <${process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com'}>`,
         to: email,
-        replyTo: 'support@tedbuy.store',
+        replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
         subject: subject,
         text: textContent,
         html: htmlContent

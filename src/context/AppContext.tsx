@@ -1810,12 +1810,9 @@ CEO, Tedbuy Inc`;
     const isVerified = currentUser?.emailVerified || currentUser?.isGoogleAuth;
     if (!currentUser || !currentUser.email || currentUser.welcomeSent || !isVerified) return;
     
-    // Ensure welcome messages are only sent to users who just registered an account, NOT users signing into an existing account.
-    if (!justRegisteredUserIds.current.has(currentUser.id)) {
-      console.log(`[Welcome Trigger] Skipped welcome package dispatch for existing user sign-in: ${currentUser.username}`);
-      return;
-    }
-    
+    // Self-correcting trigger: if a verified user hasn't received their welcome package (metadata flag welcomeSent is false/undefined),
+    // we process it automatically. This guarantees delivery even if a page reloads during Google OAuth redirects
+    // or if an account was previously created but missed the welcome package due to network or SMTP failures.
     setupWelcomePackage(currentUser);
   }, [currentUser]);
 
