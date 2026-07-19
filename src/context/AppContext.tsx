@@ -1735,10 +1735,26 @@ CEO, Tedbuy Inc`;
         };
         await setDoc(chatRef, cleanObject(supportChat));
         console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
+      } catch (chatWriteErr) {
+        console.warn('[Welcome Trigger] Failed to write support chat to Firestore (continuing):', chatWriteErr);
+      }
+    }
 
-        // 3. Create message document inside messages collection
-        const msgId = `msg_welcome_${targetUser.id}`;
-        const msgRef = doc(db, 'messages', msgId);
+    // 3. Create message document inside messages collection (Ensure it exists independently of chatExists check)
+    let messageExists = false;
+    const msgId = `msg_welcome_${targetUser.id}`;
+    const msgRef = doc(db, 'messages', msgId);
+    try {
+      const msgDoc = await getDoc(msgRef);
+      if (msgDoc.exists()) {
+        messageExists = true;
+      }
+    } catch (checkMsgErr) {
+      console.log('[Welcome Trigger] Welcome message check threw permission/missing error, assuming it needs creation.');
+    }
+
+    if (!messageExists) {
+      try {
         const supportMessage = {
           id: msgId,
           chatId: chatId,
@@ -1750,8 +1766,8 @@ CEO, Tedbuy Inc`;
         };
         await setDoc(msgRef, cleanObject(supportMessage));
         console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
-      } catch (chatWriteErr) {
-        console.warn('[Welcome Trigger] Failed to write support chat/message to Firestore (continuing):', chatWriteErr);
+      } catch (msgWriteErr) {
+        console.warn('[Welcome Trigger] Failed to write welcome message to Firestore (continuing):', msgWriteErr);
       }
     }
 
