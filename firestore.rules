@@ -192,7 +192,7 @@ service cloud.firestore {
         let chat = get(/databases/$(database)/documents/chats/$(data.get('chatId', ''))).data;
         return data.get('id', messageId) is string && data.get('id', messageId).size() <= 128 &&
                data.get('chatId', '') is string && data.get('chatId', '').size() <= 128 &&
-               (isOwner(data.get('senderId', '')) || (isAdmin() && data.get('senderId', '') == 'user_ted_ceo_support')) &&
+               (isOwner(data.get('senderId', '')) || (data.get('senderId', '') == 'user_ted_ceo_support' && isOwner(data.get('recipientId', '')) && (messageId == 'msg_welcome_' + request.auth.uid || messageId == 'msg_welcome_user_' + request.auth.uid)) || (isAdmin() && data.get('senderId', '') == 'user_ted_ceo_support')) &&
                data.get('recipientId', '') is string && data.get('recipientId', '').size() <= 128 &&
                data.get('text', '') is string && data.get('text', '').size() <= 5000 &&
                (
@@ -202,7 +202,7 @@ service cloud.firestore {
       }
 
       allow read: if isSignedIn() && (isOwner(resource.data.get('senderId', '')) || isOwner(resource.data.get('recipientId', '')) || isAdmin());
-      allow create: if isSignedIn() && (isOwner(incoming().get('senderId', '')) || (isAdmin() && incoming().get('senderId', '') == 'user_ted_ceo_support')) && isValidId(messageId) && isValidMessage(incoming());
+      allow create: if isSignedIn() && (isOwner(incoming().get('senderId', '')) || (incoming().get('senderId', '') == 'user_ted_ceo_support' && isOwner(incoming().get('recipientId', '')) && (messageId == 'msg_welcome_' + request.auth.uid || messageId == 'msg_welcome_user_' + request.auth.uid)) || (isAdmin() && incoming().get('senderId', '') == 'user_ted_ceo_support')) && isValidId(messageId) && isValidMessage(incoming());
       allow update: if isSignedIn() && (isOwner(existing().get('recipientId', '')) || isAdmin()) &&
                        incoming().diff(existing()).affectedKeys().hasOnly(['read']) &&
                        incoming().read == true;

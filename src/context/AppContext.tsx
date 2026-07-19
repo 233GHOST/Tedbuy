@@ -15,6 +15,7 @@ import {
   sendEmailVerification,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
   signInAnonymously,
   fetchSignInMethodsForEmail,
   linkWithCredential,
@@ -114,7 +115,7 @@ interface AppContextType {
   usersMap?: Map<string, User>;
   registerUser: (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => Promise<User>;
   initiateRegistration: (username: string, email: string, phoneNumber: string, password: string, photoUrl?: string) => Promise<{ success: boolean; simulated?: boolean; debugOtp?: string; warning?: string; message?: string }>;
-  verifyAndCompleteRegistration: (email: string, otp: string) => Promise<{ success: boolean; user: User; simulatedMode: boolean; tempPassword?: string }>;
+  verifyAndCompleteRegistration: (email: string, otp: string, registrationPassword?: string) => Promise<{ success: boolean; user: User; simulatedMode: boolean; tempPassword?: string }>;
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   resetPasswordEmail: (email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
@@ -168,6 +169,7 @@ interface AppContextType {
     whatsAppNumber?: string;
   }) => Promise<void>;
   deleteAccount: (password?: string) => Promise<void>;
+  refreshUsers: () => Promise<void>;
   adminDeleteUserProfile: (userId: string, forceDeleteActive?: boolean) => Promise<void>;
   sendWelcomeEmailToAll: (onlyUnsent: boolean, onProgress: (current: number, total: number, logMsg: string) => void) => Promise<void>;
   selectedProductId: string | null;
@@ -686,6 +688,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!active) return;
 
+      if (safeLocalStorage.getItem('tedbuy_deleting_account') === 'true') {
+        console.log('[Auth Observer] Account deletion in progress. Ignoring auth state changes.');
+        if (!firebaseUser) {
+          safeLocalStorage.removeItem('tedbuy_deleting_account');
+          setCurrentUserState(null);
+          setIsAuthLoading(false);
+        }
+        return;
+      }
+
       // Clean up previous real-time subscriber if any
       if (userSubUnsub) {
         userSubUnsub();
@@ -694,29 +706,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       try {
         if (firebaseUser) {
-          // Instant direct check on Firestore for suspension to block a suspended user immediately
-          try {
-            const userDocRef = doc(db, 'users', firebaseUser.uid);
-            const userSnap = await getDoc(userDocRef);
-            if (active && userSnap.exists()) {
-              const data = userSnap.data() as User;
-              if (data.isSuspended) {
-                console.warn('[Security Auth Observer] Suspended user logged in! Logging out immediately.');
-                await signOut(auth);
-                safeLocalStorage.removeItem('tedbuy_simulated_mode');
-                safeLocalStorage.removeItem('tedbuy_simulated_user');
-                safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
-                setCurrentUserState(null);
-                setCurrentView('browse');
-                setIsAuthLoading(false);
-                setIsSuspendedBlockOpen(true);
-                return;
-              }
-            }
-          } catch (err) {
-            console.warn('[Security Auth Observer] Firestore user check failed (might be offline):', err);
-          }
-
           // Clear any simulated sandbox mode flags as we now have a genuine authenticated Firebase session
           safeLocalStorage.removeItem('tedbuy_simulated_mode');
           safeLocalStorage.removeItem('tedbuy_simulated_user');
@@ -772,15 +761,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } catch (_) {}
           }
 
-          // Retrieve administrative claims dynamically
-          let isUserAdmin = false;
-          try {
-            const tokenResult = await firebaseUser.getIdTokenResult();
-            isUserAdmin = tokenResult.claims?.admin === true;
-          } catch (claimsErr) {
-            console.warn('[Admin Claims Sync] Did not parse ID Token admin claim:', claimsErr);
-          }
-          const isSuperAdmin = (firebaseUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') || isUserAdmin;
+          // Super admin check is synchronous and 100% accurate
+          const isSuperAdmin = (firebaseUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com');
 
           // Generate and sanitize a pleasant, unique store name from Google profile or email
           const rawDisplayName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
@@ -810,7 +792,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             emailVerified: firebaseUser.emailVerified || cachedUser?.emailVerified,
             isGoogleAuth: isGoogleUser || cachedUser?.isGoogleAuth || undefined,
             authProvider: isGoogleUser ? 'google.com' : (cachedUser?.authProvider || undefined),
-            isAdmin: isSuperAdmin ? true : undefined
+            isAdmin: isSuperAdmin ? true : (cachedUser?.isAdmin || undefined)
           };
           
           // Instantly prime the current user from our cached backup or fallback structure so UI opens instantly
@@ -824,10 +806,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Instantly hide any full screen loading blocking screen
           setIsAuthLoading(false);
 
+          // Retrieve administrative claims in background (non-blocking)
+          firebaseUser.getIdTokenResult().then(tokenResult => {
+            const hasAdminClaim = tokenResult.claims?.admin === true;
+            if (active && hasAdminClaim) {
+              setCurrentUserState(prev => {
+                if (prev && !prev.isAdmin) {
+                  return { ...prev, isAdmin: true };
+                }
+                return prev;
+              });
+            }
+          }).catch(claimsErr => {
+            console.warn('[Admin Claims Sync] Did not parse ID Token admin claim:', claimsErr);
+          });
+
           // Now subscribe to real-time doc updates asynchronously so that changes are handled instantly
           const userRef = doc(db, 'users', firebaseUser.uid);
           userSubUnsub = onSnapshot(userRef, async (userDoc) => {
             if (!active) return;
+            if (safeLocalStorage.getItem('tedbuy_deleting_account') === 'true') {
+              console.log('[User Doc Stream] Account deletion in progress. Ignoring document snapshot.');
+              return;
+            }
             
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
@@ -856,11 +857,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
 
               if (Object.keys(updates).length > 0) {
-                try {
-                  await updateDoc(userRef, updates);
-                } catch (err) {
+                updateDoc(userRef, updates).catch(err => {
                   console.warn('Could not sync auth metadata to Firestore (offline/sandbox):', err);
-                }
+                });
                 setCurrentUserState({ ...dbData, ...updates });
               } else {
                 setCurrentUserState(dbData);
@@ -873,209 +872,214 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 return;
               }
 
-              // The user document does not exist for the new Google authenticating UID.
-              // Check if they already have an existing user document under a DIFFERENT UID (with same email address).
-              let existingUserWithEmail: User | null = null;
-              let existingUserId: string | null = null;
-
-              if (firebaseUser.email) {
+              // Run the merge or new-profile creation asynchronously in the background.
+              // To make sign-in/account creation instant, we immediately set the active user state to an optimistic profile!
+              (async () => {
                 try {
-                  const targetEmail = firebaseUser.email.trim().toLowerCase();
-                  const qEmail = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
-                  const emailSnap = await getDocs(qEmail);
-                  
-                  const foundDoc = emailSnap.docs.find(d => d.id !== firebaseUser.uid);
-                  if (foundDoc) {
-                    existingUserWithEmail = foundDoc.data() as User;
-                    existingUserId = foundDoc.id;
-                  }
-                } catch (emailQueryErr) {
-                  console.warn('Could not query users by email in background:', emailQueryErr);
-                }
-              }
+                  // Register UID early to avoid race conditions with onSnapshot and useEffect triggers
+                  justRegisteredUserIds.current.add(firebaseUser.uid);
 
-              if (existingUserWithEmail && existingUserId) {
-                console.log(`[Google Account Merge] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Merging profile dynamically into Google UID: "${firebaseUser.uid}" so user keeps all products and settings...`);
-                
-                const mergedUser: User = {
-                  ...existingUserWithEmail,
-                  id: firebaseUser.uid,
-                  emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
-                  photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
-                  isGoogleAuth: true,
-                  authProvider: 'google.com'
-                };
-
-                try {
-                  const batch = writeBatch(db);
-                  
-                  // 1. Create the new user document under Google UID
-                  batch.set(doc(db, 'users', firebaseUser.uid), cleanObject(mergedUser));
-                  
-                  // 2. Delete the old user document
-                  batch.delete(doc(db, 'users', existingUserId));
-                  
-                  // 3. Update the storeName mapping pointing to the new UID if a username exists
-                  if (mergedUser.username) {
-                    const storeNameLower = mergedUser.username.trim().toLowerCase();
-                    // First delete old, then set new
-                    batch.delete(doc(db, 'storeNames', storeNameLower));
-                    batch.set(doc(db, 'storeNames', storeNameLower), {
-                      userId: firebaseUser.uid,
-                      username: mergedUser.username.trim()
-                    });
-                  }
-
-                  await batch.commit();
-                  console.log('[Google Account Merge] Profile base data and storeName successfully migrated.');
-
-                  // Instant prime of state so that UI displays their old account instantly
-                  if (active) {
-                    setCurrentUserState(mergedUser);
-                    showToast("Logged in successfully! Your existing profile was linked to your Google account. 🎉", "success");
-                  }
-
-                  // 4. Asynchronously cascade the ID change to related collections in the background
-                  const cascadeUpdates = async () => {
-                    try {
-                      const cascadeBatch = writeBatch(db);
-                      let cascadeCount = 0;
-
-                      // Products migration (update sellerId)
-                      const prodsSnap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', existingUserId)));
-                      prodsSnap.forEach(pDoc => {
-                        cascadeBatch.update(doc(db, 'products', pDoc.id), { sellerId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      // Reviews from or to this user
-                      const reviewsFromSnap = await getDocs(query(collection(db, 'reviews'), where('buyerId', '==', existingUserId)));
-                      reviewsFromSnap.forEach(rDoc => {
-                        cascadeBatch.update(doc(db, 'reviews', rDoc.id), { buyerId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      const reviewsToSnap = await getDocs(query(collection(db, 'reviews'), where('sellerId', '==', existingUserId)));
-                      reviewsToSnap.forEach(rDoc => {
-                        cascadeBatch.update(doc(db, 'reviews', rDoc.id), { sellerId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      // Chats where this user is buyer or seller
-                      const chatsBuyerSnap = await getDocs(query(collection(db, 'chats'), where('buyerId', '==', existingUserId)));
-                      chatsBuyerSnap.forEach(cDoc => {
-                        cascadeBatch.update(doc(db, 'chats', cDoc.id), { buyerId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      const chatsSellerSnap = await getDocs(query(collection(db, 'chats'), where('sellerId', '==', existingUserId)));
-                      chatsSellerSnap.forEach(cDoc => {
-                        cascadeBatch.update(doc(db, 'chats', cDoc.id), { sellerId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      // Messages where this user is sender or recipient
-                      const msgsSenderSnap = await getDocs(query(collection(db, 'messages'), where('senderId', '==', existingUserId)));
-                      msgsSenderSnap.forEach(mDoc => {
-                        cascadeBatch.update(doc(db, 'messages', mDoc.id), { senderId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      const msgsRecipientSnap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', existingUserId)));
-                      msgsRecipientSnap.forEach(mDoc => {
-                        cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      // Notifications to this user
-                      const notificationsSnap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', existingUserId)));
-                      notificationsSnap.forEach(nDoc => {
-                        cascadeBatch.update(doc(db, 'notifications', nDoc.id), { userId: firebaseUser.uid });
-                        cascadeCount++;
-                      });
-
-                      if (cascadeCount > 0) {
-                        await cascadeBatch.commit();
-                        console.log(`[Google Account Merge] Cascaded ID update to ${cascadeCount} related documents.`);
-                      }
-                    } catch (cascadeErr) {
-                      console.warn('[Google Account Merge] Error performing background cascade ID update:', cascadeErr);
-                    }
+                  const newUser: User = {
+                    id: firebaseUser.uid,
+                    username: initialUsername,
+                    email: firebaseUser.email || undefined,
+                    role: 'both',
+                    joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+                    photoUrl: firebaseUser.photoURL || undefined,
+                    followingSellers: [],
+                    savedProductIds: [],
+                    emailVerified: true, // Google accounts are pre-verified by Google
+                    isAdmin: isSuperAdmin ? true : undefined,
+                    isGoogleAuth: true,
+                    authProvider: 'google.com'
                   };
 
-                  cascadeUpdates();
-                  return;
-                } catch (mergeErr) {
-                  console.error('[Google Account Merge] Failed to merge account details client-side:', mergeErr);
-                  // Dynamic local fallback so user is logged in even if Firestore write fails momentarily
+                  // Optimistically unlock the UI instantly with the temporary/fallback user profile
                   if (active) {
-                    setCurrentUserState(mergedUser);
+                    setCurrentUserState(newUser);
                   }
-                  return;
-                }
-              } else {
-                // Register UID early to avoid race conditions with onSnapshot and useEffect triggers
-                justRegisteredUserIds.current.add(firebaseUser.uid);
 
-                // Create the user document in Firestore asynchronously if first time
-                const newUser: User = {
-                  id: firebaseUser.uid,
-                  username: initialUsername,
-                  email: firebaseUser.email || undefined,
-                  role: 'both',
-                  joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-                  photoUrl: firebaseUser.photoURL || undefined,
-                  followingSellers: [],
-                  savedProductIds: [],
-                  emailVerified: true, // Google accounts are pre-verified by Google
-                  isAdmin: isSuperAdmin ? true : undefined,
-                  isGoogleAuth: true,
-                  authProvider: 'google.com'
-                };
-                
-                // Register storeName and user document atomically so standard signups and Google signups are identical
-                const batch = writeBatch(db);
-                
-                const storeNameLower = initialUsername.trim().toLowerCase();
-                let uniqueStoreNameLower = storeNameLower;
-                let uniqueUsername = initialUsername.trim();
-                try {
-                  const checkRef = doc(db, 'storeNames', storeNameLower);
-                  const checkSnap = await getDoc(checkRef);
-                  if (checkSnap.exists()) {
-                    let isTaken = true;
-                    while (isTaken) {
-                      const suffix = Math.floor(100 + Math.random() * 900);
-                      uniqueUsername = `${initialUsername.trim()} ${suffix}`;
-                      uniqueStoreNameLower = uniqueUsername.toLowerCase();
-                      const suffixSnap = await getDoc(doc(db, 'storeNames', uniqueStoreNameLower));
-                      isTaken = suffixSnap.exists();
+                  // The user document does not exist for the new Google authenticating UID.
+                  // Check if they already have an existing user document under a DIFFERENT UID (with same email address).
+                  let existingUserWithEmail: User | null = null;
+                  let existingUserId: string | null = null;
+
+                  if (firebaseUser.email) {
+                    try {
+                      const targetEmail = firebaseUser.email.trim().toLowerCase();
+                      const qEmail = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
+                      const emailSnap = await getDocs(qEmail);
+                      
+                      const foundDoc = emailSnap.docs.find(d => d.id !== firebaseUser.uid);
+                      if (foundDoc) {
+                        existingUserWithEmail = foundDoc.data() as User;
+                        existingUserId = foundDoc.id;
+                      }
+                    } catch (emailQueryErr) {
+                      console.warn('Could not query users by email in background:', emailQueryErr);
                     }
                   }
-                } catch (checkErr) {
-                  console.warn('Could not verify storeName uniqueness, proceeding with fallback:', checkErr);
-                }
 
-                newUser.username = uniqueUsername;
-                batch.set(userRef, cleanObject(newUser));
-                
-                batch.set(doc(db, 'storeNames', uniqueStoreNameLower), {
-                  userId: firebaseUser.uid,
-                  username: uniqueUsername
-                });
-                
-                await batch.commit();
-                console.log(`[Google Signup] Atomically created user profile and reserved store name: "${uniqueStoreNameLower}"`);
+                  if (existingUserWithEmail && existingUserId) {
+                    console.log(`[Google Account Merge] Found existing user account with email "${firebaseUser.email}" under ID: "${existingUserId}". Merging profile dynamically into Google UID: "${firebaseUser.uid}" so user keeps all products and settings...`);
+                    
+                    const mergedUser: User = {
+                      ...existingUserWithEmail,
+                      id: firebaseUser.uid,
+                      emailVerified: firebaseUser.emailVerified || existingUserWithEmail.emailVerified || false,
+                      photoUrl: firebaseUser.photoURL || existingUserWithEmail.photoUrl || undefined,
+                      isGoogleAuth: true,
+                      authProvider: 'google.com'
+                    };
 
-                if (active) {
-                  justRegisteredUserIds.current.add(firebaseUser.uid);
-                  setCurrentUserState(newUser);
-                  // Directly trigger welcome package synchronously to prevent race conditions
-                  setupWelcomePackage(newUser).catch(err => {
-                    console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
-                  });
+                    const batch = writeBatch(db);
+                    
+                    // 1. Create the new user document under Google UID
+                    batch.set(doc(db, 'users', firebaseUser.uid), cleanObject(mergedUser));
+                    
+                    // 2. Delete the old user document
+                    batch.delete(doc(db, 'users', existingUserId));
+                    
+                    // 3. Update the storeName mapping pointing to the new UID if a username exists
+                    if (mergedUser.username) {
+                      const storeNameLower = mergedUser.username.trim().toLowerCase();
+                      batch.delete(doc(db, 'storeNames', storeNameLower));
+                      batch.set(doc(db, 'storeNames', storeNameLower), {
+                        userId: firebaseUser.uid,
+                        username: mergedUser.username.trim()
+                      });
+                    }
+
+                    await batch.commit();
+                    console.log('[Google Account Merge] Profile base data and storeName successfully migrated.');
+
+                    if (active) {
+                      setCurrentUserState(mergedUser);
+                      showToast("Logged in successfully! Your existing profile was linked to your Google account. 🎉", "success");
+                    }
+
+                    // 4. Asynchronously cascade the ID change to related collections in the background
+                    const cascadeUpdates = async () => {
+                      try {
+                        const cascadeBatch = writeBatch(db);
+                        let cascadeCount = 0;
+
+                        // Products migration (update sellerId)
+                        const prodsSnap = await getDocs(query(collection(db, 'products'), where('sellerId', '==', existingUserId)));
+                        prodsSnap.forEach(pDoc => {
+                          cascadeBatch.update(doc(db, 'products', pDoc.id), { sellerId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        // Reviews from or to this user
+                        const reviewsFromSnap = await getDocs(query(collection(db, 'reviews'), where('buyerId', '==', existingUserId)));
+                        reviewsFromSnap.forEach(rDoc => {
+                          cascadeBatch.update(doc(db, 'reviews', rDoc.id), { buyerId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        const reviewsToSnap = await getDocs(query(collection(db, 'reviews'), where('sellerId', '==', existingUserId)));
+                        reviewsToSnap.forEach(rDoc => {
+                          cascadeBatch.update(doc(db, 'reviews', rDoc.id), { sellerId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        // Chats where this user is buyer or seller
+                        const chatsBuyerSnap = await getDocs(query(collection(db, 'chats'), where('buyerId', '==', existingUserId)));
+                        chatsBuyerSnap.forEach(cDoc => {
+                          cascadeBatch.update(doc(db, 'chats', cDoc.id), { buyerId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        const chatsSellerSnap = await getDocs(query(collection(db, 'chats'), where('sellerId', '==', existingUserId)));
+                        chatsSellerSnap.forEach(cDoc => {
+                          cascadeBatch.update(doc(db, 'chats', cDoc.id), { sellerId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        // Messages where this user is sender or recipient
+                        const msgsSenderSnap = await getDocs(query(collection(db, 'messages'), where('senderId', '==', existingUserId)));
+                        msgsSenderSnap.forEach(mDoc => {
+                          cascadeBatch.update(doc(db, 'messages', mDoc.id), { senderId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        const msgsRecipientSnap = await getDocs(query(collection(db, 'messages'), where('recipientId', '==', existingUserId)));
+                        msgsRecipientSnap.forEach(mDoc => {
+                          cascadeBatch.update(doc(db, 'messages', mDoc.id), { recipientId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        // Notifications to this user
+                        const notificationsSnap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', existingUserId)));
+                        notificationsSnap.forEach(nDoc => {
+                          cascadeBatch.update(doc(db, 'notifications', nDoc.id), { userId: firebaseUser.uid });
+                          cascadeCount++;
+                        });
+
+                        if (cascadeCount > 0) {
+                          await cascadeBatch.commit();
+                          console.log(`[Google Account Merge] Cascaded ID update to ${cascadeCount} related documents.`);
+                        }
+                      } catch (cascadeErr) {
+                        console.warn('[Google Account Merge] Error performing background cascade ID update:', cascadeErr);
+                      }
+                    };
+
+                    cascadeUpdates();
+                  } else {
+                    // Create the user document in Firestore asynchronously if first time
+                    const batch = writeBatch(db);
+                    
+                    const storeNameLower = initialUsername.trim().toLowerCase();
+                    let uniqueStoreNameLower = storeNameLower;
+                    let uniqueUsername = initialUsername.trim();
+                    try {
+                      const checkRef = doc(db, 'storeNames', storeNameLower);
+                      const checkSnap = await getDoc(checkRef);
+                      if (checkSnap.exists()) {
+                        let isTaken = true;
+                        while (isTaken) {
+                          const suffix = Math.floor(100 + Math.random() * 900);
+                          uniqueUsername = `${initialUsername.trim()} ${suffix}`;
+                          uniqueStoreNameLower = uniqueUsername.toLowerCase();
+                          const suffixSnap = await getDoc(doc(db, 'storeNames', uniqueStoreNameLower));
+                          isTaken = suffixSnap.exists();
+                        }
+                      }
+                    } catch (checkErr) {
+                      console.warn('Could not verify storeName uniqueness, proceeding with fallback:', checkErr);
+                    }
+
+                    newUser.username = uniqueUsername;
+                    batch.set(userRef, cleanObject(newUser));
+                    
+                    batch.set(doc(db, 'storeNames', uniqueStoreNameLower), {
+                      userId: firebaseUser.uid,
+                      username: uniqueUsername
+                    });
+                    
+                    await batch.commit();
+                    console.log(`[Google Signup] Atomically created user profile and reserved store name: "${uniqueStoreNameLower}"`);
+
+                    if (active) {
+                      setCurrentUserState(newUser);
+                      // Directly trigger welcome package synchronously with the actual firebaseUser token to prevent race conditions
+                      firebaseUser.getIdToken().then(token => {
+                        setupWelcomePackage(newUser, token).catch(err => {
+                          console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
+                        });
+                      }).catch(() => {
+                        setupWelcomePackage(newUser).catch(err => {
+                          console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
+                        });
+                      });
+                    }
+                  }
+                } catch (bgErr) {
+                  console.error('[Background Auth Flow] Failed to complete background registration/merge:', bgErr);
                 }
-              }
+              })();
             }
           }, (error) => {
             console.error('[User Doc Stream] Firebase onSnapshot error:', error);
@@ -1104,6 +1108,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               } catch (_) {}
             }
           } else {
+            triggeredWelcomeUserId.current = null;
+            justRegisteredUserIds.current.clear();
             setCurrentUserState(null);
           }
           setIsAuthLoading(false);
@@ -1153,52 +1159,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isAuthLoading) return;
     if (!currentUser) return;
 
-    let active = true;
-
     // 1. Instantly block if memory state flag is suspended
     if (currentUser.isSuspended) {
       console.warn('[Security] currentUser memory state indicates suspension! Activating block modal.');
       setIsSuspendedBlockOpen(true);
       setCurrentUserState(null);
-      localStorage.removeItem('tedbuy_simulated_mode');
-      localStorage.removeItem('tedbuy_simulated_user');
-      localStorage.removeItem('tedbuy_local_current_user_backup');
+      safeLocalStorage.removeItem('tedbuy_simulated_mode');
+      safeLocalStorage.removeItem('tedbuy_simulated_user');
+      safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
       signOut(auth).catch(() => {});
       setCurrentView('browse');
-      return;
     }
-
-    // 2. Proactive database lookup to prevent stale cache bypass
-    const verifyUserSuspensionInDatabase = async () => {
-      try {
-        const userRef = doc(db, 'users', currentUser.id);
-        const userSnap = await getDoc(userRef);
-        if (!active) return;
-
-        if (userSnap.exists()) {
-          const dbData = userSnap.data() as User;
-          if (dbData.isSuspended) {
-            console.error('[Security Check] Suspended state discovered on database! Logging out.', dbData.username);
-            setIsSuspendedBlockOpen(true);
-            setCurrentUserState(null);
-            localStorage.removeItem('tedbuy_simulated_mode');
-            localStorage.removeItem('tedbuy_simulated_user');
-            localStorage.removeItem('tedbuy_local_current_user_backup');
-            await signOut(auth).catch(() => {});
-            setCurrentView('browse');
-          }
-        }
-      } catch (err) {
-        console.warn('[Security Check] Suspension database verification bypassed (offline or rate-limited):', err);
-      }
-    };
-
-    verifyUserSuspensionInDatabase();
-
-    return () => {
-      active = false;
-    };
-  }, [currentUser, isAuthLoading, auth, db]);
+  }, [currentUser, isAuthLoading, auth]);
 
   const currentUserId = currentUser?.id;
 
@@ -1465,6 +1437,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
+  // Synchronize users using backend Admin endpoint when admin session becomes active
+  useEffect(() => {
+    if (isAdminSessionVerified && currentUser) {
+      refreshUsers();
+    }
+  }, [isAdminSessionVerified, currentUser]);
+
   // 2. Real-time Products Synchronization
   useEffect(() => {
     // Rely on local storage backup values inside `products` state for instant initial paint
@@ -1675,7 +1654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);
 
-  const setupWelcomePackage = async (targetUser: User) => {
+  const setupWelcomePackage = async (targetUser: User, idTokenOverride?: string) => {
     const email = targetUser.email;
     if (!email) {
       return;
@@ -1756,10 +1735,26 @@ CEO, Tedbuy Inc`;
         };
         await setDoc(chatRef, cleanObject(supportChat));
         console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
+      } catch (chatWriteErr) {
+        console.warn('[Welcome Trigger] Failed to write support chat to Firestore (continuing):', chatWriteErr);
+      }
+    }
 
-        // 3. Create message document inside messages collection
-        const msgId = `msg_welcome_${targetUser.id}`;
-        const msgRef = doc(db, 'messages', msgId);
+    // 3. Create message document inside messages collection (Ensure it exists independently of chatExists check)
+    let messageExists = false;
+    const msgId = `msg_welcome_${targetUser.id}`;
+    const msgRef = doc(db, 'messages', msgId);
+    try {
+      const msgDoc = await getDoc(msgRef);
+      if (msgDoc.exists()) {
+        messageExists = true;
+      }
+    } catch (checkMsgErr) {
+      console.log('[Welcome Trigger] Welcome message check threw permission/missing error, assuming it needs creation.');
+    }
+
+    if (!messageExists) {
+      try {
         const supportMessage = {
           id: msgId,
           chatId: chatId,
@@ -1771,23 +1766,22 @@ CEO, Tedbuy Inc`;
         };
         await setDoc(msgRef, cleanObject(supportMessage));
         console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
-      } catch (chatWriteErr) {
-        console.warn('[Welcome Trigger] Failed to write support chat/message to Firestore (continuing):', chatWriteErr);
+      } catch (msgWriteErr) {
+        console.warn('[Welcome Trigger] Failed to write welcome message to Firestore (continuing):', msgWriteErr);
       }
     }
 
-    // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
+    // 4. Send Welcome Email synchronously via server SMTP / Brevo REST
+    let emailSentSuccessfully = false;
     try {
-      const userRef = doc(db, 'users', targetUser.id);
-      await setDoc(userRef, { welcomeSent: true }, { merge: true });
-      console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
-    } catch (userFlagErr) {
-      console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
-    }
-
-    // 5. Send Welcome Email synchronously via server SMTP / Brevo REST
-    try {
-      let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      let idToken = idTokenOverride;
+      if (!idToken && auth.currentUser) {
+        try {
+          idToken = await auth.currentUser.getIdToken();
+        } catch (tokErr) {
+          console.warn('[Welcome Trigger] Could not fetch ID token for welcome email:', tokErr);
+        }
+      }
       if (!idToken) {
         idToken = safeLocalStorage.getItem('tedbuy_custom_auth_token') || '';
       }
@@ -1804,32 +1798,46 @@ CEO, Tedbuy Inc`;
       });
       if (emailResponse.ok) {
         console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
+        emailSentSuccessfully = true;
       } else {
-        console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
+        const errData = await emailResponse.json().catch(() => ({}));
+        console.error(`[Welcome Trigger] Outbound welcome email request failed with status ${emailResponse.status}:`, errData.error || errData);
       }
     } catch (emailErr) {
-      console.warn('[Welcome Trigger] Backend welcome email call failed:', emailErr);
+      console.error('[Welcome Trigger] Backend welcome email call failed:', emailErr);
     }
 
-    // 6. Keep active runtime state in-sync with welcomeSent: true
-    setCurrentUserState(prev => {
-      if (prev && prev.id === targetUser.id) {
-        return { ...prev, welcomeSent: true };
+    // 5. Update welcomeSent: true metadata under users/{userId} ONLY on success
+    if (emailSentSuccessfully) {
+      try {
+        const userRef = doc(db, 'users', targetUser.id);
+        await setDoc(userRef, { welcomeSent: true }, { merge: true });
+        console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
+      } catch (userFlagErr) {
+        console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
       }
-      return prev;
-    });
+
+      // 6. Keep active runtime state in-sync with welcomeSent: true
+      setCurrentUserState(prev => {
+        if (prev && prev.id === targetUser.id) {
+          return { ...prev, welcomeSent: true };
+        }
+        return prev;
+      });
+    } else {
+      console.warn(`[Welcome Trigger] welcomeSent flag was NOT updated in database because email delivery was not successful. Will retry on next session/trigger.`);
+      // Self-correcting reset so that it can retry on next component mount/update if needed
+      triggeredWelcomeUserId.current = null;
+    }
   };
 
   useEffect(() => {
     const isVerified = currentUser?.emailVerified || currentUser?.isGoogleAuth;
     if (!currentUser || !currentUser.email || currentUser.welcomeSent || !isVerified) return;
     
-    // Ensure welcome messages are only sent to users who just registered an account, NOT users signing into an existing account.
-    if (!justRegisteredUserIds.current.has(currentUser.id)) {
-      console.log(`[Welcome Trigger] Skipped welcome package dispatch for existing user sign-in: ${currentUser.username}`);
-      return;
-    }
-    
+    // Self-correcting trigger: if a verified user hasn't received their welcome package (metadata flag welcomeSent is false/undefined),
+    // we process it automatically. This guarantees delivery even if a page reloads during Google OAuth redirects
+    // or if an account was previously created but missed the welcome package due to network or SMTP failures.
     setupWelcomePackage(currentUser);
   }, [currentUser]);
 
@@ -2307,7 +2315,7 @@ CEO, Tedbuy Inc`;
     }
   }, []);
 
-  const verifyAndCompleteRegistration = useCallback(async (email: string, otp: string) => {
+  const verifyAndCompleteRegistration = useCallback(async (email: string, otp: string, registrationPassword?: string) => {
     try {
       const response = await fetch('/api/auth/verify', {
         method: 'POST',
@@ -2371,8 +2379,13 @@ CEO, Tedbuy Inc`;
         
         try {
           justRegisteredUserIds.current.add(user.id);
-          await signInWithEmailAndPassword(auth, email, tempPassword);
-          console.log('[verifyAndCompleteRegistration] Production sign-in successful!');
+          const passwordToUse = registrationPassword || tempPassword;
+          if (passwordToUse) {
+            await signInWithEmailAndPassword(auth, email, passwordToUse);
+            console.log('[verifyAndCompleteRegistration] Production sign-in successful!');
+          } else {
+            console.warn('[verifyAndCompleteRegistration] No registration password or temp password available for standard sign-in.');
+          }
 
           // Proactively save user profile and reserve store name in Firestore on the client-side
           const userRef = doc(db, 'users', user.id);
@@ -2386,6 +2399,11 @@ CEO, Tedbuy Inc`;
           console.error('[verifyAndCompleteRegistration] Client sign-in or document creation failed after backend creation:', signInErr);
           setCurrentUserState(user);
         }
+
+        // Setup welcome package directly to ensure it runs immediately
+        setupWelcomePackage(user).catch(err => {
+          console.warn('[Welcome Trigger] Production welcome package failed:', err);
+        });
 
         // Always register user to our local users state list and local storage backups immediately for maximum login reliability
         setUsers(prev => {
@@ -2542,19 +2560,8 @@ CEO, Tedbuy Inc`;
         if (googleUser && googleUser.email) {
           const emailClean = googleUser.email.trim().toLowerCase();
 
-          const userRef = doc(db, 'users', googleUser.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            const dbData = userSnap.data() as User;
-            if (dbData.isSuspended) {
-              await signOut(auth);
-              setIsSuspendedBlockOpen(true);
-              throw new Error("Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@mail.com to appeal.");
-            }
-          }
-
           // Just let the Google Sign-In succeed. The onAuthStateChanged listener
-          // will detect any existing email collision and automatically perform
+          // will detect any existing email collision, perform suspension checks, and automatically perform
           // a secure client-side merge/migration of the Firestore profile and listings!
           console.log('[Google Sign-In] Successful sign-in as ' + emailClean + '. Session initialization in progress.');
         }
@@ -2618,6 +2625,8 @@ CEO, Tedbuy Inc`;
     try {
       setIsAdminSessionVerified(false);
       setAdminFailedAttempts(0);
+      triggeredWelcomeUserId.current = null;
+      justRegisteredUserIds.current.clear();
       await signOut(auth);
       safeLocalStorage.removeItem('tedbuy_simulated_mode');
       safeLocalStorage.removeItem('tedbuy_simulated_user');
@@ -2842,7 +2851,8 @@ CEO, Tedbuy Inc`;
       ...sanitizedProductData,
       category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
-      viewsCount: 0
+      viewsCount: 0,
+      hasVideo: Array.isArray(productData.videos) && productData.videos.length > 0
     };
 
     try {
@@ -3062,6 +3072,9 @@ CEO, Tedbuy Inc`;
             id,
             sellerId: finalSellerId,
             sellerName: finalSellerName,
+            hasVideo: updatedData.videos !== undefined 
+              ? (Array.isArray(updatedData.videos) && updatedData.videos.length > 0)
+              : (localProduct ? (Array.isArray(localProduct.videos) && localProduct.videos.length > 0) : false)
           };
           setDoc(productRef, cleanObject(fullProductUpdate))
             .then(() => console.log('[updateProduct] Firestore document updated successfully (full)'))
@@ -4122,82 +4135,187 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     const authUser = auth.currentUser;
     const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
-    // 1. If not simulated, do database and authentication cleanup
-    if (!isSimulated && authUser) {
-      // Step A: Best-effort client-side Firestore cleanup first (since Web SDK has direct authorization for user owned data)
-      try {
-        console.log('[Account Deletion] Performing client-side Firestore cleanup...');
-        // Delete user's own products
-        const myProducts = products.filter(p => p.sellerId === uid);
-        await Promise.all(myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})));
-        
-        // Delete storeName mapping
-        if (currentUser.username) {
-          await deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {});
-        }
-        
-        // Delete user profile document
-        await deleteDoc(doc(db, 'users', uid)).catch(() => {});
-      } catch (cleanupErr) {
-        console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
-      }
-
-      // Step B: Call backend API to delete remaining global references & Supabase if active
-      const idToken = await authUser.getIdToken();
-      const response = await fetch('/api/auth/delete-account', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        }
-      });
-      
-      if (!response.ok) {
-        const resData = await response.json().catch(() => ({}));
-        throw new Error(resData.error || `Failed to delete account. Backend returned status ${response.status}.`);
-      }
-      
-      const resData = await response.json().catch(() => ({}));
-      console.log('[Account Deletion] Backend successfully processed account data deletion:', resData);
-
-      // Step C: Delete the actual Firebase Auth User account directly on client-side as a reliable fallback
-      if (!resData?.authDeleted) {
-        try {
-          await deleteUser(authUser);
-          console.log('[Account Deletion] Successfully deleted Firebase Auth user directly on client-side.');
-        } catch (authErr) {
-          console.warn('[Account Deletion] Client-side deleteUser failed or requires reauthentication:', authErr);
-        }
-      }
-    }
-
-    // 2. Local memory and storage cleanup
-    safeLocalStorage.removeItem('tedbuy_simulated_user');
-    safeLocalStorage.removeItem('tedbuy_simulated_mode');
-    safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+    // Set the account deletion flag to prevent snapshot auto-recreation
+    safeLocalStorage.setItem('tedbuy_deleting_account', 'true');
 
     try {
-      const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
-      const currentList = cached ? JSON.parse(cached) : (users || []);
-      const filtered = currentList.filter((u: User) => u.id !== uid);
-      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
-      setUsers(filtered);
-    } catch (cacheErr) {
-      console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
-      setUsers(prev => prev.filter(u => u.id !== uid));
-    }
+      // 1. If not simulated, do database and authentication cleanup
+      if (!isSimulated && authUser) {
+        let resData: any = {};
+        
+        // Step A: Call backend API FIRST to delete global references & Supabase & Firebase Auth under Admin privilege.
+        // This is crucial because the backend needs to read the user's Firestore profile to get their username
+        // in order to correctly delete their storeName document. If we delete the profile client-side first,
+        // the backend cannot resolve the username, leaving orphaned store name mappings in the database.
+        try {
+          console.log('[Account Deletion] Invoking backend deletion API...');
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-    if (!isSimulated) {
-      try {
-        await signOut(auth);
-      } catch (signOutErr) {
-        console.warn('Could not complete signOut on Firebase Auth:', signOutErr);
+          const idToken = await authUser.getIdToken();
+          const response = await fetch('/api/users/delete-account', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+            },
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to delete account. Backend returned status ${response.status}.`);
+          }
+          
+          resData = await response.json().catch(() => ({}));
+          console.log('[Account Deletion] Backend successfully processed account data deletion:', resData);
+        } catch (apiErr: any) {
+          console.warn('[Account Deletion] Backend deletion API call failed or timed out. Attempting client-side fallback:', apiErr);
+        }
+
+        // Step B: Best-effort client-side Firestore cleanup as fallback/additional safety
+        // Skip entirely if backend succeeded, to prevent client-side credential issues from hanging the promise
+        if (!resData?.success) {
+          try {
+            console.log('[Account Deletion] Performing client-side Firestore cleanup fallback...');
+            const myProducts = products.filter(p => p.sellerId === uid);
+            
+            // Limit client-side writes to a strict 3-second maximum so offline/sandboxed SDKs can't hang the flow
+            await Promise.race([
+              Promise.all([
+                ...myProducts.map(p => deleteDoc(doc(db, 'products', p.id)).catch(() => {})),
+                currentUser.username ? deleteDoc(doc(db, 'storeNames', currentUser.username.trim().toLowerCase())).catch(() => {}) : Promise.resolve(),
+                deleteDoc(doc(db, 'users', uid)).catch(() => {})
+              ]),
+              new Promise((resolve) => setTimeout(resolve, 3000))
+            ]);
+            console.log('[Account Deletion] Client-side Firestore cleanup fallback completed.');
+          } catch (cleanupErr) {
+            console.warn('[Account Deletion] Client-side Firestore cleanup warning:', cleanupErr);
+          }
+        } else {
+          console.log('[Account Deletion] Backend successfully processed data deletion. Skipping client-side Firestore writes.');
+        }
+
+        // Step C: Delete the actual Firebase Auth User account directly on client-side if backend couldn't do it
+        if (!resData?.authDeleted) {
+          try {
+            await deleteUser(authUser);
+            console.log('[Account Deletion] Successfully deleted Firebase Auth user directly on client-side.');
+          } catch (authErr: any) {
+            console.warn('[Account Deletion] Client-side deleteUser failed or requires reauthentication:', authErr);
+            if (authErr?.code === 'auth/requires-recent-login' || authErr?.message?.includes('requires-recent-login') || authErr?.message?.includes('CREDENTIAL_TOO_OLD')) {
+              // Reauthenticate Google users automatically
+              if (currentUser.isGoogleAuth || authUser.providerData.some(p => p.providerId === 'google.com')) {
+                try {
+                  const provider = new GoogleAuthProvider();
+                  await reauthenticateWithPopup(authUser, provider);
+                  await deleteUser(authUser);
+                  console.log('[Account Deletion] Successfully deleted Firebase Auth user after Google reauthentication.');
+                } catch (reauthErr: any) {
+                  showToast('For security, please sign out, sign back in, and try deleting your account again.', 'error');
+                  throw new Error('This sensitive operation requires a recent login. Please sign out, sign back in, and try again.');
+                }
+              } else {
+                showToast('For security, please sign out, sign back in, and try deleting your account again.', 'error');
+                throw new Error('This sensitive operation requires a recent login. Please sign out, sign back in, and try again.');
+              }
+            }
+          }
+        }
       }
+
+      // 2. Local memory and storage cleanup
+      safeLocalStorage.removeItem('tedbuy_simulated_user');
+      safeLocalStorage.removeItem('tedbuy_simulated_mode');
+      safeLocalStorage.removeItem('tedbuy_local_current_user_backup');
+
+      try {
+        const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
+        const currentList = cached ? JSON.parse(cached) : (users || []);
+        const filtered = currentList.filter((u: User) => u.id !== uid);
+        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
+        setUsers(filtered);
+      } catch (cacheErr) {
+        console.warn('Could not filter custom backup data upon account deletion:', cacheErr);
+        setUsers(prev => prev.filter(u => u.id !== uid));
+      }
+
+      if (!isSimulated) {
+        try {
+          // Wrap signOut with a 2-second timeout to prevent any potential hangs from blocking the UI transition
+          await Promise.race([
+            signOut(auth),
+            new Promise((resolve) => setTimeout(resolve, 2000))
+          ]);
+        } catch (signOutErr) {
+          console.warn('Could not complete signOut on Firebase Auth:', signOutErr);
+        }
+      }
+      
+      triggeredWelcomeUserId.current = null;
+      justRegisteredUserIds.current.clear();
+      setCurrentUserState(null);
+      showToast('Account deleted successfully.', 'success');
+      setCurrentView('browse');
+      setAuthMode('login');
+      setShowAuthModal(true);
+    } catch (err) {
+      safeLocalStorage.removeItem('tedbuy_deleting_account');
+      throw err;
+    } finally {
+      safeLocalStorage.removeItem('tedbuy_deleting_account');
     }
-    
-    setCurrentUserState(null);
-    showToast('Your account and all associated data have been permanently deleted.', 'success');
-    setCurrentView('browse');
+  };
+
+  const refreshUsers = async () => {
+    try {
+      const isUserAdmin = currentUser?.isAdmin || (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com');
+      const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+
+      if (isUserAdmin && !isSimulated) {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (token) {
+            console.log('[refreshUsers] Fetching rich registered users list from admin backend...');
+            const response = await fetch('/api/admin/registered-users', {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && Array.isArray(data.users)) {
+                console.log(`[refreshUsers] Backend returned ${data.users.length} registered users.`);
+                setUsers(data.users);
+                safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(data.users));
+                return;
+              }
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[refreshUsers] Backend fetch failed, falling back to client-side Firestore:', apiErr);
+        }
+      }
+
+      // Fallback/standard public fetch
+      console.log('[refreshUsers] Querying public users collection from Firestore...');
+      const snapshot = await getDocs(collection(db, 'users'));
+      const uList: User[] = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        uList.push({
+          ...data,
+          id: docSnap.id || data.id
+        } as User);
+      });
+      setUsers(uList);
+      safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
+    } catch (err) {
+      console.error('[refreshUsers] Error:', err);
+    }
   };
 
   const sendWelcomeEmailToAll = async (
@@ -4449,6 +4567,31 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
         await batch.commit();
         console.log('[Admin Delete] Atomic user and storeNames registry deletion completed.');
+
+        // Invoke backend admin delete API to delete Firebase Auth user account and clean up Supabase
+        try {
+          const authUser = auth.currentUser;
+          if (authUser) {
+            const idToken = await authUser.getIdToken();
+            const response = await fetch('/api/admin/delete-user', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+              },
+              body: JSON.stringify({ targetUserId: userId })
+            });
+            if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              console.warn('[Admin Delete] Backend delete API returned error status:', response.status, errData);
+            } else {
+              const resData = await response.json();
+              console.log('[Admin Delete] Backend successfully processed target user account deletion:', resData);
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[Admin Delete] Backend admin delete API call failed:', apiErr);
+        }
       }
     } catch (err: any) {
       console.error('Could not delete user document and store name mapping from firestore during admin deletion:', err);
@@ -4729,6 +4872,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       toggleSaveProduct,
       updateUserProfile,
       deleteAccount,
+      refreshUsers,
       adminDeleteUserProfile,
       adminToggleUserSuspension,
       sendWelcomeEmailToAll,

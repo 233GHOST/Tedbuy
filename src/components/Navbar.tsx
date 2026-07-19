@@ -131,7 +131,7 @@ export const Navbar: React.FC = () => {
           }
 
           try {
-            const verifyRes = await verifyAndCompleteRegistration(cleanRegEmail, cleanOtp);
+            const verifyRes = await verifyAndCompleteRegistration(cleanRegEmail, cleanOtp, registerPasswordInput);
             if (verifyRes.success) {
               showToast('Account registered and verified successfully! Welcome to TedBuy.', 'success');
               setShowAuthModal(false);
