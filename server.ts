@@ -6729,6 +6729,161 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const cleanName = username || email.split('@')[0] || 'there';
     const escapedName = escapeHtml(cleanName);
 
+    // -------------------------------------------------------------
+    // AUTOMATED DATABASE WELCOME TRIGGER (Bypasses Client-Side RLS)
+    // -------------------------------------------------------------
+    try {
+      let resolvedUid = '';
+      let resolvedUsername = username || email.split('@')[0] || 'User';
+
+      // 1. Resolve UID and Username from DB if possible
+      if (adminDb) {
+        try {
+          const userSnap = await adminDb.collection('users').where('email', '==', email.trim()).limit(1).get();
+          if (!userSnap.empty) {
+            resolvedUid = userSnap.docs[0].id;
+            resolvedUsername = userSnap.docs[0].data().username || resolvedUsername;
+          }
+        } catch (dbErr) {
+          console.warn('[Welcome DB Trigger] Failed to query Firestore user:', dbErr);
+        }
+      }
+
+      if (!resolvedUid && backendSupabase) {
+        try {
+          const { data, error } = await backendSupabase
+            .from('users')
+            .select('id, username')
+            .eq('email', email.trim())
+            .maybeSingle();
+          if (!error && data) {
+            resolvedUid = (data as any).id;
+            resolvedUsername = (data as any).username || resolvedUsername;
+          }
+        } catch (sbErr) {
+          console.warn('[Welcome DB Trigger] Failed to query Supabase user:', sbErr);
+        }
+      }
+
+      if (resolvedUid) {
+        console.log(`[Welcome DB Trigger] Initializing automated support chat and metadata for: ${resolvedUsername} (UID: ${resolvedUid})`);
+
+        const ceoProfile = {
+          id: 'user_ted_ceo_support',
+          username: 'Tedbuy Support',
+          email: 'info.tedbuy@gmail.com',
+          photoUrl: '/favicon.svg',
+          role: 'seller',
+          joinDate: 'Jun 2018'
+        };
+
+        const chatId = `chat_support_${resolvedUid}`;
+        const supportChat = {
+          id: chatId,
+          productId: 'support_welcome',
+          productTitle: 'Tedbuy Support Desk',
+          productPrice: 'Direct Channel',
+          productImage: '/favicon.svg',
+          buyerId: resolvedUid,
+          buyerName: resolvedUsername,
+          sellerId: 'user_ted_ceo_support',
+          sellerName: 'Tedbuy Support',
+          lastMessageText: 'Welcome to Tedbuy 🚀',
+          lastMessageTime: new Date().toISOString(),
+          tradeStatus: 'pending',
+          adId: 'support_welcome',
+          adTitle: 'Tedbuy Support Desk',
+          adImage: '/favicon.svg',
+          adThumbnail: '/favicon.svg',
+          adType: 'image'
+        };
+
+        const welcomeMessageBody = `Welcome to TedBuy\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.\nAll replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`;
+
+        const msgId = `msg_welcome_${resolvedUid}`;
+        const supportMessage = {
+          id: msgId,
+          chatId: chatId,
+          senderId: 'user_ted_ceo_support',
+          recipientId: resolvedUid,
+          text: welcomeMessageBody,
+          createdAt: new Date().toISOString(),
+          read: false
+        };
+
+        // 2. Persist to Firestore Admin (if enabled)
+        if (adminDb) {
+          try {
+            await adminDb.collection('users').doc('user_ted_ceo_support').set(ceoProfile, { merge: true });
+            await adminDb.collection('chats').doc(chatId).set(supportChat, { merge: true });
+            await adminDb.collection('messages').doc(msgId).set(supportMessage, { merge: true });
+            await adminDb.collection('users').doc(resolvedUid).set({ welcomeSent: true }, { merge: true });
+            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat, Message and welcomeSent flag to Firestore.');
+          } catch (fsWriteErr) {
+            console.warn('[Welcome DB Trigger] Failed writing to Firestore:', fsWriteErr);
+          }
+        }
+
+        // 3. Persist to Supabase Admin (if enabled)
+        if (backendSupabase) {
+          try {
+            // Write Support Profile
+            await backendSupabase.from('users').upsert({
+              id: ceoProfile.id,
+              username: ceoProfile.username,
+              email: ceoProfile.email,
+              photoUrl: ceoProfile.photoUrl,
+              role: ceoProfile.role,
+              joinDate: ceoProfile.joinDate
+            });
+
+            // Write Chat
+            await backendSupabase.from('chats').upsert({
+              id: supportChat.id,
+              productId: supportChat.productId,
+              productTitle: supportChat.productTitle,
+              productPrice: supportChat.productPrice,
+              productImage: supportChat.productImage,
+              buyerId: supportChat.buyerId,
+              buyerName: supportChat.buyerName,
+              sellerId: supportChat.sellerId,
+              sellerName: supportChat.sellerName,
+              lastMessageText: supportChat.lastMessageText,
+              lastMessageTime: supportChat.lastMessageTime,
+              tradeStatus: supportChat.tradeStatus,
+              adId: supportChat.adId,
+              adTitle: supportChat.adTitle,
+              adImage: supportChat.adImage,
+              adThumbnail: supportChat.adThumbnail,
+              adType: supportChat.adType
+            });
+
+            // Write Message
+            await backendSupabase.from('messages').upsert({
+              id: supportMessage.id,
+              chatId: supportMessage.chatId,
+              senderId: supportMessage.senderId,
+              recipientId: supportMessage.recipientId,
+              text: supportMessage.text,
+              createdAt: supportMessage.createdAt,
+              read: supportMessage.read
+            });
+
+            // Update user welcomeSent flag
+            await backendSupabase.from('users').update({ welcomeSent: true }).eq('id', resolvedUid);
+
+            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat, Message and welcomeSent flag to Supabase.');
+          } catch (sbWriteErr) {
+            console.warn('[Welcome DB Trigger] Failed writing to Supabase:', sbWriteErr);
+          }
+        }
+      } else {
+        console.warn(`[Welcome DB Trigger] Could not resolve UID for email: ${email}. Skipping database chat creation.`);
+      }
+    } catch (globalDbErr) {
+      console.warn('[Welcome DB Trigger] General error in background welcome chat setup:', globalDbErr);
+    }
+
     const subject = 'Welcome to Tedbuy Ghana';
     const textContent = `Welcome to TedBuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.\n\nAll replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`;
     

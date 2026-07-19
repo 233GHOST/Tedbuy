@@ -115,7 +115,7 @@ interface AppContextType {
   usersMap?: Map<string, User>;
   registerUser: (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => Promise<User>;
   initiateRegistration: (username: string, email: string, phoneNumber: string, password: string, photoUrl?: string) => Promise<{ success: boolean; simulated?: boolean; debugOtp?: string; warning?: string; message?: string }>;
-  verifyAndCompleteRegistration: (email: string, otp: string) => Promise<{ success: boolean; user: User; simulatedMode: boolean; tempPassword?: string }>;
+  verifyAndCompleteRegistration: (email: string, otp: string, registrationPassword?: string) => Promise<{ success: boolean; user: User; simulatedMode: boolean; tempPassword?: string }>;
   loginUser: (identifier: string, password?: string) => Promise<boolean>;
   resetPasswordEmail: (email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
@@ -2293,7 +2293,7 @@ CEO, Tedbuy Inc`;
     }
   }, []);
 
-  const verifyAndCompleteRegistration = useCallback(async (email: string, otp: string) => {
+  const verifyAndCompleteRegistration = useCallback(async (email: string, otp: string, registrationPassword?: string) => {
     try {
       const response = await fetch('/api/auth/verify', {
         method: 'POST',
@@ -2357,8 +2357,13 @@ CEO, Tedbuy Inc`;
         
         try {
           justRegisteredUserIds.current.add(user.id);
-          await signInWithEmailAndPassword(auth, email, tempPassword);
-          console.log('[verifyAndCompleteRegistration] Production sign-in successful!');
+          const passwordToUse = registrationPassword || tempPassword;
+          if (passwordToUse) {
+            await signInWithEmailAndPassword(auth, email, passwordToUse);
+            console.log('[verifyAndCompleteRegistration] Production sign-in successful!');
+          } else {
+            console.warn('[verifyAndCompleteRegistration] No registration password or temp password available for standard sign-in.');
+          }
 
           // Proactively save user profile and reserve store name in Firestore on the client-side
           const userRef = doc(db, 'users', user.id);
@@ -2372,6 +2377,11 @@ CEO, Tedbuy Inc`;
           console.error('[verifyAndCompleteRegistration] Client sign-in or document creation failed after backend creation:', signInErr);
           setCurrentUserState(user);
         }
+
+        // Setup welcome package directly to ensure it runs immediately
+        setupWelcomePackage(user).catch(err => {
+          console.warn('[Welcome Trigger] Production welcome package failed:', err);
+        });
 
         // Always register user to our local users state list and local storage backups immediately for maximum login reliability
         setUsers(prev => {
