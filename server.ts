@@ -6732,14 +6732,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     // -------------------------------------------------------------
     // AUTOMATED DATABASE WELCOME TRIGGER (Bypasses Client-Side RLS)
     // -------------------------------------------------------------
+    let resolvedUidForWelcome = '';
     try {
       let resolvedUid = '';
       let resolvedUsername = username || email.split('@')[0] || 'User';
 
       // 1. Resolve UID and Username from DB if possible
+      const emailVariants = Array.from(new Set([
+        email.trim(),
+        email.trim().toLowerCase(),
+        email.trim().toUpperCase()
+      ]));
+
       if (adminDb) {
         try {
-          const userSnap = await adminDb.collection('users').where('email', '==', email.trim()).limit(1).get();
+          const userSnap = await adminDb.collection('users').where('email', 'in', emailVariants).limit(1).get();
           if (!userSnap.empty) {
             resolvedUid = userSnap.docs[0].id;
             resolvedUsername = userSnap.docs[0].data().username || resolvedUsername;
@@ -6752,10 +6759,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (!resolvedUid && backendSupabase) {
         try {
           const { data, error } = await backendSupabase
-            .from('users')
-            .select('id, username')
-            .eq('email', email.trim())
-            .maybeSingle();
+             .from('users')
+             .select('id, username')
+             .in('email', emailVariants)
+             .maybeSingle();
           if (!error && data) {
             resolvedUid = (data as any).id;
             resolvedUsername = (data as any).username || resolvedUsername;
@@ -6764,6 +6771,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           console.warn('[Welcome DB Trigger] Failed to query Supabase user:', sbErr);
         }
       }
+
+      resolvedUidForWelcome = resolvedUid;
 
       if (resolvedUid) {
         console.log(`[Welcome DB Trigger] Initializing automated support chat and metadata for: ${resolvedUsername} (UID: ${resolvedUid})`);
@@ -6817,8 +6826,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             await adminDb.collection('users').doc('user_ted_ceo_support').set(ceoProfile, { merge: true });
             await adminDb.collection('chats').doc(chatId).set(supportChat, { merge: true });
             await adminDb.collection('messages').doc(msgId).set(supportMessage, { merge: true });
-            await adminDb.collection('users').doc(resolvedUid).set({ welcomeSent: true }, { merge: true });
-            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat, Message and welcomeSent flag to Firestore.');
+            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat and Message to Firestore.');
           } catch (fsWriteErr) {
             console.warn('[Welcome DB Trigger] Failed writing to Firestore:', fsWriteErr);
           }
@@ -6869,10 +6877,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               read: supportMessage.read
             });
 
-            // Update user welcomeSent flag
-            await backendSupabase.from('users').update({ welcomeSent: true }).eq('id', resolvedUid);
-
-            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat, Message and welcomeSent flag to Supabase.');
+            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat and Message to Supabase.');
           } catch (sbWriteErr) {
             console.warn('[Welcome DB Trigger] Failed writing to Supabase:', sbWriteErr);
           }
@@ -7055,6 +7060,27 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 </body>
 </html>`;
 
+    // Helper to update welcomeSent: true in database on successful email delivery
+    const markWelcomeSentInDb = async (uid: string) => {
+      if (!uid) return;
+      if (adminDb) {
+        try {
+          await adminDb.collection('users').doc(uid).set({ welcomeSent: true }, { merge: true });
+          console.log(`[Email Engine] Successfully flagged Firestore user ${uid} with welcomeSent: true`);
+        } catch (err) {
+          console.warn('[Email Engine] Firestore welcomeSent update failed:', err);
+        }
+      }
+      if (backendSupabase) {
+        try {
+          await backendSupabase.from('users').update({ welcomeSent: true }).eq('id', uid);
+          console.log(`[Email Engine] Successfully flagged Supabase user ${uid} with welcomeSent: true`);
+        } catch (err) {
+          console.warn('[Email Engine] Supabase welcomeSent update failed:', err);
+        }
+      }
+    };
+
     // 1. Try Brevo REST API if configured
     const brevoApiKey = process.env.BREVO_API_KEY;
     if (brevoApiKey) {
@@ -7094,6 +7120,9 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (brevoResponse.ok) {
           const result = await brevoResponse.json();
           console.log(`[Email Engine] Brevo REST API sent successfully. Message ID: ${result.messageId || 'unknown'}`);
+          if (resolvedUidForWelcome) {
+            await markWelcomeSentInDb(resolvedUidForWelcome);
+          }
           return res.json({ success: true, messageId: result.messageId || 'brevo-rest-id', provider: 'brevo-rest' });
         } else {
           const errText = await brevoResponse.text();
@@ -7124,12 +7153,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
       }
 
+      if (resolvedUidForWelcome) {
+        await markWelcomeSentInDb(resolvedUidForWelcome);
+      }
+
       return res.json({ success: true, messageId: info.messageId || 'virtual', provider: 'smtp' });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       console.warn(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${email}:`, errMsg);
 
       console.log(`[Email Engine] [Bypass] Gracefully bypassing SMTP issue for ${email}. Returning simulated delivery success.`);
+      if (resolvedUidForWelcome) {
+        await markWelcomeSentInDb(resolvedUidForWelcome);
+      }
       return res.json({
         success: true,
         messageId: 'simulated_delivery_bypass_id',

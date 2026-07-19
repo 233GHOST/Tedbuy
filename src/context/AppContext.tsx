@@ -1755,16 +1755,8 @@ CEO, Tedbuy Inc`;
       }
     }
 
-    // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
-    try {
-      const userRef = doc(db, 'users', targetUser.id);
-      await setDoc(userRef, { welcomeSent: true }, { merge: true });
-      console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
-    } catch (userFlagErr) {
-      console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
-    }
-
-    // 5. Send Welcome Email synchronously via server SMTP / Brevo REST
+    // 4. Send Welcome Email synchronously via server SMTP / Brevo REST
+    let emailSentSuccessfully = false;
     try {
       let idToken = idTokenOverride;
       if (!idToken && auth.currentUser) {
@@ -1790,20 +1782,35 @@ CEO, Tedbuy Inc`;
       });
       if (emailResponse.ok) {
         console.log(`[Welcome Trigger] Real outbound welcome email request processed cleanly: ${emailResponse.status}`);
+        emailSentSuccessfully = true;
       } else {
-        console.warn(`[Welcome Trigger] Outbound welcome email request completed with error status: ${emailResponse.status}`);
+        const errData = await emailResponse.json().catch(() => ({}));
+        console.error(`[Welcome Trigger] Outbound welcome email request failed with status ${emailResponse.status}:`, errData.error || errData);
       }
     } catch (emailErr) {
-      console.warn('[Welcome Trigger] Backend welcome email call failed:', emailErr);
+      console.error('[Welcome Trigger] Backend welcome email call failed:', emailErr);
     }
 
-    // 6. Keep active runtime state in-sync with welcomeSent: true
-    setCurrentUserState(prev => {
-      if (prev && prev.id === targetUser.id) {
-        return { ...prev, welcomeSent: true };
+    // 5. Update welcomeSent: true metadata under users/{userId} ONLY on success
+    if (emailSentSuccessfully) {
+      try {
+        const userRef = doc(db, 'users', targetUser.id);
+        await setDoc(userRef, { welcomeSent: true }, { merge: true });
+        console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
+      } catch (userFlagErr) {
+        console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
       }
-      return prev;
-    });
+
+      // 6. Keep active runtime state in-sync with welcomeSent: true
+      setCurrentUserState(prev => {
+        if (prev && prev.id === targetUser.id) {
+          return { ...prev, welcomeSent: true };
+        }
+        return prev;
+      });
+    } else {
+      console.warn(`[Welcome Trigger] welcomeSent flag was NOT updated in database because email delivery was not successful. Will retry on next session/trigger.`);
+    }
   };
 
   useEffect(() => {
