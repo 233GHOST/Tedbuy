@@ -1810,6 +1810,8 @@ CEO, Tedbuy Inc`;
       });
     } else {
       console.warn(`[Welcome Trigger] welcomeSent flag was NOT updated in database because email delivery was not successful. Will retry on next session/trigger.`);
+      // Self-correcting reset so that it can retry on next component mount/update if needed
+      triggeredWelcomeUserId.current = null;
     }
   };
 

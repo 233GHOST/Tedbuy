@@ -4386,8 +4386,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let simulated = false;
       let errorDetail = '';
 
+      // Ensure SMTP sender matches SMTP_USER when sending via SMTP to prevent strict relay rejection.
+      const resolvedSmtpSender = process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
       const mailOptions = {
-        from: `"Tedbuy" <${process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com'}>`,
+        from: `"Tedbuy" <${resolvedSmtpSender}>`,
         to: cleanEmail,
         replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
         subject: `${otp} is your TedBuy Verification Code`,
@@ -4663,12 +4665,17 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
 
       if (!emailSent) {
-        if (brevoApiKey) {
-          console.warn(`[Auth Register] Brevo configuration was detected but delivery failed:`, errorDetail);
+        const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
+        if (brevoApiKey && !hasSmtp) {
+          console.warn(`[Auth Register] Brevo configuration was detected but delivery failed, and no SMTP is configured:`, errorDetail);
           return res.status(400).json({
             success: false,
             error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
           });
+        }
+
+        if (brevoApiKey && hasSmtp) {
+          console.log(`[Auth Register] Brevo REST API OTP delivery failed, but SMTP is configured. Falling back to SMTP...`);
         }
 
         if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -6705,7 +6712,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const key = `${ip}:welcome-email`;
       const now = Date.now();
       const windowMs = 5 * 60 * 1000;
-      const maxRequests = 3;
+      const maxRequests = 100;
 
       if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
         rateLimitStore[key] = {
@@ -7137,8 +7144,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     try {
       const transporter = getMailTransporter();
       
+      // Ensure SMTP sender matches SMTP_USER when sending via SMTP to prevent strict relay rejection.
+      const resolvedSmtpSender = process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
       const mailOptions = {
-        from: `"Tedbuy" <${process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com'}>`,
+        from: `"Tedbuy Support" <${resolvedSmtpSender}>`,
         to: email,
         replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
         subject: subject,
