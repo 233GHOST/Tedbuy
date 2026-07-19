@@ -15,35 +15,19 @@ import {
   increment as fsIncrement,
   writeBatch as fsWriteBatch
 } from 'firebase/firestore';
-import { db as fsDb, auth } from './firebase';
+import { db as fsDb } from './firebase';
 
 // -------------------------------------------------------------
 // Initialize Supabase Client if credentials are provided
 // -------------------------------------------------------------
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
-const disableSupabaseEnv = (import.meta as any).env.VITE_DISABLE_SUPABASE === 'true';
 
 const isValidUrl = (url: string) => {
   return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
 };
 
-let isLocalDisable = true;
-if (typeof window !== 'undefined') {
-  try {
-    const stored = localStorage.getItem('tedbuy_disable_supabase');
-    if (stored !== null) {
-      isLocalDisable = stored === 'true';
-    } else {
-      localStorage.setItem('tedbuy_disable_supabase', 'false');
-      isLocalDisable = false;
-    }
-  } catch (e) {
-    isLocalDisable = true;
-  }
-}
-
-export const isSupabaseActive = !disableSupabaseEnv && !isLocalDisable && !!(supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl));
+export const isSupabaseActive = !!(supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl));
 
 export const supabase = isSupabaseActive
   ? createClient(supabaseUrl, supabaseAnonKey)
@@ -97,7 +81,7 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
     'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice', 
     'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase', 
-    'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved', 'hasVideo'
+    'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved'
   ]),
   chats: new Set([
     'id', 'productId', 'productTitle', 'productPrice', 'productImage', 
@@ -311,18 +295,6 @@ export function increment(n: number) {
 // -------------------------------------------------------------
 // Database Operations (getDoc, getDocs, setDoc, updateDoc, deleteDoc)
 // -------------------------------------------------------------
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const user = auth.currentUser;
-  if (!user) return {};
-  try {
-    const idToken = await user.getIdToken();
-    return { 'Authorization': `Bearer ${idToken}` };
-  } catch (err) {
-    console.warn('[dbAdapter] Failed to get auth ID token:', err);
-    return {};
-  }
-}
-
 export async function getDoc(docRef: any): Promise<any> {
   if (!isSupabaseActive) {
     return fsGetDoc(docRef);
@@ -331,41 +303,6 @@ export async function getDoc(docRef: any): Promise<any> {
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
-
-  // Intercept reads for protected tables
-  if (table === 'chats' || table === 'messages' || table === 'notifications') {
-    try {
-      const headers = await getAuthHeaders();
-      if (table === 'chats') {
-        const res = await fetch('/api/chats', { headers });
-        const json = await res.json();
-        const chat = json.chats?.find((c: any) => c.id === id);
-        return {
-          id,
-          exists: () => !!chat,
-          data: () => chat || null
-        };
-      } else if (table === 'messages') {
-        return {
-          id,
-          exists: () => false,
-          data: () => null
-        };
-      } else if (table === 'notifications') {
-        const res = await fetch('/api/notifications', { headers });
-        const json = await res.json();
-        const notif = json.notifications?.find((n: any) => n.id === id);
-        return {
-          id,
-          exists: () => !!notif,
-          data: () => notif || null
-        };
-      }
-    } catch (err) {
-      console.error(`[dbAdapter getDoc Intercept] Error for ${table}:`, err);
-      throw err;
-    }
-  }
 
   const { data, error } = await supabase!
     .from(table)
@@ -431,73 +368,6 @@ export async function getDocs(queryOrRef: any): Promise<any> {
   const table = mapPathToTable(ref.path);
   const constraints = isQuery ? queryOrRef.constraints : [];
 
-  // Intercept reads for protected tables
-  if (table === 'chats' || table === 'messages' || table === 'notifications') {
-    try {
-      const headers = await getAuthHeaders();
-      if (table === 'chats') {
-        const res = await fetch('/api/chats', { headers });
-        const json = await res.json();
-        const chatsList = json.chats || [];
-        const docs = chatsList.map((item: any) => ({
-          id: item.id,
-          exists: () => true,
-          data: () => item
-        }));
-        return {
-          docs,
-          forEach: (cb: any) => docs.forEach(cb),
-          size: docs.length,
-          empty: docs.length === 0,
-          metadata: { fromCache: false, hasPendingWrites: false }
-        };
-      } else if (table === 'messages') {
-        let chatId = '';
-        for (const c of constraints) {
-          if (c && c.type === 'where' && c.field === 'chatId' && c.op === '==') {
-            chatId = c.value;
-          }
-        }
-        if (chatId) {
-          const res = await fetch(`/api/chats/${chatId}/messages`, { headers });
-          const json = await res.json();
-          const messagesList = json.messages || [];
-          const docs = messagesList.map((item: any) => ({
-            id: item.id,
-            exists: () => true,
-            data: () => item
-          }));
-          return {
-            docs,
-            forEach: (cb: any) => docs.forEach(cb),
-            size: docs.length,
-            empty: docs.length === 0,
-            metadata: { fromCache: false, hasPendingWrites: false }
-          };
-        }
-      } else if (table === 'notifications') {
-        const res = await fetch('/api/notifications', { headers });
-        const json = await res.json();
-        const notificationsList = json.notifications || [];
-        const docs = notificationsList.map((item: any) => ({
-          id: item.id,
-          exists: () => true,
-          data: () => item
-        }));
-        return {
-          docs,
-          forEach: (cb: any) => docs.forEach(cb),
-          size: docs.length,
-          empty: docs.length === 0,
-          metadata: { fromCache: false, hasPendingWrites: false }
-        };
-      }
-    } catch (err) {
-      console.error(`[dbAdapter getDocs Intercept] Error for ${table}:`, err);
-      throw err;
-    }
-  }
-
   const q = buildSupabaseQuery(table, constraints);
   const { data, error } = await q;
 
@@ -559,51 +429,6 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
 
-  // Intercept writes for protected tables
-  if (table === 'chats' || table === 'messages' || table === 'notifications' || table === 'reviews') {
-    try {
-      const headers = await getAuthHeaders();
-      headers['Content-Type'] = 'application/json';
-      let url = '';
-      let method = 'POST';
-      let body = { id, ...data };
-
-      if (table === 'chats') {
-        url = '/api/chats';
-      } else if (table === 'messages') {
-        const chatId = data.chatId;
-        url = `/api/chats/${chatId}/messages`;
-      } else if (table === 'notifications') {
-        if (options?.merge || data.read !== undefined) {
-          url = `/api/notifications/${id}/read`;
-          method = 'PATCH';
-          body = {};
-        } else {
-          console.log('[dbAdapter setDoc] Creation of notifications on client bypassed.');
-          return;
-        }
-      } else if (table === 'reviews') {
-        url = '/api/reviews';
-      }
-
-      if (url) {
-        const res = await fetch(url, {
-          method,
-          headers,
-          body: JSON.stringify(body)
-        });
-        const json = await res.json();
-        if (!json.success) {
-          throw new Error(json.error || `Failed server-mediated write to ${table}`);
-        }
-        return;
-      }
-    } catch (err) {
-      console.error(`[dbAdapter setDoc Intercept] Error for ${table}:`, err);
-      throw err;
-    }
-  }
-
   let payload = { id, ...data };
   
   // Process increments and nested values
@@ -664,42 +489,6 @@ export async function updateDoc(docRef: any, data: any): Promise<void> {
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
-
-  // Intercept writes for protected tables
-  if (table === 'chats' || table === 'messages' || table === 'notifications') {
-    try {
-      const headers = await getAuthHeaders();
-      headers['Content-Type'] = 'application/json';
-      let url = '';
-      let method = 'PATCH';
-      let body = { ...data };
-
-      if (table === 'messages' && data.read === true) {
-        url = `/api/messages/${id}/read`;
-      } else if (table === 'notifications' && data.read === true) {
-        url = `/api/notifications/${id}/read`;
-      } else {
-        console.log(`[dbAdapter updateDoc] Update ignored on client for protected table ${table}:`, data);
-        return;
-      }
-
-      if (url) {
-        const res = await fetch(url, {
-          method,
-          headers,
-          body: JSON.stringify(body)
-        });
-        const json = await res.json();
-        if (!json.success) {
-          throw new Error(json.error || `Failed server-mediated update to ${table}`);
-        }
-        return;
-      }
-    } catch (err) {
-      console.error(`[dbAdapter updateDoc Intercept] Error for ${table}:`, err);
-      throw err;
-    }
-  }
 
   let payload = sanitizePayload({ ...data });
 
@@ -831,129 +620,6 @@ export function onSnapshot(
   }
 
   const isDoc = queryOrDocRef.type === 'doc' || (queryOrDocRef.path && queryOrDocRef.path.split('/').length > 1);
-  const parts = queryOrDocRef.path ? queryOrDocRef.path.split('/') : (queryOrDocRef.ref?.path ? queryOrDocRef.ref.path.split('/') : []);
-  const table = parts.length > 0 ? mapPathToTable(parts[0]) : '';
-
-  // Intercept for protected tables to use secure server polling instead of client-side pg subscriptions
-  if (table === 'chats' || table === 'messages' || table === 'notifications') {
-    let active = true;
-    let intervalId: any = null;
-
-    const poll = async () => {
-      if (!active) return;
-      try {
-        const headers = await getAuthHeaders();
-        if (isDoc) {
-          const id = queryOrDocRef.id || parts[1];
-          if (table === 'chats') {
-            const res = await fetch('/api/chats', { headers });
-            const json = await res.json();
-            if (!active) return;
-            const chat = json.chats?.find((c: any) => c.id === id);
-            onNext({
-              id,
-              exists: () => !!chat,
-              data: () => chat || null
-            });
-          } else if (table === 'notifications') {
-            const res = await fetch('/api/notifications', { headers });
-            const json = await res.json();
-            if (!active) return;
-            const notif = json.notifications?.find((n: any) => n.id === id);
-            onNext({
-              id,
-              exists: () => !!notif,
-              data: () => notif || null
-            });
-          }
-        } else {
-          // List queries
-          const isQuery = queryOrDocRef.__isAdapterQuery;
-          const constraints = isQuery ? queryOrDocRef.constraints : [];
-          
-          if (table === 'chats') {
-            const res = await fetch('/api/chats', { headers });
-            const json = await res.json();
-            if (!active) return;
-            const chatsList = json.chats || [];
-            const docs = chatsList.map((item: any) => ({
-              id: item.id,
-              exists: () => true,
-              data: () => item
-            }));
-            onNext({
-              docs,
-              forEach: (cb: any) => docs.forEach(cb),
-              size: docs.length,
-              empty: docs.length === 0,
-              metadata: { fromCache: false, hasPendingWrites: false },
-              docChanges: () => []
-            });
-          } else if (table === 'messages') {
-            let chatId = '';
-            for (const c of constraints) {
-              if (c && c.type === 'where' && c.field === 'chatId' && c.op === '==') {
-                chatId = c.value;
-              }
-            }
-            if (chatId) {
-              const res = await fetch(`/api/chats/${chatId}/messages`, { headers });
-              const json = await res.json();
-              if (!active) return;
-              const messagesList = json.messages || [];
-              const docs = messagesList.map((item: any) => ({
-                id: item.id,
-                exists: () => true,
-                data: () => item
-              }));
-              onNext({
-                docs,
-                forEach: (cb: any) => docs.forEach(cb),
-                size: docs.length,
-                empty: docs.length === 0,
-                metadata: { fromCache: false, hasPendingWrites: false },
-                docChanges: () => []
-              });
-            }
-          } else if (table === 'notifications') {
-            const res = await fetch('/api/notifications', { headers });
-            const json = await res.json();
-            if (!active) return;
-            const notificationsList = json.notifications || [];
-            const docs = notificationsList.map((item: any) => ({
-              id: item.id,
-              exists: () => true,
-              data: () => item
-            }));
-            onNext({
-              docs,
-              forEach: (cb: any) => docs.forEach(cb),
-              size: docs.length,
-              empty: docs.length === 0,
-              metadata: { fromCache: false, hasPendingWrites: false },
-              docChanges: () => []
-            });
-          }
-        }
-      } catch (err) {
-        if (onError) onError(err);
-      }
-    };
-
-    // Initial run
-    poll();
-
-    // High performance poll interval (4s for messages, 8s for chats/notifications)
-    const pollTime = table === 'messages' ? 4000 : 8000;
-    intervalId = setInterval(poll, pollTime);
-
-    return () => {
-      active = false;
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-    };
-  }
 
   if (isDoc) {
     const parts = queryOrDocRef.path.split('/');
@@ -1020,7 +686,7 @@ export function onSnapshot(
         if (error) {
           if (onError) onError(error);
           return;
-         }
+        }
 
         const docs = (data || []).map((item: any) => ({
           id: item.id,

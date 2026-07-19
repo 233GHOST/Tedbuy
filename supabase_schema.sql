@@ -63,8 +63,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     "paymentReference" TEXT,
     "boostHistory" JSONB DEFAULT '[]'::jsonb,
     "visitCount" INTEGER DEFAULT 0,
-    "isApproved" BOOLEAN DEFAULT true,
-    "hasVideo" BOOLEAN DEFAULT false
+    "isApproved" BOOLEAN DEFAULT true
 );
 
 -- Create index on products category and location for fast filtering

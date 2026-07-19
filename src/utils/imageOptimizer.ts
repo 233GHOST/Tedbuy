@@ -40,6 +40,7 @@ export const compressImage = async (file: File, maxWidth = 900, maxHeight = 900,
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
+        const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
 
@@ -56,48 +57,20 @@ export const compressImage = async (file: File, maxWidth = 900, maxHeight = 900,
           }
         }
 
-        let finalQuality = quality;
-        let finalWidth = width;
-        let finalHeight = height;
-        let dataUrl = '';
-        let pass = 0;
-        
-        // Target base64 length limit of 80,000 chars (~60KB binary size), preventing heavy base64 bloat in database
-        const maxDataUrlLength = 80000;
+        canvas.width = width;
+        canvas.height = height;
 
-        while (pass < 4) {
-          const canvas = document.createElement('canvas');
-          canvas.width = finalWidth;
-          canvas.height = finalHeight;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            dataUrl = event.target?.result as string;
-            break;
-          }
-
-          // Draw image
-          ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
-
-          // Try WebP first (about 25-30% smaller than JPEG at same quality)
-          dataUrl = canvas.toDataURL('image/webp', finalQuality);
-          
-          // Fallback to JPEG if browser doesn't support WebP export or returns raw PNG
-          if (!dataUrl.startsWith('data:image/webp') && dataUrl.startsWith('data:image/png')) {
-            dataUrl = canvas.toDataURL('image/jpeg', finalQuality);
-          }
-
-          if (dataUrl.length <= maxDataUrlLength) {
-            break;
-          }
-
-          // Progressive reduction: scale down dimensions by 15% and quality by 15% for next pass
-          finalWidth = Math.round(finalWidth * 0.85);
-          finalHeight = Math.round(finalHeight * 0.85);
-          finalQuality = Math.max(0.4, finalQuality * 0.85);
-          pass++;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(event.target?.result as string);
+          return;
         }
 
-        console.log(`[Image Optimizer] Succeeded in pass ${pass + 1}. Size: ${Math.round(dataUrl.length / 1024)} KB. Dimensions: ${finalWidth}x${finalHeight}`);
+        // Draw and compress
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Export to high-quality JPEG (or webp if supported)
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
         resolve(dataUrl);
       };
       
