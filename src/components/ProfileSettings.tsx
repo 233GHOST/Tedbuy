@@ -1215,6 +1215,136 @@ export const ProfileSettings: React.FC = () => {
                   </div>
                 )}
 
+                {/* Supabase Database Migration and Sync Hub */}
+                <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-slate-800 rounded-lg text-amber-400">
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-200">Supabase Cloud Sync & Migration Control</span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-350 leading-relaxed">
+                    Synchronize your Firestore collections directly with the production Supabase PostgreSQL server database, or perform a full reverse-migration from Supabase back to Firestore securely.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Forward sync: Firestore -> Supabase */}
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 flex flex-col justify-between space-y-3">
+                      <div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-450 block mb-1">Direct Migration</span>
+                        <h4 className="text-xs font-bold text-slate-100">Firestore ➔ Supabase</h4>
+                        <p className="text-[10px] text-slate-400 mt-1 leading-snug">
+                          Sync all active collections (users, products, chats, reviews, etc.) directly into Supabase tables in batches.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleMigrateToSupabase}
+                        disabled={isMigrating || isMigratingToFirestore}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isMigrating ? (
+                          <>
+                            <span className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin"></span>
+                            <span>Syncing to Supabase...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Start Supabase Sync</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Reverse sync: Supabase -> Firestore */}
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 flex flex-col justify-between space-y-3">
+                      <div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-450 block mb-1">Reverse Migration</span>
+                        <h4 className="text-xs font-bold text-slate-100 font-mono text-emerald-400">Supabase ➔ Firestore</h4>
+                        <p className="text-[10px] text-slate-400 mt-1 leading-snug">
+                          Pull records from Supabase tables back into Cloud Firestore to synchronize data in both directions.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleMigrateToFirestore}
+                        disabled={isMigrating || isMigratingToFirestore}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isMigratingToFirestore ? (
+                          <>
+                            <span className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin"></span>
+                            <span>Syncing to Firestore...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Start Firestore Sync</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Migration Log and Stats output */}
+                  {(migrationLog || firestoreMigrationLog) && (
+                    <div className="rounded-2xl bg-slate-950 p-4 border border-slate-850 font-mono text-[11px] leading-relaxed text-left space-y-3">
+                      <div className="flex justify-between text-slate-450 text-[10px] uppercase font-bold border-b border-slate-900 pb-1.5">
+                        <span>Database Sync Activity Log</span>
+                        <button 
+                          onClick={() => {
+                            setMigrationLog(null);
+                            setFirestoreMigrationLog(null);
+                            setMigrationStats(null);
+                            setFirestoreMigrationStats(null);
+                          }}
+                          className="text-slate-500 hover:text-slate-300 transition"
+                        >
+                          Clear
+                        </button>
+                      </div>
+
+                      <div className="text-amber-400 font-mono text-[10px] max-h-32 overflow-y-auto whitespace-pre-wrap">
+                        {migrationLog || firestoreMigrationLog}
+                      </div>
+
+                      {/* Display Table/Collection metrics if available */}
+                      {migrationStats && (
+                        <div className="pt-2 border-t border-slate-900 text-[10px] space-y-1 text-slate-300">
+                          <span className="font-bold text-slate-400 uppercase tracking-wider block mb-1">Synchronization Metrics (To Supabase):</span>
+                          {Object.keys(migrationStats).map(table => (
+                            <div key={table} className="flex justify-between font-mono">
+                              <span className="text-slate-400">{table}</span>
+                              <span className="text-slate-200">
+                                Fetched: {migrationStats[table].fetched} | Migrated: {migrationStats[table].migrated}
+                                {migrationStats[table].failed > 0 && (
+                                  <span className="text-red-400 ml-1">({migrationStats[table].failed} failed)</span>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {firestoreMigrationStats && (
+                        <div className="pt-2 border-t border-slate-900 text-[10px] space-y-1 text-slate-300">
+                          <span className="font-bold text-emerald-400 uppercase tracking-wider block mb-1">Synchronization Metrics (To Firestore):</span>
+                          {Object.keys(firestoreMigrationStats).map(table => (
+                            <div key={table} className="flex justify-between font-mono">
+                              <span className="text-slate-400">{table}</span>
+                              <span className="text-slate-200 font-mono">
+                                Migrated: {firestoreMigrationStats[table]}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* User Account Suspension & Safety Hub */}
                 <div className="border-t border-slate-800 pt-6 mt-6 space-y-4">
                   <div className="flex items-center justify-between">
