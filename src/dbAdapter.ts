@@ -22,28 +22,12 @@ import { db as fsDb } from './firebase';
 // -------------------------------------------------------------
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
-const disableSupabaseEnv = (import.meta as any).env.VITE_DISABLE_SUPABASE === 'true';
 
 const isValidUrl = (url: string) => {
   return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
 };
 
-let isLocalDisable = true;
-if (typeof window !== 'undefined') {
-  try {
-    const stored = localStorage.getItem('tedbuy_disable_supabase');
-    if (stored !== null) {
-      isLocalDisable = stored === 'true';
-    } else {
-      localStorage.setItem('tedbuy_disable_supabase', 'false');
-      isLocalDisable = false;
-    }
-  } catch (e) {
-    isLocalDisable = true;
-  }
-}
-
-export const isSupabaseActive = !disableSupabaseEnv && !isLocalDisable && !!(supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl));
+export const isSupabaseActive = !!(supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl));
 
 export const supabase = isSupabaseActive
   ? createClient(supabaseUrl, supabaseAnonKey)
@@ -97,7 +81,7 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
     'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice', 
     'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase', 
-    'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved', 'hasVideo'
+    'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved'
   ]),
   chats: new Set([
     'id', 'productId', 'productTitle', 'productPrice', 'productImage', 

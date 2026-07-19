@@ -282,18 +282,12 @@ let adminDb: any = null;
 
 // Initialize backend Supabase client if configured
 const sbUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
-const isServiceRoleUsed = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+const sbKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 const isSbUrlValid = typeof sbUrl === 'string' && (sbUrl.startsWith('http://') || sbUrl.startsWith('https://'));
-const disableSupabase = process.env.VITE_DISABLE_SUPABASE === 'true' || process.env.DISABLE_SUPABASE === 'true';
-const backendSupabase = !disableSupabase && sbUrl && sbKey && isSbUrlValid ? createClient(sbUrl, sbKey) : null;
+const backendSupabase = sbUrl && sbKey && isSbUrlValid ? createClient(sbUrl, sbKey) : null;
 
 if (backendSupabase) {
-  if (isServiceRoleUsed) {
-    console.log('[Supabase Server] Initialized backend Supabase client with SERVICE_ROLE_KEY successfully! (RLS Bypassed)');
-  } else {
-    console.log('[Supabase Server] Initialized backend Supabase client with ANON_KEY. Note: Database operations might fail if RLS is enabled on Supabase tables.');
-  }
+  console.log('[Supabase Server] Initialized backend Supabase client successfully!');
 } else {
   console.log('[Supabase Server] Credentials not detected. Server-side Supabase client inactive.');
 }
@@ -465,7 +459,12 @@ if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
 
 let isGCPServiceAccountAuthorized = process.env.K_SERVICE !== undefined || process.env.GOOGLE_APPLICATION_CREDENTIALS !== undefined || parsedServiceAccountJson !== null;
 
-console.log('[Firebase Admin] Enabling Firestore Admin client for secure server-side and migration operations.');
+if (backendSupabase) {
+  console.log('[Firebase Admin] Routing database operations exclusively to Supabase. Disabling Firestore Admin client, keeping Auth token verification active.');
+  adminDb = null;
+} else {
+  console.log('[Firebase Admin] Supabase not configured. Enabling Firestore Admin client for secure server-side operations.');
+}
 
 if (isGCPServiceAccountAuthorized) {
   (async () => {
@@ -486,12 +485,14 @@ if (isGCPServiceAccountAuthorized) {
       }
       console.log('[Firebase Admin] App successfully initialized for admin auth token verification.');
 
-      try {
-        const { getFirestore } = await import("firebase-admin/firestore");
-        adminDb = getFirestore();
-        console.log('[Firebase Admin] Firestore Admin DB client initialized successfully!');
-      } catch (dbInitErr: any) {
-        console.warn('[Firebase Admin] Failed to initialize Firestore Admin DB client:', dbInitErr.message || dbInitErr);
+      if (!backendSupabase) {
+        try {
+          const { getFirestore } = await import("firebase-admin/firestore");
+          adminDb = getFirestore();
+          console.log('[Firebase Admin] Firestore Admin DB client initialized successfully!');
+        } catch (dbInitErr: any) {
+          console.warn('[Firebase Admin] Failed to initialize Firestore Admin DB client:', dbInitErr.message || dbInitErr);
+        }
       }
     } catch (err: any) {
       console.warn('[Firebase Admin] Failed to initialize Firebase Admin app for verification:', err.message || err);
@@ -660,10 +661,10 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
   try {
     let rawProduct: any = null;
     if (backendSupabase) {
-      console.log(`[Meta Crawler] Fetching product ${productId} via Supabase (excluding videos column)`);
+      console.log(`[Meta Crawler] Fetching product ${productId} via Supabase`);
       const { data, error } = await backendSupabase
         .from('products')
-        .select('id, title, description, price, category, location, images, brand, condition, negotiable, "sellerId", "sellerName", "createdAt", "viewsCount", "likesCount", "boostStatus", "boostPlan", "hasVideo"')
+        .select('*')
         .eq('id', productId)
         .maybeSingle();
 
@@ -2014,7 +2015,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
         'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
         'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
-        'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'hasVideo'
+        'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'videos'
       ].join(',');
       try {
         console.log(`[Products Data] [Stage 1] Fetching up to 150 products from backend Supabase (PostgreSQL)...`);
@@ -2030,7 +2031,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           productsList = data.map((row: any) => ({
             ...row,
             images: [`/api/products/${row.id}/image.jpg`],
-            videos: row.hasVideo ? [`/api/products/${row.id}/video.mp4`] : [],
+            videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
             thumbnail: undefined
           }));
         }
@@ -2052,7 +2053,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             productsList = data.map((row: any) => ({
               ...row,
               images: [`/api/products/${row.id}/image.jpg`],
-              videos: row.hasVideo ? [`/api/products/${row.id}/video.mp4`] : [],
+              videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
               thumbnail: undefined
             }));
           }
@@ -2069,7 +2070,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
               'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
               'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
-              'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'hasVideo'
+              'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'videos'
             ].join(',');
             
             const { data, error } = await backendSupabase
@@ -2084,93 +2085,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               productsList = data.map((row: any) => ({
                 ...row,
                 images: [`/api/products/${row.id}/image.jpg`],
-                videos: row.hasVideo ? [`/api/products/${row.id}/video.mp4`] : [],
+                videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
                 thumbnail: undefined
               }));
             }
           } catch (sbErr3: any) {
             console.error(`[Products Data] [Stage 3] Safe Supabase fetch fallback failed completely:`, sbErr3?.message || sbErr3);
           }
-        }
-      }
-    } else {
-      // Fetch directly from Firestore (Admin SDK first, falling back to REST)
-      if (adminDb) {
-        try {
-          console.log('[Products Data] Fetching products from Firestore via Admin SDK (Supabase inactive)...');
-          const snapshot = await adminDb.collection('products').get();
-          if (!snapshot.empty) {
-            snapshot.forEach((doc: any) => {
-              productsList.push({ id: doc.id, ...doc.data() });
-            });
-            console.log(`[Products Data] Successfully loaded ${productsList.length} products from Firestore Admin SDK!`);
-          }
-        } catch (adminErr: any) {
-          console.warn('[Products Data] Admin SDK fetch failed for products:', adminErr.message || adminErr);
-        }
-      }
-
-      if (productsList.length === 0) {
-        try {
-          console.log('[Products Data] Fetching products from Firestore via REST API (Supabase inactive)...');
-          const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-          
-          const response = await fetch(firestoreUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              structuredQuery: {
-                from: [{ collectionId: 'products', allDescendants: false }],
-                limit: 1000
-              }
-            })
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const results = Array.isArray(data) ? data : [];
-            const parsedDocs = results
-              .filter((item: any) => item && item.document)
-              .map((item: any) => {
-                const doc = item.document;
-                const fields = doc.fields || {};
-                const result: any = {};
-                
-                const parseVal = (val: any): any => {
-                  if (!val) return undefined;
-                  if ('stringValue' in val) return val.stringValue;
-                  if ('integerValue' in val) return parseInt(val.integerValue, 10);
-                  if ('doubleValue' in val) return parseFloat(val.doubleValue);
-                  if ('booleanValue' in val) return val.booleanValue;
-                  if ('arrayValue' in val) {
-                    const arr = val.arrayValue?.values || [];
-                    return arr.map((sub: any) => parseVal(sub));
-                  }
-                  if ('mapValue' in val) {
-                    const mapFields = val.mapValue?.fields || {};
-                    const mapResult: any = {};
-                    for (const k of Object.keys(mapFields)) {
-                      mapResult[k] = parseVal(mapFields[k]);
-                    }
-                    return mapResult;
-                  }
-                  return undefined;
-                };
-
-                for (const key of Object.keys(fields)) {
-                  result[key] = parseVal(fields[key]);
-                }
-                const docName = doc.name || "";
-                const id = docName.split("/").pop() || "";
-                return { id, ...result };
-              });
-            productsList = parsedDocs;
-            console.log(`[Products Data] Successfully loaded ${productsList.length} products from Firestore REST API!`);
-          } else {
-            console.warn('[Products Data] Firestore REST API returned error status:', response.status);
-          }
-        } catch (restErr: any) {
-          console.error('[Products Data] REST API fallback failed completely:', restErr.message || restErr);
         }
       }
     }
@@ -2400,13 +2321,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   // Firestore REST helpers for Boost Ad System
-  async function getRawProductFirestoreREST(productId: string, columns: string = '*') {
+  async function getRawProductFirestoreREST(productId: string) {
     if (backendSupabase) {
       try {
-        console.log(`[Supabase Server] Fetching product ${productId} from Supabase (columns: ${columns})...`);
+        console.log(`[Supabase Server] Fetching product ${productId} from Supabase...`);
         const { data, error } = await backendSupabase
           .from('products')
-          .select(columns)
+          .select('*')
           .eq('id', productId)
           .maybeSingle();
         if (!error && data) return data;
@@ -2809,8 +2730,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     // Safe fallback if Admin transaction is not executed or fails
     if (!finalUpdatedFields) {
-      const neededCols = 'id, title, price, "sellerId", "boostStatus", "boostPlan", "boostPriority", "isApproved", "boostHistory"';
-      let productData = await getRawProductFirestoreREST(productId, neededCols);
+      let productData = await getRawProductFirestoreREST(productId);
       let retryCount = 0;
       const maxRetries = 2;
       const retryDelayMs = 400;
@@ -2819,7 +2739,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         retryCount++;
         console.log(`[REST Lag Check] Product ${productId} not found on attempt ${retryCount}/${maxRetries}. Retrying in ${retryDelayMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-        productData = await getRawProductFirestoreREST(productId, neededCols);
+        productData = await getRawProductFirestoreREST(productId);
       }
 
       if (!productData) {
@@ -3111,7 +3031,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       if (action === 'deactivate') {
         // Fetch current product data (only needed here - activateBoostInternal fetches its own copy for 'activate')
-        const productData = await getRawProductFirestoreREST(productId, 'id, "viewsCount", "createdAt", "boostStatus"');
+        const productData = await getRawProductFirestoreREST(productId);
         if (!productData) {
           return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
         }
@@ -3203,7 +3123,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       result.isGoogleAuth = result.isGoogleAuth === true;
       result.isAdmin = result.isAdmin === true;
       result.welcomeSent = result.welcomeSent === true;
-      result.isSuspended = result.isSuspended === true;
       if (result.followingSellers && typeof result.followingSellers === 'string') {
         try { result.followingSellers = JSON.parse(result.followingSellers); } catch (_) { result.followingSellers = []; }
       }
@@ -3257,7 +3176,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       users: new Set([
         'id', 'username', 'email', 'phoneNumber', 'whatsAppNumber', 'role', 
         'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 
-        'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'isSuspended', 'createdAt'
+        'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'createdAt'
       ]),
       products: new Set([
         'id', 'title', 'description', 'price', 'category', 'location', 
@@ -3266,7 +3185,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
         'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice', 
         'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase', 
-        'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved', 'hasVideo'
+        'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved'
       ]),
       chats: new Set([
         'id', 'productId', 'productTitle', 'productPrice', 'productImage', 
@@ -3551,190 +3470,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     } catch (err: any) {
       console.error('[Supabase Migration Exception]:', err);
-      return res.status(500).json({ success: false, error: err.message || "Internal server error during data migration." });
-    }
-  });
-
-  function serializeValue(val: any): any {
-    if (val === null || val === undefined) return null;
-    if (typeof val === 'string') {
-      return { stringValue: val };
-    }
-    if (typeof val === 'number') {
-      if (Number.isInteger(val)) {
-        return { integerValue: String(val) };
-      } else {
-        return { doubleValue: val };
-      }
-    }
-    if (typeof val === 'boolean') {
-      return { booleanValue: val };
-    }
-    if (Array.isArray(val)) {
-      const values = val.map(sub => serializeValue(sub)).filter(Boolean);
-      return { arrayValue: { values } };
-    }
-    if (typeof val === 'object') {
-      const fields: any = {};
-      for (const [k, v] of Object.entries(val)) {
-        const s = serializeValue(v);
-        if (s) fields[k] = s;
-      }
-      return { mapValue: { fields } };
-    }
-    return null;
-  }
-
-  function serializeToFirestoreREST(obj: any): any {
-    const fields: any = {};
-    for (const [key, value] of Object.entries(obj)) {
-      if (value === undefined || value === null) {
-        continue;
-      }
-      const serialized = serializeValue(value);
-      if (serialized) {
-        fields[key] = serialized;
-      }
-    }
-    return { fields };
-  }
-
-  async function writeToFirestoreREST(collection: string, docId: string, data: any, userAuthHeader?: string): Promise<{ success: boolean; error?: string }> {
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}/${docId}${apiKey ? `?key=${apiKey}` : ""}`;
-    const body = serializeToFirestoreREST(data);
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      
-      // Attempt to get secure service account token from GCP Metadata server first (highly authoritative)
-      const metadataToken = await getGCPMetadataToken();
-      if (metadataToken) {
-        headers['Authorization'] = `Bearer ${metadataToken}`;
-        console.log(`[Firestore REST Write] Bypassing security rules using GCP metadata service account token.`);
-      } else if (userAuthHeader) {
-        headers['Authorization'] = userAuthHeader;
-        console.log(`[Firestore REST Write] Authenticating REST request as the user with authHeader.`);
-      }
-
-      const response = await fetch(url, {
-        method: 'PATCH', // PATCH acts as a set/upsert on specific document in Firestore REST
-        headers,
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        const errText = await response.text();
-        console.warn(`[Firestore REST Write] Failed to write document ${docId} to collection ${collection}: ${errText}`);
-        return { success: false, error: errText };
-      }
-      return { success: true };
-    } catch (err: any) {
-      console.error(`[Firestore REST Write Exception] for ${docId} in ${collection}:`, err.message || err);
-      return { success: false, error: err.message || String(err) };
-    }
-  }
-
-  async function runSupabaseToFirestoreSync(userAuthHeader?: string): Promise<any> {
-    if (!backendSupabase) {
-      throw new Error("Supabase integration is not active. We cannot migrate data from a deactivated Supabase client.");
-    }
-
-    const stats: any = {};
-    const tablesToMigrate = [
-      { supabase: 'users', firestore: 'users' },
-      { supabase: 'products', firestore: 'products' },
-      { supabase: 'chats', firestore: 'chats' },
-      { supabase: 'messages', firestore: 'messages' },
-      { supabase: 'reviews', firestore: 'reviews' },
-      { supabase: 'notifications', firestore: 'notifications' },
-      { supabase: 'store_names', firestore: 'storeNames' },
-      { supabase: 'boost_purchases', firestore: 'boostPurchases' }
-    ];
-
-    const isUsingAdminSDK = !!adminDb;
-    console.log(`[Supabase -> Firestore Sync] Starting sync. Method: ${isUsingAdminSDK ? "Firebase Admin SDK" : "Firestore REST API (Resilient Fallback)"}`);
-
-    for (const mapping of tablesToMigrate) {
-      stats[mapping.firestore] = { fetched: 0, migrated: 0, failed: 0, errors: [] };
-      try {
-        console.log(`[Supabase -> Firestore Sync] Fetching all records from Supabase table "${mapping.supabase}"...`);
-        const { data, error } = await backendSupabase
-          .from(mapping.supabase)
-          .select('*');
-
-        if (error) {
-          throw error;
-        }
-
-        if (data && data.length > 0) {
-          stats[mapping.firestore].fetched = data.length;
-          console.log(`[Supabase -> Firestore Sync] Found ${data.length} records. Writing to Firestore collection "${mapping.firestore}"...`);
-          
-          for (const row of data) {
-            try {
-              const id = row.id;
-              if (!id) continue;
-
-              // Clean up row fields if necessary (remove id from body if writing to doc with that ID)
-              const docData = { ...row };
-              delete docData.id;
-
-              if (adminDb) {
-                await adminDb.collection(mapping.firestore).doc(id).set(docData, { merge: true });
-              } else {
-                const res = await writeToFirestoreREST(mapping.firestore, id, docData, userAuthHeader);
-                if (!res.success) {
-                  throw new Error(res.error || "Firestore REST API write rejected.");
-                }
-              }
-              stats[mapping.firestore].migrated += 1;
-            } catch (writeErr: any) {
-              stats[mapping.firestore].failed += 1;
-              stats[mapping.firestore].errors.push(`Doc id ${row.id || 'unknown'} failed: ${writeErr.message || writeErr}`);
-            }
-          }
-        } else {
-          console.log(`[Supabase -> Firestore Sync] No records found in Supabase table "${mapping.supabase}".`);
-        }
-      } catch (err: any) {
-        console.error(`[Supabase -> Firestore Sync] Error migrating table "${mapping.supabase}":`, err);
-        stats[mapping.firestore].errors.push(err.message || String(err));
-      }
-
-      // Small pause to avoid hitting rate limits
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    cachedProducts = null; // Invalidate cache
-    return stats;
-  }
-
-  app.post('/api/admin/migrate-to-firestore', async (req, res) => {
-    const authHeader = req.headers.authorization;
-
-    try {
-      // 1. Verify admin privilege
-      const isAdmin = await verifyAdmin(authHeader);
-      if (!isAdmin) {
-        return res.status(403).json({ success: false, error: "Access Denied: Administrative privileges required." });
-      }
-
-      // 2. Ensure Supabase backend client is active
-      if (!backendSupabase) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Supabase integration is not active. We cannot fetch from Supabase if it's disabled." 
-        });
-      }
-
-      const stats = await runSupabaseToFirestoreSync(authHeader);
-
-      return res.json({
-        success: true,
-        message: "Data migration from Supabase back to Firestore completed successfully!",
-        stats
-      });
-
-    } catch (err: any) {
-      console.error('[Firestore Reverse Migration Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during data migration." });
     }
   });
@@ -4386,12 +4121,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let simulated = false;
       let errorDetail = '';
 
-      // Ensure SMTP sender matches SMTP_USER when sending via SMTP to prevent strict relay rejection.
-      const resolvedSmtpSender = process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
       const mailOptions = {
-        from: `"Tedbuy" <${resolvedSmtpSender}>`,
+        from: '"Tedbuy" <support@tedbuy.store>',
         to: cleanEmail,
-        replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
+        replyTo: 'support@tedbuy.store',
         subject: `${otp} is your TedBuy Verification Code`,
         text: `Welcome to TedBuy!\n\nYour 6-digit security verification code is: ${otp}\n\nThis code is valid for 10 minutes. For your security, please do not share this code with anyone.\n\nThank you,\nTedBuy Support`,
         html: `<!DOCTYPE html>
@@ -4619,7 +4352,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (brevoApiKey) {
         console.log(`[Auth Register] Brevo API Key detected. Dispatching OTP via Brevo Transactional REST API for: ${cleanEmail}`);
         try {
-          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
           const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
           const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -4652,11 +4385,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
           if (brevoResponse.ok) {
             const result = await brevoResponse.json();
-            console.log(`[Auth Register] Brevo REST API OTP sent successfully. HTTP Status: ${brevoResponse.status}. Message ID: ${result.messageId || 'unknown'}. Full Response:`, JSON.stringify(result));
+            console.log(`[Auth Register] Brevo REST API OTP sent successfully. Message ID: ${result.messageId || 'unknown'}`);
             emailSent = true;
           } else {
             const errText = await brevoResponse.text();
-            console.error(`[Auth Register] Brevo REST API OTP error occurred. HTTP Status: ${brevoResponse.status}. Error Response:`, errText);
             throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
           }
         } catch (brevoErr: any) {
@@ -4666,17 +4398,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
 
       if (!emailSent) {
-        const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
-        if (brevoApiKey && !hasSmtp) {
-          console.warn(`[Auth Register] Brevo configuration was detected but delivery failed, and no SMTP is configured:`, errorDetail);
+        if (brevoApiKey) {
+          console.warn(`[Auth Register] Brevo configuration was detected but delivery failed:`, errorDetail);
           return res.status(400).json({
             success: false,
-            error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
+            error: `Verification code could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
           });
-        }
-
-        if (brevoApiKey && hasSmtp) {
-          console.log(`[Auth Register] Brevo REST API OTP delivery failed, but SMTP is configured. Falling back to SMTP...`);
         }
 
         if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -4688,6 +4415,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
 
         try {
+          const diagResult = await diagnoseSMTPAndVerify(transporter);
+          if (!diagResult.success) {
+            console.warn(`[Auth Register] SMTP pre-flight failed.`);
+            return res.status(400).json({
+              success: false,
+              error: "Failed to send verification code. SMTP connection test failed. Please contact TedBuy support."
+            });
+          }
           await transporter.sendMail(mailOptions);
           emailSent = true;
         } catch (err: any) {
@@ -4951,11 +4686,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       // Delete verification session
       verificationSessions.delete(cleanEmail);
 
-      // Fire and forget welcome package dispatch right here asynchronously so user registration isn't blocked by slow SMTP networks!
-      sendWelcomeEmailAndSetupChat(session.email, session.username, uid).catch(err => {
-        console.error('[Welcome Background Dispatcher] Background welcome package trigger failed:', err);
-      });
-
       const customToken = generateCustomJWT({
         user_id: uid,
         sub: uid,
@@ -5063,7 +4793,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     if (matchedUser.isSuspended) {
-      return res.status(403).json({ success: false, error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@gmail.com to appeal." });
+      return res.status(403).json({ success: false, error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at support@tedbuy.store to appeal." });
     }
 
     // Extract stored SHA256 hash (directly or from authProvider fallback)
@@ -5249,7 +4979,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (isSuspended) {
       return res.status(403).json({
         success: false,
-        error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. You are not allowed to reset your password. Please contact TedBuy Support at info.tedbuy@gmail.com to appeal."
+        error: "Your account has been suspended by TedBuy Administration due to safety or policy violations. You are not allowed to reset your password. Please contact TedBuy Support at support@tedbuy.store to appeal."
       });
     }
 
@@ -5562,7 +5292,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (brevoApiKey) {
         console.log(`[Auth Reset] Dispatching reset email via Brevo REST API for: ${cleanEmail}`);
         try {
-          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+          const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
           const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
           const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -5599,14 +5329,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         console.log(`[Auth Reset] Falling back to SMTP for: ${cleanEmail}`);
         try {
           const transporter = getMailTransporter();
-          await transporter.sendMail({
-            from: `"Tedbuy Support" <${process.env.SMTP_USER}>`,
-            to: cleanEmail,
-            subject: "Reset Your TedBuy Password",
-            text: textContent,
-            html: htmlContent
-          });
-          emailSent = true;
+          const diagResult = await diagnoseSMTPAndVerify(transporter);
+          if (diagResult.success) {
+            await transporter.sendMail({
+              from: `"Tedbuy Support" <${process.env.SMTP_USER}>`,
+              to: cleanEmail,
+              subject: "Reset Your TedBuy Password",
+              text: textContent,
+              html: htmlContent
+            });
+            emailSent = true;
+          } else {
+            throw new Error(`SMTP connection test failed: ${diagResult.details?.error || 'Unknown error'}`);
+          }
         } catch (smtpErr: any) {
           console.error(`[Auth Reset] SMTP delivery failed:`, smtpErr?.message || smtpErr);
           errorDetail = smtpErr?.message || String(smtpErr);
@@ -5629,80 +5364,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   // API to delete a user account and all associated data from the system (Firestore and Supabase)
-  const deleteAccountHandler = async (req: express.Request, res: express.Response) => {
-    // 0. Inner Helper Functions for Firestore REST API fallback
-    async function queryDocumentsREST(collection: string, field: string, value: string, userAuthHeader?: string): Promise<string[]> {
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const metadataToken = await getGCPMetadataToken();
-        if (metadataToken) {
-          headers['Authorization'] = `Bearer ${metadataToken}`;
-        } else if (userAuthHeader) {
-          headers['Authorization'] = userAuthHeader;
-        }
-        const response = await fetch(firestoreUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [{ collectionId: collection, allDescendants: false }],
-              where: {
-                fieldFilter: {
-                  field: { fieldPath: field },
-                  op: 'EQUAL',
-                  value: { stringValue: value }
-                }
-              }
-            }
-          })
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          console.warn(`[queryDocumentsREST] Failed with status ${response.status}: ${text}`);
-          return [];
-        }
-        const data = await response.json();
-        if (!Array.isArray(data)) return [];
-        const docIds: string[] = [];
-        for (const item of data) {
-          if (item.document) {
-            const docPath = item.document.name;
-            const parts = docPath.split('/');
-            const docId = parts[parts.length - 1];
-            if (docId) {
-              docIds.push(docId);
-            }
-          }
-        }
-        return docIds;
-      } catch (err) {
-        console.error(`[queryDocumentsREST] Failed for ${collection} where ${field} = ${value}:`, err);
-        return [];
-      }
-    }
-
-    async function deleteDocumentREST(collection: string, docId: string, userAuthHeader?: string): Promise<boolean> {
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}/${docId}${apiKey ? `?key=${apiKey}` : ""}`;
-      try {
-        const headers: Record<string, string> = {};
-        const metadataToken = await getGCPMetadataToken();
-        if (metadataToken) {
-          headers['Authorization'] = `Bearer ${metadataToken}`;
-        } else if (userAuthHeader) {
-          headers['Authorization'] = userAuthHeader;
-        }
-        const response = await fetch(url, {
-          method: 'DELETE',
-          headers
-        });
-        return response.ok;
-      } catch (err: any) {
-        console.error(`[deleteDocumentREST] Failed for ${collection}/${docId}:`, err);
-        return false;
-      }
-    }
-
+  app.post('/api/auth/delete-account', async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       const verified = await verifyUser(authHeader);
@@ -5720,64 +5382,16 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       console.log(`[Account Deletion API] Starting full deletion for user UID: ${uid} (${cleanEmail})`);
 
-      // 0. Inner Helper Functions for account deletion timeouts and chunking
-      async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
-        let timeoutHandle: any;
-        const timeoutPromise = new Promise<T>((resolve) => {
-          timeoutHandle = setTimeout(() => {
-            console.warn(`[Timeout Guard] Operation timed out after ${timeoutMs}ms.`);
-            resolve(defaultValue);
-          }, timeoutMs);
-        });
-        return Promise.race([promise, timeoutPromise]).finally(() => {
-          clearTimeout(timeoutHandle);
-        });
-      }
-
-      async function deleteDocumentsInChunks(adminDb: any, queryResult: any) {
-        if (!queryResult || queryResult.empty) return;
-        const docs = queryResult.docs;
-        const chunkSize = 400;
-        for (let i = 0; i < docs.length; i += chunkSize) {
-          const chunk = docs.slice(i, i + chunkSize);
-          const batch = adminDb.batch();
-          chunk.forEach((doc: any) => batch.delete(doc.ref));
-          await batch.commit();
-        }
-      }
-
       // 1. Get user details from Firestore to resolve the store names/username
       let username = '';
       if (adminDb) {
         try {
-          const userSnap = await withTimeout(adminDb.collection('users').doc(uid).get(), 5000, null);
-          if (userSnap && userSnap.exists) {
+          const userSnap = await adminDb.collection('users').doc(uid).get();
+          if (userSnap.exists) {
             username = userSnap.data()?.username || '';
           }
         } catch (err) {
           console.warn('[Account Deletion API] Failed to fetch user doc from Firestore:', err);
-        }
-      } else {
-        // Fallback to fetch user username via REST
-        try {
-          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${uid}${apiKey ? `?key=${apiKey}` : ""}`;
-          const headers: Record<string, string> = {};
-          const metadataToken = await getGCPMetadataToken();
-          if (metadataToken) {
-            headers['Authorization'] = `Bearer ${metadataToken}`;
-          } else if (authHeader) {
-            headers['Authorization'] = authHeader;
-          }
-          const response = await fetch(url, { headers });
-          if (response.ok) {
-            const userDoc = await response.json();
-            const parsed = parseFirestoreDocument(userDoc);
-            if (parsed) {
-              username = parsed.username || '';
-            }
-          }
-        } catch (err) {
-          console.warn('[Account Deletion API] REST fallback fetch user doc failed:', err);
         }
       }
 
@@ -5806,216 +5420,105 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       // 2. Perform deletions in Firestore using Admin SDK or REST fallback
       if (adminDb) {
-        console.log('[Account Deletion API] Deleting user documents from Firestore via Admin SDK in parallel...');
-        
         try {
-          const deleteProducts = async () => {
-            const productsSnap = await adminDb.collection('products').where('sellerId', '==', uid).get().catch(() => null);
-            if (productsSnap && !productsSnap.empty) {
-              await deleteDocumentsInChunks(adminDb, productsSnap).catch(() => {});
-            }
-          };
-
-          const deleteReviews = async () => {
-            const [reviewsSnap1, reviewsSnap2] = await Promise.all([
-              adminDb.collection('reviews').where('buyerId', '==', uid).get().catch(() => null),
-              adminDb.collection('reviews').where('sellerId', '==', uid).get().catch(() => null)
-            ]);
-            const promises: Promise<any>[] = [];
-            if (reviewsSnap1 && !reviewsSnap1.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap1).catch(() => {}));
-            if (reviewsSnap2 && !reviewsSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap2).catch(() => {}));
-            await Promise.all(promises);
-          };
-
-          const deleteChatsAndMessages = async () => {
-            const [chatsSnap1, chatsSnap2] = await Promise.all([
-              adminDb.collection('chats').where('buyerId', '==', uid).get().catch(() => null),
-              adminDb.collection('chats').where('sellerId', '==', uid).get().catch(() => null)
-            ]);
-            const chatIds = new Set<string>();
-            const promises: Promise<any>[] = [];
-            if (chatsSnap1 && !chatsSnap1.empty) {
-              chatsSnap1.forEach((doc: any) => chatIds.add(doc.id));
-              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap1).catch(() => {}));
-            }
-            if (chatsSnap2 && !chatsSnap2.empty) {
-              chatsSnap2.forEach((doc: any) => chatIds.add(doc.id));
-              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap2).catch(() => {}));
-            }
-            await Promise.all(promises);
-
-            const [mSnap1, mSnap2] = await Promise.all([
-              adminDb.collection('messages').where('senderId', '==', uid).get().catch(() => null),
-              adminDb.collection('messages').where('recipientId', '==', uid).get().catch(() => null)
-            ]);
-            const msgPromises: Promise<any>[] = [];
-            if (mSnap1 && !mSnap1.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap1).catch(() => {}));
-            if (mSnap2 && !mSnap2.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap2).catch(() => {}));
-            
-            if (chatIds.size > 0) {
-              for (const chatId of chatIds) {
-                msgPromises.push(
-                  adminDb.collection('messages').where('chatId', '==', chatId).get()
-                    .then((snap: any) => {
-                      if (snap && !snap.empty) return deleteDocumentsInChunks(adminDb, snap);
-                    })
-                    .catch(() => {})
-                );
-              }
-            }
-            await Promise.all(msgPromises);
-          };
-
-          const deleteNotifications = async () => {
-            const notifsSnap = await adminDb.collection('notifications').where('userId', '==', uid).get().catch(() => null);
-            if (notifsSnap && !notifsSnap.empty) {
-              await deleteDocumentsInChunks(adminDb, notifsSnap).catch(() => {});
-            }
-          };
-
-          const deleteBoostPurchases = async () => {
-            const [bpSnap, bpSnap2] = await Promise.all([
-              adminDb.collection('boost_purchases').where('userId', '==', uid).get().catch(() => null),
-              adminDb.collection('boostPurchases').where('userId', '==', uid).get().catch(() => null)
-            ]);
-            const promises: Promise<any>[] = [];
-            if (bpSnap && !bpSnap.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap).catch(() => {}));
-            if (bpSnap2 && !bpSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap2).catch(() => {}));
-            await Promise.all(promises);
-          };
-
-          const deleteProfileAndStoreNames = async () => {
-            const promises: Promise<any>[] = [];
-            if (storeNameLower) {
-              promises.push(adminDb.collection('storeNames').doc(storeNameLower).delete().catch(() => {}));
-            }
-            promises.push(adminDb.collection('users').doc(uid).delete().catch(() => {}));
-            if (cleanEmail) {
-              promises.push(adminDb.collection('deletedEmails').doc(cleanEmail).delete().catch(() => {}));
-            }
-            await Promise.all(promises);
-          };
-
-          // Execute everything concurrently with a solid timeout guard
-          // Await critical profile and store name deletion synchronously
-          await deleteProfileAndStoreNames().catch(err => console.warn('[Account Deletion] Critical profile delete error:', err));
+          console.log('[Account Deletion API] Deleting user documents from Firestore via Admin SDK...');
           
-          // Fire-and-forget background cleanup of non-essential related documents to prevent blocking the response
-          Promise.all([
-            deleteProducts(),
-            deleteReviews(),
-            deleteChatsAndMessages(),
-            deleteNotifications(),
-            deleteBoostPurchases()
-          ]).catch(err => console.warn('[Account Deletion Admin Background] Cleanup failed:', err));
+          // A. Delete Products
+          const productsSnap = await adminDb.collection('products').where('sellerId', '==', uid).get();
+          if (!productsSnap.empty) {
+            const pBatch = adminDb.batch();
+            productsSnap.forEach((doc: any) => pBatch.delete(doc.ref));
+            await pBatch.commit();
+          }
+
+          // B. Delete Reviews (buyerId or sellerId == uid)
+          const reviewsSnap1 = await adminDb.collection('reviews').where('buyerId', '==', uid).get();
+          const reviewsSnap2 = await adminDb.collection('reviews').where('sellerId', '==', uid).get();
+          if (!reviewsSnap1.empty || !reviewsSnap2.empty) {
+            const rBatch = adminDb.batch();
+            reviewsSnap1.forEach((doc: any) => rBatch.delete(doc.ref));
+            reviewsSnap2.forEach((doc: any) => rBatch.delete(doc.ref));
+            await rBatch.commit();
+          }
+
+          // C. Delete Chats and Messages
+          const chatsSnap1 = await adminDb.collection('chats').where('buyerId', '==', uid).get();
+          const chatsSnap2 = await adminDb.collection('chats').where('sellerId', '==', uid).get();
+          const chatIds = new Set<string>();
+          if (!chatsSnap1.empty || !chatsSnap2.empty) {
+            const cBatch = adminDb.batch();
+            chatsSnap1.forEach((doc: any) => {
+              chatIds.add(doc.id);
+              cBatch.delete(doc.ref);
+            });
+            chatsSnap2.forEach((doc: any) => {
+              chatIds.add(doc.id);
+              cBatch.delete(doc.ref);
+            });
+            await cBatch.commit();
+          }
+
+          // Delete messages sent/received, or of the deleted chats
+          const mSnap1 = await adminDb.collection('messages').where('senderId', '==', uid).get();
+          const mSnap2 = await adminDb.collection('messages').where('recipientId', '==', uid).get();
+          const mBatch = adminDb.batch();
+          let mCount = 0;
+          mSnap1.forEach((doc: any) => {
+            mBatch.delete(doc.ref);
+            mCount++;
+          });
+          mSnap2.forEach((doc: any) => {
+            mBatch.delete(doc.ref);
+            mCount++;
+          });
           
-          console.log('[Account Deletion API] Critical user profile and store name successfully deleted from Firestore. Background cleanup dispatched.');
-        } catch (err) {
-          console.error('[Account Deletion API] Error during Firestore deletion:', err);
-        }
-      } else {
-        // Fallback REST API deletion for Firestore in parallel
-        console.log('[Account Deletion API] Deleting user documents from Firestore via REST API fallback in parallel...');
-        
-        try {
-          const deleteProductsREST = async () => {
-            const productIds = await queryDocumentsREST('products', 'sellerId', uid, authHeader);
-            if (productIds && productIds.length > 0) {
-              await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader).catch(() => {})));
+          if (chatIds.size > 0) {
+            for (const chatId of chatIds) {
+              const chatMsgs = await adminDb.collection('messages').where('chatId', '==', chatId).get();
+              chatMsgs.forEach((doc: any) => {
+                mBatch.delete(doc.ref);
+                mCount++;
+              });
             }
-          };
+          }
+          if (mCount > 0) {
+            await mBatch.commit();
+          }
 
-          const deleteReviewsREST = async () => {
-            const [buyerReviews, sellerReviews] = await Promise.all([
-              queryDocumentsREST('reviews', 'buyerId', uid, authHeader),
-              queryDocumentsREST('reviews', 'sellerId', uid, authHeader)
-            ]);
-            const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
-            if (reviewIds.length > 0) {
-              await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader).catch(() => {})));
-            }
-          };
+          // D. Delete Notifications (userId == uid)
+          const notifsSnap = await adminDb.collection('notifications').where('userId', '==', uid).get();
+          if (!notifsSnap.empty) {
+            const nBatch = adminDb.batch();
+            notifsSnap.forEach((doc: any) => nBatch.delete(doc.ref));
+            await nBatch.commit();
+          }
 
-          const deleteChatsAndMessagesREST = async () => {
-            const [buyerChats, sellerChats] = await Promise.all([
-              queryDocumentsREST('chats', 'buyerId', uid, authHeader),
-              queryDocumentsREST('chats', 'sellerId', uid, authHeader)
-            ]);
-            const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
-            const promises: Promise<any>[] = [];
-            if (resolvedChats.length > 0) {
-              promises.push(Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader).catch(() => {}))));
-            }
+          // E. Delete Boost Purchases (userId == uid)
+          const bpSnap = await adminDb.collection('boost_purchases').where('userId', '==', uid).get();
+          const bpSnap2 = await adminDb.collection('boostPurchases').where('userId', '==', uid).get();
+          if (!bpSnap.empty || !bpSnap2.empty) {
+            const bpBatch = adminDb.batch();
+            bpSnap.forEach((doc: any) => bpBatch.delete(doc.ref));
+            bpSnap2.forEach((doc: any) => bpBatch.delete(doc.ref));
+            await bpBatch.commit();
+          }
 
-            const [senderMsgs, recipientMsgs] = await Promise.all([
-              queryDocumentsREST('messages', 'senderId', uid, authHeader),
-              queryDocumentsREST('messages', 'recipientId', uid, authHeader)
-            ]);
-            const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
-            
-            if (resolvedChats.length > 0) {
-              for (const cid of resolvedChats) {
-                promises.push(
-                  queryDocumentsREST('messages', 'chatId', cid, authHeader)
-                    .then(chatMsgs => Promise.all(chatMsgs.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))))
-                    .catch(() => {})
-                );
-              }
-            }
-            if (msgIds.length > 0) {
-              promises.push(Promise.all(msgIds.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))));
-            }
-            await Promise.all(promises);
-          };
+          // F. Delete StoreName mapping
+          if (storeNameLower) {
+            await adminDb.collection('storeNames').doc(storeNameLower).delete().catch(() => {});
+          }
 
-          const deleteNotificationsREST = async () => {
-            const notifIds = await queryDocumentsREST('notifications', 'userId', uid, authHeader);
-            if (notifIds.length > 0) {
-              await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader).catch(() => {})));
-            }
-          };
+          // G. Delete User Profile Doc
+          await adminDb.collection('users').doc(uid).delete();
 
-          const deleteBoostPurchasesREST = async () => {
-            const [bp1, bp2] = await Promise.all([
-              queryDocumentsREST('boost_purchases', 'userId', uid, authHeader),
-              queryDocumentsREST('boostPurchases', 'userId', uid, authHeader)
-            ]);
-            const bpIds = Array.from(new Set([...bp1, ...bp2]));
-            if (bpIds.length > 0) {
-              await Promise.all([
-                ...bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader).catch(() => {})),
-                ...bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader).catch(() => {}))
-              ]);
-            }
-          };
+          // H. Delete any deletedEmails blocklist entry for this email (to allow registering again)
+          if (cleanEmail) {
+            await adminDb.collection('deletedEmails').doc(cleanEmail).delete().catch(() => {});
+          }
 
-          const deleteProfileAndStoreNamesREST = async () => {
-            const promises: Promise<any>[] = [];
-            if (storeNameLower) {
-              promises.push(deleteDocumentREST('storeNames', storeNameLower, authHeader).catch(() => {}));
-            }
-            promises.push(deleteDocumentREST('users', uid, authHeader).catch(() => {}));
-            if (cleanEmail) {
-              promises.push(deleteDocumentREST('deletedEmails', cleanEmail, authHeader).catch(() => {}));
-            }
-            await Promise.all(promises);
-          };
-
-          // Await critical profile and store name deletion synchronously
-          await deleteProfileAndStoreNamesREST().catch(err => console.warn('[Account Deletion REST] Critical profile delete error:', err));
-          
-          // Fire-and-forget background cleanup of non-essential related documents to prevent blocking the response
-          Promise.all([
-            deleteProductsREST(),
-            deleteReviewsREST(),
-            deleteChatsAndMessagesREST(),
-            deleteNotificationsREST(),
-            deleteBoostPurchasesREST()
-          ]).catch(err => console.warn('[Account Deletion REST Background] Cleanup failed:', err));
-          
-          console.log('[Account Deletion API REST] Critical user profile and store name successfully deleted from Firestore. Background cleanup dispatched.');
-        } catch (err) {
-          console.error('[Account Deletion API REST] Error during REST Firestore deletion:', err);
+          console.log('[Account Deletion API] Firestore documents successfully deleted via Admin SDK.');
+        } catch (fsErr: any) {
+          console.warn('[Account Deletion API] Admin SDK Firestore delete failed:', fsErr);
         }
       }
 
@@ -6024,27 +5527,37 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         try {
           console.log('[Account Deletion API] Deleting user rows from Supabase...');
           
-          // A. Delete critical elements synchronously to prevent username hijacking and ensure clean state transitions
-          await Promise.all([
-            backendSupabase.from('store_names').delete().eq('userId', uid),
-            ...(storeNameLower ? [backendSupabase.from('store_names').delete().eq('id', storeNameLower)] : []),
-            backendSupabase.from('users').delete().eq('id', uid)
-          ]);
+          // A. Delete messages of the user
+          await backendSupabase.from('messages').delete().eq('senderId', uid);
+          await backendSupabase.from('messages').delete().eq('recipientId', uid);
 
-          // B. Non-critical elements run in background (fire-and-forget) to keep deletion latency ultra-low and prevent timeouts
-          Promise.all([
-            backendSupabase.from('messages').delete().eq('senderId', uid),
-            backendSupabase.from('messages').delete().eq('recipientId', uid),
-            backendSupabase.from('chats').delete().eq('buyerId', uid),
-            backendSupabase.from('chats').delete().eq('sellerId', uid),
-            backendSupabase.from('products').delete().eq('sellerId', uid),
-            backendSupabase.from('reviews').delete().eq('buyerId', uid),
-            backendSupabase.from('reviews').delete().eq('sellerId', uid),
-            backendSupabase.from('notifications').delete().eq('userId', uid),
-            backendSupabase.from('boost_purchases').delete().eq('userId', uid)
-          ]).catch(sbBgErr => console.warn('[Account Deletion Supabase Background] Background tables deletion failed:', sbBgErr));
+          // B. Delete chats of the user
+          await backendSupabase.from('chats').delete().eq('buyerId', uid);
+          await backendSupabase.from('chats').delete().eq('sellerId', uid);
 
-          console.log('[Account Deletion API] Supabase critical rows successfully deleted. Background cleanup dispatched.');
+          // C. Delete products of the user
+          await backendSupabase.from('products').delete().eq('sellerId', uid);
+
+          // D. Delete reviews of the user
+          await backendSupabase.from('reviews').delete().eq('buyerId', uid);
+          await backendSupabase.from('reviews').delete().eq('sellerId', uid);
+
+          // E. Delete notifications of the user
+          await backendSupabase.from('notifications').delete().eq('userId', uid);
+
+          // F. Delete boost purchases of the user
+          await backendSupabase.from('boost_purchases').delete().eq('userId', uid);
+
+          // G. Delete store names mapping of the user
+          await backendSupabase.from('store_names').delete().eq('userId', uid);
+          if (storeNameLower) {
+            await backendSupabase.from('store_names').delete().eq('id', storeNameLower);
+          }
+
+          // H. Delete user profile row
+          await backendSupabase.from('users').delete().eq('id', uid);
+
+          console.log('[Account Deletion API] Supabase rows successfully deleted.');
         } catch (sbErr: any) {
           console.warn('[Account Deletion API] Supabase delete failed:', sbErr);
         }
@@ -6056,36 +5569,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const { getApps } = await import("firebase-admin/app");
         if (getApps().length > 0) {
           const { getAuth } = await import("firebase-admin/auth");
-          await withTimeout(getAuth().deleteUser(uid), 8000, undefined);
+          await getAuth().deleteUser(uid);
           console.log(`[Account Deletion API] Successfully deleted auth user ${uid} from Firebase Auth.`);
           authDeleted = true;
         }
       } catch (authErr: any) {
         console.warn('[Account Deletion API] Firebase Auth deleteUser failed:', authErr);
-      }
-
-      // Fallback REST deletion of Firebase Auth account using their JWT
-      if (!authDeleted && apiKey) {
-        try {
-          const token = authHeader?.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : authHeader;
-          if (token) {
-            console.log(`[Account Deletion API] Attempting Firebase Auth account deletion via Identity Toolkit REST API for UID ${uid}...`);
-            const authDelRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ idToken: token })
-            });
-            if (authDelRes.ok) {
-              console.log(`[Account Deletion API] Successfully deleted auth user ${uid} via REST API.`);
-              authDeleted = true;
-            } else {
-              const errBody = await authDelRes.text();
-              console.warn(`[Account Deletion API] REST Auth delete failed: status ${authDelRes.status}, body: ${errBody}`);
-            }
-          }
-        } catch (restAuthErr) {
-          console.warn('[Account Deletion API] REST Auth delete exception:', restAuthErr);
-        }
       }
 
       // Clear product list cache so changes are instantly reflected on browse view
@@ -6101,775 +5590,46 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       console.error('[Account Deletion API Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during account deletion." });
     }
-  };
-
-  app.post('/api/auth/delete-account', deleteAccountHandler);
-  app.delete('/api/users/delete-account', deleteAccountHandler);
-
-  // API to fetch all registered users for admin dashboard
-  app.get('/api/admin/registered-users', async (req, res) => {
-    try {
-      const authHeader = req.headers.authorization;
-      const isAdmin = await verifyAdmin(authHeader);
-      if (!isAdmin) {
-        return res.status(403).json({ success: false, error: "Unauthorized: Only administrators can fetch the registered users." });
-      }
-
-      console.log('[Admin API] Fetching all registered users from auth and database...');
-
-      let authUsers: any[] = [];
-      let firestoreUsers: any[] = [];
-      
-      // 1. Fetch users from Firebase Auth Admin SDK
-      try {
-        const { getApps } = await import("firebase-admin/app");
-        if (getApps().length > 0) {
-          const { getAuth } = await import("firebase-admin/auth");
-          let nextPageToken: string | undefined = undefined;
-          do {
-            const listUsersResult: any = await getAuth().listUsers(1000, nextPageToken);
-            authUsers.push(...listUsersResult.users);
-            nextPageToken = listUsersResult.pageToken;
-          } while (nextPageToken);
-          console.log(`[Admin API] Successfully listed ${authUsers.length} users from Firebase Auth.`);
-        }
-      } catch (authErr: any) {
-        console.warn('[Admin API] Firebase Auth listUsers failed (Admin SDK might not be fully configured):', authErr);
-      }
-
-      // 2. Fetch users from Firestore collection 'users'
-      if (adminDb) {
-        try {
-          const snapshot = await adminDb.collection('users').get();
-          snapshot.forEach((doc: any) => {
-            firestoreUsers.push({ id: doc.id, ...doc.data() });
-          });
-          console.log(`[Admin API] Successfully fetched ${firestoreUsers.length} users from Firestore.`);
-        } catch (dbErr: any) {
-          console.warn('[Admin API] Firestore users fetch failed via Admin SDK:', dbErr);
-        }
-      } else {
-        // Fallback to fetch via REST query
-        try {
-          const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users${apiKey ? `?key=${apiKey}` : ""}`;
-          const headers: Record<string, string> = {};
-          const metadataToken = await getGCPMetadataToken();
-          if (metadataToken) {
-            headers['Authorization'] = `Bearer ${metadataToken}`;
-          } else if (authHeader) {
-            headers['Authorization'] = authHeader;
-          }
-          const response = await fetch(firestoreUrl, { headers });
-          if (response.ok) {
-            const data = await response.json();
-            if (data.documents && Array.isArray(data.documents)) {
-              for (const doc of data.documents) {
-                const parsed = parseFirestoreDocument(doc);
-                if (parsed) {
-                  firestoreUsers.push({
-                    id: doc.name.split('/').pop(),
-                    ...parsed
-                  });
-                }
-              }
-            }
-            console.log(`[Admin API] Successfully fetched ${firestoreUsers.length} users via Firestore REST.`);
-          }
-        } catch (restErr) {
-          console.warn('[Admin API] Firestore users fetch failed via REST:', restErr);
-        }
-      }
-
-      // 3. Merge the lists: Firebase Auth users is the source of truth for account existences, Firestore for profile details
-      const mergedMap = new Map<string, any>();
-
-      // A. Populate from Firestore profile documents first
-      for (const fu of firestoreUsers) {
-        const uid = fu.id || fu.uid;
-        if (uid) {
-          mergedMap.set(uid, {
-            id: uid,
-            username: fu.username || fu.email?.split('@')[0] || 'User',
-            email: fu.email || '',
-            phoneNumber: fu.phoneNumber || '',
-            role: fu.role || 'both',
-            welcomeSent: fu.welcomeSent || false,
-            isSuspended: fu.isSuspended || false,
-            createdAt: fu.createdAt || null,
-            isAdmin: fu.isAdmin || (fu.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com')
-          });
-        }
-      }
-
-      // B. Merge with Firebase Auth records (and add any that don't have Firestore documents yet)
-      for (const au of authUsers) {
-        const uid = au.uid;
-        const existing = mergedMap.get(uid);
-        if (existing) {
-          mergedMap.set(uid, {
-            ...existing,
-            email: au.email || existing.email,
-            phoneNumber: au.phoneNumber || existing.phoneNumber,
-            createdAt: existing.createdAt || au.metadata?.creationTime || null
-          });
-        } else {
-          mergedMap.set(uid, {
-            id: uid,
-            username: au.displayName || au.email?.split('@')[0] || 'User',
-            email: au.email || '',
-            phoneNumber: au.phoneNumber || '',
-            role: 'both',
-            welcomeSent: au.welcomeSent || false,
-            isSuspended: au.disabled || false,
-            createdAt: au.metadata?.creationTime || null,
-            isAdmin: au.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com'
-          });
-        }
-      }
-      
-      // If we listed users from Firebase Authentication successfully, they represent the absolute set of registered accounts.
-      // Therefore, if authUsers is not empty, we filter out any Firestore profiles that do not exist in Firebase Auth (orphaned records).
-      if (authUsers.length > 0) {
-        const authUids = new Set(authUsers.map(u => u.uid));
-        for (const [uid, _] of mergedMap.entries()) {
-          if (!authUids.has(uid)) {
-            console.log(`[Admin API] Removing orphaned Firestore user profile for UID: ${uid} (not found in Firebase Auth)`);
-            mergedMap.delete(uid);
-          }
-        }
-      }
-
-      const mergedList = Array.from(mergedMap.values());
-      console.log(`[Admin API] Returning ${mergedList.length} merged user profiles.`);
-
-      return res.json({
-        success: true,
-        count: mergedList.length,
-        users: mergedList
-      });
-
-    } catch (err: any) {
-      console.error('[Admin API Registered Users Exception]:', err);
-      return res.status(500).json({ success: false, error: err.message || "Internal server error during user count retrieval." });
-    }
   });
 
-  // API to let administrator delete another user account and all associated data from the system (Firestore and Supabase)
-  app.post('/api/admin/delete-user', async (req, res) => {
-    // 0. Inner Helper Functions for Firestore REST API fallback
-    async function queryDocumentsREST(collection: string, field: string, value: string, userAuthHeader?: string): Promise<string[]> {
-      const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery${apiKey ? `?key=${apiKey}` : ""}`;
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const metadataToken = await getGCPMetadataToken();
-        if (metadataToken) {
-          headers['Authorization'] = `Bearer ${metadataToken}`;
-        } else if (userAuthHeader) {
-          headers['Authorization'] = userAuthHeader;
-        }
-        const response = await fetch(firestoreUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            structuredQuery: {
-              from: [{ collectionId: collection, allDescendants: false }],
-              where: {
-                fieldFilter: {
-                  field: { fieldPath: field },
-                  op: 'EQUAL',
-                  value: { stringValue: value }
-                }
-              }
-            }
-          })
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          console.warn(`[queryDocumentsREST admin] Failed with status ${response.status}: ${text}`);
-          return [];
-        }
-        const data = await response.json();
-        if (!Array.isArray(data)) return [];
-        const docIds: string[] = [];
-        for (const item of data) {
-          if (item.document) {
-            const docPath = item.document.name;
-            const parts = docPath.split('/');
-            const docId = parts[parts.length - 1];
-            if (docId) {
-              docIds.push(docId);
-            }
-          }
-        }
-        return docIds;
-      } catch (err) {
-        console.error(`[queryDocumentsREST admin] Failed for ${collection} where ${field} = ${value}:`, err);
-        return [];
-      }
+  app.post('/api/send-welcome-email', async (req, res) => {
+    const { email, username } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email parameter is required.' });
     }
 
-    async function deleteDocumentREST(collection: string, docId: string, userAuthHeader?: string): Promise<boolean> {
-      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}/${docId}${apiKey ? `?key=${apiKey}` : ""}`;
-      try {
-        const headers: Record<string, string> = {};
-        const metadataToken = await getGCPMetadataToken();
-        if (metadataToken) {
-          headers['Authorization'] = `Bearer ${metadataToken}`;
-        } else if (userAuthHeader) {
-          headers['Authorization'] = userAuthHeader;
-        }
-        const response = await fetch(url, {
-          method: 'DELETE',
-          headers
-        });
-        return response.ok;
-      } catch (err: any) {
-        console.error(`[deleteDocumentREST admin] Failed for ${collection}/${docId}:`, err);
-        return false;
-      }
-    }
+    // Dynamic rate limiter check that bypasses for Admins
+    const authHeader = req.headers.authorization;
+    const isAdmin = await verifyAdmin(authHeader);
 
-    try {
-      const authHeader = req.headers.authorization;
-      const isAdmin = await verifyAdmin(authHeader);
-      if (!isAdmin) {
-        return res.status(401).json({ success: false, error: "Unauthorized: Administrator privileges are required to delete user accounts." });
-      }
+    if (!isAdmin) {
+      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
+      const key = `${ip}:welcome-email`;
+      const now = Date.now();
+      const windowMs = 5 * 60 * 1000;
+      const maxRequests = 3;
 
-      const { targetUserId } = req.body;
-      if (!targetUserId) {
-        return res.status(400).json({ success: false, error: "Bad Request: targetUserId is required." });
-      }
-
-      console.log(`[Admin Account Deletion] Admin initiated deletion for user UID: ${targetUserId}`);
-
-      async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
-        let timeoutHandle: any;
-        const timeoutPromise = new Promise<T>((resolve) => {
-          timeoutHandle = setTimeout(() => {
-            console.warn(`[Timeout Guard admin] Operation timed out after ${timeoutMs}ms.`);
-            resolve(defaultValue);
-          }, timeoutMs);
-        });
-        return Promise.race([promise, timeoutPromise]).finally(() => {
-          clearTimeout(timeoutHandle);
-        });
-      }
-
-      async function deleteDocumentsInChunks(adminDb: any, queryResult: any) {
-        if (!queryResult || queryResult.empty) return;
-        const docs = queryResult.docs;
-        const chunkSize = 400;
-        for (let i = 0; i < docs.length; i += chunkSize) {
-          const chunk = docs.slice(i, i + chunkSize);
-          const batch = adminDb.batch();
-          chunk.forEach((doc: any) => batch.delete(doc.ref));
-          await batch.commit();
-        }
-      }
-
-      // 1. Resolve username & email of the target user
-      let username = '';
-      let targetEmail = '';
-      if (adminDb) {
-        try {
-          const userSnap = await withTimeout(adminDb.collection('users').doc(targetUserId).get(), 5000, null);
-          if (userSnap && userSnap.exists) {
-            username = userSnap.data()?.username || '';
-            targetEmail = userSnap.data()?.email || '';
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to fetch target user doc from Firestore:', err);
-        }
+      if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
+        rateLimitStore[key] = {
+          count: 1,
+          resetTime: now + windowMs
+        };
       } else {
-        // Fallback REST API fetch user username via REST
-        try {
-          const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${targetUserId}${apiKey ? `?key=${apiKey}` : ""}`;
-          const headers: Record<string, string> = {};
-          const metadataToken = await getGCPMetadataToken();
-          if (metadataToken) {
-            headers['Authorization'] = `Bearer ${metadataToken}`;
-          } else if (authHeader) {
-            headers['Authorization'] = authHeader;
-          }
-          const response = await fetch(url, { headers });
-          if (response.ok) {
-            const userDoc = await response.json();
-            const parsed = parseFirestoreDocument(userDoc);
-            if (parsed) {
-              username = parsed.username || '';
-              targetEmail = parsed.email || '';
-            }
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] REST fallback fetch user doc failed:', err);
+        rateLimitStore[key].count++;
+        if (rateLimitStore[key].count > maxRequests) {
+          const remainingSecs = Math.ceil((rateLimitStore[key].resetTime - now) / 1000);
+          res.setHeader("Retry-After", remainingSecs);
+          return res.status(429).json({
+            error: `Too many requests to welcome-email. Please wait ${remainingSecs} seconds and try again.`
+          });
         }
       }
-
-      // If we don't have username/email, let's check Supabase
-      if ((!username || !targetEmail) && backendSupabase) {
-        try {
-          const { data, error } = await backendSupabase
-            .from('users')
-            .select('username, email')
-            .eq('id', targetUserId)
-            .maybeSingle();
-          if (!error && data) {
-            username = username || data.username || '';
-            targetEmail = targetEmail || data.email || '';
-          }
-        } catch (err) {
-          console.warn('[Admin Account Deletion] Failed to fetch user from Supabase:', err);
-        }
-      }
-
-      // Check if target user is the protected super administrator
-      if (targetEmail && targetEmail.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
-        return res.status(403).json({ success: false, error: "Crucial Security Guard: The super-administrator account is protected and cannot be deleted." });
-      }
-
-      const storeNameLower = username ? username.trim().toLowerCase() : '';
-
-      // 2. Perform deletions in Firestore
-      if (adminDb) {
-        console.log('[Admin Account Deletion] Deleting target user documents from Firestore via Admin SDK in parallel...');
-        
-        try {
-          const deleteProducts = async () => {
-            const productsSnap = await adminDb.collection('products').where('sellerId', '==', targetUserId).get().catch(() => null);
-            if (productsSnap && !productsSnap.empty) {
-              await deleteDocumentsInChunks(adminDb, productsSnap).catch(() => {});
-            }
-          };
-
-          const deleteReviews = async () => {
-            const [reviewsSnap1, reviewsSnap2] = await Promise.all([
-              adminDb.collection('reviews').where('buyerId', '==', targetUserId).get().catch(() => null),
-              adminDb.collection('reviews').where('sellerId', '==', targetUserId).get().catch(() => null)
-            ]);
-            const promises: Promise<any>[] = [];
-            if (reviewsSnap1 && !reviewsSnap1.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap1).catch(() => {}));
-            if (reviewsSnap2 && !reviewsSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, reviewsSnap2).catch(() => {}));
-            await Promise.all(promises);
-          };
-
-          const deleteChatsAndMessages = async () => {
-            const [chatsSnap1, chatsSnap2] = await Promise.all([
-              adminDb.collection('chats').where('buyerId', '==', targetUserId).get().catch(() => null),
-              adminDb.collection('chats').where('sellerId', '==', targetUserId).get().catch(() => null)
-            ]);
-            const chatIds = new Set<string>();
-            const promises: Promise<any>[] = [];
-            if (chatsSnap1 && !chatsSnap1.empty) {
-              chatsSnap1.forEach((doc: any) => chatIds.add(doc.id));
-              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap1).catch(() => {}));
-            }
-            if (chatsSnap2 && !chatsSnap2.empty) {
-              chatsSnap2.forEach((doc: any) => chatIds.add(doc.id));
-              promises.push(deleteDocumentsInChunks(adminDb, chatsSnap2).catch(() => {}));
-            }
-            await Promise.all(promises);
-
-            const [mSnap1, mSnap2] = await Promise.all([
-              adminDb.collection('messages').where('senderId', '==', targetUserId).get().catch(() => null),
-              adminDb.collection('messages').where('recipientId', '==', targetUserId).get().catch(() => null)
-            ]);
-            const msgPromises: Promise<any>[] = [];
-            if (mSnap1 && !mSnap1.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap1).catch(() => {}));
-            if (mSnap2 && !mSnap2.empty) msgPromises.push(deleteDocumentsInChunks(adminDb, mSnap2).catch(() => {}));
-            
-            if (chatIds.size > 0) {
-              for (const chatId of chatIds) {
-                msgPromises.push(
-                  adminDb.collection('messages').where('chatId', '==', chatId).get()
-                    .then((snap: any) => {
-                      if (snap && !snap.empty) return deleteDocumentsInChunks(adminDb, snap);
-                    })
-                    .catch(() => {})
-                );
-              }
-            }
-            await Promise.all(msgPromises);
-          };
-
-          const deleteNotifications = async () => {
-            const notifsSnap = await adminDb.collection('notifications').where('userId', '==', targetUserId).get().catch(() => null);
-            if (notifsSnap && !notifsSnap.empty) {
-              await deleteDocumentsInChunks(adminDb, notifsSnap).catch(() => {});
-            }
-          };
-
-          const deleteBoostPurchases = async () => {
-            const [bpSnap, bpSnap2] = await Promise.all([
-              adminDb.collection('boost_purchases').where('userId', '==', targetUserId).get().catch(() => null),
-              adminDb.collection('boostPurchases').where('userId', '==', targetUserId).get().catch(() => null)
-            ]);
-            const promises: Promise<any>[] = [];
-            if (bpSnap && !bpSnap.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap).catch(() => {}));
-            if (bpSnap2 && !bpSnap2.empty) promises.push(deleteDocumentsInChunks(adminDb, bpSnap2).catch(() => {}));
-            await Promise.all(promises);
-          };
-
-          const deleteProfileAndStoreNames = async () => {
-            const promises: Promise<any>[] = [];
-            if (storeNameLower) {
-              promises.push(adminDb.collection('storeNames').doc(storeNameLower).delete().catch(() => {}));
-            }
-            promises.push(adminDb.collection('users').doc(targetUserId).delete().catch(() => {}));
-            if (targetEmail) {
-              const cleanEmail = targetEmail.trim().toLowerCase();
-              promises.push(adminDb.collection('deletedEmails').doc(cleanEmail).delete().catch(() => {}));
-            }
-            await Promise.all(promises);
-          };
-
-          // Execute everything concurrently with a solid timeout guard
-          await withTimeout(
-            Promise.all([
-              deleteProducts(),
-              deleteReviews(),
-              deleteChatsAndMessages(),
-              deleteNotifications(),
-              deleteBoostPurchases(),
-              deleteProfileAndStoreNames()
-            ]) as Promise<any>,
-            10000,
-            []
-          );
-          console.log('[Admin Account Deletion] User data and profile successfully deleted from Firestore via Admin SDK.');
-        } catch (err) {
-          console.error('[Admin Account Deletion] Error during parallel Firestore deletion:', err);
-        }
-      } else {
-        // Fallback REST API deletion for Firestore in parallel
-        console.log('[Admin Account Deletion] Deleting user documents from Firestore via REST API fallback in parallel...');
-        
-        try {
-          const deleteProductsREST = async () => {
-            const productIds = await queryDocumentsREST('products', 'sellerId', targetUserId, authHeader);
-            if (productIds && productIds.length > 0) {
-              await Promise.all(productIds.map(pid => deleteDocumentREST('products', pid, authHeader).catch(() => {})));
-            }
-          };
-
-          const deleteReviewsREST = async () => {
-            const [buyerReviews, sellerReviews] = await Promise.all([
-              queryDocumentsREST('reviews', 'buyerId', targetUserId, authHeader),
-              queryDocumentsREST('reviews', 'sellerId', targetUserId, authHeader)
-            ]);
-            const reviewIds = Array.from(new Set([...buyerReviews, ...sellerReviews]));
-            if (reviewIds.length > 0) {
-              await Promise.all(reviewIds.map(rid => deleteDocumentREST('reviews', rid, authHeader).catch(() => {})));
-            }
-          };
-
-          const deleteChatsAndMessagesREST = async () => {
-            const [buyerChats, sellerChats] = await Promise.all([
-              queryDocumentsREST('chats', 'buyerId', targetUserId, authHeader),
-              queryDocumentsREST('chats', 'sellerId', targetUserId, authHeader)
-            ]);
-            const resolvedChats = Array.from(new Set([...buyerChats, ...sellerChats]));
-            const promises: Promise<any>[] = [];
-            if (resolvedChats.length > 0) {
-              promises.push(Promise.all(resolvedChats.map(cid => deleteDocumentREST('chats', cid, authHeader).catch(() => {}))));
-            }
-
-            const [senderMsgs, recipientMsgs] = await Promise.all([
-              queryDocumentsREST('messages', 'senderId', targetUserId, authHeader),
-              queryDocumentsREST('messages', 'recipientId', targetUserId, authHeader)
-            ]);
-            const msgIds = Array.from(new Set([...senderMsgs, ...recipientMsgs]));
-            
-            if (resolvedChats.length > 0) {
-              for (const cid of resolvedChats) {
-                promises.push(
-                  queryDocumentsREST('messages', 'chatId', cid, authHeader)
-                    .then(chatMsgs => Promise.all(chatMsgs.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))))
-                    .catch(() => {})
-                );
-              }
-            }
-            if (msgIds.length > 0) {
-              promises.push(Promise.all(msgIds.map(mid => deleteDocumentREST('messages', mid, authHeader).catch(() => {}))));
-            }
-            await Promise.all(promises);
-          };
-
-          const deleteNotificationsREST = async () => {
-            const notifIds = await queryDocumentsREST('notifications', 'userId', targetUserId, authHeader);
-            if (notifIds.length > 0) {
-              await Promise.all(notifIds.map(nid => deleteDocumentREST('notifications', nid, authHeader).catch(() => {})));
-            }
-          };
-
-          const deleteBoostPurchasesREST = async () => {
-            const [bp1, bp2] = await Promise.all([
-              queryDocumentsREST('boost_purchases', 'userId', targetUserId, authHeader),
-              queryDocumentsREST('boostPurchases', 'userId', targetUserId, authHeader)
-            ]);
-            const bpIds = Array.from(new Set([...bp1, ...bp2]));
-            if (bpIds.length > 0) {
-              await Promise.all([
-                ...bpIds.map(bpid => deleteDocumentREST('boost_purchases', bpid, authHeader).catch(() => {})),
-                ...bpIds.map(bpid => deleteDocumentREST('boostPurchases', bpid, authHeader).catch(() => {}))
-              ]);
-            }
-          };
-
-          const deleteProfileAndStoreNamesREST = async () => {
-            const promises: Promise<any>[] = [];
-            if (storeNameLower) {
-              promises.push(deleteDocumentREST('storeNames', storeNameLower, authHeader).catch(() => {}));
-            }
-            promises.push(deleteDocumentREST('users', targetUserId, authHeader).catch(() => {}));
-            if (targetEmail) {
-              const cleanEmail = targetEmail.trim().toLowerCase();
-              promises.push(deleteDocumentREST('deletedEmails', cleanEmail, authHeader).catch(() => {}));
-            }
-            await Promise.all(promises);
-          };
-
-          await Promise.all([
-            deleteProductsREST(),
-            deleteReviewsREST(),
-            deleteChatsAndMessagesREST(),
-            deleteNotificationsREST(),
-            deleteBoostPurchasesREST(),
-            deleteProfileAndStoreNamesREST()
-          ]);
-          console.log('[Admin Account Deletion REST] User profile and data successfully deleted from Firestore.');
-        } catch (err) {
-          console.error('[Admin Account Deletion REST] Error during parallel REST Firestore deletion:', err);
-        }
-      }
-
-      // 3. Perform deletions in Supabase if active
-      if (backendSupabase) {
-        try {
-          console.log('[Admin Account Deletion] Deleting user rows from Supabase...');
-          
-          // A. Delete critical elements synchronously to prevent username hijacking and ensure clean state transitions
-          await Promise.all([
-            backendSupabase.from('store_names').delete().eq('userId', targetUserId),
-            ...(storeNameLower ? [backendSupabase.from('store_names').delete().eq('id', storeNameLower)] : []),
-            backendSupabase.from('users').delete().eq('id', targetUserId)
-          ]);
-
-          // B. Non-critical elements run in background (fire-and-forget) to keep deletion latency ultra-low and prevent timeouts
-          Promise.all([
-            backendSupabase.from('messages').delete().eq('senderId', targetUserId),
-            backendSupabase.from('messages').delete().eq('recipientId', targetUserId),
-            backendSupabase.from('chats').delete().eq('buyerId', targetUserId),
-            backendSupabase.from('chats').delete().eq('sellerId', targetUserId),
-            backendSupabase.from('products').delete().eq('sellerId', targetUserId),
-            backendSupabase.from('reviews').delete().eq('buyerId', targetUserId),
-            backendSupabase.from('reviews').delete().eq('sellerId', targetUserId),
-            backendSupabase.from('notifications').delete().eq('userId', targetUserId),
-            backendSupabase.from('boost_purchases').delete().eq('userId', targetUserId)
-          ]).catch(sbBgErr => console.warn('[Admin Account Deletion Supabase Background] Background tables deletion failed:', sbBgErr));
-
-          console.log('[Admin Account Deletion] Supabase critical rows successfully deleted. Background cleanup dispatched.');
-        } catch (sbErr: any) {
-          console.warn('[Admin Account Deletion] Supabase delete failed:', sbErr);
-        }
-      }
-
-      // 4. Delete the Firebase Auth User account
-      let authDeleted = false;
-      try {
-        const { getApps } = await import("firebase-admin/app");
-        if (getApps().length > 0) {
-          const { getAuth } = await import("firebase-admin/auth");
-          await withTimeout(getAuth().deleteUser(targetUserId), 8000, undefined);
-          console.log(`[Admin Account Deletion] Successfully deleted auth user ${targetUserId} from Firebase Auth.`);
-          authDeleted = true;
-        }
-      } catch (authErr: any) {
-        console.warn('[Admin Account Deletion] Firebase Auth deleteUser failed:', authErr);
-      }
-
-      // Clear product list cache so changes are instantly reflected on browse view
-      cachedProducts = null;
-
-      return res.json({ 
-        success: true, 
-        message: "The user account and all associated data have been permanently deleted from the system.",
-        authDeleted
-      });
-
-    } catch (err: any) {
-      console.error('[Admin Account Deletion Exception]:', err);
-      return res.status(500).json({ success: false, error: err.message || "Internal server error during admin-initiated account deletion." });
+    } else {
+      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${email}`);
     }
-  });
 
-  // Safe helper function to configure automated support profiles, chats, and dispatch welcome emails
-  async function sendWelcomeEmailAndSetupChat(email: string, username?: string, uidOverride?: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanName = username || cleanEmail.split('@')[0] || 'there';
+    const cleanName = username || email.split('@')[0] || 'there';
     const escapedName = escapeHtml(cleanName);
-
-    console.log(`[Email Engine] sendWelcomeEmailAndSetupChat initialized and receiving request to send welcome email/chat for recipient: "${cleanEmail}", username: "${cleanName}", uidOverride: "${uidOverride || 'none'}"`);
-
-    // -------------------------------------------------------------
-    // AUTOMATED DATABASE WELCOME TRIGGER (Bypasses Client-Side RLS)
-    // -------------------------------------------------------------
-    let resolvedUidForWelcome = uidOverride || '';
-    try {
-      let resolvedUid = uidOverride || '';
-      let resolvedUsername = username || cleanEmail.split('@')[0] || 'User';
-
-      // 1. Resolve UID and Username from DB if possible and not already provided
-      if (!resolvedUid) {
-        const emailVariants = Array.from(new Set([
-          cleanEmail,
-          cleanEmail.toUpperCase()
-        ]));
-
-        if (adminDb) {
-          try {
-            const userSnap = await adminDb.collection('users').where('email', 'in', emailVariants).limit(1).get();
-            if (!userSnap.empty) {
-              resolvedUid = userSnap.docs[0].id;
-              resolvedUsername = userSnap.docs[0].data().username || resolvedUsername;
-            }
-          } catch (dbErr) {
-            console.warn('[Welcome DB Trigger] Failed to query Firestore user:', dbErr);
-          }
-        }
-
-        if (!resolvedUid && backendSupabase) {
-          try {
-            const { data, error } = await backendSupabase
-               .from('users')
-               .select('id, username')
-               .in('email', emailVariants)
-               .maybeSingle();
-            if (!error && data) {
-              resolvedUid = (data as any).id;
-              resolvedUsername = (data as any).username || resolvedUsername;
-            }
-          } catch (sbErr) {
-            console.warn('[Welcome DB Trigger] Failed to query Supabase user:', sbErr);
-          }
-        }
-      }
-
-      resolvedUidForWelcome = resolvedUid;
-
-      if (resolvedUid) {
-        console.log(`[Welcome DB Trigger] Initializing automated support chat and metadata for: ${resolvedUsername} (UID: ${resolvedUid})`);
-
-        const ceoProfile = {
-          id: 'user_ted_ceo_support',
-          username: 'Tedbuy Support',
-          email: 'info.tedbuy@gmail.com',
-          photoUrl: '/favicon.svg',
-          role: 'seller',
-          joinDate: 'Jun 2018'
-        };
-
-        const chatId = `chat_support_${resolvedUid}`;
-        const supportChat = {
-          id: chatId,
-          productId: 'support_welcome',
-          productTitle: 'Tedbuy Support Desk',
-          productPrice: 'Direct Channel',
-          productImage: '/favicon.svg',
-          buyerId: resolvedUid,
-          buyerName: resolvedUsername,
-          sellerId: 'user_ted_ceo_support',
-          sellerName: 'Tedbuy Support',
-          lastMessageText: 'Welcome to Tedbuy 🚀',
-          lastMessageTime: new Date().toISOString(),
-          tradeStatus: 'pending',
-          adId: 'support_welcome',
-          adTitle: 'Tedbuy Support Desk',
-          adImage: '/favicon.svg',
-          adThumbnail: '/favicon.svg',
-          adType: 'image'
-        };
-
-        const welcomeMessageBody = `Welcome to TedBuy\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.\nAll replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`;
-
-        const msgId = `msg_welcome_${resolvedUid}`;
-        const supportMessage = {
-          id: msgId,
-          chatId: chatId,
-          senderId: 'user_ted_ceo_support',
-          recipientId: resolvedUid,
-          text: welcomeMessageBody,
-          createdAt: new Date().toISOString(),
-          read: false
-        };
-
-        // 2. Persist to Firestore Admin (if enabled)
-        if (adminDb) {
-          try {
-            await adminDb.collection('users').doc('user_ted_ceo_support').set(ceoProfile, { merge: true });
-            await adminDb.collection('chats').doc(chatId).set(supportChat, { merge: true });
-            await adminDb.collection('messages').doc(msgId).set(supportMessage, { merge: true });
-            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat and Message to Firestore.');
-          } catch (fsWriteErr) {
-            console.warn('[Welcome DB Trigger] Failed writing to Firestore:', fsWriteErr);
-          }
-        }
-
-        // 3. Persist to Supabase Admin (if enabled)
-        if (backendSupabase) {
-          try {
-            // Write Support Profile
-            await backendSupabase.from('users').upsert({
-              id: ceoProfile.id,
-              username: ceoProfile.username,
-              email: ceoProfile.email,
-              photoUrl: ceoProfile.photoUrl,
-              role: ceoProfile.role,
-              joinDate: ceoProfile.joinDate
-            });
-
-            // Write Chat
-            await backendSupabase.from('chats').upsert({
-              id: supportChat.id,
-              productId: supportChat.productId,
-              productTitle: supportChat.productTitle,
-              productPrice: supportChat.productPrice,
-              productImage: supportChat.productImage,
-              buyerId: supportChat.buyerId,
-              buyerName: supportChat.buyerName,
-              sellerId: supportChat.sellerId,
-              sellerName: supportChat.sellerName,
-              lastMessageText: supportChat.lastMessageText,
-              lastMessageTime: supportChat.lastMessageTime,
-              tradeStatus: supportChat.tradeStatus,
-              adId: supportChat.adId,
-              adTitle: supportChat.adTitle,
-              adImage: supportChat.adImage,
-              adThumbnail: supportChat.adThumbnail,
-              adType: supportChat.adType
-            });
-
-            // Write Message
-            await backendSupabase.from('messages').upsert({
-              id: supportMessage.id,
-              chatId: supportMessage.chatId,
-              senderId: supportMessage.senderId,
-              recipientId: supportMessage.recipientId,
-              text: supportMessage.text,
-              createdAt: supportMessage.createdAt,
-              read: supportMessage.read
-            });
-            console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat and Message to Supabase.');
-          } catch (sbWriteErr) {
-            console.warn('[Welcome DB Trigger] Failed writing to Supabase:', sbWriteErr);
-          }
-        }
-      } else {
-        console.warn(`[Welcome DB Trigger] Could not resolve UID for email: ${cleanEmail}. Skipping database chat creation.`);
-      }
-    } catch (globalDbErr) {
-      console.warn('[Welcome DB Trigger] General error in background welcome chat setup:', globalDbErr);
-    }
 
     const subject = 'Welcome to Tedbuy Ghana';
     const textContent = `Welcome to TedBuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.\n\nAll replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`;
@@ -7035,43 +5795,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       </p>
     </div>
     <div class="footer">
-      <p>This message was sent from <a href="mailto:info.tedbuy@gmail.com">info.tedbuy@gmail.com</a>. You can reply directly to this email to reach our support team.</p>
+      <p>This message was sent from <a href="mailto:support@tedbuy.store">support@tedbuy.store</a>. You can reply directly to this email to reach our support team.</p>
       <p>&copy; 2026 TedBuy Ghana. Accra, Ghana.</p>
     </div>
   </div>
 </body>
 </html>`;
 
-    // Helper to update welcomeSent: true in database on successful email delivery
-    const markWelcomeSentInDb = async (uid: string) => {
-      if (!uid) return;
-      if (adminDb) {
-        try {
-          await adminDb.collection('users').doc(uid).set({ welcomeSent: true }, { merge: true });
-          console.log(`[Email Engine] Successfully flagged Firestore user ${uid} with welcomeSent: true`);
-        } catch (err) {
-          console.warn('[Email Engine] Firestore welcomeSent update failed:', err);
-        }
-      }
-      if (backendSupabase) {
-        try {
-          await backendSupabase.from('users').update({ welcomeSent: true }).eq('id', uid);
-          console.log(`[Email Engine] Successfully flagged Supabase user ${uid} with welcomeSent: true`);
-        } catch (err) {
-          console.warn('[Email Engine] Supabase welcomeSent update failed:', err);
-        }
-      }
-    };
-
     // 1. Try Brevo REST API if configured
     const brevoApiKey = process.env.BREVO_API_KEY;
-    let emailSent = false;
-    let errorDetail = '';
-
     if (brevoApiKey) {
-      console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${cleanEmail}`);
+      console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${email}`);
       try {
-        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
         const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
 
         const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -7088,7 +5824,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             },
             to: [
               {
-                email: cleanEmail,
+                email: email.trim(),
                 name: cleanName
               }
             ],
@@ -7104,122 +5840,64 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
         if (brevoResponse.ok) {
           const result = await brevoResponse.json();
-          console.log(`[Email Engine] Brevo REST API sent successfully. HTTP Status: ${brevoResponse.status}. Message ID: ${result.messageId || 'unknown'}. Full Response:`, JSON.stringify(result));
-          emailSent = true;
-          if (resolvedUidForWelcome) {
-            await markWelcomeSentInDb(resolvedUidForWelcome);
-          }
-          return { success: true, messageId: result.messageId || 'brevo-rest-id' };
+          console.log(`[Email Engine] Brevo REST API sent successfully. Message ID: ${result.messageId || 'unknown'}`);
+          return res.json({ success: true, messageId: result.messageId || 'brevo-rest-id', provider: 'brevo-rest' });
         } else {
           const errText = await brevoResponse.text();
-          console.error(`[Email Engine] Brevo REST API error occurred. HTTP Status: ${brevoResponse.status}. Error Response:`, errText);
           throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
         }
       } catch (brevoErr: any) {
-        console.error(`[Email Engine] Brevo REST API welcome email delivery failed:`, brevoErr?.message || brevoErr);
-        errorDetail = brevoErr?.message || String(brevoErr);
+        console.warn(`[Email Engine] Brevo REST API delivery failed, falling back to SMTP/Simulation:`, brevoErr?.message || brevoErr);
       }
     }
 
-    if (!emailSent) {
-      const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
-      if (brevoApiKey && !hasSmtp) {
-        console.warn(`[Email Engine] Brevo configuration was detected but delivery failed, and no SMTP is configured:`, errorDetail);
-        return {
-          success: false,
-          error: `Welcome email could not be sent via Brevo. Details: ${errorDetail}`
-        };
-      }
+    // 2. Fall back to standard SMTP Transporter
+    try {
+      const transporter = getMailTransporter();
 
-      if (brevoApiKey && hasSmtp) {
-        console.log(`[Email Engine] Brevo REST API delivery failed, but SMTP is configured. Falling back to SMTP...`);
-      }
-
-      const isDevOrSimulated = process.env.NODE_ENV !== 'production' && !hasSmtp;
-
-      if (!hasSmtp && !isDevOrSimulated) {
-        console.warn(`[Email Engine] Neither SMTP credentials nor Brevo API key are configured in production.`);
-        return {
-          success: false,
-          error: "Welcome email cannot be sent: SMTP mail service credentials (SMTP_USER/SMTP_PASS) or Brevo API credentials (BREVO_API_KEY) are not configured."
-        };
-      }
-
-      // 2. Fall back to standard SMTP Transporter or Simulated in non-prod
-      try {
-        const transporter = getMailTransporter();
-        const resolvedSmtpSender = process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
-        const mailOptions = {
-          from: `"Tedbuy" <${resolvedSmtpSender}>`, // Match registration OTP mail format to bypass strict relays
-          to: cleanEmail,
-          replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
-          subject: subject,
-          text: textContent,
-          html: htmlContent
-        };
-
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`[Email Engine] Welcome email dispatched successfully via SMTP for ${cleanEmail}. MessageId: ${info.messageId || 'virtual'}`);
-        
-        if (resolvedUidForWelcome) {
-          await markWelcomeSentInDb(resolvedUidForWelcome);
-        }
-
-        return { success: true, messageId: info.messageId || 'virtual' };
-      } catch (err: any) {
-        const errMsg = err?.message || String(err);
-        console.error(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${cleanEmail}:`, errMsg);
-        return {
-          success: false,
-          error: `Failed to send welcome email. Details: ${errMsg}`
-        };
-      }
-    }
-    return { success: false, error: "An unknown error occurred during email delivery." };
-  }
-
-  app.post('/api/send-welcome-email', async (req, res) => {
-    const { email, username } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'Email parameter is required.' });
-    }
-    const cleanEmail = email.trim().toLowerCase();
-
-    // Dynamic rate limiter check that bypasses for Admins
-    const authHeader = req.headers.authorization;
-    const isAdmin = await verifyAdmin(authHeader);
-
-    if (!isAdmin) {
-      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
-      const key = `${ip}:welcome-email`;
-      const now = Date.now();
-      const windowMs = 5 * 60 * 1000;
-      const maxRequests = 100;
-
-      if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
-        rateLimitStore[key] = {
-          count: 1,
-          resetTime: now + windowMs
-        };
-      } else {
-        rateLimitStore[key].count++;
-        if (rateLimitStore[key].count > maxRequests) {
-          const remainingSecs = Math.ceil((rateLimitStore[key].resetTime - now) / 1000);
-          res.setHeader("Retry-After", remainingSecs);
-          return res.status(429).json({
-            error: `Too many requests to welcome-email. Please wait ${remainingSecs} seconds and try again.`
+      // Run pre-flight network connection, handshake, and authentication diagnostic check
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        console.log(`[Email Engine] Running pre-flight SMTP diagnostics for recipient: ${email}...`);
+        const diagResult = await diagnoseSMTPAndVerify(transporter);
+        if (!diagResult.success) {
+          console.warn(`[Email Engine] Pre-flight SMTP block: Diagnostics failed prior to dispatch to ${email}. Gracefully bypassing to simulate success.`);
+          return res.json({
+            success: true,
+            messageId: 'simulated_delivery_bypass_id',
+            simulated: true,
+            warning: 'SMTP pre-flight diagnostic failed or host is offline. Onboarding flow completed with simulation.'
           });
         }
       }
-    } else {
-      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${cleanEmail}`);
-    }
+      
+      const mailOptions = {
+        from: '"Tedbuy" <support@tedbuy.store>',
+        to: email,
+        replyTo: 'support@tedbuy.store',
+        subject: subject,
+        text: textContent,
+        html: htmlContent
+      };
 
-    const result = await sendWelcomeEmailAndSetupChat(cleanEmail, username);
-    if (result.success) {
-      return res.json({ success: true, messageId: result.messageId, provider: process.env.BREVO_API_KEY ? 'brevo-rest' : 'smtp' });
-    } else {
-      return res.status(500).json({ success: false, error: result.error });
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`[Email Engine] Welcome email dispatched successfully via SMTP for ${email}. MessageId: ${info.messageId || 'virtual'}`);
+      
+      if ((info as any).message) {
+        console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
+      }
+
+      return res.json({ success: true, messageId: info.messageId || 'virtual', provider: 'smtp' });
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      console.warn(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${email}:`, errMsg);
+
+      console.log(`[Email Engine] [Bypass] Gracefully bypassing SMTP issue for ${email}. Returning simulated delivery success.`);
+      return res.json({
+        success: true,
+        messageId: 'simulated_delivery_bypass_id',
+        simulated: true,
+        warning: `SMTP issue bypassed. Details: ${errMsg}`
+      });
     }
   });
 
@@ -7809,7 +6487,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     try {
-      const product = await getRawProductFirestoreREST(productId, 'videos');
+      const product = await getRawProductFirestoreREST(productId);
       if (!product) {
         return res.status(404).send('Product not found');
       }

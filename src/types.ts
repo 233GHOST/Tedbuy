@@ -119,7 +119,6 @@ export interface Product {
   isSold?: boolean;
   likesCount?: number;
   likedUserIds?: string[];
-  hasVideo?: boolean;
   
   // Boost ad fields
   boostStatus?: boolean;
