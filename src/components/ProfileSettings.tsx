@@ -311,102 +311,32 @@ export const ProfileSettings: React.FC = () => {
   const handleMigrateToSupabase = async () => {
     if (isMigrating) return;
     setIsMigrating(true);
-    setMigrationLog('Initiating secure client-driven data migration pipeline...');
+    setMigrationLog('Initiating secure server-driven data migration pipeline (Firestore -> Supabase)...');
     setMigrationStats(null);
     try {
-      const { collection, getDocs } = await import('firebase/firestore');
       let idToken = await auth.currentUser?.getIdToken();
       if (!idToken) {
         idToken = localStorage.getItem('tedbuy_custom_auth_token') || undefined;
       }
 
-      const collectionsToMigrate = [
-        { firestoreName: 'users', supabaseName: 'users' },
-        { firestoreName: 'products', supabaseName: 'products' },
-        { firestoreName: 'chats', supabaseName: 'chats' },
-        { firestoreName: 'messages', supabaseName: 'messages' },
-        { firestoreName: 'reviews', supabaseName: 'reviews' },
-        { firestoreName: 'notifications', supabaseName: 'notifications' },
-        { firestoreName: 'storeNames', supabaseName: 'store_names' },
-        { firestoreName: 'boost_purchases', supabaseName: 'boost_purchases' },
-        { firestoreName: 'boostPurchases', supabaseName: 'boost_purchases' },
-      ];
-
-      const stats: any = {};
-
-      for (const mapping of collectionsToMigrate) {
-        if (stats[mapping.supabaseName]) {
-          continue; // skip redundant tables mapping to same target table
+      const response = await fetch('/api/admin/migrate-to-supabase', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': idToken ? `Bearer ${idToken}` : '',
         }
+      });
 
-        stats[mapping.supabaseName] = { fetched: 0, migrated: 0, failed: 0, errors: [] };
-        
-        setMigrationLog(`Syncing collection: "${mapping.firestoreName}" to "${mapping.supabaseName}"...`);
-        
-        let docsSnapshot;
-        try {
-          const colRef = collection(db, mapping.firestoreName);
-          docsSnapshot = await getDocs(colRef);
-        } catch (fetchErr: any) {
-          console.warn(`[Client Migration] Failed fetching ${mapping.firestoreName}:`, fetchErr);
-          stats[mapping.supabaseName].errors.push(`Fetch failed: ${fetchErr.message || fetchErr}`);
-          continue;
-        }
-
-        const size = docsSnapshot.size;
-        stats[mapping.supabaseName].fetched = size;
-        
-        if (size === 0) {
-          setMigrationLog(`Collection "${mapping.firestoreName}" is empty. Skipping.`);
-          continue;
-        }
-
-        setMigrationLog(`Fetched ${size} items from "${mapping.firestoreName}". Sending to Supabase in batches...`);
-
-        // Convert documents to simple structures
-        const documentsList: any[] = [];
-        docsSnapshot.forEach(docSnap => {
-          documentsList.push({
-            id: docSnap.id,
-            data: docSnap.data()
-          });
-        });
-
-        // Batch upsert in chunks of 50
-        const chunkSize = 50;
-        for (let i = 0; i < documentsList.length; i += chunkSize) {
-          const chunk = documentsList.slice(i, i + chunkSize);
-          
-          setMigrationLog(`Sending chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(documentsList.length / chunkSize)} for "${mapping.firestoreName}"...`);
-
-          const response = await fetch('/api/admin/upsert-collection', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': idToken ? `Bearer ${idToken}` : '',
-            },
-            body: JSON.stringify({
-              table: mapping.supabaseName,
-              documents: chunk
-            })
-          });
-
-          const resData = await response.json();
-          if (!response.ok) {
-            console.error(`[Client Migration] Chunk upsert failed for table "${mapping.supabaseName}":`, resData.error);
-            stats[mapping.supabaseName].failed += chunk.length;
-            stats[mapping.supabaseName].errors.push(`Upsert chunk error: ${resData.error || 'Server error'}`);
-          } else {
-            stats[mapping.supabaseName].migrated += resData.count || chunk.length;
-          }
-        }
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Server rejected migration request.');
       }
 
       setMigrationLog('Firestore to Supabase cloud sync finished successfully!');
-      setMigrationStats(stats);
+      setMigrationStats(resData.stats || {});
       showToast('Successfully migrated all collections directly to Supabase!', 'success');
     } catch (err: any) {
-      console.error('[Client Migration Exception]:', err);
+      console.error('[Server Migration Exception]:', err);
       setMigrationLog(`Migration failed: ${err.message || err}`);
       showToast(err.message || 'Data migration failed', 'error');
     } finally {
