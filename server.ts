@@ -4950,6 +4950,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       // Delete verification session
       verificationSessions.delete(cleanEmail);
 
+      // Fire and forget welcome package dispatch right here asynchronously so user registration isn't blocked by slow SMTP networks!
+      sendWelcomeEmailAndSetupChat(session.email, session.username, uid).catch(err => {
+        console.error('[Welcome Background Dispatcher] Background welcome package trigger failed:', err);
+      });
+
       const customToken = generateCustomJWT({
         user_id: uid,
         sub: uid,
@@ -6697,85 +6702,53 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
   });
 
-  app.post('/api/send-welcome-email', async (req, res) => {
-    const { email, username } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'Email parameter is required.' });
-    }
+  // Safe helper function to configure automated support profiles, chats, and dispatch welcome emails
+  async function sendWelcomeEmailAndSetupChat(email: string, username?: string, uidOverride?: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
     const cleanEmail = email.trim().toLowerCase();
-
-    // Dynamic rate limiter check that bypasses for Admins
-    const authHeader = req.headers.authorization;
-    const isAdmin = await verifyAdmin(authHeader);
-
-    if (!isAdmin) {
-      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
-      const key = `${ip}:welcome-email`;
-      const now = Date.now();
-      const windowMs = 5 * 60 * 1000;
-      const maxRequests = 100;
-
-      if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
-        rateLimitStore[key] = {
-          count: 1,
-          resetTime: now + windowMs
-        };
-      } else {
-        rateLimitStore[key].count++;
-        if (rateLimitStore[key].count > maxRequests) {
-          const remainingSecs = Math.ceil((rateLimitStore[key].resetTime - now) / 1000);
-          res.setHeader("Retry-After", remainingSecs);
-          return res.status(429).json({
-            error: `Too many requests to welcome-email. Please wait ${remainingSecs} seconds and try again.`
-          });
-        }
-      }
-    } else {
-      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${cleanEmail}`);
-    }
-
     const cleanName = username || cleanEmail.split('@')[0] || 'there';
     const escapedName = escapeHtml(cleanName);
 
     // -------------------------------------------------------------
     // AUTOMATED DATABASE WELCOME TRIGGER (Bypasses Client-Side RLS)
     // -------------------------------------------------------------
-    let resolvedUidForWelcome = '';
+    let resolvedUidForWelcome = uidOverride || '';
     try {
-      let resolvedUid = '';
+      let resolvedUid = uidOverride || '';
       let resolvedUsername = username || cleanEmail.split('@')[0] || 'User';
 
-      // 1. Resolve UID and Username from DB if possible
-      const emailVariants = Array.from(new Set([
-        cleanEmail,
-        cleanEmail.toUpperCase()
-      ]));
+      // 1. Resolve UID and Username from DB if possible and not already provided
+      if (!resolvedUid) {
+        const emailVariants = Array.from(new Set([
+          cleanEmail,
+          cleanEmail.toUpperCase()
+        ]));
 
-      if (adminDb) {
-        try {
-          const userSnap = await adminDb.collection('users').where('email', 'in', emailVariants).limit(1).get();
-          if (!userSnap.empty) {
-            resolvedUid = userSnap.docs[0].id;
-            resolvedUsername = userSnap.docs[0].data().username || resolvedUsername;
+        if (adminDb) {
+          try {
+            const userSnap = await adminDb.collection('users').where('email', 'in', emailVariants).limit(1).get();
+            if (!userSnap.empty) {
+              resolvedUid = userSnap.docs[0].id;
+              resolvedUsername = userSnap.docs[0].data().username || resolvedUsername;
+            }
+          } catch (dbErr) {
+            console.warn('[Welcome DB Trigger] Failed to query Firestore user:', dbErr);
           }
-        } catch (dbErr) {
-          console.warn('[Welcome DB Trigger] Failed to query Firestore user:', dbErr);
         }
-      }
 
-      if (!resolvedUid && backendSupabase) {
-        try {
-          const { data, error } = await backendSupabase
-             .from('users')
-             .select('id, username')
-             .in('email', emailVariants)
-             .maybeSingle();
-          if (!error && data) {
-            resolvedUid = (data as any).id;
-            resolvedUsername = (data as any).username || resolvedUsername;
+        if (!resolvedUid && backendSupabase) {
+          try {
+            const { data, error } = await backendSupabase
+               .from('users')
+               .select('id, username')
+               .in('email', emailVariants)
+               .maybeSingle();
+            if (!error && data) {
+              resolvedUid = (data as any).id;
+              resolvedUsername = (data as any).username || resolvedUsername;
+            }
+          } catch (sbErr) {
+            console.warn('[Welcome DB Trigger] Failed to query Supabase user:', sbErr);
           }
-        } catch (sbErr) {
-          console.warn('[Welcome DB Trigger] Failed to query Supabase user:', sbErr);
         }
       }
 
@@ -6883,7 +6856,6 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               createdAt: supportMessage.createdAt,
               read: supportMessage.read
             });
-
             console.log('[Welcome DB Trigger] Successfully wrote Support Profile, Chat and Message to Supabase.');
           } catch (sbWriteErr) {
             console.warn('[Welcome DB Trigger] Failed writing to Supabase:', sbWriteErr);
@@ -7134,7 +7106,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           if (resolvedUidForWelcome) {
             await markWelcomeSentInDb(resolvedUidForWelcome);
           }
-          return res.json({ success: true, messageId: result.messageId || 'brevo-rest-id', provider: 'brevo-rest' });
+          return { success: true, messageId: result.messageId || 'brevo-rest-id' };
         } else {
           const errText = await brevoResponse.text();
           throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
@@ -7149,10 +7121,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
       if (brevoApiKey && !hasSmtp) {
         console.warn(`[Email Engine] Brevo configuration was detected but delivery failed, and no SMTP is configured:`, errorDetail);
-        return res.status(400).json({
+        return {
           success: false,
-          error: `Welcome email could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
-        });
+          error: `Welcome email could not be sent via Brevo. Details: ${errorDetail}`
+        };
       }
 
       if (brevoApiKey && hasSmtp) {
@@ -7163,20 +7135,18 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       if (!hasSmtp && !isDevOrSimulated) {
         console.warn(`[Email Engine] Neither SMTP credentials nor Brevo API key are configured in production.`);
-        return res.status(400).json({
+        return {
           success: false,
-          error: "Welcome email cannot be sent: SMTP mail service credentials (SMTP_USER/SMTP_PASS) or Brevo API credentials (BREVO_API_KEY) are not configured in the system environment."
-        });
+          error: "Welcome email cannot be sent: SMTP mail service credentials (SMTP_USER/SMTP_PASS) or Brevo API credentials (BREVO_API_KEY) are not configured."
+        };
       }
 
       // 2. Fall back to standard SMTP Transporter or Simulated in non-prod
       try {
         const transporter = getMailTransporter();
-        
-        // Ensure SMTP sender matches SMTP_USER when sending via SMTP to prevent strict relay rejection.
         const resolvedSmtpSender = process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
         const mailOptions = {
-          from: `"Tedbuy Support" <${resolvedSmtpSender}>`,
+          from: `"Tedbuy" <${resolvedSmtpSender}>`, // Match registration OTP mail format to bypass strict relays
           to: cleanEmail,
           replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
           subject: subject,
@@ -7187,23 +7157,65 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         const info = await transporter.sendMail(mailOptions);
         console.log(`[Email Engine] Welcome email dispatched successfully via SMTP for ${cleanEmail}. MessageId: ${info.messageId || 'virtual'}`);
         
-        if ((info as any).message) {
-          console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
-        }
-
         if (resolvedUidForWelcome) {
           await markWelcomeSentInDb(resolvedUidForWelcome);
         }
 
-        return res.json({ success: true, messageId: info.messageId || 'virtual', provider: 'smtp' });
+        return { success: true, messageId: info.messageId || 'virtual' };
       } catch (err: any) {
         const errMsg = err?.message || String(err);
         console.error(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${cleanEmail}:`, errMsg);
-        return res.status(500).json({
+        return {
           success: false,
           error: `Failed to send welcome email. Details: ${errMsg}`
-        });
+        };
       }
+    }
+    return { success: false, error: "An unknown error occurred during email delivery." };
+  }
+
+  app.post('/api/send-welcome-email', async (req, res) => {
+    const { email, username } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email parameter is required.' });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Dynamic rate limiter check that bypasses for Admins
+    const authHeader = req.headers.authorization;
+    const isAdmin = await verifyAdmin(authHeader);
+
+    if (!isAdmin) {
+      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
+      const key = `${ip}:welcome-email`;
+      const now = Date.now();
+      const windowMs = 5 * 60 * 1000;
+      const maxRequests = 100;
+
+      if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
+        rateLimitStore[key] = {
+          count: 1,
+          resetTime: now + windowMs
+        };
+      } else {
+        rateLimitStore[key].count++;
+        if (rateLimitStore[key].count > maxRequests) {
+          const remainingSecs = Math.ceil((rateLimitStore[key].resetTime - now) / 1000);
+          res.setHeader("Retry-After", remainingSecs);
+          return res.status(429).json({
+            error: `Too many requests to welcome-email. Please wait ${remainingSecs} seconds and try again.`
+          });
+        }
+      }
+    } else {
+      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${cleanEmail}`);
+    }
+
+    const result = await sendWelcomeEmailAndSetupChat(cleanEmail, username);
+    if (result.success) {
+      return res.json({ success: true, messageId: result.messageId, provider: process.env.BREVO_API_KEY ? 'brevo-rest' : 'smtp' });
+    } else {
+      return res.status(500).json({ success: false, error: result.error });
     }
   });
 
