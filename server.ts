@@ -4652,10 +4652,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
           if (brevoResponse.ok) {
             const result = await brevoResponse.json();
-            console.log(`[Auth Register] Brevo REST API OTP sent successfully. Message ID: ${result.messageId || 'unknown'}`);
+            console.log(`[Auth Register] Brevo REST API OTP sent successfully. HTTP Status: ${brevoResponse.status}. Message ID: ${result.messageId || 'unknown'}. Full Response:`, JSON.stringify(result));
             emailSent = true;
           } else {
             const errText = await brevoResponse.text();
+            console.error(`[Auth Register] Brevo REST API OTP error occurred. HTTP Status: ${brevoResponse.status}. Error Response:`, errText);
             throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
           }
         } catch (brevoErr: any) {
@@ -6708,6 +6709,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const cleanName = username || cleanEmail.split('@')[0] || 'there';
     const escapedName = escapeHtml(cleanName);
 
+    console.log(`[Email Engine] sendWelcomeEmailAndSetupChat initialized and receiving request to send welcome email/chat for recipient: "${cleanEmail}", username: "${cleanName}", uidOverride: "${uidOverride || 'none'}"`);
+
     // -------------------------------------------------------------
     // AUTOMATED DATABASE WELCOME TRIGGER (Bypasses Client-Side RLS)
     // -------------------------------------------------------------
@@ -7101,7 +7104,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
         if (brevoResponse.ok) {
           const result = await brevoResponse.json();
-          console.log(`[Email Engine] Brevo REST API sent successfully. Message ID: ${result.messageId || 'unknown'}`);
+          console.log(`[Email Engine] Brevo REST API sent successfully. HTTP Status: ${brevoResponse.status}. Message ID: ${result.messageId || 'unknown'}. Full Response:`, JSON.stringify(result));
           emailSent = true;
           if (resolvedUidForWelcome) {
             await markWelcomeSentInDb(resolvedUidForWelcome);
@@ -7109,6 +7112,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           return { success: true, messageId: result.messageId || 'brevo-rest-id' };
         } else {
           const errText = await brevoResponse.text();
+          console.error(`[Email Engine] Brevo REST API error occurred. HTTP Status: ${brevoResponse.status}. Error Response:`, errText);
           throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
         }
       } catch (brevoErr: any) {
