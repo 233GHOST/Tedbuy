@@ -1064,9 +1064,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
                     if (active) {
                       setCurrentUserState(newUser);
-                      // Directly trigger welcome package synchronously to prevent race conditions
-                      setupWelcomePackage(newUser).catch(err => {
-                        console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
+                      // Directly trigger welcome package synchronously with the actual firebaseUser token to prevent race conditions
+                      firebaseUser.getIdToken().then(token => {
+                        setupWelcomePackage(newUser, token).catch(err => {
+                          console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
+                        });
+                      }).catch(() => {
+                        setupWelcomePackage(newUser).catch(err => {
+                          console.warn('[Welcome Trigger] Direct welcome setup call failed from auth state change:', err);
+                        });
                       });
                     }
                   }
@@ -1102,6 +1108,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               } catch (_) {}
             }
           } else {
+            triggeredWelcomeUserId.current = null;
+            justRegisteredUserIds.current.clear();
             setCurrentUserState(null);
           }
           setIsAuthLoading(false);
@@ -1646,7 +1654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);
 
-  const setupWelcomePackage = async (targetUser: User) => {
+  const setupWelcomePackage = async (targetUser: User, idTokenOverride?: string) => {
     const email = targetUser.email;
     if (!email) {
       return;
@@ -1758,7 +1766,14 @@ CEO, Tedbuy Inc`;
 
     // 5. Send Welcome Email synchronously via server SMTP / Brevo REST
     try {
-      let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      let idToken = idTokenOverride;
+      if (!idToken && auth.currentUser) {
+        try {
+          idToken = await auth.currentUser.getIdToken();
+        } catch (tokErr) {
+          console.warn('[Welcome Trigger] Could not fetch ID token for welcome email:', tokErr);
+        }
+      }
       if (!idToken) {
         idToken = safeLocalStorage.getItem('tedbuy_custom_auth_token') || '';
       }
@@ -2578,6 +2593,8 @@ CEO, Tedbuy Inc`;
     try {
       setIsAdminSessionVerified(false);
       setAdminFailedAttempts(0);
+      triggeredWelcomeUserId.current = null;
+      justRegisteredUserIds.current.clear();
       await signOut(auth);
       safeLocalStorage.removeItem('tedbuy_simulated_mode');
       safeLocalStorage.removeItem('tedbuy_simulated_user');
@@ -4202,6 +4219,8 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         }
       }
       
+      triggeredWelcomeUserId.current = null;
+      justRegisteredUserIds.current.clear();
       setCurrentUserState(null);
       showToast('Account deleted successfully.', 'success');
       setCurrentView('browse');
