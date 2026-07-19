@@ -2819,7 +2819,8 @@ CEO, Tedbuy Inc`;
       ...sanitizedProductData,
       category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
-      viewsCount: 0
+      viewsCount: 0,
+      hasVideo: Array.isArray(productData.videos) && productData.videos.length > 0
     };
 
     try {
@@ -3039,6 +3040,9 @@ CEO, Tedbuy Inc`;
             id,
             sellerId: finalSellerId,
             sellerName: finalSellerName,
+            hasVideo: updatedData.videos !== undefined 
+              ? (Array.isArray(updatedData.videos) && updatedData.videos.length > 0)
+              : (localProduct ? (Array.isArray(localProduct.videos) && localProduct.videos.length > 0) : false)
           };
           setDoc(productRef, cleanObject(fullProductUpdate))
             .then(() => console.log('[updateProduct] Firestore document updated successfully (full)'))

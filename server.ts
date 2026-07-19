@@ -655,10 +655,10 @@ async function getProductData(productId: string, bypassListCache: boolean = fals
   try {
     let rawProduct: any = null;
     if (backendSupabase) {
-      console.log(`[Meta Crawler] Fetching product ${productId} via Supabase`);
+      console.log(`[Meta Crawler] Fetching product ${productId} via Supabase (excluding videos column)`);
       const { data, error } = await backendSupabase
         .from('products')
-        .select('*')
+        .select('id, title, description, price, category, location, images, brand, condition, negotiable, "sellerId", "sellerName", "createdAt", "viewsCount", "likesCount", "boostStatus", "boostPlan", "hasVideo"')
         .eq('id', productId)
         .maybeSingle();
 
@@ -2009,7 +2009,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
         'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
         'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
-        'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'videos'
+        'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'hasVideo'
       ].join(',');
       try {
         console.log(`[Products Data] [Stage 1] Fetching up to 150 products from backend Supabase (PostgreSQL)...`);
@@ -2025,7 +2025,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           productsList = data.map((row: any) => ({
             ...row,
             images: [`/api/products/${row.id}/image.jpg`],
-            videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
+            videos: row.hasVideo ? [`/api/products/${row.id}/video.mp4`] : [],
             thumbnail: undefined
           }));
         }
@@ -2047,7 +2047,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             productsList = data.map((row: any) => ({
               ...row,
               images: [`/api/products/${row.id}/image.jpg`],
-              videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
+              videos: row.hasVideo ? [`/api/products/${row.id}/video.mp4`] : [],
               thumbnail: undefined
             }));
           }
@@ -2064,7 +2064,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate',
               'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice',
               'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase',
-              'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'videos'
+              'paymentStatus', 'paymentReference', 'visitCount', 'isApproved', 'hasVideo'
             ].join(',');
             
             const { data, error } = await backendSupabase
@@ -2079,7 +2079,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
               productsList = data.map((row: any) => ({
                 ...row,
                 images: [`/api/products/${row.id}/image.jpg`],
-                videos: (row.videos && row.videos.length > 0) ? [`/api/products/${row.id}/video.mp4`] : [],
+                videos: row.hasVideo ? [`/api/products/${row.id}/video.mp4`] : [],
                 thumbnail: undefined
               }));
             }
@@ -2395,13 +2395,13 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   // Firestore REST helpers for Boost Ad System
-  async function getRawProductFirestoreREST(productId: string) {
+  async function getRawProductFirestoreREST(productId: string, columns: string = '*') {
     if (backendSupabase) {
       try {
-        console.log(`[Supabase Server] Fetching product ${productId} from Supabase...`);
+        console.log(`[Supabase Server] Fetching product ${productId} from Supabase (columns: ${columns})...`);
         const { data, error } = await backendSupabase
           .from('products')
-          .select('*')
+          .select(columns)
           .eq('id', productId)
           .maybeSingle();
         if (!error && data) return data;
@@ -2804,7 +2804,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     // Safe fallback if Admin transaction is not executed or fails
     if (!finalUpdatedFields) {
-      let productData = await getRawProductFirestoreREST(productId);
+      const neededCols = 'id, title, price, "sellerId", "boostStatus", "boostPlan", "boostPriority", "isApproved", "boostHistory"';
+      let productData = await getRawProductFirestoreREST(productId, neededCols);
       let retryCount = 0;
       const maxRetries = 2;
       const retryDelayMs = 400;
@@ -2813,7 +2814,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         retryCount++;
         console.log(`[REST Lag Check] Product ${productId} not found on attempt ${retryCount}/${maxRetries}. Retrying in ${retryDelayMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-        productData = await getRawProductFirestoreREST(productId);
+        productData = await getRawProductFirestoreREST(productId, neededCols);
       }
 
       if (!productData) {
@@ -3105,7 +3106,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       if (action === 'deactivate') {
         // Fetch current product data (only needed here - activateBoostInternal fetches its own copy for 'activate')
-        const productData = await getRawProductFirestoreREST(productId);
+        const productData = await getRawProductFirestoreREST(productId, 'id, "viewsCount", "createdAt", "boostStatus"');
         if (!productData) {
           return res.status(404).json({ success: false, error: `Product listing with ID ${productId} was not found.` });
         }
@@ -7563,7 +7564,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     }
 
     try {
-      const product = await getRawProductFirestoreREST(productId);
+      const product = await getRawProductFirestoreREST(productId, 'videos');
       if (!product) {
         return res.status(404).send('Product not found');
       }

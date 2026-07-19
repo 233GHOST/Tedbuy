@@ -35,8 +35,8 @@ if (typeof window !== 'undefined') {
     if (stored !== null) {
       isLocalDisable = stored === 'true';
     } else {
-      localStorage.setItem('tedbuy_disable_supabase', 'true');
-      isLocalDisable = true;
+      localStorage.setItem('tedbuy_disable_supabase', 'false');
+      isLocalDisable = false;
     }
   } catch (e) {
     isLocalDisable = true;
@@ -97,7 +97,7 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     'boostStatus', 'boostPlan', 'boostStartDate', 'boostEndDate', 
     'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice', 
     'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase', 
-    'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved'
+    'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved', 'hasVideo'
   ]),
   chats: new Set([
     'id', 'productId', 'productTitle', 'productPrice', 'productImage', 
