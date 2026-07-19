@@ -6702,6 +6702,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     if (!email) {
       return res.status(400).json({ error: 'Email parameter is required.' });
     }
+    const cleanEmail = email.trim().toLowerCase();
 
     // Dynamic rate limiter check that bypasses for Admins
     const authHeader = req.headers.authorization;
@@ -6730,10 +6731,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
     } else {
-      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${email}`);
+      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${cleanEmail}`);
     }
 
-    const cleanName = username || email.split('@')[0] || 'there';
+    const cleanName = username || cleanEmail.split('@')[0] || 'there';
     const escapedName = escapeHtml(cleanName);
 
     // -------------------------------------------------------------
@@ -6742,13 +6743,12 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     let resolvedUidForWelcome = '';
     try {
       let resolvedUid = '';
-      let resolvedUsername = username || email.split('@')[0] || 'User';
+      let resolvedUsername = username || cleanEmail.split('@')[0] || 'User';
 
       // 1. Resolve UID and Username from DB if possible
       const emailVariants = Array.from(new Set([
-        email.trim(),
-        email.trim().toLowerCase(),
-        email.trim().toUpperCase()
+        cleanEmail,
+        cleanEmail.toUpperCase()
       ]));
 
       if (adminDb) {
@@ -6890,7 +6890,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           }
         }
       } else {
-        console.warn(`[Welcome DB Trigger] Could not resolve UID for email: ${email}. Skipping database chat creation.`);
+        console.warn(`[Welcome DB Trigger] Could not resolve UID for email: ${cleanEmail}. Skipping database chat creation.`);
       }
     } catch (globalDbErr) {
       console.warn('[Welcome DB Trigger] General error in background welcome chat setup:', globalDbErr);
@@ -7090,8 +7090,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     // 1. Try Brevo REST API if configured
     const brevoApiKey = process.env.BREVO_API_KEY;
+    let emailSent = false;
+    let errorDetail = '';
+
     if (brevoApiKey) {
-      console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${email}`);
+      console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${cleanEmail}`);
       try {
         const senderEmail = process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
         const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
@@ -7110,7 +7113,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             },
             to: [
               {
-                email: email.trim(),
+                email: cleanEmail,
                 name: cleanName
               }
             ],
@@ -7127,6 +7130,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (brevoResponse.ok) {
           const result = await brevoResponse.json();
           console.log(`[Email Engine] Brevo REST API sent successfully. Message ID: ${result.messageId || 'unknown'}`);
+          emailSent = true;
           if (resolvedUidForWelcome) {
             await markWelcomeSentInDb(resolvedUidForWelcome);
           }
@@ -7136,51 +7140,70 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
         }
       } catch (brevoErr: any) {
-        console.warn(`[Email Engine] Brevo REST API delivery failed, falling back to SMTP/Simulation:`, brevoErr?.message || brevoErr);
+        console.error(`[Email Engine] Brevo REST API welcome email delivery failed:`, brevoErr?.message || brevoErr);
+        errorDetail = brevoErr?.message || String(brevoErr);
       }
     }
 
-    // 2. Fall back to standard SMTP Transporter
-    try {
-      const transporter = getMailTransporter();
-      
-      // Ensure SMTP sender matches SMTP_USER when sending via SMTP to prevent strict relay rejection.
-      const resolvedSmtpSender = process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
-      const mailOptions = {
-        from: `"Tedbuy Support" <${resolvedSmtpSender}>`,
-        to: email,
-        replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
-        subject: subject,
-        text: textContent,
-        html: htmlContent
-      };
-
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[Email Engine] Welcome email dispatched successfully via SMTP for ${email}. MessageId: ${info.messageId || 'virtual'}`);
-      
-      if ((info as any).message) {
-        console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
+    if (!emailSent) {
+      const hasSmtp = process.env.SMTP_USER && process.env.SMTP_PASS;
+      if (brevoApiKey && !hasSmtp) {
+        console.warn(`[Email Engine] Brevo configuration was detected but delivery failed, and no SMTP is configured:`, errorDetail);
+        return res.status(400).json({
+          success: false,
+          error: `Welcome email could not be sent via Brevo. Please ensure your BREVO_API_KEY is correct, active, and your BREVO_SENDER_EMAIL ("${process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com'}") is verified as a sender in your Brevo account dashboard. Details: ${errorDetail}`
+        });
       }
 
-      if (resolvedUidForWelcome) {
-        await markWelcomeSentInDb(resolvedUidForWelcome);
+      if (brevoApiKey && hasSmtp) {
+        console.log(`[Email Engine] Brevo REST API delivery failed, but SMTP is configured. Falling back to SMTP...`);
       }
 
-      return res.json({ success: true, messageId: info.messageId || 'virtual', provider: 'smtp' });
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      console.warn(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${email}:`, errMsg);
+      const isDevOrSimulated = process.env.NODE_ENV !== 'production' && !hasSmtp;
 
-      console.log(`[Email Engine] [Bypass] Gracefully bypassing SMTP issue for ${email}. Returning simulated delivery success.`);
-      if (resolvedUidForWelcome) {
-        await markWelcomeSentInDb(resolvedUidForWelcome);
+      if (!hasSmtp && !isDevOrSimulated) {
+        console.warn(`[Email Engine] Neither SMTP credentials nor Brevo API key are configured in production.`);
+        return res.status(400).json({
+          success: false,
+          error: "Welcome email cannot be sent: SMTP mail service credentials (SMTP_USER/SMTP_PASS) or Brevo API credentials (BREVO_API_KEY) are not configured in the system environment."
+        });
       }
-      return res.json({
-        success: true,
-        messageId: 'simulated_delivery_bypass_id',
-        simulated: true,
-        warning: `SMTP issue bypassed. Details: ${errMsg}`
-      });
+
+      // 2. Fall back to standard SMTP Transporter or Simulated in non-prod
+      try {
+        const transporter = getMailTransporter();
+        
+        // Ensure SMTP sender matches SMTP_USER when sending via SMTP to prevent strict relay rejection.
+        const resolvedSmtpSender = process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || 'info.tedbuy@gmail.com';
+        const mailOptions = {
+          from: `"Tedbuy Support" <${resolvedSmtpSender}>`,
+          to: cleanEmail,
+          replyTo: process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'info.tedbuy@gmail.com',
+          subject: subject,
+          text: textContent,
+          html: htmlContent
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`[Email Engine] Welcome email dispatched successfully via SMTP for ${cleanEmail}. MessageId: ${info.messageId || 'virtual'}`);
+        
+        if ((info as any).message) {
+          console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
+        }
+
+        if (resolvedUidForWelcome) {
+          await markWelcomeSentInDb(resolvedUidForWelcome);
+        }
+
+        return res.json({ success: true, messageId: info.messageId || 'virtual', provider: 'smtp' });
+      } catch (err: any) {
+        const errMsg = err?.message || String(err);
+        console.error(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${cleanEmail}:`, errMsg);
+        return res.status(500).json({
+          success: false,
+          error: `Failed to send welcome email. Details: ${errMsg}`
+        });
+      }
     }
   });
 
