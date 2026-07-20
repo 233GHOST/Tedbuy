@@ -5841,9 +5841,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         authDeleted
       });
 
-    } catch (err: any) {
+} catch (err: any) {
       console.error('[Account Deletion API Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during account deletion." });
+    }
+  });
+
+  // API to manually clear the server-side products cache (used when seller updates their profile or store name)
+  app.post('/api/products/invalidate-cache', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const verified = await verifyUser(authHeader);
+      if (!verified) {
+        return res.status(401).json({ success: false, error: "Unauthorized: Invalid or expired authorization token." });
+      }
+
+      console.log(`[Products Cache] Invalidation requested by authenticated user: ${verified.uid} (${verified.email})`);
+      cachedProducts = null;
+
+      return res.json({ success: true, message: "Server-side products cache has been successfully invalidated." });
+    } catch (err: any) {
+      console.error('[Cache Invalidation API Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Internal server error during cache invalidation." });
     }
   });
 

@@ -4035,6 +4035,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     const currentStoreNameLower = currentUser.username?.trim().toLowerCase();
     const newStoreNameLower = finalUsername.trim().toLowerCase();
+    const isStoreNameChanged = profileData.username !== undefined && finalUsername !== currentUser.username;
 
     const updatedUser: User = {
       ...currentUser,
@@ -4056,6 +4057,45 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       } catch (_) {}
       return updatedList;
     });
+
+    if (isStoreNameChanged) {
+      // 1. Update local products state
+      setProducts(prevProducts => {
+        return prevProducts.map(p => {
+          if (p.sellerId === currentUser.id) {
+            return { ...p, sellerName: finalUsername };
+          }
+          return p;
+        });
+      });
+
+      // 2. Update local chats state
+      setChats(prevChats => {
+        return prevChats.map(c => {
+          let changed = false;
+          const updated = { ...c };
+          if (c.sellerId === currentUser.id && c.sellerName !== finalUsername) {
+            updated.sellerName = finalUsername;
+            changed = true;
+          }
+          if (c.buyerId === currentUser.id && c.buyerName !== finalUsername) {
+            updated.buyerName = finalUsername;
+            changed = true;
+          }
+          return changed ? updated : c;
+        });
+      });
+
+      // 3. Update local reviews state (buyerName)
+      setReviews(prevReviews => {
+        return prevReviews.map(r => {
+          if (r.buyerId === currentUser.id) {
+            return { ...r, buyerName: finalUsername };
+          }
+          return r;
+        });
+      });
+    }
 
     // Match simulated user state and persist inside dedicated caches
     try {
@@ -4095,6 +4135,55 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
           userId: currentUser.id,
           username: finalUsername.trim()
         });
+      }
+
+      if (isStoreNameChanged) {
+        // 1. In Firestore/Supabase, update all products listed by this user
+        const sellerProductsToUpdate = products.filter(p => p.sellerId === currentUser.id);
+        sellerProductsToUpdate.forEach(p => {
+          batch.update(doc(db, 'products', p.id), { sellerName: finalUsername });
+        });
+
+        // 2. In Firestore/Supabase, update all chats involving this user
+        const userChatsToUpdate = chats.filter(c => c.sellerId === currentUser.id || c.buyerId === currentUser.id);
+        userChatsToUpdate.forEach(c => {
+          const chatUpdate: any = {};
+          if (c.sellerId === currentUser.id) {
+            chatUpdate.sellerName = finalUsername;
+          }
+          if (c.buyerId === currentUser.id) {
+            chatUpdate.buyerName = finalUsername;
+          }
+          batch.update(doc(db, 'chats', c.id), chatUpdate);
+        });
+
+        // 3. In Firestore/Supabase, update all reviews submitted by this user as a buyer
+        const userReviewsToUpdate = reviews.filter(r => r.buyerId === currentUser.id);
+        userReviewsToUpdate.forEach(r => {
+          batch.update(doc(db, 'reviews', r.id), { buyerName: finalUsername });
+        });
+
+        // 4. Async trigger server-side cache invalidation
+        if (auth.currentUser) {
+          auth.currentUser.getIdToken().then(token => {
+            fetch('/api/products/invalidate-cache', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            })
+            .then(res => res.json())
+            .then(resData => {
+              console.log('[Profile Update] Server-side products cache invalidated:', resData);
+            })
+            .catch(fetchErr => {
+              console.warn('[Profile Update] Failed to invalidate server cache:', fetchErr);
+            });
+          }).catch(tokenErr => {
+            console.warn('[Profile Update] Failed to retrieve auth token:', tokenErr);
+          });
+        }
       }
 
       batch.commit()
