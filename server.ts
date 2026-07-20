@@ -5278,6 +5278,27 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         }
       }
 
+      // Fallback Strategy: If we have a resetLink but NO custom email configuration on the server (neither Brevo nor SMTP is active),
+      // we cannot send custom HTML email. Directly let Firebase dispatch the email using Firebase REST API.
+      if (resetLink && !brevoApiKey && !hasSmtp && apiKey) {
+        console.log(`[Auth Reset] Reset link generated but neither Brevo nor SMTP is active. Triggering Firebase REST API direct dispatch for: ${cleanEmail}`);
+        const firebaseRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestType: "PASSWORD_RESET",
+            email: cleanEmail
+          })
+        });
+        if (firebaseRes.ok) {
+          console.log(`[Auth Reset] Firebase Auth REST API successfully sent password reset email directly (bypass custom email).`);
+          return res.json({ success: true, message: "Password reset instructions have been successfully dispatched to your email address." });
+        } else {
+          const errText = await firebaseRes.text();
+          console.warn(`[Auth Reset] Firebase Auth REST API direct dispatch fallback failed:`, errText);
+        }
+      }
+
       // Verify that we have a generated link to send via Brevo/SMTP
       if (!resetLink) {
         if (!brevoApiKey && !hasSmtp) {
@@ -5553,6 +5574,32 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (emailSent) {
         return res.json({ success: true, provider: brevoApiKey && emailSent ? 'brevo-rest' : 'smtp' });
       } else {
+        // Since custom email delivery failed, attempt a final robust fallback sending via Firebase Auth REST API directly
+        if (apiKey) {
+          console.log(`[Auth Reset] Custom email delivery failed. Triggering final Firebase REST API fallback dispatch for: ${cleanEmail}`);
+          try {
+            const firebaseRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                requestType: "PASSWORD_RESET",
+                email: cleanEmail
+              })
+            });
+            if (firebaseRes.ok) {
+              console.log(`[Auth Reset] Final fallback: Firebase Auth REST API successfully sent password reset email directly.`);
+              return res.json({ success: true, message: "Password reset instructions have been successfully dispatched to your email address." });
+            } else {
+              const errText = await firebaseRes.text();
+              console.warn(`[Auth Reset] Final fallback: Firebase Auth REST API dispatch failed:`, errText);
+              errorDetail += ` (Firebase REST Fallback failed: ${errText})`;
+            }
+          } catch (restErr: any) {
+            console.error(`[Auth Reset] Final fallback exception:`, restErr);
+            errorDetail += ` (Firebase REST Exception: ${restErr?.message || restErr})`;
+          }
+        }
+
         return res.status(400).json({
           success: false,
           error: `Could not send reset email. Details: ${errorDetail}`
