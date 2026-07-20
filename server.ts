@@ -5588,7 +5588,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             });
             if (firebaseRes.ok) {
               console.log(`[Auth Reset] Final fallback: Firebase Auth REST API successfully sent password reset email directly.`);
-              return res.json({ success: true, message: "Password reset instructions have been successfully dispatched to your email address." });
+              return res.json({ 
+                success: true, 
+                message: "Password reset instructions have been successfully dispatched to your email address. NOTE: Because our custom secure email server (SMTP) encountered authentication issues, the email was sent via Firebase's default mailer. Please check your SPAM/Junk folder if you do not see it in your inbox." 
+              });
             } else {
               const errText = await firebaseRes.text();
               console.warn(`[Auth Reset] Final fallback: Firebase Auth REST API dispatch failed:`, errText);

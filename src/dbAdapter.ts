@@ -194,6 +194,41 @@ function transformForSupabaseClient(table: string, data: any, docId: string): an
   return filterTableColumns(table, result);
 }
 
+function getTableSelectColumns(table: string): string {
+  if (table === 'products') {
+    return 'id, title, description, price, category, location, videos, brand, condition, negotiable, sellerId, sellerName, createdAt, viewsCount, likesCount, likedUserIds, boostStatus, boostPlan, boostStartDate, boostEndDate, boostPriority, priorityScore, boostPriorityLevel, boostPackagePrice, remainingBoostTime, boostAmount, lastBoostedAt, lastBoostPurchase, paymentStatus, paymentReference, boostHistory, visitCount, isApproved';
+  }
+  return '*';
+}
+
+function transformFromSupabase(table: string, data: any): any {
+  if (!data) return null;
+  const result = { ...data };
+  
+  if (table === 'products') {
+    // If images is missing (because we excluded it to avoid heavy egress from base64 strings),
+    // generate proxy URLs so client fetches them individually and server-side caches them on disk!
+    if (!result.images || !Array.isArray(result.images) || result.images.length === 0) {
+      result.images = [
+        `/api/products/${result.id}/image.jpg`,
+        `/api/products/${result.id}/image.jpg?idx=1`,
+        `/api/products/${result.id}/image.jpg?idx=2`,
+        `/api/products/${result.id}/image.jpg?idx=3`,
+        `/api/products/${result.id}/image.jpg?idx=4`
+      ];
+    } else {
+      // In case we got actual images (e.g., from some other fallback), let's map them to proxy URLs if they are base64
+      result.images = result.images.map((img: string, idx: number) => {
+        if (typeof img === 'string' && img.startsWith('data:')) {
+          return `/api/products/${result.id}/image.jpg${idx > 0 ? `?idx=${idx}` : ''}`;
+        }
+        return img;
+      });
+    }
+  }
+  return result;
+}
+
 // -------------------------------------------------------------
 // Mock Firebase References and Constraints for Adapter
 // -------------------------------------------------------------
@@ -305,9 +340,10 @@ export async function getDoc(docRef: any): Promise<any> {
   const id = docRef.id || parts[1];
 
   try {
+    const selectCols = getTableSelectColumns(table);
     const { data, error } = await supabase!
       .from(table)
-      .select('*')
+      .select(selectCols)
       .eq('id', id)
       .maybeSingle();
 
@@ -316,10 +352,12 @@ export async function getDoc(docRef: any): Promise<any> {
       throw error;
     }
 
+    const transformedData = data ? transformFromSupabase(table, data) : null;
+
     return {
       id,
-      exists: () => !!data,
-      data: () => data || null
+      exists: () => !!transformedData,
+      data: () => transformedData
     };
   } catch (err: any) {
     console.warn(`[Supabase getDoc Fallback] Error fetching table ${table} for id ${id} (${err.message || err}). Falling back to Firestore...`);
@@ -329,7 +367,8 @@ export async function getDoc(docRef: any): Promise<any> {
 
 // Helper to build a Supabase query from Adapter query or collection ref
 function buildSupabaseQuery(table: string, constraints: any[] = []) {
-  let q: any = supabase!.from(table).select('*');
+  const selectCols = getTableSelectColumns(table);
+  let q: any = supabase!.from(table).select(selectCols);
 
   for (const c of constraints) {
     if (!c) continue;
@@ -382,11 +421,14 @@ export async function getDocs(queryOrRef: any): Promise<any> {
       throw error;
     }
 
-    const docs = (data || []).map((item: any) => ({
-      id: item.id,
-      exists: () => true,
-      data: () => item
-    }));
+    const docs = (data || []).map((item: any) => {
+      const transformed = transformFromSupabase(table, item);
+      return {
+        id: transformed.id,
+        exists: () => true,
+        data: () => transformed
+      };
+    });
 
     return {
       docs,
@@ -692,9 +734,10 @@ export function onSnapshot(
     let active = true;
 
     // 1. Initial document fetch
+    const selectCols = getTableSelectColumns(table);
     supabase!
       .from(table)
-      .select('*')
+      .select(selectCols)
       .eq('id', id)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -703,10 +746,11 @@ export function onSnapshot(
            if (onError) onError(error);
            return;
          }
+         const transformed = data ? transformFromSupabase(table, data) : null;
          onNext({
            id,
-           exists: () => !!data,
-           data: () => data || null
+           exists: () => !!transformed,
+           data: () => transformed
          });
       });
 
@@ -719,10 +763,11 @@ export function onSnapshot(
         (payload) => {
           if (!active) return;
           const nextData = payload.eventType === 'DELETE' ? null : payload.new;
+          const transformed = nextData ? transformFromSupabase(table, nextData) : null;
           onNext({
             id,
-            exists: () => !!nextData,
-            data: () => nextData
+            exists: () => !!transformed,
+            data: () => transformed
           });
         }
       )
@@ -751,11 +796,14 @@ export function onSnapshot(
           return;
         }
 
-        const docs = (data || []).map((item: any) => ({
-          id: item.id,
-          exists: () => true,
-          data: () => item
-        }));
+        const docs = (data || []).map((item: any) => {
+          const transformed = transformFromSupabase(table, item);
+          return {
+            id: transformed.id,
+            exists: () => true,
+            data: () => transformed
+          };
+        });
 
         onNext({
           docs,
