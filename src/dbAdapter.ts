@@ -304,22 +304,27 @@ export async function getDoc(docRef: any): Promise<any> {
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
 
-  const { data, error } = await supabase!
-    .from(table)
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase!
+      .from(table)
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
 
-  if (error) {
-    console.error(`[Supabase getDoc] Error fetching from table ${table} for id ${id}:`, error);
-    throw error;
+    if (error) {
+      console.warn(`[Supabase getDoc] Error fetching from table ${table} for id ${id}:`, error);
+      throw error;
+    }
+
+    return {
+      id,
+      exists: () => !!data,
+      data: () => data || null
+    };
+  } catch (err: any) {
+    console.warn(`[Supabase getDoc Fallback] Error fetching table ${table} for id ${id} (${err.message || err}). Falling back to Firestore...`);
+    return fsGetDoc(fsDoc(fsDb, parts[0], id));
   }
-
-  return {
-    id,
-    exists: () => !!data,
-    data: () => data || null
-  };
 }
 
 // Helper to build a Supabase query from Adapter query or collection ref
@@ -368,27 +373,46 @@ export async function getDocs(queryOrRef: any): Promise<any> {
   const table = mapPathToTable(ref.path);
   const constraints = isQuery ? queryOrRef.constraints : [];
 
-  const q = buildSupabaseQuery(table, constraints);
-  const { data, error } = await q;
+  try {
+    const q = buildSupabaseQuery(table, constraints);
+    const { data, error } = await q;
 
-  if (error) {
-    console.error(`[Supabase getDocs] Error querying table ${table}:`, error);
-    throw error;
+    if (error) {
+      console.warn(`[Supabase getDocs] Error querying table ${table}:`, error);
+      throw error;
+    }
+
+    const docs = (data || []).map((item: any) => ({
+      id: item.id,
+      exists: () => true,
+      data: () => item
+    }));
+
+    return {
+      docs,
+      forEach: (cb: any) => docs.forEach(cb),
+      size: docs.length,
+      empty: docs.length === 0,
+      metadata: { fromCache: false, hasPendingWrites: false }
+    };
+  } catch (err: any) {
+    console.warn(`[Supabase getDocs Fallback] Querying table ${table} failed (${err.message || err}). Falling back to Firestore...`);
+    // Convert adapter query back to native Firestore query
+    let fsQueryRef = fsCollection(fsDb, ref.path);
+    if (isQuery && Array.isArray(constraints)) {
+      for (const c of constraints) {
+        if (!c) continue;
+        if (c.type === 'where') {
+          fsQueryRef = fsQuery(fsQueryRef, fsWhere(c.field, c.op as any, c.value)) as any;
+        } else if (c.type === 'orderBy') {
+          fsQueryRef = fsQuery(fsQueryRef, fsOrderBy(c.field, c.direction)) as any;
+        } else if (c.type === 'limit') {
+          fsQueryRef = fsQuery(fsQueryRef, fsLimit(c.n)) as any;
+        }
+      }
+    }
+    return fsGetDocs(fsQueryRef);
   }
-
-  const docs = (data || []).map((item: any) => ({
-    id: item.id,
-    exists: () => true,
-    data: () => item
-  }));
-
-  return {
-    docs,
-    forEach: (cb: any) => docs.forEach(cb),
-    size: docs.length,
-    empty: docs.length === 0,
-    metadata: { fromCache: false, hasPendingWrites: false }
-  };
 }
 
 function restoreOriginalMedia(incoming: any, existing: any): any[] {
@@ -420,14 +444,75 @@ function restoreOriginalMedia(incoming: any, existing: any): any[] {
   });
 }
 
-export async function setDoc(docRef: any, data: any, options?: any): Promise<void> {
-  if (!isSupabaseActive) {
-    return fsSetDoc(docRef, data, options);
+async function restoreProductMediaForSave(id: string, payload: any): Promise<any> {
+  if (!payload || (!payload.images && !payload.videos)) {
+    return payload;
   }
 
+  let existingImages: any[] = [];
+  let existingVideos: any[] = [];
+
+  // Try fetching from Supabase if active
+  if (isSupabaseActive) {
+    try {
+      const { data: existing } = await supabase!
+        .from('products')
+        .select('images, videos')
+        .eq('id', id)
+        .maybeSingle();
+      if (existing) {
+        if (existing.images) {
+          existingImages = Array.isArray(existing.images) ? existing.images : (typeof existing.images === 'string' ? JSON.parse(existing.images) : []);
+        }
+        if (existing.videos) {
+          existingVideos = Array.isArray(existing.videos) ? existing.videos : (typeof existing.videos === 'string' ? JSON.parse(existing.videos) : []);
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // If we couldn't get existing from Supabase, or if Supabase is inactive, try fetching from Firestore
+  if (existingImages.length === 0 && existingVideos.length === 0) {
+    try {
+      const existingDoc = await fsGetDoc(fsDoc(fsDb, 'products', id));
+      if (existingDoc.exists()) {
+        const existingData = existingDoc.data();
+        if (existingData) {
+          if (existingData.images) existingImages = existingData.images;
+          if (existingData.videos) existingVideos = existingData.videos;
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Perform restoration
+  const restored = { ...payload };
+  if (restored.images) {
+    restored.images = restoreOriginalMedia(restored.images, existingImages);
+  }
+  if (restored.videos) {
+    restored.videos = restoreOriginalMedia(restored.videos, existingVideos);
+  }
+
+  return restored;
+}
+
+export async function setDoc(docRef: any, data: any, options?: any): Promise<void> {
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
+
+  if (!isSupabaseActive) {
+    let finalData = { ...data };
+    if (table === 'products') {
+      finalData = await restoreProductMediaForSave(id, finalData);
+    }
+    return fsSetDoc(docRef, finalData, options);
+  }
 
   let payload = { id, ...data };
   
@@ -435,20 +520,7 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
   payload = sanitizePayload(payload);
 
   if (table === 'products') {
-    const { data: existing } = await supabase!
-      .from(table)
-      .select('images, videos')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (existing) {
-      if (payload.images) {
-        payload.images = restoreOriginalMedia(payload.images, existing.images);
-      }
-      if (payload.videos) {
-        payload.videos = restoreOriginalMedia(payload.videos, existing.videos);
-      }
-    }
+    payload = await restoreProductMediaForSave(id, payload);
   }
 
   if (options?.merge) {
@@ -472,7 +544,7 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
     console.warn(`[Supabase setDoc Warning] Error setting row in table ${table} for id ${id}:`, error?.message || error);
     try {
       console.log(`[Supabase Fallback] Redirecting setDoc write to native Firestore for resilience...`);
-      await fsSetDoc(fsDoc(fsDb, parts[0], id), data, options);
+      await fsSetDoc(fsDoc(fsDb, parts[0], id), payload, options);
       return;
     } catch (fsErr: any) {
       console.warn('[Supabase Fallback Error] Firestore fallback setDoc failed:', fsErr?.message || fsErr);
@@ -482,31 +554,22 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
 }
 
 export async function updateDoc(docRef: any, data: any): Promise<void> {
-  if (!isSupabaseActive) {
-    return fsUpdateDoc(docRef, data);
-  }
-
   const parts = docRef.path.split('/');
   const table = mapPathToTable(parts[0]);
   const id = docRef.id || parts[1];
 
+  if (!isSupabaseActive) {
+    let finalData = { ...data };
+    if (table === 'products') {
+      finalData = await restoreProductMediaForSave(id, finalData);
+    }
+    return fsUpdateDoc(docRef, finalData);
+  }
+
   let payload = sanitizePayload({ ...data });
 
-  if (table === 'products' && (payload.images || payload.videos)) {
-    const { data: existing } = await supabase!
-      .from(table)
-      .select('images, videos')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (existing) {
-      if (payload.images) {
-        payload.images = restoreOriginalMedia(payload.images, existing.images);
-      }
-      if (payload.videos) {
-        payload.videos = restoreOriginalMedia(payload.videos, existing.videos);
-      }
-    }
+  if (table === 'products') {
+    payload = await restoreProductMediaForSave(id, payload);
   }
 
   // Handle increments inline

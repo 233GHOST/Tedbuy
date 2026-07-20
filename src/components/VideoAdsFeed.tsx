@@ -185,6 +185,8 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [processedVideoUrl, setProcessedVideoUrl] = useState<string>('');
+  const [videoError, setVideoError] = useState(false);
+  const [videoErrorDetails, setVideoErrorDetails] = useState('');
   const activeBlobUrlRef = useRef<string>('');
   const [showShareToast, setShowShareToast] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -291,6 +293,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   // Instant preloading & decoding using global memoized Blob cache to prevent freeze and enable buttery smooth TikTok swipe
   useEffect(() => {
+    setVideoError(false);
+    setVideoErrorDetails('');
+
     if (!shouldLoad) {
       setProcessedVideoUrl('');
       return;
@@ -466,6 +471,45 @@ const ReelItem: React.FC<ReelItemProps> = ({
             <Video className="w-14 h-14 mx-auto stroke-[1] text-[#FFFC00]/85 mb-3 animate-pulse" />
             <p className="text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest">Preloading spotlight...</p>
           </div>
+        ) : videoError ? (
+          <div className="relative w-full h-full flex flex-col items-center justify-center bg-slate-950 p-6 text-center select-none">
+            {/* Display first product image as blurred background fallback */}
+            {product.images?.[0] && (
+              <img
+                src={product.images[0]}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover blur-md opacity-30 select-none pointer-events-none"
+                referrerPolicy="no-referrer"
+              />
+            )}
+            <div className="relative z-10 max-w-xs p-6 rounded-3xl bg-slate-900/90 backdrop-blur-md border border-white/10 shadow-2xl flex flex-col items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center">
+                <Video className="w-6 h-6 text-rose-500" />
+              </div>
+              <h4 className="text-xs font-black uppercase tracking-wider text-rose-400">Media Playback Error</h4>
+              <p className="text-[10px] text-slate-300 leading-relaxed font-sans font-semibold">
+                {videoErrorDetails || "This video couldn't be loaded or played back due to a network or format issue."}
+              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setVideoError(false);
+                  setVideoErrorDetails('');
+                  const video = videoRef.current;
+                  if (video) {
+                    video.load();
+                    video.play().catch(err => {
+                      console.warn('[ReelItem] Retry play failed:', err);
+                    });
+                  }
+                }}
+                className="mt-2 w-full py-2.5 bg-[#FFFC00] hover:bg-yellow-400 text-slate-950 font-black rounded-xl text-[10px] tracking-widest uppercase transition shadow-md cursor-pointer"
+              >
+                Retry Showcase
+              </button>
+            </div>
+          </div>
         ) : !processedVideoUrl ? (
           <div className="text-center p-6 text-slate-500">
             {currentVideoUrl ? (
@@ -504,6 +548,22 @@ const ReelItem: React.FC<ReelItemProps> = ({
             onDurationChange={handleLoadedMetadata}
             onPlay={() => setIsPlaying(true)}
             onPause={() => setIsPlaying(false)}
+            onError={(e) => {
+              const err = e.currentTarget.error;
+              let errMsg = 'Unknown video loading or decoding error';
+              if (err) {
+                switch (err.code) {
+                  case 1: errMsg = 'Video loading aborted'; break;
+                  case 2: errMsg = 'Network error: Video download failed'; break;
+                  case 3: errMsg = 'Decoding error: Corrupted video file or unsupported codec'; break;
+                  case 4: errMsg = 'Format error: Video URL not found or format unsupported'; break;
+                }
+                if (err.message) errMsg += ` (${err.message})`;
+              }
+              console.error(`[ReelItem Error] Video failed to load for Product ID: ${product.id}. Title: "${product.title}". Video URL: "${currentVideoUrl}". Processed URL: "${processedVideoUrl}". Error: ${errMsg}`, err);
+              setVideoError(true);
+              setVideoErrorDetails(errMsg);
+            }}
           />
         )}
 

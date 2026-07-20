@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus, Sparkles } from 'lucide-react';
+import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus, Sparkles, Video } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
 import { isUserVerified, calculateTrustScore } from '../types';
@@ -62,6 +62,11 @@ export const ProductDetail: React.FC = () => {
   const [safetyTipsPendingAction, setSafetyTipsPendingAction] = useState<'message' | 'whatsapp' | null>(null);
 
   const [isDetailFetching, setIsDetailFetching] = useState(false);
+  const [videoErrors, setVideoErrors] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setVideoErrors({});
+  }, [selectedProductId]);
 
   useEffect(() => {
     if (!product) return;
@@ -754,7 +759,7 @@ export const ProductDetail: React.FC = () => {
             className="group/media relative aspect-[4/3] w-full bg-slate-950 rounded-3xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-md cursor-zoom-in select-none"
             style={{ aspectRatio: '4/3' }}
           >
-            {mediaGallery[activeMediaIdx]?.type === 'video' ? (
+            {(mediaGallery[activeMediaIdx]?.type === 'video' && !videoErrors[mediaGallery[activeMediaIdx].url]) ? (
               <video
                 src={mediaGallery[activeMediaIdx].url}
                 className="max-w-full max-h-full object-contain w-full h-full"
@@ -765,7 +770,54 @@ export const ProductDetail: React.FC = () => {
                 webkit-playsinline="true"
                 disablePictureInPicture
                 controlsList="nodownload nofullscreen noremoteplayback"
+                onError={(e) => {
+                  const url = mediaGallery[activeMediaIdx].url;
+                  const err = e.currentTarget.error;
+                  let errMsg = 'Unknown video loading or decoding error';
+                  if (err) {
+                    switch (err.code) {
+                      case 1: errMsg = 'Video loading aborted'; break;
+                      case 2: errMsg = 'Network error: Video download failed'; break;
+                      case 3: errMsg = 'Decoding error: Corrupted video file or unsupported codec'; break;
+                      case 4: errMsg = 'Format error: Video URL not found or format unsupported'; break;
+                    }
+                    if (err.message) errMsg += ` (${err.message})`;
+                  }
+                  console.error(`[ProductDetail Error] Video failed to load for Product ID: ${product?.id}. Title: "${product?.title}". Video URL: "${url}". Error: ${errMsg}`, err);
+                  setVideoErrors(prev => ({ ...prev, [url]: true }));
+                }}
               />
+            ) : mediaGallery[activeMediaIdx]?.type === 'video' ? (
+              <div className="relative w-full h-full bg-slate-950 flex flex-col items-center justify-center p-6 text-center select-none">
+                {product?.images?.[0] && (
+                  <img
+                    src={product.images[0]}
+                    alt=""
+                    className="absolute inset-0 w-full h-full object-cover blur-md opacity-20 select-none pointer-events-none"
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                <div className="relative z-10 max-w-xs p-5 rounded-2xl bg-slate-900/90 border border-white/10 flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center">
+                    <Video className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-rose-400">Video Loading Failed</h4>
+                  <p className="text-[10px] text-slate-300 leading-relaxed font-sans font-semibold">
+                    The showcase video could not be streamed or played back due to network/format issues.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const url = mediaGallery[activeMediaIdx].url;
+                      setVideoErrors(prev => ({ ...prev, [url]: false }));
+                    }}
+                    className="w-full py-2 bg-[#FFFC00] hover:bg-yellow-400 text-slate-950 font-black rounded-lg text-[10px] tracking-wider uppercase transition shadow-md cursor-pointer"
+                  >
+                    Retry Loading
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="relative w-full h-full flex items-center justify-center">
                 <img
@@ -1484,7 +1536,7 @@ export const ProductDetail: React.FC = () => {
               className="w-full h-full flex items-center justify-center bg-transparent max-h-[75vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              {mediaGallery[lightboxIndex]?.type === 'video' ? (
+              {(mediaGallery[lightboxIndex]?.type === 'video' && !videoErrors[mediaGallery[lightboxIndex].url]) ? (
                 <video
                   src={mediaGallery[lightboxIndex].url}
                   className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/5 shadow-2xl"
@@ -1495,7 +1547,44 @@ export const ProductDetail: React.FC = () => {
                   webkit-playsinline="true"
                   disablePictureInPicture
                   controlsList="nodownload nofullscreen noremoteplayback"
+                  onError={(e) => {
+                    const url = mediaGallery[lightboxIndex].url;
+                    const err = e.currentTarget.error;
+                    let errMsg = 'Unknown video loading or decoding error';
+                    if (err) {
+                      switch (err.code) {
+                        case 1: errMsg = 'Video loading aborted'; break;
+                        case 2: errMsg = 'Network error: Video download failed'; break;
+                        case 3: errMsg = 'Decoding error: Corrupted video file or unsupported codec'; break;
+                        case 4: errMsg = 'Format error: Video URL not found or format unsupported'; break;
+                      }
+                      if (err.message) errMsg += ` (${err.message})`;
+                    }
+                    console.error(`[ProductDetail Lightbox Error] Video failed to load for Product ID: ${product?.id}. Title: "${product?.title}". Video URL: "${url}". Error: ${errMsg}`, err);
+                    setVideoErrors(prev => ({ ...prev, [url]: true }));
+                  }}
                 />
+              ) : mediaGallery[lightboxIndex]?.type === 'video' ? (
+                <div className="relative max-w-sm w-full p-6 rounded-2xl bg-slate-900 border border-white/10 flex flex-col items-center gap-3 text-center">
+                  <div className="w-10 h-10 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center">
+                    <Video className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-rose-400">Video Loading Failed</h4>
+                  <p className="text-[10px] text-slate-300 leading-relaxed font-sans font-semibold">
+                    The expanded showcase video could not be streamed or played back due to network/format issues.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const url = mediaGallery[lightboxIndex].url;
+                      setVideoErrors(prev => ({ ...prev, [url]: false }));
+                    }}
+                    className="w-full py-2 bg-[#FFFC00] hover:bg-yellow-400 text-slate-950 font-black rounded-lg text-[10px] tracking-wider uppercase transition shadow-md cursor-pointer"
+                  >
+                    Retry Loading
+                  </button>
+                </div>
               ) : (
                 <div className="relative max-w-full max-h-[70vh] flex items-center justify-center select-none group/lightbox-img">
                   <img

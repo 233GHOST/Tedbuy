@@ -127,6 +127,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
   const initialSrc = getOptimizedImageUrl(actualCoverImage || getCategoryPlaceholder(product.category), 400);
   const [imgSrc, setImgSrc] = React.useState<string>(initialSrc);
   const [processedVideoUrl, setProcessedVideoUrl] = React.useState<string>('');
+  const [videoError, setVideoError] = React.useState<boolean>(false);
 
   React.useEffect(() => {
     const hasVideo = product.videos && product.videos.length > 0;
@@ -136,6 +137,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
   }, [product.images, product.category, product.videos]);
 
   React.useEffect(() => {
+    setVideoError(false);
     if (!isVisible) {
       setProcessedVideoUrl('');
       return;
@@ -230,7 +232,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
       <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-square flex items-center justify-center" style={{ aspectRatio: '1/1' }}>
         {isVisible ? (
           <>
-            {processedVideoUrl ? (
+            {(processedVideoUrl && !videoError) ? (
               <video
                 src={processedVideoUrl}
                 muted
@@ -240,6 +242,21 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                 disablePictureInPicture
                 autoPlay
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
+                onError={(e) => {
+                  const err = e.currentTarget.error;
+                  let errMsg = 'Unknown video loading or decoding error';
+                  if (err) {
+                    switch (err.code) {
+                      case 1: errMsg = 'Video loading aborted'; break;
+                      case 2: errMsg = 'Network error: Video download failed'; break;
+                      case 3: errMsg = 'Decoding error: Corrupted video file or unsupported codec'; break;
+                      case 4: errMsg = 'Format error: Video URL not found or format unsupported'; break;
+                    }
+                    if (err.message) errMsg += ` (${err.message})`;
+                  }
+                  console.error(`[ProductCard Error] Video failed to load for Product ID: ${product.id}. Title: "${product.title}". Video URL: "${product.videos?.[0]}". Processed URL: "${processedVideoUrl}". Error: ${errMsg}`, err);
+                  setVideoError(true);
+                }}
               />
             ) : (
               <>

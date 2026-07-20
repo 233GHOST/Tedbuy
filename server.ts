@@ -24,6 +24,11 @@ const lookupAsync = promisify(dns.lookup);
 
 dotenv.config();
 
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+  console.log('[Supabase Server] Configured DNS to prefer IPv4 (ipv4first) to prevent IPv6 fetch failures.');
+}
+
 export const app = express();
 
 // Set secure HTTP headers
@@ -1943,6 +1948,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         optimized.image = '';
       }
 
+      // Optimize videos array to proxy URLs
+      let vids = Array.isArray(optimized.videos) ? [...optimized.videos] : [];
+      if (typeof optimized.videos === 'string') {
+        try { vids = JSON.parse(optimized.videos); } catch (_) { vids = []; }
+      }
+      if (!Array.isArray(vids)) vids = [];
+
+      optimized.videos = vids.map((vid: string) => {
+        if (!vid) return '';
+        if (vid.startsWith('data:')) {
+          return `/api/products/${optimized.id}/video.mp4`;
+        }
+        return vid;
+      }).filter(Boolean);
+
       return optimized;
     }).filter(Boolean);
   }
@@ -2092,6 +2112,28 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
             }
           } catch (sbErr3: any) {
             console.error(`[Products Data] [Stage 3] Safe Supabase fetch fallback failed completely:`, sbErr3?.message || sbErr3);
+            
+            // Stage 4: Direct native Firestore fallback
+            if (adminDb) {
+              try {
+                console.log('[Products Data] [Stage 4] Supabase failed completely. Falling back to native Firestore to load products...');
+                const querySnapshot = await adminDb.collection('products')
+                  .orderBy('createdAt', 'desc')
+                  .limit(100)
+                  .get();
+                
+                if (!querySnapshot.empty) {
+                  const items: any[] = [];
+                  querySnapshot.forEach((doc: any) => {
+                    items.push({ id: doc.id, ...doc.data() });
+                  });
+                  productsList = items;
+                  console.log(`[Products Data] [Stage 4] Loaded ${productsList.length} products from native Firestore successfully.`);
+                }
+              } catch (fsErr: any) {
+                console.error('[Products Data] [Stage 4] Firestore fallback query failed:', fsErr?.message || fsErr);
+              }
+            }
           }
         }
       }
@@ -2323,6 +2365,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
   // Firestore REST helpers for Boost Ad System
   async function getRawProductFirestoreREST(productId: string) {
+    let product: any = null;
     if (backendSupabase) {
       try {
         console.log(`[Supabase Server] Fetching product ${productId} from Supabase...`);
@@ -2331,14 +2374,33 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           .select('*')
           .eq('id', productId)
           .maybeSingle();
-        if (!error && data) return data;
+        if (!error && data) {
+          product = { ...data };
+        }
       } catch (sbErr: any) {
         console.warn(`[Supabase Server] Fetch product ${productId} failed:`, sbErr?.message || sbErr);
       }
     }
-    // Fallback: Fetch directly from Firestore REST!
-    console.log(`[Firestore Fallback] Fetching product ${productId} from Firestore REST...`);
-    return await getProductFromFirestoreREST(productId);
+
+    if (!product) {
+      // Fallback: Fetch directly from Firestore REST!
+      console.log(`[Firestore Fallback] Fetching product ${productId} from Firestore REST...`);
+      product = await getProductFromFirestoreREST(productId);
+    }
+
+    if (product) {
+      if (product.images && typeof product.images === 'string') {
+        try { product.images = JSON.parse(product.images); } catch (_) { product.images = []; }
+      }
+      if (!Array.isArray(product.images)) product.images = [];
+
+      if (product.videos && typeof product.videos === 'string') {
+        try { product.videos = JSON.parse(product.videos); } catch (_) { product.videos = []; }
+      }
+      if (!Array.isArray(product.videos)) product.videos = [];
+    }
+
+    return product;
   }
 
   async function updateProductFirestoreREST(productId: string, updatedFields: any, customAuthToken?: string) {
@@ -4820,6 +4882,88 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     }
 
+    // 3. Fallback Auto-Healing: If user is not found in either database, but cleanIdentifier is an email,
+    // they might exist in Firebase Authentication (e.g. registered before db issues).
+    // Let's attempt to authenticate directly via Firebase Auth REST API.
+    if (!matchedUser && cleanIdentifier.includes('@') && apiKey) {
+      try {
+        console.log(`[Backend Login Fallback] User "${cleanIdentifier}" not found in DBs. Attempting direct verification via Firebase Auth...`);
+        const firebaseRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanIdentifier,
+            password: password,
+            returnSecureToken: true
+          })
+        });
+
+        if (firebaseRes.ok) {
+          const authData = await firebaseRes.json();
+          if (authData && authData.localId) {
+            console.log(`[Backend Login Fallback] Firebase Auth verification succeeded for "${cleanIdentifier}"! Auto-healing missing DB profiles...`);
+            
+            const uid = authData.localId;
+            const fallbackUsername = cleanIdentifier.split('@')[0];
+            
+            // Build reconstructed user profile
+            const healedUser: any = {
+              id: uid,
+              username: fallbackUsername,
+              email: cleanIdentifier,
+              role: 'both',
+              joinDate: new Date().toISOString(),
+              emailVerified: true,
+              passwordHash: computedHash,
+              authProvider: 'password_hash:' + computedHash,
+              isGoogleAuth: false,
+              isAdmin: cleanIdentifier.toLowerCase() === 'asumaduvincent7@gmail.com',
+              followingSellers: [],
+              savedProductIds: []
+            };
+
+            // Re-check Firestore just in case
+            if (adminDb) {
+              try {
+                await adminDb.collection('users').doc(uid).set(healedUser);
+                console.log(`[Backend Login Fallback] Recreated user profile in Firestore for user ID: ${uid}`);
+              } catch (fsWriteErr: any) {
+                console.warn('[Backend Login Fallback] Failed writing Firestore profile:', fsWriteErr.message || fsWriteErr);
+              }
+            }
+
+            // Sync to Supabase
+            if (backendSupabase) {
+              try {
+                const transformed = await transformForSupabase('users', healedUser, uid);
+                const { error: sbErr } = await backendSupabase.from('users').upsert(transformed);
+                if (sbErr) {
+                  console.warn('[Backend Login Fallback] Failed writing Supabase profile:', sbErr.message || sbErr);
+                } else {
+                  console.log(`[Backend Login Fallback] Recreated user profile in Supabase for user ID: ${uid}`);
+                }
+              } catch (sbWriteErr: any) {
+                console.warn('[Backend Login Fallback] Exception writing Supabase profile:', sbWriteErr.message || sbWriteErr);
+              }
+            }
+
+            matchedUser = healedUser;
+          }
+        } else {
+          const errData = await firebaseRes.json().catch(() => ({}));
+          const errMsg = errData.error?.message || '';
+          console.warn('[Backend Login Fallback] Firebase Auth REST API sign-in returned error:', errMsg);
+          if (errMsg === 'INVALID_PASSWORD' || errMsg === 'INVALID_LOGIN_CREDENTIALS') {
+            return res.status(401).json({ success: false, error: "The password you entered is incorrect. Please try again." });
+          } else if (errMsg === 'USER_DISABLED') {
+            return res.status(403).json({ success: false, error: "This user account has been disabled." });
+          }
+        }
+      } catch (authFallbackErr: any) {
+        console.warn('[Backend Login Fallback] Firebase Auth REST API fallback exception:', authFallbackErr?.message);
+      }
+    }
+
     if (!matchedUser) {
       return res.status(404).json({ success: false, error: "No registered account was found matching these credentials. If you are registering, please make sure to verify the 6-digit code sent to your email." });
     }
@@ -4906,8 +5050,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     if (!storedHash) {
       return res.status(400).json({ 
-        success: false, 
-        error: "This account was registered using Google Authentication or does not have a local password. Please sign in using Google." 
+         success: false, 
+         error: "This account was registered using Google Authentication or does not have a local password. Please sign in using Google." 
       });
     }
 
@@ -4917,6 +5061,35 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
     // Login successful!
     console.log(`[Backend Login] Successful authentication for user: ${matchedUser.email} / ${matchedUser.username}`);
+
+    // Bi-directional Database Auto-Healing & Syncing on Successful Login
+    if (backendSupabase && matchedUser) {
+      try {
+        console.log(`[Backend Login Auto-Sync] Syncing user profile "${matchedUser.email}" to Supabase...`);
+        const transformed = await transformForSupabase('users', matchedUser, matchedUser.id);
+        const { error: sbErr } = await backendSupabase.from('users').upsert(transformed);
+        if (sbErr) {
+          console.warn('[Backend Login Auto-Sync] Failed syncing user to Supabase:', sbErr.message || sbErr);
+        } else {
+          console.log('[Backend Login Auto-Sync] Successfully verified/synced user to Supabase.');
+        }
+      } catch (sbSyncErr: any) {
+        console.warn('[Backend Login Auto-Sync] Exception syncing user to Supabase:', sbSyncErr.message || sbSyncErr);
+      }
+    }
+
+    if (adminDb && matchedUser) {
+      try {
+        console.log(`[Backend Login Auto-Sync] Ensuring user profile "${matchedUser.email}" is in Firestore...`);
+        const userDoc = await adminDb.collection('users').doc(matchedUser.id).get();
+        if (!userDoc.exists) {
+          await adminDb.collection('users').doc(matchedUser.id).set(matchedUser);
+          console.log('[Backend Login Auto-Sync] Re-created user profile in Firestore.');
+        }
+      } catch (fsSyncErr: any) {
+        console.warn('[Backend Login Auto-Sync] Failed syncing user to Firestore:', fsSyncErr.message || fsSyncErr);
+      }
+    }
     const customToken = generateCustomJWT({
       user_id: matchedUser.id,
       sub: matchedUser.id,
