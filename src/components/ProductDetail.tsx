@@ -1345,26 +1345,26 @@ export const ProductDetail: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              {product.sellerPhoto && !product.sellerPhoto.includes('1549399542-7e3f8b79c341') ? (
+              {(sellerUser?.photoUrl || product.sellerPhoto) && !(sellerUser?.photoUrl || product.sellerPhoto)?.includes('1549399542-7e3f8b79c341') ? (
                 <img
-                  src={product.sellerPhoto}
-                  alt={product.sellerName}
+                  src={sellerUser?.photoUrl || product.sellerPhoto}
+                  alt={sellerUser?.username || product.sellerName}
                   loading="lazy"
                   className="w-12 h-12 rounded-full border border-slate-100 object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-slate-350 transition-all"
                   title="Click to view profile picture"
-                  onClick={() => setViewedPhoto({ url: product.sellerPhoto!, name: `${product.sellerName}'s Profile Picture` })}
+                  onClick={() => setViewedPhoto({ url: (sellerUser?.photoUrl || product.sellerPhoto)!, name: `${sellerUser?.username || product.sellerName}'s Profile Picture` })}
                 />
               ) : (
                 <img
                   src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
-                  alt={product.sellerName}
+                  alt={sellerUser?.username || product.sellerName}
                   loading="lazy"
                   className="w-12 h-12 rounded-full border border-slate-200/80 object-cover shrink-0"
                 />
               )}
               <div className="flex-1 text-left min-w-0">
                 <h4 id="detail-seller-name" className="text-sm font-bold text-slate-900 flex items-center gap-1.5 min-w-0 flex-wrap">
-                  <span className="truncate">{product.sellerName}</span>
+                  <span className="truncate">{sellerUser?.username || product.sellerName}</span>
                   {isSellerVerified && (
                     <span className="inline-flex items-center gap-0.5 text-[9px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-150/40 px-1.5 py-0.5 rounded-md shrink-0" title="Verified Tedbuy Seller">
                       🛡️ Verified Seller

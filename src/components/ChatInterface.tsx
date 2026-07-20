@@ -286,7 +286,7 @@ export const ChatInterface: React.FC = () => {
   // Find info about the peer (other person) in active chat
   const otherUserId = activeChat ? (activeChat.buyerId === currentUser.id ? activeChat.sellerId : activeChat.buyerId) : null;
   const otherUser = users.find(u => u.id === otherUserId);
-  const otherUserName = activeChat ? (activeChat.buyerId === currentUser.id ? activeChat.sellerName : activeChat.buyerName) : 'Other Party';
+  const otherUserName = otherUser?.username || (activeChat ? (activeChat.buyerId === currentUser.id ? activeChat.sellerName : activeChat.buyerName) : 'Other Party');
 
   // Check if currentUser already left a review for this seller on this product
   const existingReview = activeChat
@@ -408,10 +408,12 @@ export const ChatInterface: React.FC = () => {
               myChats.map(chat => {
                 const isPeerSeller = chat.buyerId === currentUser?.id;
                 const clientUser = users.find(u => u.id === chat.buyerId);
+                const peerId = isPeerSeller ? chat.sellerId : chat.buyerId;
+                const peerUser = users.find(u => u.id === peerId);
                 const isAdminUser = !!currentUser?.isAdmin;
                 const displayPeerName = (chat.productId === 'support_welcome' && isAdminUser)
                   ? (clientUser?.username || chat.buyerName || 'User')
-                  : (isPeerSeller ? chat.sellerName : chat.buyerName);
+                  : (peerUser?.username || (isPeerSeller ? chat.sellerName : chat.buyerName));
 
                 const active = chat.id === activeChatId;
 
