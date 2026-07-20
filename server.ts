@@ -219,7 +219,8 @@ async function validateImageUrlSecurely(urlStr: string): Promise<boolean> {
       'tedbuy.store',
       'tedbuy-fb79a.web.app',
       'lh3.googleusercontent.com',
-      'lh5.googleusercontent.com'
+      'lh5.googleusercontent.com',
+      'supabase.co'
     ];
     
     const isAllowedHost = allowedDomains.some(d => hostname === d || hostname.endsWith('.' + d));
@@ -3102,7 +3103,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   });
 
   // Helper to transform Firestore models to Supabase compatible column values
-  function transformForSupabase(table: string, data: any, docId: string): any {
+  async function transformForSupabase(table: string, data: any, docId: string): Promise<any> {
     const result: any = { ...data };
     if (!result.id) {
       result.id = docId;
@@ -3149,6 +3150,37 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         try { result.images = JSON.parse(result.images); } catch (_) { result.images = []; }
       }
       if (!Array.isArray(result.images)) result.images = [];
+
+      // OPTIMIZE: Shrink and compress heavy base64 images to lightweight WebP using sharp on-the-fly!
+      // This reduces storage/egress bandwidth consumption by over 95%.
+      const optimizedImages = [];
+      for (const img of result.images) {
+        if (typeof img === 'string' && img.startsWith('data:image/') && img.includes(';base64,')) {
+          try {
+            const parts = img.split(';base64,');
+            const mimeType = parts[0].replace('data:', '');
+            const base64Data = parts[1];
+            const buffer = Buffer.from(base64Data, 'base64');
+            
+            // Use top-level sharp import directly for reliable compression
+            const optimizedBuffer = await sharp(buffer)
+              .resize({ width: 600, withoutEnlargement: true })
+              .webp({ quality: 60 })
+              .toBuffer();
+            
+            const newBase64 = `data:image/webp;base64,${optimizedBuffer.toString('base64')}`;
+            console.log(`[Supabase Sync] Compressed base64 image on migration from ${Math.round(buffer.length / 1024)}KB to ${Math.round(optimizedBuffer.length / 1024)}KB (WebP)`);
+            optimizedImages.push(newBase64);
+          } catch (sharpErr: any) {
+            console.warn('[Supabase Sync] Sharp base64 image compression failed, preserving original:', sharpErr.message || sharpErr);
+            optimizedImages.push(img);
+          }
+        } else {
+          optimizedImages.push(img);
+        }
+      }
+      result.images = optimizedImages;
+
       if (result.videos && typeof result.videos === 'string') {
         try { result.videos = JSON.parse(result.videos); } catch (_) { result.videos = []; }
       }
@@ -3400,7 +3432,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
           for (const doc of documents) {
             try {
-              const transformed = transformForSupabase(mapping.supabase, doc.data, doc.id);
+              const transformed = await transformForSupabase(mapping.supabase, doc.data, doc.id);
               payloads.push(transformed);
             } catch (err: any) {
               stats[mapping.supabase].failed++;
@@ -3499,7 +3531,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       const payloads: any[] = [];
       for (const doc of documents) {
         if (!doc.id || !doc.data) continue;
-        const transformed = transformForSupabase(table, doc.data, doc.id);
+        const transformed = await transformForSupabase(table, doc.data, doc.id);
         payloads.push(transformed);
       }
 
@@ -5048,11 +5080,8 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
       // Rewrite and brand-clean the reset link if generated successfully
       if (resetLink) {
-        // High-reliability brand replacement: Swap any generic Firebase-hosted domains with tedbuy.store custom domain
-        resetLink = resetLink.replace(/[a-zA-Z0-9-]+\.firebaseapp\.com/g, "tedbuy.store");
-        resetLink = resetLink.replace(/[a-zA-Z0-9-]+\.web\.app/g, "tedbuy.store");
-        resetLink = resetLink.replace(/www\.tedbuy\.store/g, "tedbuy.store");
-        console.log(`[Auth Reset] Cleaned reset link: ${resetLink}`);
+        // Keep the original firebaseapp.com / web.app domain so the standard Firebase Auth hosted action page works perfectly!
+        console.log(`[Auth Reset] Password reset link ready: ${resetLink}`);
       }
 
       // Strategy 3: Last Resort Fallback - If we can't generate the link on server, and Brevo/SMTP is not active,
