@@ -18,8 +18,7 @@ export const SellerDashboard: React.FC = () => {
     dashboardTab: activeTab,
     setDashboardTab: setActiveTab,
     updateProduct,
-    isAuthLoading,
-    users
+    isAuthLoading
   } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -506,7 +505,7 @@ export const SellerDashboard: React.FC = () => {
                       }}
                       className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 hover:text-slate-950 hover:bg-slate-50 inline-flex items-center gap-1 transition-all z-30 cursor-pointer"
                     >
-                      @{users?.find(u => u.id === prod.sellerId)?.username || prod.sellerName}
+                      @{prod.sellerName}
                     </button>
                   </div>
 

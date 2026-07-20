@@ -651,7 +651,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
               />
             ) : (
               <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#FFFC00] bg-slate-800 text-slate-100 flex items-center justify-center font-black text-[10px] sm:text-xs shadow-xl transition-transform hover:scale-110 duration-200 uppercase whitespace-nowrap">
-                {(seller?.username || product?.sellerName) ? (seller?.username || product?.sellerName).substring(0, 2) : 'U'}
+                {product?.sellerName ? product.sellerName.substring(0, 2) : 'U'}
               </div>
             )}
             
@@ -666,7 +666,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
                   whileTap={{ scale: 0.9 }}
                   onClick={handleFollowClick}
                   className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-[#FFFC00]/95 hover:bg-[#FFFC00] text-slate-950 border border-slate-950 rounded-full w-3.5 h-3.5 sm:w-4.5 sm:h-4.5 flex items-center justify-center shadow-lg transition-all duration-150 z-20 cursor-pointer outline-none select-none"
-                  title={`Subscribe @${seller?.username || product?.sellerName}`}
+                  title={`Subscribe @${product?.sellerName}`}
                 >
                   <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-950 stroke-[4.5]" />
                 </motion.button>

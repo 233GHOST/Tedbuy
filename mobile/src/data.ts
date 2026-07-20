@@ -1,0 +1,82 @@
+import { ChatItem, Product, UserProfile } from './types';
+
+export const products: Product[] = [
+  {
+    id: 'p1',
+    title: 'iPhone 14 Pro Max',
+    price: 'GHS 8,900',
+    category: 'Phones',
+    location: 'Accra Mall',
+    image: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
+    description: 'Unlocked iPhone 14 Pro Max with 256GB storage, excellent battery and original box.',
+    seller: 'Nana K.',
+    sellerRating: 4.9,
+    likes: 124,
+    negotiable: true,
+    condition: 'Excellent',
+    createdAt: '2h ago',
+  },
+  {
+    id: 'p2',
+    title: 'MacBook Air M2',
+    price: 'GHS 11,200',
+    category: 'Laptops',
+    location: 'East Legon',
+    image: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=900&q=80',
+    description: 'Lightweight MacBook Air with M2 chip, 16GB RAM, 512GB SSD and charger included.',
+    seller: 'Ama R.',
+    sellerRating: 4.8,
+    likes: 89,
+    negotiable: false,
+    condition: 'Like new',
+    createdAt: '5h ago',
+  },
+  {
+    id: 'p3',
+    title: 'Nike Air Jordan 1',
+    price: 'GHS 1,650',
+    category: 'Fashion',
+    location: 'Osu',
+    image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=900&q=80',
+    description: 'Original Jordan 1 sneakers in clean white/red finish, size 42.',
+    seller: 'Kojo M.',
+    sellerRating: 4.7,
+    likes: 57,
+    negotiable: true,
+    condition: 'Good',
+    createdAt: '1d ago',
+  },
+  {
+    id: 'p4',
+    title: 'Toyota Corolla 2018',
+    price: 'GHS 38,500',
+    category: 'Vehicles',
+    location: 'Tema',
+    image: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=80',
+    description: 'Single-owner Corolla with service history and clean interior.',
+    seller: 'Yaa T.',
+    sellerRating: 4.9,
+    likes: 132,
+    negotiable: true,
+    condition: 'Very good',
+    createdAt: '2d ago',
+  },
+];
+
+export const categories = ['All', 'Phones', 'Laptops', 'Fashion', 'Vehicles'];
+
+export const chats: ChatItem[] = [
+  { id: 'c1', name: 'Nana K.', lastMessage: 'I can meet you at 7pm near the mall.', time: '10:25', unread: 2, avatar: 'NK' },
+  { id: 'c2', name: 'Ama R.', lastMessage: 'The laptop is still available.', time: 'Yesterday', avatar: 'AR' },
+  { id: 'c3', name: 'Kojo M.', lastMessage: 'Please send me your preferred pickup point.', time: 'Mon', avatar: 'KM' },
+];
+
+export const profile: UserProfile = {
+  id: 'u1',
+  name: 'David Boateng',
+  username: '@dboateng',
+  rating: 4.9,
+  listings: 12,
+  joined: 'Joined March 2024',
+  bio: 'I buy and sell verified gadgets and fashion pieces across Ghana.',
+};
