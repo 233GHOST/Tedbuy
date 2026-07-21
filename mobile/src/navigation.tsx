@@ -24,7 +24,21 @@ function HomeStackScreen() {
 
 function MainTabs() {
   return (
-    <Tab.Navigator screenOptions={{ headerShown: false, tabBarActiveTintColor: '#0f766e', tabBarInactiveTintColor: '#64748b' }}>
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: '#0f766e',
+        tabBarInactiveTintColor: '#64748b',
+        tabBarStyle: {
+          backgroundColor: '#ffffff',
+          borderTopColor: '#e2e8f0',
+          height: 64,
+          paddingBottom: 8,
+          paddingTop: 6,
+        },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '700' },
+      }}
+    >
       <Tab.Screen name="Home" component={HomeStackScreen} />
       <Tab.Screen name="Chats" component={ChatsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
@@ -38,7 +52,10 @@ export function AppNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="MainTabs" component={MainTabs} />
         <Stack.Screen name="ProductDetail" options={{ presentation: 'card' }}>
-          {({ route }) => <ProductDetailScreen productId={route.params.productId} onBack={() => {}} />}
+          {({ route }) => {
+            const navigation = useNavigation<any>();
+            return <ProductDetailScreen productId={route.params.productId} onBack={() => navigation.goBack()} />;
+          }}
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>

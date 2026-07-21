@@ -27,7 +27,12 @@ export function ChatsScreen() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.title}>Messages</Text>
-        <Text style={styles.subtitle}>Live chats from your Tedbuy account</Text>
+        <Text style={styles.subtitle}>Keep your conversations moving just like on the web app.</Text>
+      </View>
+
+      <View style={styles.heroCard}>
+        <Text style={styles.heroLabel}>Inbox</Text>
+        <Text style={styles.heroText}>Stay in touch with buyers and sellers and close deals faster.</Text>
       </View>
 
       {loading ? (
@@ -52,12 +57,15 @@ export function ChatsScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f4f7fb' },
-  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
+  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 },
   title: { color: '#0f172a', fontSize: 24, fontWeight: '800' },
-  subtitle: { color: '#64748b', marginTop: 4 },
+  subtitle: { color: '#64748b', marginTop: 4, lineHeight: 20 },
+  heroCard: { marginHorizontal: 16, marginBottom: 10, backgroundColor: '#fff', borderRadius: 16, padding: 14, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, borderWidth: 1, borderColor: '#eef2f7' },
+  heroLabel: { color: '#0f766e', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2 },
+  heroText: { color: '#0f172a', marginTop: 4, fontWeight: '600' },
   listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  chatCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 16, padding: 12, marginBottom: 10 },
+  chatCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 16, padding: 12, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, borderWidth: 1, borderColor: '#eef2f7' },
   avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#ccfbf1', justifyContent: 'center', alignItems: 'center' },
   avatarText: { color: '#0f766e', fontWeight: '800' },
   chatBody: { flex: 1, marginLeft: 12 },
@@ -65,6 +73,4 @@ const styles = StyleSheet.create({
   name: { color: '#0f172a', fontWeight: '700' },
   time: { color: '#94a3b8', fontSize: 12 },
   message: { color: '#475569', marginTop: 4 },
-  badge: { backgroundColor: '#0f766e', width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
-  badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 });

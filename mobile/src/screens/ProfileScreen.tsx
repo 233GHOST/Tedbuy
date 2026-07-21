@@ -18,7 +18,7 @@ export function ProfileScreen() {
         <View style={styles.headerBody}>
           <Text style={styles.name}>{user?.displayName || 'Tedbuy member'}</Text>
           <Text style={styles.username}>{user?.email || 'Sign in to sync your account'}</Text>
-          <Text style={styles.bio}>Your account is connected to the live Tedbuy backend.</Text>
+          <Text style={styles.bio}>Your account is connected to the live Tedbuy backend and keeps your activity in sync.</Text>
         </View>
       </View>
 
@@ -29,9 +29,9 @@ export function ProfileScreen() {
       </View>
 
       <View style={styles.actions}>
-        <Pressable style={styles.actionCard} onPress={() => auth.currentUser ? logOut() : null}><Text style={styles.actionTitle}>{auth.currentUser ? 'Sign out' : 'Sign in required'}</Text><Text style={styles.actionText}>{auth.currentUser ? 'End your active session' : 'Use your Tedbuy account to start syncing'}</Text></Pressable>
-        <Pressable style={styles.actionCard}><Text style={styles.actionTitle}>Seller dashboard</Text><Text style={styles.actionText}>Track your ads and activity</Text></Pressable>
-        <Pressable style={styles.actionCard}><Text style={styles.actionTitle}>Safety tips</Text><Text style={styles.actionText}>Meet in public and verify payment</Text></Pressable>
+        <Pressable style={styles.actionCard} onPress={() => auth.currentUser ? logOut() : null}><Text style={styles.actionTitle}>{auth.currentUser ? 'Sign out' : 'Sign in required'}</Text><Text style={styles.actionText}>{auth.currentUser ? 'End your current session' : 'Use your Tedbuy account to start syncing'}</Text></Pressable>
+        <Pressable style={styles.actionCard}><Text style={styles.actionTitle}>Seller dashboard</Text><Text style={styles.actionText}>Track your ads and activity from one place</Text></Pressable>
+        <Pressable style={styles.actionCard}><Text style={styles.actionTitle}>Safety tips</Text><Text style={styles.actionText}>Meet in public and verify payment before you trade</Text></Pressable>
       </View>
     </SafeAreaView>
   );
@@ -46,12 +46,12 @@ const styles = StyleSheet.create({
   name: { color: '#0f172a', fontSize: 20, fontWeight: '800' },
   username: { color: '#64748b', marginTop: 2 },
   bio: { color: '#475569', marginTop: 6, lineHeight: 20 },
-  statsRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 10 },
-  statCard: { flex: 1, backgroundColor: '#fff', padding: 14, borderRadius: 16, alignItems: 'center' },
+  statsRow: { flexDirection: 'row', paddingHorizontal: 16 },
+  statCard: { flex: 1, backgroundColor: '#fff', padding: 14, borderRadius: 16, alignItems: 'center', marginRight: 8, borderWidth: 1, borderColor: '#eef2f7' },
   statValue: { color: '#0f172a', fontSize: 18, fontWeight: '800' },
   statLabel: { color: '#64748b', marginTop: 4 },
-  actions: { paddingHorizontal: 16, paddingTop: 18, gap: 10 },
-  actionCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14 },
+  actions: { paddingHorizontal: 16, paddingTop: 18 },
+  actionCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, borderWidth: 1, borderColor: '#eef2f7' },
   actionTitle: { color: '#0f172a', fontSize: 16, fontWeight: '700' },
   actionText: { color: '#64748b', marginTop: 4 },
 });
