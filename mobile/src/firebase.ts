@@ -48,7 +48,16 @@ export async function fetchProductById(productId: string) {
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
 
+export async function fetchUserById(userId: string) {
+  const snapshot = await getDoc(doc(db, 'users', userId));
+  return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+}
+
 export function watchProducts(callback: (products: any[]) => void) {
   const q = query(collection(db, 'products'), orderBy('createdAt', 'desc'), limit(20));
   return onSnapshot(q, (snapshot) => callback(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))));
+}
+
+export function watchUsers(callback: (users: any[]) => void) {
+  return onSnapshot(collection(db, 'users'), (snapshot) => callback(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))));
 }

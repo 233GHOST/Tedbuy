@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
-import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus, Edit, Settings } from 'lucide-react';
 import { isUserVerified, calculateTrustScore } from '../types';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -286,6 +286,16 @@ export const SellerProfilePage: React.FC = () => {
                 <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs bg-emerald-500/20 text-emerald-400 font-extrabold border border-emerald-500/25 px-2.5 py-0.5 rounded-full" title="Verified Seller">
                   🛡️ Verified Seller
                 </span>
+              )}
+              {isOwner && (
+                <button
+                  onClick={() => setCurrentView('profile-settings')}
+                  className="ml-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700 hover:text-white border border-slate-700 transition"
+                  title="Edit Store Name"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>Edit Store Name</span>
+                </button>
               )}
             </h1>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-350 font-sans">
