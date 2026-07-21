@@ -43,6 +43,8 @@ export type RootStackParamList = {
 
 export type MainTabsParamList = {
   Home: undefined;
+  Search: undefined;
+  Sell: undefined;
   Chats: undefined;
   Profile: undefined;
 };
