@@ -8,6 +8,7 @@ export interface Product {
   images?: string[];
   description?: string;
   seller?: string;
+  sellerId?: string;
   sellerName?: string;
   sellerRating?: number;
   likes?: number;
@@ -15,6 +16,8 @@ export interface Product {
   negotiable?: boolean;
   condition?: string;
   createdAt?: string;
+  likedUserIds?: string[];
+  videos?: string[];
 }
 
 export interface ChatItem {
