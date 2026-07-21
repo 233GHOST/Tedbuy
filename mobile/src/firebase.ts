@@ -241,3 +241,8 @@ export async function sendMessage(chatId: string, text: string) {
     lastMessageTime: newMsg.createdAt
   });
 }
+
+export async function updateProduct(id: string, data: Partial<any>) {
+  const productRef = doc(db, 'products', id);
+  return updateDoc(productRef, data);
+}

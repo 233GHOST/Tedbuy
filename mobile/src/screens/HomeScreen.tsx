@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { categories } from '../data';
 import { Product } from '../types';
 import { auth, watchProducts, watchUsers } from '../firebase';
+import { ProductCard } from '../components/ProductCard';
 
 interface HomeScreenProps {
   onOpenProduct: (product: Product) => void;
@@ -149,6 +150,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       <View style={styles.body}>
         {viewMode === 'grid' ? (
           <FlatList
+            key="grid-2-cols"
+            numColumns={2}
+            columnWrapperStyle={styles.columnWrapper}
             data={filteredProducts}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
@@ -250,33 +254,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                 <Text style={styles.emptyStateText}>Try a different category or search term.</Text>
               </View>
             }
-            renderItem={({ item }) => {
-              const sellerUser = users.find((u) => u.id === item.sellerId);
-              return (
-                <Pressable onPress={() => onOpenProduct(item)} style={styles.card}>
-                  <Image source={{ uri: Array.isArray(item.images) && item.images.length ? item.images[0] : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80' }} style={styles.image} />
-                  <View style={styles.cardContent}>
-                    <View style={styles.cardTopRow}>
-                      <View style={styles.verifiedBadge}>
-                        <Text style={styles.verifiedText}>✓ Verified Seller</Text>
-                      </View>
-                      <Text style={styles.price}>{item.price}</Text>
-                    </View>
-                    <Text style={styles.cardTitle}>{item.title}</Text>
-                    <Text style={styles.meta}>{item.category || 'Other'} • {item.location || 'Ghana'}</Text>
-                    <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
-                    <View style={styles.footerRow}>
-                      <Text style={styles.seller}>Seller: {sellerUser?.username || item.sellerName || 'Verified seller'}</Text>
-                      <Pressable onPress={() => handleToggleSave(item.id)}>
-                        <Text style={styles.likes}>
-                          {savedProducts[item.id] ? '❤️' : '🤍'} {item.likesCount || 0}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            }}
+            renderItem={({ item }) => (
+              <ProductCard
+                product={item}
+                onPress={() => onOpenProduct(item)}
+                isSaved={!!savedProducts[item.id]}
+                onToggleSave={handleToggleSave}
+              />
+            )}
           />
         ) : (
           /* IMERSIVE VIDEO ADS FEED (Swiper/Reels style) */
@@ -408,7 +393,8 @@ const styles = StyleSheet.create({
   loginBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 12 },
 
   body: { flex: 1, backgroundColor: '#f8fafc' },
-  listContent: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 24 },
+  listContent: { paddingHorizontal: 12, paddingTop: 14, paddingBottom: 24 },
+  columnWrapper: { justifyContent: 'space-between', paddingHorizontal: 4 },
 
   /* Search Card component styled like Web App */
   searchBoxCard: {
