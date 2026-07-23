@@ -12,7 +12,14 @@ const categoryIcons: Record<string, string> = {
   Phones: '📱',
   Laptops: '💻',
   Fashion: '👟',
+  'Home Appliances': '📺',
   Vehicles: '🚗',
+  Property: '🏠',
+  'Beauty and Care': '✨',
+  Games: '🎮',
+  Electronics: '⚡',
+  Services: '🛠️',
+  Other: '📦',
 };
 
 const categoryDescriptions: Record<string, string> = {
@@ -20,7 +27,14 @@ const categoryDescriptions: Record<string, string> = {
   Phones: 'iPhones, Android, accessories',
   Laptops: 'MacBooks, Windows laptops, parts',
   Fashion: 'Sneakers, apparel, watches, bags',
+  'Home Appliances': 'Refrigerators, microwaves, ACs',
   Vehicles: 'Cars, motorcycles, vehicle parts',
+  Property: 'Houses, land, apartments for rent/sale',
+  'Beauty and Care': 'Skincare, makeup, perfume, hair',
+  Games: 'PlayStation, Xbox, Nintendo, FIFA',
+  Electronics: 'TVs, audio speakers, cameras',
+  Services: 'Artisans, repair, freelance work',
+  Other: 'Miscellaneous items & equipment',
 };
 
 export function SearchScreen({ navigation }: SearchScreenProps) {

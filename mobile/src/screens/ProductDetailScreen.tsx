@@ -258,7 +258,14 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
           {/* Seller Profile teaser box */}
           <Pressable
-            onPress={() => setIsSellerModalVisible(true)}
+            onPress={() => {
+              const sid = seller?.id || product.sellerId;
+              if (sid) {
+                navigation.navigate('SellerProfile', { sellerId: sid });
+              } else {
+                setIsSellerModalVisible(true);
+              }
+            }}
             style={styles.sellerBox}
           >
             <View style={styles.sellerRow}>

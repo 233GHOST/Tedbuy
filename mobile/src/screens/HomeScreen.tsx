@@ -17,7 +17,13 @@ const categoryIcons: Record<string, string> = {
   Phones: '📱',
   Laptops: '💻',
   Fashion: '👟',
+  'Home Appliances': '📺',
   Vehicles: '🚗',
+  Property: '🏠',
+  'Beauty and Care': '✨',
+  Games: '🎮',
+  Electronics: '⚡',
+  Services: '🛠️',
   Other: '📦',
 };
 

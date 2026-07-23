@@ -12,11 +12,15 @@ export function SellScreen({ navigation }: SellScreenProps) {
   const [title, setTitle] = useState('');
   const [price, setPrice] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Phones');
+  const [condition, setCondition] = useState('Brand New');
+  const [negotiable, setNegotiable] = useState(true);
   const [location, setLocation] = useState('Accra Mall');
+  const [imageUrl, setImageUrl] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
 
   const formCategories = categories.filter((c) => c !== 'All');
+  const conditions = ['Brand New', 'Refurbished', 'Used'];
 
   const handlePublish = async () => {
     if (!auth.currentUser) {
@@ -34,13 +38,22 @@ export function SellScreen({ navigation }: SellScreenProps) {
 
     setLoading(true);
     try {
-      const formattedPrice = `GHS ${Number(price.replace(/[^0-9]/g, '')).toLocaleString()}`;
+      const formattedPrice = price.toLowerCase().includes('ghs') || price.toLowerCase().includes('gh₵')
+        ? price
+        : `GHS ${Number(price.replace(/[^0-9]/g, '')).toLocaleString()}`;
+
+      const defaultImage = imageUrl.trim() || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+
       const productData = {
         title: title.trim(),
         price: formattedPrice,
         category: selectedCategory,
+        condition: condition,
+        negotiable: negotiable,
         location: location.trim(),
         description: description.trim(),
+        image: defaultImage,
+        images: [defaultImage],
         sellerId: auth.currentUser.uid,
         sellerName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
       };
@@ -54,6 +67,7 @@ export function SellScreen({ navigation }: SellScreenProps) {
             setTitle('');
             setPrice('');
             setDescription('');
+            setImageUrl('');
             navigation.navigate('Home');
           },
         },
@@ -142,6 +156,40 @@ export function SellScreen({ navigation }: SellScreenProps) {
                     );
                   })}
                 </View>
+              </View>
+
+              {/* Condition */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Item Condition</Text>
+                <View style={styles.chipRow}>
+                  {conditions.map((cond) => {
+                    const isSelected = condition === cond;
+                    return (
+                      <Pressable
+                        key={cond}
+                        onPress={() => setCondition(cond)}
+                        style={[styles.chip, isSelected && styles.chipActive]}
+                      >
+                        <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                          {cond}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Image URL */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Product Image URL (Optional)</Text>
+                <TextInput
+                  value={imageUrl}
+                  onChangeText={setImageUrl}
+                  placeholder="https://images.unsplash.com/photo-..."
+                  style={styles.input}
+                  placeholderTextColor="#94a3b8"
+                  autoCapitalize="none"
+                />
               </View>
 
               {/* Location */}

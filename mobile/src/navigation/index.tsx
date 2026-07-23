@@ -9,6 +9,7 @@ import { ProfileScreen } from '../screens/ProfileScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { SellScreen } from '../screens/SellScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
+import { SellerProfileScreen } from '../screens/SellerProfileScreen';
 import { MainTabsParamList, RootStackParamList } from '../types';
 import { Product } from '../types';
 
@@ -156,6 +157,18 @@ export function AppNavigator() {
           {({ route }) => {
             const navigation = useNavigation<any>();
             return <ProductDetailScreen productId={route.params.productId} onBack={() => navigation.goBack()} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="SellerProfile" options={{ presentation: 'card' }}>
+          {({ route }) => {
+            const navigation = useNavigation<any>();
+            return (
+              <SellerProfileScreen
+                sellerId={route.params.sellerId}
+                onBack={() => navigation.goBack()}
+                navigation={navigation}
+              />
+            );
           }}
         </Stack.Screen>
       </Stack.Navigator>

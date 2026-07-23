@@ -63,7 +63,20 @@ export const products: Product[] = [
   },
 ];
 
-export const categories = ['All', 'Phones', 'Laptops', 'Fashion', 'Vehicles'];
+export const categories = [
+  'All',
+  'Phones',
+  'Laptops',
+  'Fashion',
+  'Home Appliances',
+  'Vehicles',
+  'Property',
+  'Beauty and Care',
+  'Games',
+  'Electronics',
+  'Services',
+  'Other',
+];
 
 export const chats: ChatItem[] = [
   { id: 'c1', name: 'Nana K.', lastMessage: 'I can meet you at 7pm near the mall.', time: '10:25', unread: 2, avatar: 'NK' },

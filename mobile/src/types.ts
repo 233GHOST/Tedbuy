@@ -42,6 +42,7 @@ export interface UserProfile {
 export type RootStackParamList = {
   MainTabs: undefined;
   ProductDetail: { productId: string };
+  SellerProfile: { sellerId: string };
 };
 
 export type MainTabsParamList = {
