@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Allow: /#/*
+Disallow: /#/chats
+Disallow: /#/dashboard
+Disallow: /#/settings
+Disallow: /#/admin
+
+Sitemap: https://tedbuy.store/sitemap.xml
