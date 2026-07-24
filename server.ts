@@ -162,6 +162,13 @@ const verificationSessions = new Map<string, VerificationSession>();
 
 function serverRateLimiter(windowMs: number, maxRequests: number, resourceName: string) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    // Exempt social media & search engine crawlers from rate limiting so link previews and metadata scraping never break
+    const userAgent = req.headers["user-agent"] || "";
+    const isSocialCrawler = /facebookexternalhit|WhatsApp|Facebot|Twitterbot|TelegramBot|LinkedInBot|Discordbot|Slackbot|Googlebot|bingbot/i.test(userAgent);
+    if (isSocialCrawler) {
+      return next();
+    }
+
     const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
     const key = `${ip}:${resourceName}`;
     const now = Date.now();
@@ -765,15 +772,15 @@ function injectMetaTags(html: string, product: { title: string; description: str
     }
   }
 
-  // Generate dynamic JSON-LD Product Schema representation for googlebot search console indexing
+  // Generate dynamic JSON-LD Product & VideoObject Schema representation for crawlers
   const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '';
   const priceSchema = cleanPrice && !isNaN(Number(cleanPrice)) ? cleanPrice : '0';
 
-  // Build clean absolute product canonical URL to prevent GSC Google Bot parameter/redirect indexing splits
+  // Build clean absolute product canonical URL
   const titleSlug = product.title ? slugify(product.title) : '';
   const canonicalUrl = `${protocol}://${host}/product/${productId}-${titleSlug}`;
 
-  const schemaJson = {
+  const productSchema = {
     "@context": "https://schema.org/",
     "@type": "Product",
     "name": product.title,
@@ -790,6 +797,21 @@ function injectMetaTags(html: string, product: { title: string; description: str
     }
   };
 
+  const videoObjectSchema = absoluteVideoUrl ? {
+    "@context": "https://schema.org",
+    "@type": "VideoObject",
+    "name": product.title,
+    "description": product.description || `Watch video review of ${product.title} on TedBuy Ghana.`,
+    "thumbnailUrl": [image],
+    "uploadDate": (product as any).createdAt || "2026-01-01T00:00:00Z",
+    "contentUrl": absoluteVideoUrl,
+    "embedUrl": canonicalUrl
+  } : null;
+
+  const schemaGraph = videoObjectSchema 
+    ? [productSchema, videoObjectSchema]
+    : productSchema;
+
   console.log(`[Meta Crawler] Injecting Open Graph and JSON-LD tags. URL: ${shareUrl}, Canonical URL: ${canonicalUrl}, Image URL: ${image}, Video URL: ${absoluteVideoUrl || 'none'}`);
 
   const tags = `
@@ -797,47 +819,53 @@ function injectMetaTags(html: string, product: { title: string; description: str
     <title>${escapeHtml(title)}</title>
     <meta name="description" content="${escapeHtml(description)}" />
     <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
+    
     <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:title" content="${escapeHtml(title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
     <meta property="og:image" content="${escapeHtml(image)}" />
+    <meta property="og:image:url" content="${escapeHtml(image)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
     <meta property="og:image:type" content="image/jpeg" />
-    <meta property="og:image:width" content="${hasVideo ? '600' : '1200'}" />
-    <meta property="og:image:height" content="${hasVideo ? '900' : '630'}" />
+    <meta property="og:image:width" content="${hasVideo ? '720' : '1200'}" />
+    <meta property="og:image:height" content="${hasVideo ? '1280' : '630'}" />
+    <meta property="og:image:alt" content="${escapeHtml(title)}" />
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
     <meta property="og:type" content="${hasVideo ? 'video.other' : 'product'}" />
     <meta property="og:site_name" content="TedBuy Ghana" />
     <meta property="og:locale" content="en_GH" />
     ${absoluteVideoUrl ? `
     <meta property="og:video" content="${escapeHtml(absoluteVideoUrl)}" />
+    <meta property="og:video:url" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta property="og:video:secure_url" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta property="og:video:type" content="video/mp4" />
-    <meta property="og:video:width" content="640" />
-    <meta property="og:video:height" content="1136" />
+    <meta property="og:video:width" content="720" />
+    <meta property="og:video:height" content="1280" />
+    <meta property="video:duration" content="15" />
     ` : ''}
-    <!-- Twitter / X -->
+
+    <!-- Twitter / X Cards -->
     <meta name="twitter:card" content="${absoluteVideoUrl ? 'player' : 'summary_large_image'}" />
     <meta name="twitter:title" content="${escapeHtml(title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(image)}" />
     ${absoluteVideoUrl ? `
     <meta name="twitter:player" content="${escapeHtml(canonicalUrl)}" />
-    <meta name="twitter:player:width" content="640" />
-    <meta name="twitter:player:height" content="1136" />
+    <meta name="twitter:player:width" content="720" />
+    <meta name="twitter:player:height" content="1280" />
     <meta name="twitter:player:stream" content="${escapeHtml(absoluteVideoUrl)}" />
     <meta name="twitter:player:stream:content_type" content="video/mp4" />
     ` : ''}
-    <!-- Additional Schema.org fallback for general platform scrapers -->
+
+    <!-- Schema.org Fallback for Scrapers -->
     <meta itemprop="name" content="${escapeHtml(title)}">
     <meta itemprop="description" content="${escapeHtml(description)}">
     <meta itemprop="image" content="${escapeHtml(image)}">
-    <!-- Legacy / Crawler Fallbacks -->
     <link rel="image_src" href="${escapeHtml(image)}" />
     
-    <!-- Rich Snippets / Google Product Schema Search Integration -->
+    <!-- Rich Snippets / Google Product & Video Schema Integration -->
     <script type="application/ld+json">
-${JSON.stringify(schemaJson, null, 6)}
+${JSON.stringify(schemaGraph, null, 2)}
     </script>
   `;
 
@@ -6721,6 +6749,19 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const totalLength = buffer.length;
     const range = req.headers.range;
 
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("X-Robots-Tag", "all");
+
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {
+        "Content-Length": totalLength,
+        "Content-Type": mimeType,
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Accept-Ranges": "bytes"
+      });
+      return res.end();
+    }
+
     if (range) {
       const parts = range.replace(/bytes=/, "").split("-");
       const start = parseInt(parts[0], 10);
@@ -6739,14 +6780,14 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         "Accept-Ranges": "bytes",
         "Content-Length": chunksize,
         "Content-Type": mimeType,
-        "Cache-Control": "public, max-age=86400"
+        "Cache-Control": "public, max-age=31536000, immutable"
       });
       return res.end(chunk);
     } else {
       res.writeHead(200, {
         "Content-Length": totalLength,
         "Content-Type": mimeType,
-        "Cache-Control": "public, max-age=86400",
+        "Cache-Control": "public, max-age=31536000, immutable",
         "Accept-Ranges": "bytes"
       });
       return res.end(buffer);
@@ -6754,7 +6795,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
   }
 
   // Dynamic video delivery endpoint to stream base64 video uploads as binary MP4 streams on-the-fly with Range/Partial Content streaming
-  app.get(['/api/products/:productId/video', '/api/products/:productId/video.mp4'], serverRateLimiter(60 * 1000, 100, "video-proxy"), async (req, res) => {
+  app.all(['/api/products/:productId/video', '/api/products/:productId/video.mp4'], serverRateLimiter(60 * 1000, 100, "video-proxy"), async (req, res) => {
     const { productId } = req.params;
     if (!productId) {
       return res.status(400).send('Missing product ID');
@@ -6845,7 +6886,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           res.status(200).set({ "Content-Type": "text/markdown; charset=utf-8" }).end(systemMarkdown);
           return;
         }
-        const queryProductId = (req.query.productId as string) || (req.query.product as string) || '';
+        const queryProductId = (req.query.id as string) || (req.query.productId as string) || (req.query.product as string) || (req.query.p as string) || (req.query.item as string) || '';
         let productId = queryProductId;
         let queryTitle = req.query.title as string;
         let queryPrice = req.query.price as string;
@@ -6854,19 +6895,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         let queryVideo = req.query.video as string || '';
 
         if (!productId) {
-          // Attempt to extract product ID from pathname
-          const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
+          // Attempt to extract product ID from pathname e.g. /product/prod_123 or /products/prod_123 or /p/prod_123
+          const pathnameMatch = url.split('?')[0].match(/^\/(?:product|products|p)\/([^\/]+)/i);
           if (pathnameMatch) {
             const slugOrId = pathnameMatch[1];
-            const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
+            const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/i);
             if (matchId) {
               productId = matchId[0];
+            } else {
+              productId = slugOrId.split('-')[0];
             }
           }
         }
 
         let sellerId = "";
-        const sellerPathnameMatch = url.split('?')[0].match(/^\/sellers?\/([^\/]+)/);
+        const sellerPathnameMatch = url.split('?')[0].match(/^\/(?:seller|sellers)\/([^\/]+)/i);
         if (sellerPathnameMatch) {
           sellerId = sellerPathnameMatch[1];
         }
@@ -6874,7 +6917,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         if (!productId) {
           try {
             const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
-            productId = parsedUrl.searchParams.get('productId') || parsedUrl.searchParams.get('product') || '';
+            productId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('productId') || parsedUrl.searchParams.get('product') || parsedUrl.searchParams.get('p') || parsedUrl.searchParams.get('item') || '';
             queryTitle = parsedUrl.searchParams.get('title') || queryTitle || '';
             queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
             queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
@@ -6979,7 +7022,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         return;
       }
       const url = req.originalUrl || req.url || '/';
-      const queryProductId = (req.query.productId as string) || (req.query.product as string) || '';
+      const queryProductId = (req.query.id as string) || (req.query.productId as string) || (req.query.product as string) || (req.query.p as string) || (req.query.item as string) || '';
       let productId = queryProductId;
       let queryTitle = req.query.title as string;
       let queryPrice = req.query.price as string;
@@ -6988,19 +7031,21 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       let queryVideo = req.query.video as string || '';
 
       if (!productId) {
-        // Attempt to extract product ID from pathname
-        const pathnameMatch = url.split('?')[0].match(/^\/products?\/([^\/]+)/);
+        // Attempt to extract product ID from pathname e.g. /product/prod_123 or /products/prod_123 or /p/prod_123
+        const pathnameMatch = url.split('?')[0].match(/^\/(?:product|products|p)\/([^\/]+)/i);
         if (pathnameMatch) {
           const slugOrId = pathnameMatch[1];
-          const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/);
+          const matchId = slugOrId.match(/prod_[a-zA-Z0-9_]+/i);
           if (matchId) {
             productId = matchId[0];
+          } else {
+            productId = slugOrId.split('-')[0];
           }
         }
       }
 
       let sellerId = "";
-      const sellerPathnameMatch = url.split('?')[0].match(/^\/sellers?\/([^\/]+)/);
+      const sellerPathnameMatch = url.split('?')[0].match(/^\/(?:seller|sellers)\/([^\/]+)/i);
       if (sellerPathnameMatch) {
         sellerId = sellerPathnameMatch[1];
       }
@@ -7008,7 +7053,7 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       if (!productId) {
         try {
           const parsedUrl = new URL(url, `http://${req.headers.host || 'localhost:3000'}`);
-          productId = parsedUrl.searchParams.get('productId') || parsedUrl.searchParams.get('product') || '';
+          productId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('productId') || parsedUrl.searchParams.get('product') || parsedUrl.searchParams.get('p') || parsedUrl.searchParams.get('item') || '';
           queryTitle = parsedUrl.searchParams.get('title') || queryTitle || '';
           queryPrice = parsedUrl.searchParams.get('price') || queryPrice || '';
           queryImage = parsedUrl.searchParams.get('image') || parsedUrl.searchParams.get('img') || queryImage || '';
