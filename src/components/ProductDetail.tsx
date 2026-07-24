@@ -139,9 +139,9 @@ export const ProductDetail: React.FC = () => {
       .filter(url => {
         const hasVideos = product.videos && product.videos.length > 0;
         if (hasVideos) {
-          // If product has videos, filter out the auto-generated proxy image URL
-          const isProxy = url.startsWith('/api/products/') && url.includes('/image');
-          return !isProxy;
+          // Video listings use product.images only for feed cover thumbnails / OG tags;
+          // do not append the poster thumbnail as a second picture slide in the media gallery.
+          return false;
         }
         return true;
       })
