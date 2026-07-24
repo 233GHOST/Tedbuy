@@ -2664,10 +2664,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       '3days': { days: 3, price: 1, name: '3 Days Boost' },
       '7days': { days: 7, price: 3, name: '7 Days Boost' },
       '14days': { days: 14, price: 5, name: '14 Days Boost' },
-      '21days': { days: 21, price: 10, name: '21 Days Boost' },
-      '30days': { days: 21, price: 10, name: '21 Days Boost' },
-      '1month': { days: 30, price: 15, name: '1 Month Boost' },
-      '90days': { days: 30, price: 15, name: '1 Month Boost' }
+      '21days': { days: 21, price: 7, name: '21 Days Boost' },
+      '30days': { days: 21, price: 7, name: '21 Days Boost' },
+      '1month': { days: 30, price: 10, name: '1 Month Boost' },
+      '90days': { days: 30, price: 10, name: '1 Month Boost' }
     };
 
     const plan = plans[planId];
@@ -2758,10 +2758,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
           let txBoostPackagePrice = 0;
           if (planId === '1month' || planId === '90days') {
             txBoostPriorityLevel = 5;
-            txBoostPackagePrice = 15;
+            txBoostPackagePrice = 10;
           } else if (planId === '21days' || planId === '30days') {
             txBoostPriorityLevel = 4;
-            txBoostPackagePrice = 10;
+            txBoostPackagePrice = 7;
           } else if (planId === '14days') {
             txBoostPriorityLevel = 3;
             txBoostPackagePrice = 5;
@@ -2888,10 +2888,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
         let boostPackagePrice = 0;
         if (planId === '1month' || planId === '90days') {
           boostPriorityLevel = 5;
-          boostPackagePrice = 15;
+          boostPackagePrice = 10;
         } else if (planId === '21days' || planId === '30days') {
           boostPriorityLevel = 4;
-          boostPackagePrice = 10;
+          boostPackagePrice = 7;
         } else if (planId === '14days') {
           boostPriorityLevel = 3;
           boostPackagePrice = 5;
@@ -2981,10 +2981,10 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       '3days': { days: 3, price: 1, name: '3 Days Boost' },
       '7days': { days: 7, price: 3, name: '7 Days Boost' },
       '14days': { days: 14, price: 5, name: '14 Days Boost' },
-      '21days': { days: 21, price: 10, name: '21 Days Boost' },
-      '30days': { days: 21, price: 10, name: '21 Days Boost' },
-      '1month': { days: 30, price: 15, name: '1 Month Boost' },
-      '90days': { days: 30, price: 15, name: '1 Month Boost' }
+      '21days': { days: 21, price: 7, name: '21 Days Boost' },
+      '30days': { days: 21, price: 7, name: '21 Days Boost' },
+      '1month': { days: 30, price: 10, name: '1 Month Boost' },
+      '90days': { days: 30, price: 10, name: '1 Month Boost' }
     };
 
     const selectedPlan = plans[planId];
