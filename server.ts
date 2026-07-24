@@ -2663,9 +2663,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const plans: Record<string, { days: number; price: number; name: string }> = {
       '3days': { days: 3, price: 1, name: '3 Days Boost' },
       '7days': { days: 7, price: 3, name: '7 Days Boost' },
-      '14days': { days: 14, price: 7, name: '14 Days Boost' },
-      '30days': { days: 30, price: 12, name: '30 Days Boost' },
-      '90days': { days: 90, price: 20, name: '90 Days Boost' }
+      '14days': { days: 14, price: 5, name: '14 Days Boost' },
+      '21days': { days: 21, price: 10, name: '21 Days Boost' },
+      '30days': { days: 21, price: 10, name: '21 Days Boost' },
+      '1month': { days: 30, price: 15, name: '1 Month Boost' },
+      '90days': { days: 30, price: 15, name: '1 Month Boost' }
     };
 
     const plan = plans[planId];
@@ -2754,15 +2756,15 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
           let txBoostPriorityLevel = 0;
           let txBoostPackagePrice = 0;
-          if (planId === '90days') {
+          if (planId === '1month' || planId === '90days') {
             txBoostPriorityLevel = 5;
-            txBoostPackagePrice = 20;
-          } else if (planId === '30days') {
+            txBoostPackagePrice = 15;
+          } else if (planId === '21days' || planId === '30days') {
             txBoostPriorityLevel = 4;
-            txBoostPackagePrice = 12;
+            txBoostPackagePrice = 10;
           } else if (planId === '14days') {
             txBoostPriorityLevel = 3;
-            txBoostPackagePrice = 7;
+            txBoostPackagePrice = 5;
           } else if (planId === '7days') {
             txBoostPriorityLevel = 2;
             txBoostPackagePrice = 3;
@@ -2884,15 +2886,15 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
 
         let boostPriorityLevel = 0;
         let boostPackagePrice = 0;
-        if (planId === '90days') {
+        if (planId === '1month' || planId === '90days') {
           boostPriorityLevel = 5;
-          boostPackagePrice = 20;
-        } else if (planId === '30days') {
+          boostPackagePrice = 15;
+        } else if (planId === '21days' || planId === '30days') {
           boostPriorityLevel = 4;
-          boostPackagePrice = 12;
+          boostPackagePrice = 10;
         } else if (planId === '14days') {
           boostPriorityLevel = 3;
-          boostPackagePrice = 7;
+          boostPackagePrice = 5;
         } else if (planId === '7days') {
           boostPriorityLevel = 2;
           boostPackagePrice = 3;
@@ -2978,9 +2980,11 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     const plans: Record<string, { days: number; price: number; name: string }> = {
       '3days': { days: 3, price: 1, name: '3 Days Boost' },
       '7days': { days: 7, price: 3, name: '7 Days Boost' },
-      '14days': { days: 14, price: 7, name: '14 Days Boost' },
-      '30days': { days: 30, price: 12, name: '30 Days Boost' },
-      '90days': { days: 90, price: 20, name: '90 Days Boost' }
+      '14days': { days: 14, price: 5, name: '14 Days Boost' },
+      '21days': { days: 21, price: 10, name: '21 Days Boost' },
+      '30days': { days: 21, price: 10, name: '21 Days Boost' },
+      '1month': { days: 30, price: 15, name: '1 Month Boost' },
+      '90days': { days: 30, price: 15, name: '1 Month Boost' }
     };
 
     const selectedPlan = plans[planId];

@@ -524,8 +524,8 @@ export const ProductDetail: React.FC = () => {
 
     const planId = prod.boostPlan;
     let packageLevel = 0;
-    if (planId === '90days') packageLevel = 5;
-    else if (planId === '30days') packageLevel = 4;
+    if (planId === '1month' || planId === '90days') packageLevel = 5;
+    else if (planId === '21days' || planId === '30days') packageLevel = 4;
     else if (planId === '14days') packageLevel = 3;
     else if (planId === '7days') packageLevel = 2;
     else if (planId === '3days') packageLevel = 1;
@@ -581,8 +581,10 @@ export const ProductDetail: React.FC = () => {
         '3days': 3,
         '7days': 7,
         '14days': 14,
-        '30days': 30,
-        '90days': 90
+        '21days': 21,
+        '30days': 21,
+        '1month': 30,
+        '90days': 30
       };
       const days = planDaysMap[selectedFreePlan] || 7;
       const now = new Date();
@@ -590,8 +592,8 @@ export const ProductDetail: React.FC = () => {
       const endDate = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000)).toISOString();
       
       let boostPriorityLevel = 0;
-      if (selectedFreePlan === '90days') boostPriorityLevel = 5;
-      else if (selectedFreePlan === '30days') boostPriorityLevel = 4;
+      if (selectedFreePlan === '1month' || selectedFreePlan === '90days') boostPriorityLevel = 5;
+      else if (selectedFreePlan === '21days' || selectedFreePlan === '30days') boostPriorityLevel = 4;
       else if (selectedFreePlan === '14days') boostPriorityLevel = 3;
       else if (selectedFreePlan === '7days') boostPriorityLevel = 2;
       else if (selectedFreePlan === '3days') boostPriorityLevel = 1;
@@ -1225,8 +1227,8 @@ export const ProductDetail: React.FC = () => {
                           <option value="3days">3 Days Boost (Free)</option>
                           <option value="7days">7 Days Boost (Free)</option>
                           <option value="14days">14 Days Boost (Free)</option>
-                          <option value="30days">30 Days Boost (Free)</option>
-                          <option value="90days">90 Days Boost (Free)</option>
+                          <option value="21days">21 Days Boost (Free)</option>
+                          <option value="1month">1 Month Boost (Free)</option>
                         </select>
                          <button
                           type="button"

@@ -326,12 +326,12 @@ export function createProductSelector() {
 
         // Default prioritization for boosted listings (or for price-sort ties within boosted listings)
         // PRIORITY LEVEL 1: BOOST PACKAGE VALUE (GHS price / level)
-        // Package hierarchy: GH₵20 > GH₵12 > GH₵7 > GH₵3 > GH₵1
+        // Package hierarchy: GH₵15 (1 Month) > GH₵10 (21 Days) > GH₵5 (14 Days) > GH₵3 (7 Days) > GH₵1 (3 Days)
         const getBoostPriorityLevel = (planId?: string): number => {
           if (!planId) return 0;
-          if (planId === '90days') return 5; // GH₵20
-          if (planId === '30days') return 4; // GH₵12
-          if (planId === '14days') return 3; // GH₵7
+          if (planId === '1month' || planId === '90days') return 5; // GH₵15
+          if (planId === '21days' || planId === '30days') return 4; // GH₵10
+          if (planId === '14days') return 3; // GH₵5
           if (planId === '7days') return 2;  // GH₵3
           if (planId === '3days') return 1;  // GH₵1
           return 0;

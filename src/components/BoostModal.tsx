@@ -24,9 +24,9 @@ interface BoostPlan {
 const BOOST_PLANS: BoostPlan[] = [
   { id: '3days', name: '3 Days Fast Boost', priceGHS: 1, durationDays: 3 },
   { id: '7days', name: '7 Days Hot Deal Boost', priceGHS: 3, durationDays: 7, badge: 'Most Popular' },
-  { id: '14days', name: '14 Days Premium Boost', priceGHS: 7, durationDays: 14 },
-  { id: '30days', name: '30 Days Elite Merchant Boost', priceGHS: 12, durationDays: 30, badge: 'Best Value' },
-  { id: '90days', name: '90 Days Mega Store Boost', priceGHS: 20, durationDays: 90 },
+  { id: '14days', name: '14 Days Premium Boost', priceGHS: 5, durationDays: 14 },
+  { id: '21days', name: '21 Days Elite Merchant Boost', priceGHS: 10, durationDays: 21, badge: 'Best Value' },
+  { id: '1month', name: '1 Month Mega Store Boost', priceGHS: 15, durationDays: 30 },
 ];
 
 export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product, onSuccess }) => {
