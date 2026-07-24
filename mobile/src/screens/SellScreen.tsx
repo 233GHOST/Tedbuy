@@ -43,8 +43,10 @@ export function SellScreen({ navigation }: SellScreenProps) {
         : `GHS ${Number(price.replace(/[^0-9]/g, '')).toLocaleString()}`;
 
       const defaultImage = imageUrl.trim() || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+      const prodId = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       const productData = {
+        id: prodId,
         title: title.trim(),
         price: formattedPrice,
         category: selectedCategory,
@@ -56,6 +58,11 @@ export function SellScreen({ navigation }: SellScreenProps) {
         images: [defaultImage],
         sellerId: auth.currentUser.uid,
         sellerName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
+        sellerPhoto: auth.currentUser.photoURL || '',
+        sellerJoinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        createdAt: new Date().toISOString(),
+        viewsCount: 0,
+        likesCount: 0,
       };
 
       await createProduct(productData);

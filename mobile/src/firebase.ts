@@ -16,13 +16,39 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 
 export async function createProduct(productData: any) {
-  return addDoc(collection(db, 'products'), {
+  const prodId = productData.id || `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const finalProduct = {
     ...productData,
-    createdAt: new Date().toISOString(),
-    likesCount: 0,
-    likedUserIds: [],
-    images: productData.images || ['https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'],
-  });
+    id: prodId,
+    createdAt: productData.createdAt || new Date().toISOString(),
+    viewsCount: Number(productData.viewsCount) || 0,
+    likesCount: Number(productData.likesCount) || 0,
+    likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : [],
+    images: (Array.isArray(productData.images) && productData.images.length > 0)
+      ? productData.images
+      : [productData.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'],
+    videos: Array.isArray(productData.videos) ? productData.videos : []
+  };
+
+  // 1. Write to Firestore document directly
+  await setDoc(doc(db, 'products', prodId), finalProduct);
+
+  // 2. Sync to server API so Supabase is updated and server cache is invalidated instantly
+  try {
+    const syncUrl = typeof window !== 'undefined' && window.location?.origin
+      ? `${window.location.origin}/api/products/sync`
+      : 'https://www.tedbuy.store/api/products/sync';
+
+    fetch(syncUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product: finalProduct })
+    }).catch(err => console.warn('[Mobile createProduct Sync Warning]', err));
+  } catch (err) {
+    console.warn('[Mobile createProduct Sync Exception]', err);
+  }
+
+  return finalProduct;
 }
 
 export async function signIn(email: string, password: string) {

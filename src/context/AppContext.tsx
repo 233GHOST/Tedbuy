@@ -2878,6 +2878,15 @@ CEO, Tedbuy Inc`;
           console.warn('[createProduct] Firestore server document create returned background error:', innerErr);
         });
 
+      // Step D: Sync product to server endpoint so Supabase is instantly updated and memory cache is invalidated
+      fetch('/api/products/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product: newProduct })
+      }).catch(syncErr => {
+        console.warn('[createProduct] Failed syncing product to server API:', syncErr);
+      });
+
       // Update current user's rapid post score dynamically
       try {
         const sellerProds = products.filter(p => p.sellerId === currentUser.id);

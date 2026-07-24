@@ -2167,6 +2167,58 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
       }
     }
 
+    // Always merge recent products directly from Firestore into productsList so that products posted
+    // from mobile or web clients to Firestore are NEVER omitted when backendSupabase is active.
+    try {
+      let firestoreItems: any[] = [];
+      if (adminDb) {
+        const snapshot = await adminDb.collection('products').orderBy('createdAt', 'desc').limit(50).get();
+        if (!snapshot.empty) {
+          snapshot.forEach((docSnap: any) => {
+            firestoreItems.push({ id: docSnap.id, ...docSnap.data() });
+          });
+        }
+      }
+      if (firestoreItems.length > 0) {
+        const existingIds = new Set(productsList.map((p: any) => p.id));
+        const missingFromSupabase: any[] = [];
+
+        for (const item of firestoreItems) {
+          if (!item.id) continue;
+          if (!existingIds.has(item.id)) {
+            missingFromSupabase.push(item);
+            const formatted = {
+              ...item,
+              images: (Array.isArray(item.images) && item.images.length > 0)
+                ? item.images
+                : [`/api/products/${item.id}/image.jpg`],
+              videos: (Array.isArray(item.videos) && item.videos.length > 0)
+                ? item.videos
+                : []
+            };
+            productsList.unshift(formatted);
+          }
+        }
+
+        // Asynchronously sync missing Firestore products into Supabase so future queries see them
+        if (backendSupabase && missingFromSupabase.length > 0) {
+          (async () => {
+            for (const missing of missingFromSupabase) {
+              try {
+                const transformed = await transformForSupabase('products', missing, missing.id);
+                await backendSupabase.from('products').upsert(transformed, { onConflict: 'id' });
+                console.log(`[Products Data Sync] Auto-synced missing Firestore product ${missing.id} into Supabase.`);
+              } catch (syncErr: any) {
+                console.warn(`[Products Data Sync] Auto-sync failed for ${missing.id}:`, syncErr?.message || syncErr);
+              }
+            }
+          })();
+        }
+      }
+    } catch (fsMergeErr: any) {
+      console.warn('[Products Data Sync] Firestore merge check failed:', fsMergeErr?.message || fsMergeErr);
+    }
+
     // Process the products list (runtime expiration, priority scores, extra sorting fields)
     productsList = productsList.map((result: any) => {
       if (result.boostStatus && result.boostEndDate && new Date(result.boostEndDate).getTime() < Date.now()) {
@@ -2388,6 +2440,94 @@ _a2a._agents.${host}.    3600  IN  HTTPS  1  . alpn="h2,h3" port="443" ipv4hint=
     } catch (err: any) {
       console.error(`[Product Detail API] Error fetching product ${productId}:`, err);
       return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+    }
+  });
+
+  async function upsertProductToSupabaseAndFirestore(productData: any) {
+    if (!productData) {
+      throw new Error("Invalid product data");
+    }
+
+    const prodId = productData.id || `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const cleanProduct: any = {
+      ...productData,
+      id: prodId,
+      createdAt: productData.createdAt || new Date().toISOString(),
+      viewsCount: Number(productData.viewsCount) || 0,
+      likesCount: Number(productData.likesCount) || 0,
+      likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : [],
+      images: Array.isArray(productData.images) && productData.images.length > 0
+        ? productData.images
+        : [productData.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'],
+      videos: Array.isArray(productData.videos) ? productData.videos : []
+    };
+
+    // Clean undefined values
+    for (const [k, v] of Object.entries(cleanProduct)) {
+      if (v === undefined) {
+        cleanProduct[k] = null;
+      }
+    }
+
+    // 1. Sync to Supabase
+    if (backendSupabase) {
+      try {
+        const transformed = await transformForSupabase('products', cleanProduct, prodId);
+        const { error } = await backendSupabase
+          .from('products')
+          .upsert(transformed, { onConflict: 'id' });
+        if (error) {
+          console.error(`[Product Sync Endpoint] Supabase upsert failed for ${prodId}:`, error);
+        } else {
+          console.log(`[Product Sync Endpoint] Successfully upserted product ${prodId} into Supabase.`);
+        }
+      } catch (sbErr: any) {
+        console.warn(`[Product Sync Endpoint] Supabase exception for ${prodId}:`, sbErr?.message || sbErr);
+      }
+    }
+
+    // 2. Sync to Firestore via Admin SDK
+    if (adminDb) {
+      try {
+        await adminDb.collection('products').doc(prodId).set(cleanProduct, { merge: true });
+        console.log(`[Product Sync Endpoint] Successfully saved product ${prodId} to Firestore.`);
+      } catch (fsErr: any) {
+        console.warn(`[Product Sync Endpoint] Firestore exception for ${prodId}:`, fsErr?.message || fsErr);
+      }
+    }
+
+    // 3. Invalidate memory cache so next GET /api/products returns fresh feed instantly
+    cachedProducts = null;
+    return cleanProduct;
+  }
+
+  app.post('/api/products/sync', async (req, res) => {
+    try {
+      const payload = req.body?.product || req.body;
+      if (!payload || !payload.title) {
+        return res.status(400).json({ success: false, error: 'Product payload required' });
+      }
+
+      const synced = await upsertProductToSupabaseAndFirestore(payload);
+      return res.json({ success: true, product: synced });
+    } catch (err: any) {
+      console.error('[Product Sync Route Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || 'Sync failed' });
+    }
+  });
+
+  app.post('/api/products/create', async (req, res) => {
+    try {
+      const payload = req.body?.product || req.body;
+      if (!payload || !payload.title) {
+        return res.status(400).json({ success: false, error: 'Product payload required' });
+      }
+
+      const synced = await upsertProductToSupabaseAndFirestore(payload);
+      return res.json({ success: true, product: synced });
+    } catch (err: any) {
+      console.error('[Product Create Route Exception]:', err);
+      return res.status(500).json({ success: false, error: err.message || 'Creation failed' });
     }
   });
 
