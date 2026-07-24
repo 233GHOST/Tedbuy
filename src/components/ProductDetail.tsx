@@ -1294,7 +1294,7 @@ export const ProductDetail: React.FC = () => {
                     <button
                       onClick={() => {
                         setDeleteError(null);
-                        setDeleteCheckboxConfirmed(false);
+                        setDeleteCheckboxConfirmed(true);
                         setShowDeleteConfirm(true);
                       }}
                       className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
@@ -1343,7 +1343,7 @@ export const ProductDetail: React.FC = () => {
                     <button
                       onClick={() => {
                         setDeleteError(null);
-                        setDeleteCheckboxConfirmed(false);
+                        setDeleteCheckboxConfirmed(true);
                         setShowDeleteConfirm(true);
                       }}
                       className="flex-1 py-2.5 bg-rose-50 hover:bg-rose-100/80 text-rose-600 border border-rose-200/65 font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition select-none cursor-pointer text-[11px]"
@@ -1754,7 +1754,7 @@ export const ProductDetail: React.FC = () => {
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" onClick={() => !isDeleting && setShowDeleteConfirm(false)}>
           <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full border border-slate-150 relative animate-scale-up text-left" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5 text-rose-750">
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5 text-rose-700">
               <ShieldAlert className="w-4.5 h-4.5 text-rose-600 animate-pulse" />
               <span>Confirm Deletion</span>
             </h3>
@@ -1796,12 +1796,13 @@ export const ProductDetail: React.FC = () => {
                   if (!deleteCheckboxConfirmed) return;
                   await handleDeleteAd();
                 }}
-                className={`flex-1 py-2.5 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                className={`flex-1 py-2.5 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 ${
                   deleteCheckboxConfirmed 
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs' 
-                    : 'bg-rose-50 text-rose-400 cursor-not-allowed border border-rose-105/50'
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-sm' 
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
                 }`}
               >
+                <Trash2 className="w-3.5 h-3.5" />
                 {isDeleting ? (
                   <>
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />

@@ -1195,7 +1195,7 @@ const MarketplaceContent: React.FC = () => {
                       </p>
                       <button
                         onClick={retryLoadProducts}
-                        className="px-6 py-2.5 bg-red-650 hover:bg-red-700 active:scale-95 text-white font-extrabold text-xs rounded-xl transition shadow-sm cursor-pointer"
+                        className="px-6 py-2.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-extrabold text-xs rounded-xl transition shadow-sm cursor-pointer"
                       >
                         Tap to retry
                       </button>

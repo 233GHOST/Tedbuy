@@ -1237,7 +1237,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                       <button
                         type="button"
                         onClick={() => removeImage(idx)}
-                        className="absolute top-1 right-1 p-1 bg-red-650 hover:bg-red-700 text-white rounded-full transition-all opacity-90 hover:scale-105"
+                        className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all opacity-90 hover:scale-105"
                         title="Delete Image"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -1302,7 +1302,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                           e.stopPropagation();
                           removeVideo(idx);
                         }}
-                        className="absolute top-1 right-1 p-1 bg-red-650 hover:bg-red-700 text-white rounded-full transition-all opacity-95 hover:scale-105 z-20 shadow-sm"
+                        className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all opacity-95 hover:scale-105 z-20 shadow-sm"
                         title="Delete Video"
                       >
                         <X className="w-3.5 h-3.5" />

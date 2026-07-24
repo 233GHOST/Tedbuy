@@ -76,7 +76,7 @@ export const calculateTrustScore = (
   } else {
     level = 'Caution';
     color = 'bg-rose-50 border-rose-250/40 text-rose-900';
-    labelClass = 'bg-rose-650 text-white';
+    labelClass = 'bg-rose-600 text-white';
     feedback = 'Minimal profile data or unsatisfactory ratings. Use caution.';
   }
 
