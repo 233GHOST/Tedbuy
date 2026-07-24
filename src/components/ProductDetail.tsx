@@ -46,7 +46,7 @@ export const ProductDetail: React.FC = () => {
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteCheckboxConfirmed, setDeleteCheckboxConfirmed] = useState(false);
+  const [deleteCheckboxConfirmed, setDeleteCheckboxConfirmed] = useState(true);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isAdminBoosting, setIsAdminBoosting] = useState(false);

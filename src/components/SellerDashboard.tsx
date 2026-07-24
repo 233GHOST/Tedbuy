@@ -25,8 +25,7 @@ export const SellerDashboard: React.FC = () => {
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [boostingProduct, setBoostingProduct] = useState<Product | null>(null);
-  const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(true);
 
   // Auto-dismissing reminder to add their WhatsApp number if it is missing
   const [showWhatsAppReminder, setShowWhatsAppReminder] = useState(() => {
@@ -87,8 +86,7 @@ export const SellerDashboard: React.FC = () => {
 
   const handleDelete = (product: Product, e: React.MouseEvent) => {
     e.stopPropagation();
-    setDeleteConfirmChecked(false);
-    setDeleteConfirmText('');
+    setDeleteConfirmChecked(true);
     setProductToDelete(product);
   };
 
@@ -578,7 +576,7 @@ export const SellerDashboard: React.FC = () => {
                 
                 <p className="text-[10px] text-rose-600 font-extrabold">This action is irreversible and cannot be undone.</p>
                 
-                <div className="bg-rose-50/50 rounded-2xl border border-rose-100 p-3.5 space-y-3">
+                <div className="bg-rose-50/50 rounded-2xl border border-rose-100 p-3.5">
                   <label className="flex items-start gap-2.5 cursor-pointer text-slate-750 select-none">
                     <input
                       type="checkbox"
@@ -590,20 +588,6 @@ export const SellerDashboard: React.FC = () => {
                       Yes, I understand and authorize permanent listing deletion.
                     </span>
                   </label>
-
-                  <div className="space-y-1.5 pt-1">
-                    <label htmlFor="delete-confirm-text-seller" className="block text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">
-                      Type <span className="text-rose-600 font-mono font-black">DELETE</span> to confirm:
-                    </label>
-                    <input
-                      id="delete-confirm-text-seller"
-                      type="text"
-                      value={deleteConfirmText}
-                      onChange={(e) => setDeleteConfirmText(e.target.value)}
-                      placeholder="Type DELETE here"
-                      className="w-full px-3.5 py-2 border border-slate-200 focus:border-rose-450 focus:ring-1 focus:ring-rose-450 focus:outline-none rounded-xl text-xs font-mono text-slate-800 transition bg-white"
-                    />
-                  </div>
                 </div>
               </div>
             </div>
@@ -616,9 +600,9 @@ export const SellerDashboard: React.FC = () => {
                 Cancel, Keep Ad
               </button>
               <button
-                disabled={!deleteConfirmChecked || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
+                disabled={!deleteConfirmChecked}
                 onClick={async () => {
-                  if (!deleteConfirmChecked || deleteConfirmText.trim().toUpperCase() !== 'DELETE') return;
+                  if (!deleteConfirmChecked) return;
                   try {
                     await deleteProduct(productToDelete.id);
                   } catch (err) {
@@ -628,7 +612,7 @@ export const SellerDashboard: React.FC = () => {
                   }
                 }}
                 className={`px-5 py-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 ${
-                  (deleteConfirmChecked && deleteConfirmText.trim().toUpperCase() === 'DELETE')
+                  deleteConfirmChecked
                     ? 'bg-red-650 hover:bg-red-750 text-white cursor-pointer shadow-sm' 
                     : 'bg-rose-50 border border-rose-100/50 text-rose-350 cursor-not-allowed'
                 }`}
