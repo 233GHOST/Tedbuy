@@ -21,7 +21,7 @@ const SuspendedBlockModal = lazy(() => import('./components/SuspendedBlockModal'
 
 import { Category, Product } from './types';
 import { resolveProductImage } from './utils/productUtils';
-import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info, ShieldAlert, Facebook, Instagram } from 'lucide-react';
+import { Sparkles, ShoppingBag, X, Check, Search, TrendingUp, HelpCircle, Package, MapPin, ChevronLeft, ChevronRight, Grid, LayoutGrid, Home, User, MessageSquare, History, RefreshCw, SlidersHorizontal, PlusCircle, Video, AlertCircle, Info, ShieldAlert, Facebook, Instagram, ShieldCheck, Smartphone, Lock, Mail, ExternalLink, ArrowUp, Globe, CheckCircle2, Shield } from 'lucide-react';
 
 const Tiktok = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
   <svg
@@ -1346,68 +1346,232 @@ const MarketplaceContent: React.FC = () => {
 
       {/* Persistent platform footer */}
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
-        <footer className="bg-white border-t border-slate-200 text-slate-700 text-sm py-12 mt-12 mb-16 md:mb-0">
-          <div className="max-w-7xl mx-auto px-4 space-y-6">
-            <div className="text-center space-y-3 pt-6">
-              <p className="font-sans font-bold text-slate-900">Tedbuy Marketplace &copy; 2026</p>
-              <p className="text-[12px] text-slate-500 max-w-md mx-auto leading-relaxed">
-                Connecting local buyers and sellers across Ghana directly. Browse tech, appliances, and fashion safely in your region.
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-4 pt-3 text-slate-700">
-                <a
-                  id="footer-facebook-link"
-                  href="https://www.facebook.com/profile.php?id=61590789224238"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-slate-700 hover:text-blue-600 font-semibold transition-colors duration-200"
-                >
-                  <Facebook className="w-4 h-4" />
-                  <span>Facebook</span>
-                </a>
-                <span className="text-slate-300">•</span>
-                <a
-                  id="footer-instagram-link"
-                  href="https://www.instagram.com/tedbuyghana"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-slate-700 hover:text-pink-600 font-semibold transition-colors duration-200"
-                >
-                  <Instagram className="w-4 h-4" />
-                  <span>Instagram</span>
-                </a>
-                <span className="text-slate-300">•</span>
-                <a
-                  id="footer-tiktok-link"
-                  href="https://www.tiktok.com/@tedbuy.store"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-slate-700 hover:text-black font-semibold transition-colors duration-200"
-                >
-                  <Tiktok className="w-4 h-4" />
-                  <span>TikTok</span>
-                </a>
-              </div>
+        <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-14 pb-12 mt-16 mb-20 md:mb-0 relative overflow-hidden">
+          {/* Subtle top accent line */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600" />
+
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+            {/* Top Row: Brand Info + Navigation Columns */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-8">
               
-              {/* Privacy Legal Row */}
-              <div className="flex flex-wrap items-center justify-center gap-3 pt-4 text-[12px] text-slate-600">
-                <button
-                  onClick={() => setIsPrivacyModalOpen(true)}
-                  className="hover:text-slate-900 transition-colors duration-200 cursor-pointer underline font-semibold bg-transparent border-none p-0"
-                >
-                  Privacy Policy
-                </button>
-                <span className="text-slate-300">•</span>
-                <button
-                  onClick={() => {
-                    setCurrentView('profile-settings');
-                    window.location.hash = '#/terms';
-                  }}
-                  className="hover:text-slate-900 transition-colors duration-200 cursor-pointer underline font-semibold bg-transparent border-none p-0"
-                >
-                  Terms of Service
-                </button>
+              {/* Brand Column (Spans 2 cols on lg) */}
+              <div className="lg:col-span-2 space-y-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/30">
+                    T
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-2xl tracking-tight text-white">
+                        Ted<span className="text-amber-400">Buy</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-amber-400">
+                        🇬🇭 Ghana
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">
+                      Ghana's #1 Classified Marketplace
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
+                  Connecting buyers and verified sellers across all 16 regions in Ghana. Trade tech, vehicles, appliances, and fashion safely with local chat and instant contact options.
+                </p>
+
+                {/* Trust Highlights */}
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-[11px] font-medium text-slate-300">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Verified Sellers</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-[11px] font-medium text-slate-300">
+                    <Lock className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Safe Trading</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-[11px] font-medium text-slate-300">
+                    <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                    <span>16 Regions</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Column 2: Popular Categories */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  Popular Categories
+                </h4>
+                <ul className="space-y-2.5 text-xs">
+                  {[
+                    { label: 'Mobile Phones & Tablets', cat: 'Phones' },
+                    { label: 'Laptops & Computers', cat: 'Laptops' },
+                    { label: 'Fashion & Clothing', cat: 'Fashion' },
+                    { label: 'Vehicles & Auto Parts', cat: 'Vehicles' },
+                    { label: 'Home Appliances', cat: 'Home Appliances' },
+                    { label: 'Real Estate & Rentals', cat: 'Property' }
+                  ].map((item) => (
+                    <li key={item.cat}>
+                      <button
+                        onClick={() => {
+                          setSelectedCategory(item.cat as Category);
+                          setCurrentView('browse');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
+                      >
+                        <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                        {item.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Column 3: Top Ghana Regions */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  Top Ghana Regions
+                </h4>
+                <ul className="space-y-2.5 text-xs">
+                  {[
+                    'Greater Accra',
+                    'Ashanti Region',
+                    'Western Region',
+                    'Eastern Region',
+                    'Central Region',
+                    'Northern Region'
+                  ].map((regionName) => (
+                    <li key={regionName}>
+                      <button
+                        onClick={() => {
+                          setSelectedRegion(regionName);
+                          setCurrentView('browse');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
+                      >
+                        <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                        {regionName}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Column 4: Help, Safety & Action */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  Help & Safety
+                </h4>
+                <ul className="space-y-2.5 text-xs">
+                  <li>
+                    <button
+                      onClick={handlePostAdBtn}
+                      className="text-amber-400 hover:text-amber-300 font-bold transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      Post Free Classified Ad
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => setIsPrivacyModalOpen(true)}
+                      className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
+                    >
+                      <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                      Privacy Policy & Data
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => {
+                        setCurrentView('profile-settings');
+                        window.location.hash = '#/terms';
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
+                    >
+                      <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                      Terms of Service
+                    </button>
+                  </li>
+                  <li>
+                    <a
+                      href="mailto:support@tedbuy.store"
+                      className="text-slate-400 hover:text-white transition-colors duration-200 text-left flex items-center gap-1.5 group"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                      Contact Support
+                    </a>
+                  </li>
+                </ul>
+              </div>
+
+            </div>
+
+            {/* Social Media & Community Banner */}
+            <div className="pt-8 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-slate-300">Connect with Tedbuy:</span>
+                <div className="flex items-center gap-2">
+                  <a
+                    id="footer-facebook-link"
+                    href="https://www.facebook.com/profile.php?id=61590789224238"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-xl bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white hover:bg-blue-600 hover:border-blue-500 transition-all duration-200 group"
+                    title="Facebook"
+                  >
+                    <Facebook className="w-4 h-4" />
+                  </a>
+                  <a
+                    id="footer-instagram-link"
+                    href="https://www.instagram.com/tedbuyghana"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-xl bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white hover:bg-pink-600 hover:border-pink-500 transition-all duration-200 group"
+                    title="Instagram"
+                  >
+                    <Instagram className="w-4 h-4" />
+                  </a>
+                  <a
+                    id="footer-tiktok-link"
+                    href="https://www.tiktok.com/@tedbuy.store"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-xl bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white hover:bg-black hover:border-slate-600 transition-all duration-200 group"
+                    title="TikTok"
+                  >
+                    <Tiktok className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+
+              {/* Scroll to Top */}
+              <button
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-all cursor-pointer active:scale-95 shadow-sm"
+              >
+                <span>Back to top</span>
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Bottom Copyright Bar */}
+            <div className="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+              <p className="font-medium text-slate-400 text-center sm:text-left">
+                &copy; {new Date().getFullYear()} Tedbuy Marketplace Ltd. All rights reserved.
+              </p>
+              <div className="flex items-center gap-4 text-[11px] text-slate-400 font-sans">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Live Platform
+                </span>
+                <span>•</span>
+                <span>SSL Encrypted</span>
               </div>
             </div>
+
           </div>
         </footer>
       )}
