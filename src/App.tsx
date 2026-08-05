@@ -1347,8 +1347,8 @@ const MarketplaceContent: React.FC = () => {
       {/* Persistent platform footer */}
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
         <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-14 pb-12 mt-16 mb-20 md:mb-0 relative overflow-hidden">
-          {/* Subtle top accent line */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600" />
+          {/* Top accent line matching brand orange */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-600 via-[#ea580c] to-amber-500" />
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}
@@ -1356,20 +1356,29 @@ const MarketplaceContent: React.FC = () => {
               
               {/* Brand Column (Spans 2 cols on lg) */}
               <div className="lg:col-span-2 space-y-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/20 ring-2 ring-amber-400/30">
-                    T
+                <div
+                  onClick={() => {
+                    sessionStorage.setItem('tedbuy_browse_scroll_pos', '0');
+                    setCurrentView('browse');
+                    setHomeViewMode('grid');
+                    setSearchQuery('');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="flex items-center gap-3 cursor-pointer group shrink-0"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center shadow-3xs group-hover:scale-105 transition-transform duration-200 overflow-hidden">
+                    <img src="/favicon.svg" alt="TedBuy Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-black text-2xl tracking-tight text-white">
-                        Ted<span className="text-amber-400">Buy</span>
+                      <span className="font-sans font-black text-2xl tracking-tight text-white leading-none">
+                        Ted<span className="text-[#ea580c]">Buy</span>
                       </span>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-amber-400">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[#ea580c]">
                         🇬🇭 Ghana
                       </span>
                     </div>
-                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">
                       Ghana's #1 Classified Marketplace
                     </p>
                   </div>
@@ -1390,7 +1399,7 @@ const MarketplaceContent: React.FC = () => {
                     <span>Safe Trading</span>
                   </div>
                   <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-[11px] font-medium text-slate-300">
-                    <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                    <MapPin className="w-3.5 h-3.5 text-[#ea580c]" />
                     <span>16 Regions</span>
                   </div>
                 </div>
@@ -1419,7 +1428,7 @@ const MarketplaceContent: React.FC = () => {
                         }}
                         className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
                       >
-                        <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                        <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-[#ea580c] transition-colors" />
                         {item.label}
                       </button>
                     </li>
@@ -1450,7 +1459,7 @@ const MarketplaceContent: React.FC = () => {
                         }}
                         className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
                       >
-                        <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                        <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-[#ea580c] transition-colors" />
                         {regionName}
                       </button>
                     </li>
@@ -1467,7 +1476,7 @@ const MarketplaceContent: React.FC = () => {
                   <li>
                     <button
                       onClick={handlePostAdBtn}
-                      className="text-amber-400 hover:text-amber-300 font-bold transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5"
+                      className="text-[#ea580c] hover:text-orange-400 font-bold transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5"
                     >
                       <PlusCircle className="w-3.5 h-3.5" />
                       Post Free Classified Ad
@@ -1478,7 +1487,7 @@ const MarketplaceContent: React.FC = () => {
                       onClick={() => setIsPrivacyModalOpen(true)}
                       className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
                     >
-                      <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                      <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-[#ea580c] transition-colors" />
                       Privacy Policy & Data
                     </button>
                   </li>
@@ -1491,7 +1500,7 @@ const MarketplaceContent: React.FC = () => {
                       }}
                       className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
                     >
-                      <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-amber-400 transition-colors" />
+                      <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-[#ea580c] transition-colors" />
                       Terms of Service
                     </button>
                   </li>
@@ -1500,7 +1509,7 @@ const MarketplaceContent: React.FC = () => {
                       href="mailto:support@tedbuy.store"
                       className="text-slate-400 hover:text-white transition-colors duration-200 text-left flex items-center gap-1.5 group"
                     >
-                      <Mail className="w-3.5 h-3.5 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                      <Mail className="w-3.5 h-3.5 text-slate-500 group-hover:text-[#ea580c] transition-colors" />
                       Contact Support
                     </a>
                   </li>
