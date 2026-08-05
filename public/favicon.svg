@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Definitions for Gradients -->
+  <defs>
+    <linearGradient id="bagGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="handleGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#475569" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <filter id="subtle-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#subtle-shadow)">
+    <!-- Bag Handle -->
+    <path d="M 176,190 A 80,80 0 0,1 336,190" stroke="url(#handleGradient)" stroke-width="32" fill="none" stroke-linecap="round" />
+    
+    <!-- Bag Body -->
+    <path d="M 120,180 L 392,180 C 408,180 420,194 418,210 L 390,440 C 388,456 374,468 358,468 L 154,468 C 138,468 124,456 122,440 L 94,210 C 92,194 104,180 120,180 Z" fill="url(#bagGradient)" />
+    
+    <!-- Bold Letter 'T' -->
+    <!-- Horizontal bar of T -->
+    <rect x="180" y="240" width="152" height="40" rx="10" fill="#ffffff" />
+    <!-- Vertical stem of T -->
+    <rect x="236" y="240" width="40" height="150" rx="10" fill="#ffffff" />
+    
+    <!-- A small stylish dot or decorative line in white/blue accent -->
+    <circle cx="256" cy="420" r="12" fill="#38bdf8" />
+  </g>
+</svg>
