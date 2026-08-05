@@ -1385,21 +1385,7 @@ const MarketplaceContent: React.FC = () => {
                   Connecting buyers and verified sellers across all 16 regions in Ghana. Trade tech, vehicles, appliances, and fashion safely with local chat and instant contact options.
                 </p>
 
-                {/* Trust Highlights */}
-                <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-[11px] font-medium text-slate-300">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Verified Sellers</span>
-                  </div>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-[11px] font-medium text-slate-300">
-                    <Lock className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Safe Trading</span>
-                  </div>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-[11px] font-medium text-slate-300">
-                    <MapPin className="w-3.5 h-3.5 text-[#ea580c]" />
-                    <span>16 Regions</span>
-                  </div>
-                </div>
+
               </div>
 
               {/* Column 2: Popular Categories */}
