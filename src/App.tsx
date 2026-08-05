@@ -654,7 +654,7 @@ const MarketplaceContent: React.FC = () => {
     <div className={`flex flex-col font-sans relative ${
       currentView === 'browse' && homeViewMode === 'video-feed'
         ? 'bg-slate-950 h-[100dvh] overflow-hidden pb-0'
-        : 'bg-slate-50 min-h-screen pb-16 md:pb-0'
+        : 'bg-slate-50 min-h-screen pb-0'
     }`}>
       <Navbar />
 
@@ -681,7 +681,7 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       <main 
-        className={`flex-1 min-h-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full' : ''}`}
+        className={`flex-1 min-h-0 pb-16 md:pb-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full pb-0' : ''}`}
         style={
           currentView === 'browse' && homeViewMode === 'video-feed'
             ? {
@@ -1346,7 +1346,7 @@ const MarketplaceContent: React.FC = () => {
 
       {/* Persistent platform footer */}
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
-        <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-14 pb-24 md:pb-12 mt-16 relative overflow-hidden">
+        <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-12 pb-6 sm:pb-10 mt-16 relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-8 sm:gap-10">
