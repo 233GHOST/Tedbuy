@@ -1347,9 +1347,6 @@ const MarketplaceContent: React.FC = () => {
       {/* Persistent platform footer */}
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
         <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-14 pb-12 mt-16 mb-20 md:mb-0 relative overflow-hidden">
-          {/* Top accent line matching brand orange */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-600 via-[#ea580c] to-amber-500" />
-
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-8">
@@ -1572,11 +1569,6 @@ const MarketplaceContent: React.FC = () => {
                 &copy; {new Date().getFullYear()} Tedbuy Marketplace Ltd. All rights reserved.
               </p>
               <div className="flex items-center gap-4 text-[11px] text-slate-400 font-sans">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Live Platform
-                </span>
-                <span>•</span>
                 <span>SSL Encrypted</span>
               </div>
             </div>
