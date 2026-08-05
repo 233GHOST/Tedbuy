@@ -40,7 +40,7 @@ interface CacheEntry<T> {
 
 class TTLMemoryCache {
   private store = new Map<string, CacheEntry<any>>();
-  private maxCapacity = 2000;
+  private maxCapacity = 200;
 
   constructor() {
     // Background timer to prune expired keys every 60s
@@ -431,8 +431,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
 // Global middleware to handle parsing or payload too large errors as JSON
 app.use((err: any, req: any, res: any, next: any) => {
