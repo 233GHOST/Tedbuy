@@ -1349,10 +1349,10 @@ const MarketplaceContent: React.FC = () => {
         <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-14 pb-12 mt-16 mb-20 md:mb-0 relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-8">
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-8 sm:gap-10">
               
-              {/* Brand Column (Spans 2 cols on lg) */}
-              <div className="lg:col-span-2 space-y-5">
+              {/* Brand Column (Spans 2 cols on mobile/tablet/desktop) */}
+              <div className="col-span-2 lg:col-span-2 space-y-4">
                 <div
                   onClick={() => {
                     sessionStorage.setItem('tedbuy_browse_scroll_pos', '0');
@@ -1384,12 +1384,10 @@ const MarketplaceContent: React.FC = () => {
                 <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
                   Connecting buyers and verified sellers across all 16 regions in Ghana. Trade tech, vehicles, appliances, and fashion safely with local chat and instant contact options.
                 </p>
-
-
               </div>
 
-              {/* Column 2: Popular Categories */}
-              <div className="space-y-4">
+              {/* Column 2: Popular Categories (1 col on mobile) */}
+              <div className="col-span-1 space-y-3.5">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
                   Popular Categories
                 </h4>
@@ -1419,8 +1417,8 @@ const MarketplaceContent: React.FC = () => {
                 </ul>
               </div>
 
-              {/* Column 3: Top Ghana Regions */}
-              <div className="space-y-4">
+              {/* Column 3: Top Ghana Regions (1 col on mobile) */}
+              <div className="col-span-1 space-y-3.5">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
                   Top Ghana Regions
                 </h4>
@@ -1450,8 +1448,8 @@ const MarketplaceContent: React.FC = () => {
                 </ul>
               </div>
 
-              {/* Column 4: Help, Safety & Action */}
-              <div className="space-y-4">
+              {/* Column 4: Help, Safety & Action (2 cols on mobile, 1 col on sm/lg) */}
+              <div className="col-span-2 sm:col-span-1 lg:col-span-1 space-y-3.5 pt-2 sm:pt-0 border-t border-slate-800/60 sm:border-t-0">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
                   Help & Safety
                 </h4>
@@ -1489,11 +1487,11 @@ const MarketplaceContent: React.FC = () => {
                   </li>
                   <li>
                     <a
-                      href="mailto:support@tedbuy.store"
+                      href="mailto:info.tedbuy@gmail.com"
                       className="text-slate-400 hover:text-white transition-colors duration-200 text-left flex items-center gap-1.5 group"
                     >
                       <Mail className="w-3.5 h-3.5 text-slate-500 group-hover:text-[#ea580c] transition-colors" />
-                      Contact Support
+                      <span>Contact Support</span>
                     </a>
                   </li>
                 </ul>

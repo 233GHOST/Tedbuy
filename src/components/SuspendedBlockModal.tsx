@@ -44,10 +44,10 @@ export const SuspendedBlockModal: React.FC = () => {
             <div className="text-xs">
               <span className="block font-black text-slate-800">Support & Appeals Contact</span>
               <a 
-                href="mailto:info.tedbuy@mail.com"
+                href="mailto:info.tedbuy@gmail.com"
                 className="inline-flex items-center gap-1 font-mono text-xs font-bold text-rose-700 hover:text-rose-800 underline mt-0.5"
               >
-                info.tedbuy@mail.com
+                info.tedbuy@gmail.com
                 <ExternalLink className="w-3 h-3" />
               </a>
               <p className="text-[10px] text-slate-500 mt-2.5 font-medium leading-normal">
@@ -59,7 +59,7 @@ export const SuspendedBlockModal: React.FC = () => {
           {/* Actions */}
           <div className="space-y-2">
             <a
-              href="mailto:info.tedbuy@mail.com?subject=TedBuy Account Appeal"
+              href="mailto:info.tedbuy@gmail.com?subject=TedBuy Account Appeal"
               className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer transition shadow-3xs"
             >
               <Mail className="w-4 h-4 text-slate-300" />

@@ -2844,7 +2844,7 @@ CEO, Tedbuy Inc`;
               if (dbData && dbData.isSuspended) {
                 await signOut(auth);
                 setIsSuspendedBlockOpen(true);
-                throw new Error("Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@mail.com to appeal.");
+                throw new Error("Your account has been suspended by TedBuy Administration due to safety or policy violations. Please contact TedBuy Support at info.tedbuy@gmail.com to appeal.");
               }
             }
           } catch (snapErr: any) {
