@@ -1288,7 +1288,14 @@ app.get('/api/products', serverRateLimiter(60 * 1000, 600, "products-list"), asy
       return res.json({ success: true, ...cached.value, cached: true });
     }
 
-    const { products } = await getProductsListData();
+    let { products } = await getProductsListData();
+
+    if ((!products || products.length === 0)) {
+      const cachedFeatured = serverCache.get<any>('featured');
+      if (cachedFeatured && Array.isArray(cachedFeatured.value?.products) && cachedFeatured.value.products.length > 0) {
+        products = cachedFeatured.value.products;
+      }
+    }
 
     let filtered = products;
     if (querySearch) {
