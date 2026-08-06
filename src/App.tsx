@@ -1236,7 +1236,7 @@ const MarketplaceContent: React.FC = () => {
                   </div>
                 </div>
 
-                {isProductsLoading && sortedProducts.length === 0 ? (
+                {isProductsLoading ? (
                   <div id="listings-shimmer-grid" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
                     {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                       <div key={i} className="bg-white border border-slate-100 rounded-3xl p-3 space-y-4 animate-pulse shadow-sm min-h-[300px] flex flex-col justify-between">

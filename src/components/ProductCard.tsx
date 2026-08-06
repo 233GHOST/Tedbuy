@@ -226,49 +226,55 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
     >
       {/* Listing image section */}
       <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-square flex items-center justify-center" style={{ aspectRatio: '1/1' }}>
-        {/* Always render product cover image immediately for 0ms visual rendering */}
-        <img
-          ref={imgRef}
-          src={imgSrc}
-          alt={product.title}
-          decoding="async"
-          loading="lazy"
-          className="w-full h-full object-contain p-0 group-hover:scale-105 transition-all duration-300"
-          onError={() => {
-            const fallback = getCategoryPlaceholder(product.category);
-            if (imgSrc !== fallback) {
-              setImgSrc(fallback);
-            }
-          }}
-        />
-
-        {/* Overlay video when visible if product contains a video asset */}
-        {isVisible && processedVideoUrl && !videoError && (
-          <video
-            src={processedVideoUrl}
-            muted
-            loop
-            playsInline
-            webkit-playsinline="true"
-            disablePictureInPicture
-            autoPlay
-            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500 z-10"
-            onError={(e) => {
-              const err = e.currentTarget.error;
-              let errMsg = 'Unknown video loading or decoding error';
-              if (err) {
-                switch (err.code) {
-                  case 1: errMsg = 'Video loading aborted'; break;
-                  case 2: errMsg = 'Network error: Video download failed'; break;
-                  case 3: errMsg = 'Decoding error: Corrupted video file or unsupported codec'; break;
-                  case 4: errMsg = 'Format error: Video URL not found or format unsupported'; break;
-                }
-                if (err.message) errMsg += ` (${err.message})`;
-              }
-              console.error(`[ProductCard Error] Video failed to load for Product ID: ${product.id}. Title: "${product.title}". Video URL: "${product.videos?.[0]}". Processed URL: "${processedVideoUrl}". Error: ${errMsg}`, err);
-              setVideoError(true);
-            }}
-          />
+        {isVisible ? (
+          <>
+            {(processedVideoUrl && !videoError) ? (
+              <video
+                src={processedVideoUrl}
+                muted
+                loop
+                playsInline
+                webkit-playsinline="true"
+                disablePictureInPicture
+                autoPlay
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
+                onError={(e) => {
+                  const err = e.currentTarget.error;
+                  let errMsg = 'Unknown video loading or decoding error';
+                  if (err) {
+                    switch (err.code) {
+                      case 1: errMsg = 'Video loading aborted'; break;
+                      case 2: errMsg = 'Network error: Video download failed'; break;
+                      case 3: errMsg = 'Decoding error: Corrupted video file or unsupported codec'; break;
+                      case 4: errMsg = 'Format error: Video URL not found or format unsupported'; break;
+                    }
+                    if (err.message) errMsg += ` (${err.message})`;
+                  }
+                  console.error(`[ProductCard Error] Video failed to load for Product ID: ${product.id}. Title: "${product.title}". Video URL: "${product.videos?.[0]}". Processed URL: "${processedVideoUrl}". Error: ${errMsg}`, err);
+                  setVideoError(true);
+                }}
+              />
+            ) : (
+              <img
+                ref={imgRef}
+                src={imgSrc}
+                alt={product.title}
+                decoding="async"
+                loading="lazy"
+                className="w-full h-full object-contain p-0 group-hover:scale-105 transition-all duration-300"
+                onError={() => {
+                  const fallback = getCategoryPlaceholder(product.category);
+                  if (imgSrc !== fallback) {
+                    setImgSrc(fallback);
+                  }
+                }}
+              />
+            )}
+          </>
+        ) : (
+          <div className="absolute inset-0 bg-slate-50 flex items-center justify-center">
+            <div className="w-5 h-5 rounded-full border border-slate-200 border-t-slate-400 animate-spin" />
+          </div>
         )}
 
         <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-20">

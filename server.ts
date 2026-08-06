@@ -120,81 +120,7 @@ class TTLMemoryCache {
 export const serverCache = new TTLMemoryCache();
 
 let rawProductsListCache: { products: any[]; timestamp: number } | null = null;
-const RAW_PRODUCTS_CACHE_TTL_MS = 60000; // 60 seconds memory cache before background revalidation
-
-let isBackgroundRefreshingProducts = false;
-
-async function fetchRawProductsFromDatabase(): Promise<any[]> {
-  let products: any[] = [];
-  if (backendSupabase) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
-      const { data, error } = await backendSupabase
-        .from('products')
-        .select('*')
-        .limit(200)
-        .abortSignal(controller.signal);
-
-      clearTimeout(timeoutId);
-
-      if (!error && Array.isArray(data) && data.length > 0) {
-        products = data.map((row: any) => normalizeServerProductRow(row)).filter(Boolean);
-        products.sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-      } else if (error) {
-        console.error('[Supabase Server Products] Error fetching products:', error.message);
-      }
-    } catch (err: any) {
-      console.error('[Supabase Server Products] Exception fetching products:', err?.message || err);
-    }
-  }
-
-  // Fallback to Firestore adminDb with 3s timeout if Supabase returned 0 products or failed
-  if (products.length === 0 && adminDb) {
-    try {
-      console.log('[Server Products Fallback] Querying Firestore adminDb for products...');
-      const firestorePromise = adminDb.collection('products').limit(200).get();
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 3000));
-      
-      const snap: any = await Promise.race([firestorePromise, timeoutPromise]);
-      if (snap && !snap.empty) {
-        const firestoreList: any[] = [];
-        snap.forEach((docSnap: any) => {
-          const d = docSnap.data();
-          if (d) {
-            firestoreList.push(normalizeServerProductRow({ ...d, id: docSnap.id || d.id }));
-          }
-        });
-        products = firestoreList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        console.log(`[Server Products Fallback] Retrived ${products.length} products from Firestore.`);
-      }
-    } catch (firestoreErr: any) {
-      console.warn('[Server Products Fallback] Firestore query error:', firestoreErr?.message || firestoreErr);
-    }
-  }
-  return products;
-}
-
-export async function triggerBackgroundProductsRefresh(): Promise<void> {
-  if (isBackgroundRefreshingProducts) return;
-  isBackgroundRefreshingProducts = true;
-  try {
-    const products = await fetchRawProductsFromDatabase();
-    if (products.length > 0) {
-      rawProductsListCache = { products, timestamp: Date.now() };
-      serverCache.deletePattern('homepage');
-      serverCache.delete('featured');
-      serverCache.deletePattern('search:');
-      serverCache.deletePattern('category:');
-      serverCache.deletePattern('seller:');
-      prewarmServerCachePayloads(products);
-    }
-  } catch (err: any) {
-    console.warn('[Background Products Refresh] Error:', err?.message || err);
-  } finally {
-    isBackgroundRefreshingProducts = false;
-  }
-}
+const RAW_PRODUCTS_CACHE_TTL_MS = 30000; // 30 seconds memory cache
 
 export function invalidateProductCache(productId?: string, sellerId?: string, category?: string): void {
   rawProductsListCache = null;
@@ -210,8 +136,6 @@ export function invalidateProductCache(productId?: string, sellerId?: string, ca
   if (category) {
     serverCache.deletePattern(`category:${category}`);
   }
-  // Trigger immediate background refresh to repopulate warm cache
-  triggerBackgroundProductsRefresh().catch(() => {});
 }
 
 const rateLimitStore: Record<string, { count: number; resetTime: number }> = {};
@@ -1124,76 +1048,59 @@ export function serializeProductSummary(row: any): any {
   };
 }
 
-let rawProductsFetchInFlightPromise: Promise<any[]> | null = null;
-
-function prewarmServerCachePayloads(products: any[]) {
-  if (!products || products.length === 0) return;
-  try {
-    // 1. Warm featured cache
-    const featured = products
-      .filter((p: any) => p && p.status !== 'hidden' && !p.isSold && isServerBoostActive(p))
-      .map((p: any) => serializeProductSummary(p));
-
-    featured.sort((a: any, b: any) => {
-      const aStart = parseServerDate(a.boostStartDate || a.lastBoostedAt || a.createdAt)?.getTime() || 0;
-      const bStart = parseServerDate(b.boostStartDate || b.lastBoostedAt || b.createdAt)?.getTime() || 0;
-      return bStart - aStart;
-    });
-
-    serverCache.set('featured', { products: featured, total: featured.length }, 30);
-
-    // 2. Warm default homepage feed cache (page 1, limit 50)
-    const homepageProducts = products.slice(0, 50).map((p: any) => serializeProductSummary(p));
-    serverCache.set('homepage:page:1:limit:50', {
-      products: homepageProducts,
-      total: products.length,
-      page: 1,
-      limit: 50,
-      totalPages: Math.ceil(products.length / 50) || 1
-    }, 60);
-  } catch (err: any) {
-    console.warn('[Server Cache Prewarm Error]:', err?.message || err);
-  }
-}
-
 async function getProductsListData(forceRefresh = false): Promise<{ products: any[] }> {
   const now = Date.now();
-
-  // 1. Instant response path: If memory cache exists, return immediately (0-1ms latency!)
-  if (rawProductsListCache && rawProductsListCache.products.length > 0) {
-    const age = now - rawProductsListCache.timestamp;
-    // If stale (> 60s) or forceRefresh, trigger background revalidation without making client wait
-    if (forceRefresh || age > RAW_PRODUCTS_CACHE_TTL_MS) {
-      triggerBackgroundProductsRefresh().catch(() => {});
-    }
+  if (!forceRefresh && rawProductsListCache && (now - rawProductsListCache.timestamp) < RAW_PRODUCTS_CACHE_TTL_MS) {
     return { products: rawProductsListCache.products };
   }
 
-  // 2. In-flight promise deduplication to prevent duplicate concurrent DB queries
-  if (!rawProductsFetchInFlightPromise) {
-    rawProductsFetchInFlightPromise = fetchRawProductsFromDatabase()
-      .then((products) => {
-        if (products && products.length > 0) {
-          rawProductsListCache = { products, timestamp: Date.now() };
-          prewarmServerCachePayloads(products);
-        }
-        return products;
-      })
-      .catch((err) => {
-        console.error('[getProductsListData] Error in raw fetch promise:', err?.message || err);
-        return [];
-      })
-      .finally(() => {
-        rawProductsFetchInFlightPromise = null;
-      });
+  let products: any[] = [];
+  if (backendSupabase) {
+    try {
+      const { data, error } = await backendSupabase
+        .from('products')
+        .select('*')
+        .order('createdAt', { ascending: false })
+        .limit(200);
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        products = data.map((row: any) => normalizeServerProductRow(row)).filter(Boolean);
+      } else if (error) {
+        console.error('[Supabase Server Products] Error fetching products:', error.message);
+      }
+    } catch (err: any) {
+      console.error('[Supabase Server Products] Exception fetching products:', err?.message || err);
+    }
   }
 
-  let products = await rawProductsFetchInFlightPromise;
-  if ((!products || products.length === 0) && rawProductsListCache) {
+  // Fallback to Firestore adminDb if Supabase returned 0 products or failed
+  if (products.length === 0 && adminDb) {
+    try {
+      console.log('[Server Products Fallback] Querying Firestore adminDb for products...');
+      const snap = await adminDb.collection('products').limit(200).get();
+      if (snap && !snap.empty) {
+        const firestoreList: any[] = [];
+        snap.forEach((docSnap: any) => {
+          const d = docSnap.data();
+          if (d) {
+            firestoreList.push(normalizeServerProductRow({ ...d, id: docSnap.id || d.id }));
+          }
+        });
+        products = firestoreList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        console.log(`[Server Products Fallback] Retrived ${products.length} products from Firestore.`);
+      }
+    } catch (firestoreErr: any) {
+      console.warn('[Server Products Fallback] Firestore query error:', firestoreErr?.message || firestoreErr);
+    }
+  }
+
+  if (products.length > 0) {
+    rawProductsListCache = { products, timestamp: now };
+  } else if (rawProductsListCache) {
     products = rawProductsListCache.products;
   }
 
-  return { products: products || [] };
+  return { products };
 }
 
 // -------------------------------------------------------------
@@ -1288,11 +1195,7 @@ app.get('/api/products', serverRateLimiter(60 * 1000, 600, "products-list"), asy
       return res.json({ success: true, ...cached.value, cached: true });
     }
 
-    let { products } = await getProductsListData();
-
-    if (!products || products.length === 0) {
-      triggerBackgroundProductsRefresh().catch(() => {});
-    }
+    const { products } = await getProductsListData();
 
     let filtered = products;
     if (querySearch) {
@@ -1323,13 +1226,11 @@ app.get('/api/products', serverRateLimiter(60 * 1000, 600, "products-list"), asy
       totalPages
     };
 
-    if (paginatedProducts.length > 0 || querySearch || querySellerId || queryCategory) {
-      const etag = serverCache.set(cacheKey, responsePayload, cacheTTL);
-      res.setHeader('ETag', etag);
+    const etag = serverCache.set(cacheKey, responsePayload, cacheTTL);
+    res.setHeader('ETag', etag);
 
-      if (req.headers['if-none-match'] === etag) {
-        return res.status(304).end();
-      }
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
     }
 
     return res.json({ success: true, ...responsePayload });
@@ -4092,10 +3993,6 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[TedBuy Clean Server] Running at http://0.0.0.0:${PORT}`);
-    // Pre-warm products cache asynchronously on boot for 0ms main feed load
-    triggerBackgroundProductsRefresh().catch((err) => {
-      console.warn('[Server Startup Warmup] Products cache warmup error:', err?.message || err);
-    });
   });
 }
 
