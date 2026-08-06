@@ -187,6 +187,7 @@ export async function triggerBackgroundProductsRefresh(): Promise<void> {
       serverCache.deletePattern('search:');
       serverCache.deletePattern('category:');
       serverCache.deletePattern('seller:');
+      prewarmServerCachePayloads(products);
     }
   } catch (err: any) {
     console.warn('[Background Products Refresh] Error:', err?.message || err);
@@ -1123,6 +1124,38 @@ export function serializeProductSummary(row: any): any {
   };
 }
 
+let rawProductsFetchInFlightPromise: Promise<any[]> | null = null;
+
+function prewarmServerCachePayloads(products: any[]) {
+  if (!products || products.length === 0) return;
+  try {
+    // 1. Warm featured cache
+    const featured = products
+      .filter((p: any) => p && p.status !== 'hidden' && !p.isSold && isServerBoostActive(p))
+      .map((p: any) => serializeProductSummary(p));
+
+    featured.sort((a: any, b: any) => {
+      const aStart = parseServerDate(a.boostStartDate || a.lastBoostedAt || a.createdAt)?.getTime() || 0;
+      const bStart = parseServerDate(b.boostStartDate || b.lastBoostedAt || b.createdAt)?.getTime() || 0;
+      return bStart - aStart;
+    });
+
+    serverCache.set('featured', { products: featured, total: featured.length }, 30);
+
+    // 2. Warm default homepage feed cache (page 1, limit 50)
+    const homepageProducts = products.slice(0, 50).map((p: any) => serializeProductSummary(p));
+    serverCache.set('homepage:page:1:limit:50', {
+      products: homepageProducts,
+      total: products.length,
+      page: 1,
+      limit: 50,
+      totalPages: Math.ceil(products.length / 50) || 1
+    }, 60);
+  } catch (err: any) {
+    console.warn('[Server Cache Prewarm Error]:', err?.message || err);
+  }
+}
+
 async function getProductsListData(forceRefresh = false): Promise<{ products: any[] }> {
   const now = Date.now();
 
@@ -1136,15 +1169,31 @@ async function getProductsListData(forceRefresh = false): Promise<{ products: an
     return { products: rawProductsListCache.products };
   }
 
-  // 2. Cold start (first request after boot): query DB synchronously and cache
-  let products = await fetchRawProductsFromDatabase();
-  if (products.length > 0) {
-    rawProductsListCache = { products, timestamp: now };
-  } else if (rawProductsListCache) {
+  // 2. In-flight promise deduplication to prevent duplicate concurrent DB queries
+  if (!rawProductsFetchInFlightPromise) {
+    rawProductsFetchInFlightPromise = fetchRawProductsFromDatabase()
+      .then((products) => {
+        if (products && products.length > 0) {
+          rawProductsListCache = { products, timestamp: Date.now() };
+          prewarmServerCachePayloads(products);
+        }
+        return products;
+      })
+      .catch((err) => {
+        console.error('[getProductsListData] Error in raw fetch promise:', err?.message || err);
+        return [];
+      })
+      .finally(() => {
+        rawProductsFetchInFlightPromise = null;
+      });
+  }
+
+  let products = await rawProductsFetchInFlightPromise;
+  if ((!products || products.length === 0) && rawProductsListCache) {
     products = rawProductsListCache.products;
   }
 
-  return { products };
+  return { products: products || [] };
 }
 
 // -------------------------------------------------------------

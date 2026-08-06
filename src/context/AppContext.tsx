@@ -325,6 +325,42 @@ function normalizeChat(chat: any): any {
   return res;
 }
 
+let globalModuleProductsCache: Product[] | null = null;
+
+function loadInitialProductsSync(): Product[] {
+  if (globalModuleProductsCache && globalModuleProductsCache.length > 0) {
+    return globalModuleProductsCache;
+  }
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const injected = (window as any).__INITIAL_PRODUCTS__;
+    if (Array.isArray(injected) && injected.length > 0) {
+      const normalized = injected.map((item: any) => normalizeProduct(item)).filter(Boolean);
+      if (normalized.length > 0) {
+        globalModuleProductsCache = normalized;
+        return normalized;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const storedCache = safeLocalStorage.getItem('tedbuy_local_products_backup');
+    if (storedCache) {
+      const parsed = JSON.parse(storedCache);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed.map((item: any) => normalizeProduct(item)).filter(Boolean);
+        if (normalized.length > 0) {
+          globalModuleProductsCache = normalized;
+          return normalized;
+        }
+      }
+    }
+  } catch (_) {}
+
+  return [];
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>(() => {
     try {
@@ -346,7 +382,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return map;
   }, [users]);
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => loadInitialProductsSync());
   const [productLimit, setProductLimit] = useState(24);
   const [hasMoreProducts, setHasMoreProducts] = useState(true);
   const [optimisticDeletedProductIds, setOptimisticDeletedProductIds] = useState<Set<string>>(() => {
@@ -486,7 +522,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAdminSessionVerified, setIsAdminSessionVerified] = useState<boolean>(false);
   const [adminFailedAttempts, setAdminFailedAttempts] = useState<number>(0);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [isProductsLoading, setIsProductsLoading] = useState<boolean>(() => loadInitialProductsSync().length === 0);
   const [productsLoadError, setProductsLoadError] = useState(false);
   const [googleLinkingData, setGoogleLinkingData] = useState<{ email: string; credential: any; targetUid?: string; googleUserToSignOut?: any } | null>(null);
 
@@ -1732,6 +1768,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!data || !Array.isArray(data.products)) throw new Error('Malformed /api/products response');
 
         const sorted = processProductList(data.products as Product[]);
+        globalModuleProductsCache = sorted;
         
         setProducts(sorted);
         setIsProductsLoading(false);
