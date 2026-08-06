@@ -133,7 +133,6 @@ async function fetchRawProductsFromDatabase(): Promise<any[]> {
       const { data, error } = await backendSupabase
         .from('products')
         .select('*')
-        .order('createdAt', { ascending: false })
         .limit(200)
         .abortSignal(controller.signal);
 
@@ -141,6 +140,7 @@ async function fetchRawProductsFromDatabase(): Promise<any[]> {
 
       if (!error && Array.isArray(data) && data.length > 0) {
         products = data.map((row: any) => normalizeServerProductRow(row)).filter(Boolean);
+        products.sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       } else if (error) {
         console.error('[Supabase Server Products] Error fetching products:', error.message);
       }
@@ -1290,11 +1290,8 @@ app.get('/api/products', serverRateLimiter(60 * 1000, 600, "products-list"), asy
 
     let { products } = await getProductsListData();
 
-    if ((!products || products.length === 0)) {
-      const cachedFeatured = serverCache.get<any>('featured');
-      if (cachedFeatured && Array.isArray(cachedFeatured.value?.products) && cachedFeatured.value.products.length > 0) {
-        products = cachedFeatured.value.products;
-      }
+    if (!products || products.length === 0) {
+      triggerBackgroundProductsRefresh().catch(() => {});
     }
 
     let filtered = products;
@@ -1326,11 +1323,13 @@ app.get('/api/products', serverRateLimiter(60 * 1000, 600, "products-list"), asy
       totalPages
     };
 
-    const etag = serverCache.set(cacheKey, responsePayload, cacheTTL);
-    res.setHeader('ETag', etag);
+    if (paginatedProducts.length > 0 || querySearch || querySellerId || queryCategory) {
+      const etag = serverCache.set(cacheKey, responsePayload, cacheTTL);
+      res.setHeader('ETag', etag);
 
-    if (req.headers['if-none-match'] === etag) {
-      return res.status(304).end();
+      if (req.headers['if-none-match'] === etag) {
+        return res.status(304).end();
+      }
     }
 
     return res.json({ success: true, ...responsePayload });

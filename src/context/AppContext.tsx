@@ -1772,25 +1772,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (_) {}
     }
 
-    // 3. Eager seed fetch from /api/featured (which loads in 5-10ms) so main feed displays immediately with ZERO skeleton delay
-    fetch('/api/featured')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!active) return;
-        if (data && data.success && Array.isArray(data.products) && data.products.length > 0) {
-          setProducts((current) => {
-            if (!current || current.length === 0) {
-              const seedList = processProductList(data.products as Product[]);
-              setIsProductsLoading(false);
-              setProductsLoadError(false);
-              return seedList;
-            }
-            return current;
-          });
-        }
-      })
-      .catch(() => {});
-
     const POLL_INTERVAL_MS = 30000;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
