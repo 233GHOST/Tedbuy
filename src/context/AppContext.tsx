@@ -327,6 +327,21 @@ function normalizeChat(chat: any): any {
 
 let globalModuleProductsCache: Product[] | null = null;
 
+// Eager top-level prefetch executed as soon as script bundle loads before React mounts
+if (typeof window !== 'undefined') {
+  fetch('/api/products')
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (data && Array.isArray(data.products) && data.products.length > 0) {
+        const normalized = data.products.map((item: any) => normalizeProduct(item)).filter(Boolean);
+        if (normalized.length > 0) {
+          globalModuleProductsCache = normalized;
+        }
+      }
+    })
+    .catch(() => {});
+}
+
 function loadInitialProductsSync(): Product[] {
   if (globalModuleProductsCache && globalModuleProductsCache.length > 0) {
     return globalModuleProductsCache;
@@ -1760,6 +1775,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
     const fetchProductsOnce = async (retryCount = 0) => {
+      // 0. Instantly apply globalModuleProductsCache if available for 0ms main feed render
+      if (globalModuleProductsCache && globalModuleProductsCache.length > 0) {
+        setProducts(globalModuleProductsCache);
+        setIsProductsLoading(false);
+        setProductsLoadError(false);
+      }
+
       try {
         const res = await fetch('/api/products');
         if (!res.ok) throw new Error(`/api/products returned status ${res.status}`);
