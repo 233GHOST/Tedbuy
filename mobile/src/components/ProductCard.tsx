@@ -8,9 +8,10 @@ interface ProductCardProps {
   onPress?: () => void;
   onToggleSave?: (productId: string) => void;
   isSaved?: boolean;
+  isFeaturedVariant?: boolean;
 }
 
-export function ProductCard({ product, onPress, onToggleSave, isSaved: propIsSaved }: ProductCardProps) {
+export function ProductCard({ product, onPress, onToggleSave, isSaved: propIsSaved, isFeaturedVariant }: ProductCardProps) {
   const [loaded, setLoaded] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [localIsSaved, setLocalIsSaved] = useState(false);
@@ -99,7 +100,7 @@ export function ProductCard({ product, onPress, onToggleSave, isSaved: propIsSav
 
   const formattedPrice = formatProductPrice(product.price);
   const isServiceCategory = product.category ? (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')) : false;
-  const isPrioSeller = isBoostActive();
+  const isPrioSeller = isBoostActive() && !isFeaturedVariant;
   const hasVideoAd = product.videos && product.videos.length > 0;
 
   // Handles bookmark/save click
@@ -177,6 +178,11 @@ export function ProductCard({ product, onPress, onToggleSave, isSaved: propIsSav
 
         {/* Top-Left Status Tags Row */}
         <View style={styles.tagsContainer}>
+          {isPrioSeller && (
+            <View style={styles.prioTag}>
+              <Text style={styles.prioTagText}>🔥 Active Seller</Text>
+            </View>
+          )}
           {(product as any).isSold && (
             <View style={styles.soldTag}>
               <Text style={styles.soldTagText}>SOLD</Text>

@@ -32,7 +32,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
   // O(1) user profile resolution utilizing pre-mapped dictionary or array fallback
   const seller = usersMap ? usersMap.get(product.sellerId) : users?.find(u => u.id === product.sellerId);
   const isSellerVerified = isUserVerified(seller);
-  const isPrioSeller = isBoostActive(product) || !!isFeaturedVariant;
+  const isPrioSeller = isBoostActive(product) && !isFeaturedVariant;
 
   const handleDetailsClick = () => {
     setSelectedProductId(product.id);
@@ -277,11 +277,19 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
           </div>
         )}
 
-        {product.isSold && (
+        {(isPrioSeller || product.isSold) && (
           <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-20">
-            <span className="px-2 py-0.5 bg-rose-600 border border-rose-500 text-white text-[10px] font-extrabold rounded-md uppercase tracking-widest shadow-md animate-pulse">
-              SOLD
-            </span>
+            {isPrioSeller && (
+              <span className="px-2.5 py-0.5 bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-full flex items-center gap-1 shadow-xs">
+                <Flame className="w-3 h-3 fill-slate-950 text-slate-950" />
+                Active Seller
+              </span>
+            )}
+            {product.isSold && (
+              <span className="px-2 py-0.5 bg-rose-600 border border-rose-500 text-white text-[10px] font-extrabold rounded-md uppercase tracking-widest shadow-md animate-pulse">
+                SOLD
+              </span>
+            )}
           </div>
         )}
 
