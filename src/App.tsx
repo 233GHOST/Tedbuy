@@ -1186,7 +1186,7 @@ const MarketplaceContent: React.FC = () => {
                         {debouncedSearchQuery.trim()
                           ? `Results for ${debouncedSearchQuery}`
                           : selectedCategory
-                          ? `${selectedCategory} listings`
+                          ? selectedCategory
                           : (selectedRegion !== 'All' || selectedCity !== 'All')
                           ? `${selectedRegion} Region ${selectedCity !== 'All' ? '- ' + selectedCity : ''} Deals`
                           : 'Latest Classified Deals'}

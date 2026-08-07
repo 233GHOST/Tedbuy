@@ -273,7 +273,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
               <Flame className="w-4 h-4 fill-white" />
             </div>
             <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-              {activeCategory && activeCategory !== 'All' ? `Featured ${activeCategory}` : 'Featured Listings'}
+              Featured Listings
             </h3>
           </div>
 
@@ -367,7 +367,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight font-sans">
-                      Featured {activeCategory && activeCategory !== 'All' ? activeCategory : ''} Listings
+                      Featured Listings
                     </h2>
                     <span className="bg-amber-100 text-amber-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-amber-200">
                       {featuredProducts.length} Items
