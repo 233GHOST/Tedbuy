@@ -177,11 +177,6 @@ export function ProductCard({ product, onPress, onToggleSave, isSaved: propIsSav
 
         {/* Top-Left Status Tags Row */}
         <View style={styles.tagsContainer}>
-          {isPrioSeller && (
-            <View style={styles.prioTag}>
-              <Text style={styles.prioTagText}>🔥 Active Seller</Text>
-            </View>
-          )}
           {(product as any).isSold && (
             <View style={styles.soldTag}>
               <Text style={styles.soldTagText}>SOLD</Text>

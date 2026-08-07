@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Product } from '../types';
+import { Product, Category, normalizeCategory } from '../types';
 import { ProductCard } from './ProductCard';
 import { useApp } from '../context/AppContext';
 import { isBoostActive, parseDate } from '../utils/dateParser';
@@ -8,10 +8,13 @@ import { TrendingUp, ChevronLeft, ChevronRight, Flame, X, Search } from 'lucide-
 interface FeaturedListingsProps {
   /** Optional override if parent passes filtered list directly */
   overrideProducts?: Product[];
+  selectedCategory?: Category | string | null;
 }
 
-export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProducts }) => {
-  const { products, setSelectedProductId, setCurrentView } = useApp();
+export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProducts, selectedCategory: propCategory }) => {
+  const { products, selectedCategory: contextCategory, setSelectedProductId, setCurrentView } = useApp();
+  const activeCategory = propCategory !== undefined ? propCategory : contextCategory;
+
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [activeIndex, setActiveIndex] = useState<number>(0);
@@ -30,14 +33,23 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
   const autoSwipeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isHoveredOrTouched, setIsHoveredOrTouched] = useState<boolean>(false);
 
-  // 1. Fetch or filter active non-expired boosted products
-  const filterAndSortFeatured = useCallback((allProducts: Product[]): Product[] => {
+  // 1. Fetch or filter active non-expired boosted products with category sensitivity
+  const filterAndSortFeatured = useCallback((allProducts: Product[], catFilter?: Category | string | null): Product[] => {
     return allProducts
       .filter((p) => {
         if (!p) return false;
         // Must not be hidden or sold
         if (p.status === 'hidden' || p.isSold) return false;
         
+        // Filter by category if selected and not 'All'
+        if (catFilter && catFilter !== 'All') {
+          const prodNormCat = normalizeCategory(p.category);
+          const filterNormCat = normalizeCategory(catFilter);
+          if (prodNormCat !== filterNormCat) {
+            return false;
+          }
+        }
+
         // Must be active boost and not expired
         return isBoostActive(p);
       })
@@ -56,7 +68,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.products)) {
-          const validFeatured = filterAndSortFeatured(data.products);
+          const validFeatured = filterAndSortFeatured(data.products, activeCategory);
           setFeaturedProducts(validFeatured);
           setIsLoading(false);
           return;
@@ -68,27 +80,28 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
 
     // Fallback to filtering local context products
     if (products && products.length > 0) {
-      const filtered = filterAndSortFeatured(products);
+      const filtered = filterAndSortFeatured(products, activeCategory);
       setFeaturedProducts(filtered);
     }
     setIsLoading(false);
-  }, [products, filterAndSortFeatured]);
+  }, [products, activeCategory, filterAndSortFeatured]);
 
   useEffect(() => {
+    setActiveIndex(0);
     if (overrideProducts) {
-      setFeaturedProducts(filterAndSortFeatured(overrideProducts));
+      setFeaturedProducts(filterAndSortFeatured(overrideProducts, activeCategory));
       setIsLoading(false);
       return;
     }
 
     fetchFeaturedProducts();
-  }, [overrideProducts, products, fetchFeaturedProducts, filterAndSortFeatured]);
+  }, [overrideProducts, products, activeCategory, fetchFeaturedProducts, filterAndSortFeatured]);
 
   // Periodic expiration check (every 10 seconds, client side cleanup)
   useEffect(() => {
     const interval = setInterval(() => {
       setFeaturedProducts((prev) => {
-        const updated = filterAndSortFeatured(prev);
+        const updated = filterAndSortFeatured(prev, activeCategory);
         if (updated.length !== prev.length) {
           return updated;
         }
@@ -97,7 +110,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [filterAndSortFeatured]);
+  }, [activeCategory, filterAndSortFeatured]);
 
   // Track active scroll index for pagination dots
   const handleScroll = () => {
@@ -254,7 +267,16 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
         onMouseLeave={() => setIsHoveredOrTouched(false)}
       >
         {/* Header Bar */}
-        <div className="flex items-center justify-end gap-3 mb-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2 font-sans">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs">
+              <Flame className="w-4 h-4 fill-white" />
+            </div>
+            <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+              {activeCategory && activeCategory !== 'All' ? `Featured ${activeCategory}` : 'Featured Listings'}
+            </h3>
+          </div>
+
           {/* Right side navigation: Controls & View All */}
           <div className="flex items-center gap-2.5">
             <div className="hidden sm:flex items-center gap-1.5">
@@ -345,7 +367,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight font-sans">
-                      Featured Listings
+                      Featured {activeCategory && activeCategory !== 'All' ? activeCategory : ''} Listings
                     </h2>
                     <span className="bg-amber-100 text-amber-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-amber-200">
                       {featuredProducts.length} Items

@@ -277,19 +277,13 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
           </div>
         )}
 
-        <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-20">
-          {isPrioSeller ? (
-            <span className="px-2.5 py-0.5 bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-full flex items-center gap-1 shadow-xs">
-              <Flame className="w-3 h-3 fill-slate-950 text-slate-950" />
-              Active Seller
-            </span>
-          ) : null}
-          {product.isSold && (
+        {product.isSold && (
+          <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-20">
             <span className="px-2 py-0.5 bg-rose-600 border border-rose-500 text-white text-[10px] font-extrabold rounded-md uppercase tracking-widest shadow-md animate-pulse">
               SOLD
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {product.condition && (
           <div id={`product-card-condition-${product.id}`} className="absolute bottom-2.5 left-2.5 z-20">
