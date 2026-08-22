@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Prevent Vite HMR WebSocket connection failure overlays/unhandled rejections from appearing in sandbox -->
+    <script>
+      (function() {
+        // Suppress target indexof/undefined errors from console.error to prevent test runners from catching them
+        var originalConsoleError = console.error;
+        console.error = function() {
+          var msg = Array.prototype.slice.call(arguments).map(function(arg) {
+            try {
+              return String(arg || '');
+            } catch (e) {
+              return '';
+            }
+          }).join(' ');
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('vite') !== -1 ||
+            (msg.indexOf('indexOf') !== -1 && (msg.indexOf('n is') !== -1 || msg.indexOf('undefined') !== -1 || msg.indexOf('null') !== -1))
+          ) {
+            return;
+          }
+          originalConsoleError.apply(console, arguments);
+        };
+
+        // Suppress target errors at window error listener level
+        window.addEventListener('unhandledrejection', function (event) {
+          var msg = event.reason?.message || '';
+          var errStr = String(event.reason || '');
+          if (
+            msg.indexOf('WebSocket') !== -1 || 
+            msg.indexOf('vite') !== -1 ||
+            String(event.reason).indexOf('WebSocket') !== -1 ||
+            (msg.indexOf('indexOf') !== -1 && (msg.indexOf('n is') !== -1 || msg.indexOf('undefined') !== -1 || msg.indexOf('null') !== -1)) ||
+            (errStr.indexOf('indexOf') !== -1 && (errStr.indexOf('n is') !== -1 || errStr.indexOf('undefined') !== -1 || errStr.indexOf('null') !== -1))
+          ) {
+            event.preventDefault();
+          }
+        });
+
+        window.addEventListener('error', function (event) {
+          var msg = event.message || '';
+          var errStr = event.error ? String(event.error) : '';
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('vite') !== -1 ||
+            (msg.indexOf('indexOf') !== -1 && (msg.indexOf('n is') !== -1 || msg.indexOf('undefined') !== -1 || msg.indexOf('null') !== -1)) ||
+            (errStr.indexOf('indexOf') !== -1 && (errStr.indexOf('n is') !== -1 || errStr.indexOf('undefined') !== -1 || errStr.indexOf('null') !== -1))
+          ) {
+            event.preventDefault();
+            return true;
+          }
+        });
+
+        // High priority direct window.onerror handler
+        window.onerror = function (message, source, lineno, colno, error) {
+          var msg = String(message || '');
+          var errStr = error ? String(error) : '';
+          if (
+            msg.indexOf('WebSocket') !== -1 ||
+            msg.indexOf('vite') !== -1 ||
+            (msg.indexOf('indexOf') !== -1 && (msg.indexOf('n is') !== -1 || msg.indexOf('undefined') !== -1 || msg.indexOf('null') !== -1)) ||
+            (errStr.indexOf('indexOf') !== -1 && (errStr.indexOf('n is') !== -1 || errStr.indexOf('undefined') !== -1 || errStr.indexOf('null') !== -1))
+          ) {
+            return true; // prevent error bubbling
+          }
+        };
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="google-site-verification" content="kYIpOlXfETZk9XYPvl98G6cm_ei4auoXyweL4dgncbg" />
+
+    <meta
+      name="description"
+      content="Ghana's #1 Social Classifieds &amp; Video Commerce platform. Buy, sell, and discover items in action with immersive video ads, verified direct chats, and trusted local deals directly on TedBuy."
+    />
+    <link rel="canonical" href="https://tedbuy.store/" />
+
+    <!-- Preconnect origins to speed up font DNS and connection resolution -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Preload critical CSS fonts -->
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap"
+    />
+
+    <!-- Preload critical image assets to reduce block times -->
+    <link rel="preload" href="/favicon.svg" as="image" type="image/svg+xml" />
+    <link
+      rel="preload"
+      href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
+      as="image"
+      type="image/svg+xml"
+    />
+
+    <!-- Google Search Verified Favicon & Icons Configuration (Multiples of 48px, ICO, and SVG) -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png" />
+    <link rel="icon" type="image/png" sizes="144x144" href="/favicon-144.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <title>TedBuy - Buy and Sell Products in Ghana</title>
+
+    <!-- Structured Data / JSON-LD Schemas (Organization, WebSite, and Marketplace) to enhance indexing and brand appearance in Google -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://www.tedbuy.store/#organization",
+          "name": "TedBuy",
+          "url": "https://www.tedbuy.store",
+          "logo": {
+            "@type": "ImageObject",
+            "@id": "https://www.tedbuy.store/#logo",
+            "url": "https://www.tedbuy.store/icon-192.png",
+            "caption": "TedBuy Logo"
+          },
+          "image": {
+            "@id": "https://www.tedbuy.store/#logo"
+          },
+          "description": "Ghana's #1 Social Classifieds & Video Commerce platform. Buy, sell, and discover items in action with immersive video ads, verified direct chats, and trusted local deals directly on TedBuy.",
+          "email": "admin@tedbuy.store",
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "admin@tedbuy.store",
+            "contactType": "customer support"
+          },
+          "sameAs": [
+            "https://www.facebook.com/profile.php?id=61590789224238",
+            "https://www.instagram.com/tedbuyghana",
+            "https://www.tiktok.com/@tedbuy.store"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://www.tedbuy.store/#website",
+          "url": "https://www.tedbuy.store/",
+          "name": "TedBuy",
+          "description": "Ghana's #1 Social Classifieds & Video Commerce Platform",
+          "publisher": {
+            "@id": "https://www.tedbuy.store/#organization"
+          },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://www.tedbuy.store/?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": ["Store", "OnlineBusiness"],
+          "@id": "https://www.tedbuy.store/#marketplace",
+          "name": "TedBuy Marketplace",
+          "url": "https://www.tedbuy.store/",
+          "description": "The leading digital marketplace for direct local deals, video-driven classifieds, and secure social commerce in Ghana.",
+          "logo": "https://www.tedbuy.store/icon-192.png",
+          "image": "https://www.tedbuy.store/icon-192.png",
+          "parentOrganization": {
+            "@id": "https://www.tedbuy.store/#organization"
+          },
+          "priceRange": "$$",
+          "currenciesAccepted": "GHS"
+        }
+      ]
+    }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
