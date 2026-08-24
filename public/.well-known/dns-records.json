@@ -1,0 +1,41 @@
+{
+  "dnssec": {
+    "status": "active",
+    "algorithm": "RSASHA256",
+    "signed_zone": "tedbuy.store"
+  },
+  "dns_records": [
+    {
+      "name": "_index._agents.tedbuy.store",
+      "type": "HTTPS",
+      "ttl": 3600,
+      "class": "IN",
+      "priority": 1,
+      "target": ".",
+      "params": {
+        "alpn": "h2,h3",
+        "port": 443,
+        "ipv4hint": "216.58.210.14",
+        "key_uri": "https://tedbuy.store/.well-known/jwks.json",
+        "service-doc": "https://tedbuy.store/auth.md",
+        "api-catalog": "https://tedbuy.store/.well-known/api-catalog"
+      }
+    },
+    {
+      "name": "_a2a._agents.tedbuy.store",
+      "type": "HTTPS",
+      "ttl": 3600,
+      "class": "IN",
+      "priority": 1,
+      "target": ".",
+      "params": {
+        "alpn": "h2,h3",
+        "port": 443,
+        "ipv4hint": "216.58.210.14",
+        "key_uri": "https://tedbuy.store/.well-known/jwks.json",
+        "service-doc": "https://tedbuy.store/auth.md",
+        "api-catalog": "https://tedbuy.store/.well-known/api-catalog"
+      }
+    }
+  ]
+}

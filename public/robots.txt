@@ -1,0 +1,42 @@
+User-agent: *
+Allow: /
+Allow: /product/
+Allow: /store/
+Allow: /category/
+Allow: /favicon*
+Allow: /icon*
+Allow: /apple-touch-icon.png
+Disallow: /admin
+Disallow: /settings
+Disallow: /dashboard
+Disallow: /chats
+Disallow: /api/
+Disallow: /*search_term_string*
+Disallow: /*?*q={*
+
+User-agent: Googlebot
+Allow: /
+Allow: /product/
+Allow: /store/
+Allow: /category/
+Allow: /favicon*
+Allow: /icon*
+Allow: /apple-touch-icon.png
+Disallow: /admin
+Disallow: /settings
+Disallow: /dashboard
+Disallow: /chats
+Disallow: /api/
+Disallow: /*search_term_string*
+Disallow: /*?*q={*
+
+User-agent: Googlebot-Image
+Allow: /
+Allow: /*.ico$
+Allow: /*.png$
+Allow: /*.svg$
+Allow: /favicon*
+Allow: /icon*
+Allow: /apple-touch-icon.png
+
+Sitemap: https://www.tedbuy.store/sitemap.xml
