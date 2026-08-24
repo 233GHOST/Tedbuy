@@ -728,22 +728,6 @@ const MarketplaceContent: React.FC = () => {
                 {/* Hidden programmatic click trigger so video empty-state CTA remains completely functional */}
                 <button id="hero-post-ad-btn" onClick={handlePostAdBtn} className="hidden" />
 
-                {/* Social Marketplace Headline Badge */}
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-slate-200/80 rounded-full shadow-3xs">
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                    </span>
-                    <span className="text-xs font-black text-slate-800 tracking-tight">
-                      Ghana's Social Marketplace
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500 hidden sm:inline font-medium">
-                    Discover products • Watch seller videos • Connect directly
-                  </span>
-                </div>
-
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end relative z-30">
                   {/* Left Column: Prominent Search Bar */}
                   <div className="lg:col-span-6 text-left w-full">

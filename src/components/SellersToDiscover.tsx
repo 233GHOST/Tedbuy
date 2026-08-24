@@ -81,15 +81,12 @@ export function SellersToDiscover({ selectedCategory }: SellersToDiscoverProps) 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#ea580c]">
-              <Store className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-white shadow-xs">
+              <Store className="w-4 h-4 text-white" />
             </div>
             <div>
               <h3 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
                 <span>Sellers to Discover</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-100/80 text-[#c2410c] rounded-full uppercase tracking-wider">
-                  Active Stores
-                </span>
               </h3>
             </div>
           </div>

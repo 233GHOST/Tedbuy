@@ -366,15 +366,6 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               <View>
                 {/* Search Container matching Web App "LOOKING FOR SOMETHING?" card */}
                 <View style={styles.searchBoxCard}>
-                  {/* Social Marketplace Headline Badge */}
-                  <View style={styles.socialBadgeRow}>
-                    <View style={styles.socialBadgePill}>
-                      <View style={styles.socialPulseDot} />
-                      <Text style={styles.socialBadgeText}>Ghana's Social Marketplace</Text>
-                    </View>
-                    <Text style={styles.socialBadgeSub}>Discover • Connect • Shop</Text>
-                  </View>
-
                   <Text style={styles.searchLabel}>LOOKING FOR SOMETHING?</Text>
                   <View style={styles.searchRow}>
                     <Text style={styles.searchEmoji}>🔍</Text>
