@@ -1,10 +1,30 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, watchChats, watchMessages, sendMessage, watchUsers } from '../firebase';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
+
+function formatMobileDateGroup(dateVal: any): string {
+  if (!dateVal) return 'Earlier';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return 'Earlier';
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  const diffTime = today.getTime() - target.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays > 1 && diffDays < 7) {
+    return d.toLocaleDateString('en-US', { weekday: 'short' });
+  }
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 export function ChatsScreen() {
   const navigation = useNavigation<any>();
@@ -14,6 +34,10 @@ export function ChatsScreen() {
   const [messages, setMessages] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Search & Filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterMode, setFilterMode] = useState<'all' | 'buying' | 'selling'>('all');
 
   // Active chat state
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -84,13 +108,14 @@ export function ChatsScreen() {
     return unsubMessages;
   }, [activeChatId]);
 
-  const handleSendMessage = async () => {
-    const trimmed = messageText.trim();
+  const handleSendMessage = async (customText?: string) => {
+    const textToSend = typeof customText === 'string' ? customText : messageText;
+    const trimmed = textToSend.trim();
     if (!trimmed || !activeChatId) return;
 
     try {
       setSending(true);
-      setMessageText('');
+      if (!customText) setMessageText('');
       await sendMessage(activeChatId, trimmed);
     } catch (err: any) {
       Alert.alert('Message Failed', err.message || 'Could not dispatch message.');
@@ -100,6 +125,25 @@ export function ChatsScreen() {
   };
 
   const currentUser = auth.currentUser;
+
+  // Filter chats by query and tab
+  const filteredChats = useMemo(() => {
+    if (!currentUser) return [];
+    return chats.filter((c) => {
+      if (filterMode === 'buying' && c.buyerId !== currentUser.uid) return false;
+      if (filterMode === 'selling' && c.sellerId !== currentUser.uid) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const peer = (c.buyerId === currentUser.uid ? c.sellerName : c.buyerName) || '';
+        const title = c.productTitle || '';
+        const lastMsg = c.lastMessageText || '';
+        if (!peer.toLowerCase().includes(q) && !title.toLowerCase().includes(q) && !lastMsg.toLowerCase().includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [chats, currentUser, filterMode, searchQuery]);
 
   // Guest State UI
   if (!currentUser) {
@@ -135,6 +179,10 @@ export function ChatsScreen() {
     const peerUser = users.find((u) => u.id === peerId);
     const displayPeerName = peerUser?.username || (isPeerSeller ? activeChat.sellerName : activeChat.buyerName) || 'User';
 
+    const quickReplies = isPeerSeller
+      ? ['Is this still available?', 'What is your last price?', 'Where is your pickup location?', 'Can we meet today?']
+      : ['Yes, it is still available!', 'Price is negotiable.', 'Where are you located?', 'When can we meet?'];
+
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <KeyboardAvoidingView
@@ -147,7 +195,6 @@ export function ChatsScreen() {
             <Pressable
               onPress={() => {
                 setActiveChatId(null);
-                // Clear activeChatId in route parameters
                 navigation.setParams({ activeChatId: undefined });
               }}
               style={styles.chatRoomBackBtn}
@@ -158,33 +205,35 @@ export function ChatsScreen() {
               <Text style={styles.chatRoomTitle} numberOfLines={1}>
                 {displayPeerName}
               </Text>
-              <Text style={styles.chatRoomSubtitle}>Active secure tunnel</Text>
+              <Text style={styles.chatRoomSubtitle}>Verified Chat Tunnel</Text>
             </View>
             <View style={styles.placeholderBtn} />
           </View>
 
           {/* Connected Product header panel */}
-          <View style={styles.productPanel}>
-            <View style={styles.productInfoRow}>
-              <View style={styles.productBadge}>
-                <Text style={styles.productBadgeText}>Spotlight</Text>
+          {activeChat.productId && activeChat.productId !== 'support_welcome' && (
+            <View style={styles.productPanel}>
+              <View style={styles.productInfoRow}>
+                <View style={styles.productBadge}>
+                  <Text style={styles.productBadgeText}>Item</Text>
+                </View>
+                <Text style={styles.productTitleText} numberOfLines={1}>
+                  {activeChat.productTitle}
+                </Text>
+                <Text style={styles.productPriceText}>{activeChat.productPrice}</Text>
               </View>
-              <Text style={styles.productTitleText} numberOfLines={1}>
-                {activeChat.productTitle}
-              </Text>
-              <Text style={styles.productPriceText}>{activeChat.productPrice}</Text>
+              <Pressable
+                onPress={() => {
+                  if (activeChat.productId) {
+                    navigation.navigate('ProductDetail', { productId: activeChat.productId });
+                  }
+                }}
+                style={styles.viewProductBtn}
+              >
+                <Text style={styles.viewProductBtnText}>View Listing →</Text>
+              </Pressable>
             </View>
-            <Pressable
-              onPress={() => {
-                if (activeChat.productId) {
-                  navigation.navigate('ProductDetail', { productId: activeChat.productId });
-                }
-              }}
-              style={styles.viewProductBtn}
-            >
-              <Text style={styles.viewProductBtnText}>View Specs →</Text>
-            </Pressable>
-          </View>
+          )}
 
           {/* Messages List */}
           <FlatList
@@ -198,33 +247,55 @@ export function ChatsScreen() {
                 <Text style={styles.emptyStateEmoji}>🔒</Text>
                 <Text style={styles.emptyStateTitle}>Fully Encrypted Chat</Text>
                 <Text style={styles.emptyStateText}>
-                  This conversation is end-to-end encrypted. Type a message below to coordinate purchase or pickup.
+                  This conversation is synchronized in real-time. Type a message below to coordinate purchase or pickup.
                 </Text>
               </View>
             }
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const isMe = item.senderId === currentUser.uid;
+              const curGroup = formatMobileDateGroup(item.createdAt);
+              const prevGroup = index > 0 ? formatMobileDateGroup(messages[index - 1].createdAt) : null;
+              const showDate = index === 0 || curGroup !== prevGroup;
+              const timeStr = item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
               return (
-                <View
-                  style={[
-                    styles.messageRow,
-                    isMe ? styles.messageRowMe : styles.messageRowPeer,
-                  ]}
-                >
+                <View key={item.id}>
+                  {showDate && (
+                    <View style={styles.dateDivider}>
+                      <Text style={styles.dateDividerText}>{curGroup}</Text>
+                    </View>
+                  )}
                   <View
                     style={[
-                      styles.messageBubble,
-                      isMe ? styles.messageBubbleMe : styles.messageBubblePeer,
+                      styles.messageRow,
+                      isMe ? styles.messageRowMe : styles.messageRowPeer,
                     ]}
                   >
-                    <Text
+                    <View
                       style={[
-                        styles.messageTextContent,
-                        isMe ? styles.messageTextMe : styles.messageTextPeer,
+                        styles.messageBubble,
+                        isMe ? styles.messageBubbleMe : styles.messageBubblePeer,
                       ]}
                     >
-                      {item.text}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.messageTextContent,
+                          isMe ? styles.messageTextMe : styles.messageTextPeer,
+                        ]}
+                      >
+                        {item.text}
+                      </Text>
+                      <View style={[styles.timeRow, isMe ? styles.timeRowMe : styles.timeRowPeer]}>
+                        <Text style={[styles.messageTime, isMe ? styles.messageTimeMe : styles.messageTimePeer]}>
+                          {timeStr}
+                        </Text>
+                        {isMe && (
+                          <Text style={styles.readStatusText}>
+                            {item.read ? ' ✓✓' : ' ✓'}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
                   </View>
                 </View>
               );
@@ -232,19 +303,34 @@ export function ChatsScreen() {
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           />
 
+          {/* Quick reply chips */}
+          <View style={styles.quickRepliesContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRepliesContent}>
+              {quickReplies.map((qr, qIdx) => (
+                <Pressable
+                  key={qIdx}
+                  onPress={() => setMessageText(qr)}
+                  style={styles.quickReplyChip}
+                >
+                  <Text style={styles.quickReplyText}>{qr}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+
           {/* Message Input bottom bar */}
           <View style={styles.inputBar}>
             <TextInput
               style={styles.chatTextInput}
               value={messageText}
               onChangeText={setMessageText}
-              placeholder="Type your message..."
-              placeholderTextColor="#64748b"
+              placeholder={`Reply to ${displayPeerName}...`}
+              placeholderTextColor="#94a3b8"
               multiline
               maxLength={1000}
             />
             <Pressable
-              onPress={handleSendMessage}
+              onPress={() => handleSendMessage()}
               style={[
                 styles.sendBtn,
                 !messageText.trim() && styles.sendBtnDisabled,
@@ -268,30 +354,64 @@ export function ChatsScreen() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.title}>Messages</Text>
-        <Text style={styles.subtitle}>Keep your conversations moving just like on the web app.</Text>
+        <Text style={styles.subtitle}>Direct discussions and trade negotiations.</Text>
       </View>
 
       <View style={styles.body}>
-        <View style={styles.heroCard}>
-          <Text style={styles.heroLabel}>Inbox</Text>
-          <Text style={styles.heroText}>Stay in touch with buyers and sellers and close deals faster.</Text>
+        {/* Search bar */}
+        <View style={styles.searchBarBox}>
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search messages..."
+            placeholderTextColor="#94a3b8"
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
+              <Text style={styles.clearSearchText}>✕</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* Filter chips */}
+        <View style={styles.filterRow}>
+          {(['all', 'buying', 'selling'] as const).map((mode) => {
+            const isActive = filterMode === mode;
+            const labels = { all: 'All Chats', buying: 'Buying', selling: 'Selling' };
+            return (
+              <Pressable
+                key={mode}
+                onPress={() => setFilterMode(mode)}
+                style={[styles.filterChip, isActive && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                  {labels[mode]}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         {loading ? (
           <View style={styles.loading}>
             <ActivityIndicator size="large" color="#ea580c" />
           </View>
-        ) : chats.length === 0 ? (
+        ) : filteredChats.length === 0 ? (
           <View style={styles.emptyInbox}>
             <Text style={styles.emptyInboxEmoji}>📬</Text>
-            <Text style={styles.emptyInboxTitle}>No conversations yet</Text>
+            <Text style={styles.emptyInboxTitle}>
+              {searchQuery ? 'No matching conversations' : 'No conversations yet'}
+            </Text>
             <Text style={styles.emptyInboxText}>
-              Find products you like on the Home feed and message sellers to start negotiations.
+              {searchQuery
+                ? 'Try a different search term or clear the search query.'
+                : 'Browse products on the Home feed and message sellers to start negotiations.'}
             </Text>
           </View>
         ) : (
           <FlatList
-            data={chats}
+            data={filteredChats}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => {
@@ -317,6 +437,9 @@ export function ChatsScreen() {
                         {item.lastMessageTime ? new Date(item.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                       </Text>
                     </View>
+                    <Text style={styles.productSnippet} numberOfLines={1}>
+                      {item.productTitle || 'Marketplace Item'}
+                    </Text>
                     <Text style={styles.message} numberOfLines={1}>
                       {item.lastMessageText || 'No messages yet'}
                     </Text>
@@ -341,6 +464,17 @@ const styles = StyleSheet.create({
   bodyCenter: { flex: 1, backgroundColor: '#f8fafc', justifyContent: 'center', alignItems: 'center', padding: 24 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' },
 
+  searchBarBox: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 12, backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 12 },
+  searchInput: { flex: 1, height: 38, fontSize: 13, color: '#0f172a' },
+  clearSearchBtn: { padding: 4 },
+  clearSearchText: { color: '#94a3b8', fontSize: 13, fontWeight: '700' },
+
+  filterRow: { flexDirection: 'row', gap: 6, marginHorizontal: 16, marginTop: 8, marginBottom: 8 },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f1f5f9' },
+  filterChipActive: { backgroundColor: '#0f172a' },
+  filterChipText: { fontSize: 11.5, fontWeight: '700', color: '#64748b' },
+  filterChipTextActive: { color: '#ffffff' },
+
   /* Guest / Offline Screen */
   guestCard: { backgroundColor: '#ffffff', borderRadius: 24, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0', width: '100%', shadowColor: '#0f172a', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
   guestEmoji: { fontSize: 44, marginBottom: 12 },
@@ -349,10 +483,7 @@ const styles = StyleSheet.create({
   guestCta: { marginTop: 18, backgroundColor: '#ea580c', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24, width: '100%', alignItems: 'center' },
   guestCtaText: { color: '#ffffff', fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
 
-  heroCard: { marginHorizontal: 16, marginTop: 14, marginBottom: 12, backgroundColor: '#fff', borderRadius: 16, padding: 14, shadowColor: '#0f172a', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, borderWidth: 1, borderColor: '#e2e8f0' },
-  heroLabel: { color: '#ea580c', fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.2 },
-  heroText: { color: '#1e293b', marginTop: 4, fontWeight: '700', fontSize: 13 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 24 },
+  listContent: { paddingHorizontal: 16, paddingBottom: 24, paddingTop: 4 },
 
   emptyInbox: { alignItems: 'center', justifyContent: 'center', padding: 32, marginTop: 40 },
   emptyInboxEmoji: { fontSize: 40, marginBottom: 10 },
@@ -366,7 +497,8 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   name: { color: '#1e293b', fontWeight: '800', fontSize: 14 },
   time: { color: '#94a3b8', fontSize: 11, fontWeight: '600', maxWidth: 80, textAlign: 'right' },
-  message: { color: '#475569', marginTop: 4, fontSize: 13 },
+  productSnippet: { color: '#ea580c', fontSize: 11, fontWeight: '700', marginTop: 1 },
+  message: { color: '#64748b', marginTop: 3, fontSize: 12.5 },
 
   /* Chat Room Styling */
   chatRoomHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#020617', justifyContent: 'space-between' },
@@ -386,25 +518,40 @@ const styles = StyleSheet.create({
   viewProductBtn: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#cbd5e1' },
   viewProductBtnText: { color: '#0f172a', fontSize: 10, fontWeight: '800' },
 
-  messagesList: { paddingHorizontal: 14, paddingVertical: 16, flexGrow: 1, backgroundColor: '#f8fafc' },
+  messagesList: { paddingHorizontal: 14, paddingVertical: 12, flexGrow: 1, backgroundColor: '#f8fafc' },
   messagesEmptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, marginTop: 40 },
   emptyStateEmoji: { fontSize: 32, marginBottom: 8 },
   emptyStateTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
   emptyStateText: { fontSize: 11.5, color: '#64748b', textAlign: 'center', marginTop: 4, lineHeight: 18 },
 
-  messageRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
+  dateDivider: { alignItems: 'center', marginVertical: 10 },
+  dateDividerText: { backgroundColor: '#e2e8f0', color: '#64748b', fontSize: 10, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 2, borderRadius: 10, textTransform: 'uppercase' },
+
+  messageRow: { flexDirection: 'row', marginBottom: 8, width: '100%' },
   messageRowMe: { justifyContent: 'flex-end' },
   messageRowPeer: { justifyContent: 'flex-start' },
-  messageBubble: { maxWidth: '75%', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10, shadowColor: '#0f172a', shadowOpacity: 0.02, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
-  messageBubbleMe: { backgroundColor: '#ea580c', borderBottomRightRadius: 2 },
+  messageBubble: { maxWidth: '78%', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9, shadowColor: '#0f172a', shadowOpacity: 0.02, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
+  messageBubbleMe: { backgroundColor: '#0f172a', borderBottomRightRadius: 2 },
   messageBubblePeer: { backgroundColor: '#ffffff', borderBottomLeftRadius: 2, borderWidth: 1, borderColor: '#e2e8f0' },
   messageTextContent: { fontSize: 13.5, lineHeight: 19 },
   messageTextMe: { color: '#ffffff', fontWeight: '500' },
   messageTextPeer: { color: '#0f172a', fontWeight: '500' },
+  timeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+  timeRowMe: { justifyContent: 'flex-end' },
+  timeRowPeer: { justifyContent: 'flex-start' },
+  messageTime: { fontSize: 9.5 },
+  messageTimeMe: { color: '#94a3b8' },
+  messageTimePeer: { color: '#94a3b8' },
+  readStatusText: { color: '#38bdf8', fontSize: 9.5, fontWeight: '700' },
 
-  inputBar: { flexDirection: 'row', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', alignItems: 'center', gap: 10 },
-  chatTextInput: { flex: 1, backgroundColor: '#f1f5f9', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: '#0f172a', fontWeight: '500', maxHeight: 80, borderWidth: 1, borderColor: '#e2e8f0' },
-  sendBtn: { backgroundColor: '#ea580c', borderRadius: 20, paddingHorizontal: 16, height: 38, justifyContent: 'center', alignItems: 'center', shadowColor: '#ea580c', shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+  quickRepliesContainer: { backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingVertical: 6 },
+  quickRepliesContent: { paddingHorizontal: 12, gap: 6 },
+  quickReplyChip: { backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+  quickReplyText: { fontSize: 11.5, color: '#334155', fontWeight: '600' },
+
+  inputBar: { flexDirection: 'row', paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e2e8f0', alignItems: 'center', gap: 10 },
+  chatTextInput: { flex: 1, backgroundColor: '#f1f5f9', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 13.5, color: '#0f172a', fontWeight: '500', maxHeight: 80, borderWidth: 1, borderColor: '#e2e8f0' },
+  sendBtn: { backgroundColor: '#0f172a', borderRadius: 20, paddingHorizontal: 16, height: 38, justifyContent: 'center', alignItems: 'center', shadowColor: '#0f172a', shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
   sendBtnDisabled: { backgroundColor: '#cbd5e1' },
   sendBtnText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
 });

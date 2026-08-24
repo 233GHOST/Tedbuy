@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { Chat, Message, User } from '../types';
-import { ArrowLeft, Send, ShoppingBag, Eye, MessageSquare, ShieldAlert, Star, CheckCircle, Trash2, Check, CheckCheck } from 'lucide-react';
+import { ArrowLeft, Send, ShoppingBag, Eye, MessageSquare, ShieldAlert, Star, CheckCircle, Trash2, Check, CheckCheck, Search, X, Copy, ChevronDown, Sparkles } from 'lucide-react';
 import { ReviewModal } from './ReviewModal';
 import { getVisibleChats } from '../utils/chatStateUtils';
-import { formatTedbuyTenure } from '../utils/dateParser';
+import { formatTedbuyTenure, formatMessageDateGroup } from '../utils/dateParser';
 import { doc, onSnapshot } from '../dbAdapter';
 
 interface VideoThumbnailProps {
@@ -149,6 +149,10 @@ export const ChatInterface: React.FC = () => {
   } = useApp();
 
   const [inputText, setInputText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'buying' | 'selling'>('all');
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [isDelivering, setIsDelivering] = useState(false);
   const [isPickingUp, setIsPickingUp] = useState(false);
   const [contextMenuChatId, setContextMenuChatId] = useState<string | null>(null);
@@ -186,6 +190,8 @@ export const ChatInterface: React.FC = () => {
             scrollTop: el.scrollTop,
             clientHeight: el.clientHeight
           });
+          const isScrolledUp = el.scrollHeight - el.scrollTop - el.clientHeight > 140;
+          setShowScrollBottom(isScrolledUp);
         }
       });
     };
@@ -238,9 +244,32 @@ export const ChatInterface: React.FC = () => {
           return !isSupportChat;
         }
       }
+
+      // User inbox filter
+      if (inboxFilter === 'buying') {
+        if (c.buyerId !== currentUser.id) return false;
+      } else if (inboxFilter === 'selling') {
+        if (c.sellerId !== currentUser.id) return false;
+      } else if (inboxFilter === 'unread') {
+        const unreadCount = messages.filter(
+          m => m.chatId === c.id && m.recipientId === currentUser.id && !m.read && !deletedMessageIds.has(m.id)
+        ).length;
+        if (unreadCount === 0) return false;
+      }
+
+      // Search query filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const peerName = (c.buyerId === currentUser.id ? c.sellerName : c.buyerName) || '';
+        const prodTitle = c.productTitle || '';
+        const lastMsg = c.lastMessageText || '';
+        const matchesQuery = peerName.toLowerCase().includes(q) || prodTitle.toLowerCase().includes(q) || lastMsg.toLowerCase().includes(q);
+        if (!matchesQuery) return false;
+      }
+
       return true;
     });
-  }, [chats, currentUser, isAdminUser, adminChatFilter, deletedChatIds]);
+  }, [chats, currentUser, isAdminUser, adminChatFilter, inboxFilter, searchQuery, deletedChatIds, messages, deletedMessageIds]);
 
   // If no chat is active, pick the first one from the list by default
   useEffect(() => {
@@ -504,11 +533,65 @@ export const ChatInterface: React.FC = () => {
         
         {/* Left Side: Inbox List (4 cols) */}
         <div className={`${viewingChatOnMobile ? 'hidden md:flex' : 'flex'} md:col-span-4 border-r border-slate-150 flex flex-col h-full bg-slate-50`}>
-          <div className="p-4 border-b border-slate-150 bg-white sticky top-0 z-10">
-            <h2 className="text-lg font-bold text-slate-900 font-sans flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-slate-900" />
-              <span>Inbox History</span>
-            </h2>
+          <div className="p-3.5 border-b border-slate-150 bg-white sticky top-0 z-10 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-900 font-sans flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-slate-900" />
+                <span>Inbox</span>
+              </h2>
+              <span className="text-[11px] font-bold text-slate-400 font-mono">
+                {myChats.length} {myChats.length === 1 ? 'chat' : 'chats'}
+              </span>
+            </div>
+
+            {/* Quick search input */}
+            <div className="relative flex items-center">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search conversations..."
+                className="w-full pl-8 pr-7 py-1.5 bg-slate-100 focus:bg-white text-xs text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200/80 focus:border-slate-400 focus:outline-none transition"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                  title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Filter pills: All, Unread, Buying, Selling */}
+            <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
+              {(['all', 'unread', 'buying', 'selling'] as const).map((filterKey) => {
+                const isActive = inboxFilter === filterKey;
+                const labels: Record<string, string> = {
+                  all: 'All',
+                  unread: 'Unread',
+                  buying: 'Buying',
+                  selling: 'Selling'
+                };
+                return (
+                  <button
+                    key={filterKey}
+                    type="button"
+                    onClick={() => setInboxFilter(filterKey)}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition shrink-0 cursor-pointer ${
+                      isActive
+                        ? 'bg-slate-900 text-white shadow-3xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
+                    }`}
+                  >
+                    {labels[filterKey]}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {isAdminUser ? (
@@ -1105,58 +1188,100 @@ export const ChatInterface: React.FC = () => {
                     const formattedTime = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     const isSystemAlert = msg.id.startsWith('sys_') || msg.text.startsWith('📦') || msg.text.startsWith('🤝');
 
+                    // Date grouping calculation
+                    const currentDateGroup = formatMessageDateGroup(msg.createdAt);
+                    const prevDateGroup = i > 0 ? formatMessageDateGroup(activeMessages[i - 1].createdAt) : null;
+                    const showDateSeparator = i === 0 || currentDateGroup !== prevDateGroup;
+
                     if (isSystemAlert) {
                       return (
-                        <div key={msg.id} className="flex justify-center my-3 select-none">
-                          <div className="bg-slate-100 text-slate-800 border border-slate-200 px-4 py-3 rounded-2xl flex items-center gap-2 max-w-sm sm:max-w-md font-sans text-xs text-left leading-relaxed shadow-3xs">
-                            <span className="text-sm shrink-0">💡</span>
-                            <span className="font-semibold">{msg.text}</span>
+                        <React.Fragment key={msg.id}>
+                          {showDateSeparator && (
+                            <div className="flex justify-center my-2 select-none">
+                              <span className="bg-slate-200/80 text-slate-600 text-[10px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider">
+                                {currentDateGroup}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-center my-3 select-none">
+                            <div className="bg-slate-100 text-slate-800 border border-slate-200 px-4 py-3 rounded-2xl flex items-center gap-2 max-w-sm sm:max-w-md font-sans text-xs text-left leading-relaxed shadow-3xs">
+                              <span className="text-sm shrink-0">💡</span>
+                              <span className="font-semibold">{msg.text}</span>
+                            </div>
                           </div>
-                        </div>
+                        </React.Fragment>
                       );
                     }
 
                     return (
-                      <div
-                        key={msg.id}
-                        className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`max-w-[70%] text-left ${mine ? 'order-1' : 'order-2'}`}>
-                          <div
-                            className={`p-3.5 rounded-2xl text-sm font-sans leading-relaxed shadow-xs ${
-                              mine
-                                ? 'bg-slate-900 text-white font-medium rounded-tr-none'
-                                : 'bg-white text-slate-800 rounded-tl-none border border-slate-200'
-                            }`}
-                          >
-                            {msg.text}
+                      <React.Fragment key={msg.id}>
+                        {showDateSeparator && (
+                          <div className="flex justify-center my-2 select-none">
+                            <span className="bg-slate-200/80 text-slate-600 text-[10px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider">
+                              {currentDateGroup}
+                            </span>
                           </div>
-                          <div className={`text-[9px] text-slate-400 font-mono mt-1 flex items-center gap-1 ${mine ? 'justify-end' : 'justify-start'}`}>
-                            <span>{formattedTime}</span>
-                            {mine && (
-                              msg.read ? (
-                                <span className="inline-flex items-center gap-0.5 text-sky-500 font-bold ml-1" title="Read by recipient">
-                                  <CheckCheck className="w-3.5 h-3.5 inline stroke-[2.5]" /> Read
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-0.5 text-slate-400 font-medium ml-1" title="Sent">
-                                  <Check className="w-3 h-3 inline stroke-[2.5]" /> Sent
-                                </span>
-                              )
-                            )}
-                            {mine && !isSystemAlert && (
+                        )}
+                        <div
+                          className={`flex ${mine ? 'justify-end' : 'justify-start'} group`}
+                        >
+                          <div className={`max-w-[80%] sm:max-w-[70%] text-left ${mine ? 'order-1' : 'order-2'}`}>
+                            <div
+                              className={`p-3.5 rounded-2xl text-sm font-sans leading-relaxed shadow-xs relative ${
+                                mine
+                                  ? 'bg-slate-900 text-white font-medium rounded-tr-none'
+                                  : 'bg-white text-slate-800 rounded-tl-none border border-slate-200'
+                              }`}
+                            >
+                              <div className="break-words whitespace-pre-wrap">{msg.text}</div>
+                            </div>
+                            <div className={`text-[9px] text-slate-400 font-mono mt-1 flex items-center gap-1.5 ${mine ? 'justify-end' : 'justify-start'}`}>
+                              <span>{formattedTime}</span>
+                              {mine && (
+                                msg.read ? (
+                                  <span className="inline-flex items-center gap-0.5 text-sky-500 font-bold ml-0.5" title="Read by recipient">
+                                    <CheckCheck className="w-3.5 h-3.5 inline stroke-[2.5]" /> Read
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-0.5 text-slate-400 font-medium ml-0.5" title="Sent">
+                                    <Check className="w-3 h-3 inline stroke-[2.5]" /> Sent
+                                  </span>
+                                )
+                              )}
                               <button
                                 type="button"
-                                onClick={() => handleDeleteMessage(msg.id)}
-                                className="ml-2 text-[9px] text-slate-500 hover:text-slate-700 transition"
-                                title="Delete message"
+                                onClick={() => {
+                                  if (navigator.clipboard) {
+                                    navigator.clipboard.writeText(msg.text);
+                                    setCopiedMsgId(msg.id);
+                                    setTimeout(() => setCopiedMsgId(null), 2000);
+                                  }
+                                }}
+                                className="text-[9px] text-slate-400 hover:text-slate-700 transition ml-1 cursor-pointer"
+                                title="Copy message text"
                               >
-                                Delete
+                                {copiedMsgId === msg.id ? (
+                                  <span className="text-emerald-600 font-bold flex items-center gap-0.5">
+                                    <Check className="w-2.5 h-2.5" /> Copied
+                                  </span>
+                                ) : (
+                                  <Copy className="w-2.5 h-2.5 opacity-60 hover:opacity-100" />
+                                )}
                               </button>
-                            )}
+                              {mine && !isSystemAlert && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMessage(msg.id)}
+                                  className="ml-1 text-[9px] text-slate-400 hover:text-red-600 transition cursor-pointer"
+                                  title="Delete message"
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </React.Fragment>
                     );
                   })}
 
@@ -1176,6 +1301,56 @@ export const ChatInterface: React.FC = () => {
                   <div ref={chatEndRef} />
                 </div>
               </div>
+
+              {/* Scroll to bottom button when user scrolls up */}
+              {showScrollBottom && (
+                <button
+                  type="button"
+                  onClick={() => scrollToBottom('smooth')}
+                  className="absolute bottom-28 right-6 z-20 bg-slate-900/90 hover:bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 backdrop-blur-xs transition active:scale-95 animate-fade-in cursor-pointer border border-slate-700/50"
+                  title="Scroll to latest messages"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <span>Latest messages</span>
+                </button>
+              )}
+
+              {/* Suggested deal quick replies */}
+              {activeChat.productId !== 'support_welcome' && (
+                <div className="px-3 pt-2 bg-white border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto scrollbar-none shrink-0">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 shrink-0 flex items-center gap-1 mr-1">
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    Quick replies:
+                  </span>
+                  {(activeChat.buyerId === currentUser?.id
+                    ? [
+                        'Is this still available?',
+                        'What is your last price?',
+                        'Where is your pickup location?',
+                        'Can we meet today?'
+                      ]
+                    : [
+                        'Yes, it is still available!',
+                        'Price is slightly negotiable.',
+                        'Where are you located?',
+                        'When are you available to meet?'
+                      ]
+                  ).map((promptText, pIdx) => (
+                    <button
+                      key={pIdx}
+                      type="button"
+                      onClick={() => {
+                        setInputText(promptText);
+                        const inputEl = document.getElementById('chat-writing-input') as HTMLInputElement | null;
+                        inputEl?.focus();
+                      }}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200/80 active:bg-slate-200 text-slate-700 text-xs font-medium rounded-full border border-slate-200/60 whitespace-nowrap transition shrink-0 cursor-pointer"
+                    >
+                      {promptText}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {pendingDeleteAction && (
                 <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-[2px]">

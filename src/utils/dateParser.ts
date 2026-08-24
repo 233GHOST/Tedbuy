@@ -163,6 +163,33 @@ export function getBoostEndDate(product: Product | null | undefined): Date | nul
 }
 
 /**
+ * Formats a message timestamp into a clean date separator header (e.g. "Today", "Yesterday", "May 12", "Dec 14, 2025")
+ */
+export function formatMessageDateGroup(dateVal: any): string {
+  const d = parseDate(dateVal);
+  if (!d) return 'Earlier';
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  const diffTime = today.getTime() - targetDate.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays > 1 && diffDays < 7) {
+    return d.toLocaleDateString('en-US', { weekday: 'long' });
+  }
+
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
  * Checks if a product has an active non-expired premium listing boost
  */
 export function isBoostActive(product: Product | null | undefined): boolean {
