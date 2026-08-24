@@ -18,16 +18,6 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Touch & Swipe gesture refs
-  const touchStartXRef = useRef<number>(0);
-  const touchStartYRef = useRef<number>(0);
-  const scrollStartLeftRef = useRef<number>(0);
-  const isSwipingRef = useRef<boolean>(false);
-  const isTouchActiveRef = useRef<boolean>(false);
-
-  const autoSwipeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [isHoveredOrTouched, setIsHoveredOrTouched] = useState<boolean>(false);
-
   // Filter and sort top 10 most viewed items (excluding sold & hidden)
   const filterAndSortTrending = useCallback((allProducts: Product[], catFilter?: Category | string | null): Product[] => {
     if (!allProducts || allProducts.length === 0) return [];
@@ -136,65 +126,6 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
     }
   };
 
-  // Auto-swipe timer removed per user request
-  useEffect(() => {
-    if (autoSwipeTimerRef.current) clearInterval(autoSwipeTimerRef.current);
-  }, []);
-
-  // Touch Swipe Gesture Handlers
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (!containerRef.current || e.touches.length !== 1) return;
-    
-    isTouchActiveRef.current = true;
-    setIsHoveredOrTouched(true);
-
-    touchStartXRef.current = e.touches[0].clientX;
-    touchStartYRef.current = e.touches[0].clientY;
-    scrollStartLeftRef.current = containerRef.current.scrollLeft;
-    isSwipingRef.current = false;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!containerRef.current || !isTouchActiveRef.current || e.touches.length !== 1) return;
-
-    const currentX = e.touches[0].clientX;
-    const currentY = e.touches[0].clientY;
-    const deltaX = touchStartXRef.current - currentX;
-    const deltaY = touchStartYRef.current - currentY;
-
-    if (!isSwipingRef.current) {
-      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 8) {
-        isSwipingRef.current = true;
-      }
-    }
-
-    if (isSwipingRef.current) {
-      containerRef.current.scrollLeft = scrollStartLeftRef.current + deltaX;
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!isTouchActiveRef.current) return;
-    isTouchActiveRef.current = false;
-
-    if (isSwipingRef.current && containerRef.current) {
-      const endX = e.changedTouches[0]?.clientX || touchStartXRef.current;
-      const deltaX = touchStartXRef.current - endX;
-
-      if (Math.abs(deltaX) > 35) {
-        if (deltaX > 0) {
-          handleScrollRight();
-        } else {
-          handleScrollLeft();
-        }
-      }
-    }
-
-    setTimeout(() => {
-      setIsHoveredOrTouched(false);
-    }, 3000);
-  };
-
   if (!overrideProducts && (!products || products.length === 0) && trendingProducts.length === 0) {
     return (
       <div className="w-full mb-8 bg-white rounded-3xl p-4 sm:p-5 shadow-xs animate-pulse">
@@ -220,8 +151,6 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
     <section 
       id="trending-listings-section"
       className="w-full mb-8 relative transition-all duration-300 animate-fade-in"
-      onMouseEnter={() => setIsHoveredOrTouched(true)}
-      onMouseLeave={() => setIsHoveredOrTouched(false)}
     >
       {/* Header Bar */}
       <div className="flex items-center justify-between gap-3 mb-3.5">
@@ -263,11 +192,12 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-mandatory py-1 px-0.5 touch-pan-x cursor-grab active:cursor-grabbing select-none"
-        style={{ scrollBehavior: isTouchActiveRef.current ? 'auto' : 'smooth' }}
+        className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-proximity py-1 px-0.5 touch-pan-y overscroll-x-contain"
+        style={{ 
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none'
+        }}
       >
         {trendingProducts.map((product) => (
           <div

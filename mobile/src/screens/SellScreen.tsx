@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { categories, categoryIcons } from '../data';
+import { categories } from '../data';
 import { auth, createProduct } from '../firebase';
 
 interface SellScreenProps {
@@ -33,18 +33,30 @@ export function SellScreen({ navigation }: SellScreenProps) {
       return;
     }
 
-    if (!title.trim() || !price.trim() || !description.trim()) {
-      Alert.alert('Missing Fields', 'Please fill in the listing title, price, and description.');
-      return;
+    if (selectedCategory === 'Jobs & Employment') {
+      if (!title.trim() || !description.trim()) {
+        Alert.alert('Missing Fields', 'Please fill in the job title and detailed description.');
+        return;
+      }
+    } else {
+      if (!title.trim() || !price.trim() || !description.trim()) {
+        Alert.alert('Missing Fields', 'Please fill in the listing title, price, and description.');
+        return;
+      }
     }
 
     setLoading(true);
     try {
-      const formattedPrice = price.toLowerCase().includes('ghs') || price.toLowerCase().includes('gh₵')
-        ? price
-        : `GHS ${Number(price.replace(/[^0-9]/g, '')).toLocaleString()}`;
+      let formattedPrice = 'Inquire';
+      if (selectedCategory !== 'Jobs & Employment') {
+        formattedPrice = price.toLowerCase().includes('ghs') || price.toLowerCase().includes('gh₵')
+          ? price
+          : `GHS ${Number(price.replace(/[^0-9]/g, '')).toLocaleString()}`;
+      }
 
-      const defaultImage = imageUrl.trim() || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+      const defaultImage = imageUrl.trim() || (selectedCategory === 'Jobs & Employment' 
+        ? 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80' 
+        : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80');
       const prodId = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       const productData = {
@@ -52,11 +64,11 @@ export function SellScreen({ navigation }: SellScreenProps) {
         title: title.trim(),
         price: formattedPrice,
         category: selectedCategory,
-        condition: condition,
-        negotiable: negotiable,
-        isExchangeable: isExchangeable,
-        exchangePossible: isExchangeable,
-        location: location.trim(),
+        condition: selectedCategory === 'Jobs & Employment' ? 'Job Opening' : condition,
+        negotiable: selectedCategory === 'Jobs & Employment' ? false : negotiable,
+        isExchangeable: selectedCategory === 'Jobs & Employment' ? false : isExchangeable,
+        exchangePossible: selectedCategory === 'Jobs & Employment' ? false : isExchangeable,
+        location: location.trim() || 'Accra, Ghana',
         description: description.trim(),
         image: defaultImage,
         images: [defaultImage],
@@ -119,39 +131,13 @@ export function SellScreen({ navigation }: SellScreenProps) {
             </View>
           ) : (
             <View style={styles.formCard}>
-              <Text style={styles.formSectionTitle}>LISTING SPECIFICATIONS</Text>
+              <Text style={styles.formSectionTitle}>
+                {selectedCategory === 'Jobs & Employment' ? 'JOB VACANCY DETAILS' : 'LISTING SPECIFICATIONS'}
+              </Text>
 
-              {/* Title */}
+              {/* Category selector first */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Listing Title</Text>
-                <TextInput
-                  value={title}
-                  onChangeText={setTitle}
-                  placeholder="e.g. iPhone 15 Pro Max 256GB"
-                  style={styles.input}
-                  placeholderTextColor="#94a3b8"
-                />
-              </View>
-
-              {/* Price */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Price (GHS)</Text>
-                <View style={styles.priceInputWrapper}>
-                  <Text style={styles.pricePrefix}>GH₵</Text>
-                  <TextInput
-                    value={price}
-                    onChangeText={setPrice}
-                    placeholder="e.g. 9500"
-                    keyboardType="numeric"
-                    style={[styles.input, { flex: 1, borderWidth: 0, paddingLeft: 6, height: 44 }]}
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-              </View>
-
-              {/* Category selector */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Category ({formCategories.length} Classified Categories)</Text>
+                <Text style={styles.label}>Category</Text>
                 <View style={styles.chipRow}>
                   {formCategories.map((cat) => {
                     const isSelected = selectedCategory === cat;
@@ -161,7 +147,6 @@ export function SellScreen({ navigation }: SellScreenProps) {
                         onPress={() => setSelectedCategory(cat)}
                         style={[styles.chip, isSelected && styles.chipActive]}
                       >
-                        <Text style={styles.chipEmoji}>{categoryIcons[cat] || '📦'}</Text>
                         <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
                           {cat}
                         </Text>
@@ -171,61 +156,86 @@ export function SellScreen({ navigation }: SellScreenProps) {
                 </View>
               </View>
 
-              {/* Condition */}
+              {/* Title */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Item Condition</Text>
-                <View style={styles.chipRow}>
-                  {conditions.map((cond) => {
-                    const isSelected = condition === cond;
-                    return (
-                      <Pressable
-                        key={cond}
-                        onPress={() => setCondition(cond)}
-                        style={[styles.chip, isSelected && styles.chipActive]}
-                      >
-                        <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
-                          {cond}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* Exchange Possible Toggle */}
-              <View style={styles.toggleRowContainer}>
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={styles.toggleTitle}>Exchange / Swap Possible</Text>
-                  <Text style={styles.toggleSubtitle}>Indicate if you accept item trade or exchange</Text>
-                </View>
-                <Switch
-                  value={isExchangeable}
-                  onValueChange={setIsExchangeable}
-                  trackColor={{ false: '#e2e8f0', true: '#10b981' }}
-                  thumbColor={isExchangeable ? '#ffffff' : '#f8fafc'}
-                />
-              </View>
-
-              {/* Image URL */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Product Image URL (Optional)</Text>
+                <Text style={styles.label}>
+                  {selectedCategory === 'Jobs & Employment' ? 'Job Title' : 'Listing Title'}
+                </Text>
                 <TextInput
-                  value={imageUrl}
-                  onChangeText={setImageUrl}
-                  placeholder="https://images.unsplash.com/photo-..."
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder={selectedCategory === 'Jobs & Employment' ? "e.g. Graphic Designer, Store Manager, Sales Executive" : "e.g. iPhone 15 Pro Max 256GB"}
                   style={styles.input}
                   placeholderTextColor="#94a3b8"
-                  autoCapitalize="none"
                 />
               </View>
 
-              {/* Location */}
+              {/* Price - Hidden for Jobs & Employment */}
+              {selectedCategory !== 'Jobs & Employment' && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Price (GHS)</Text>
+                  <View style={styles.priceInputWrapper}>
+                    <Text style={styles.pricePrefix}>GH₵</Text>
+                    <TextInput
+                      value={price}
+                      onChangeText={setPrice}
+                      placeholder="e.g. 9500"
+                      keyboardType="numeric"
+                      style={[styles.input, { flex: 1, borderWidth: 0, paddingLeft: 6, height: 44 }]}
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+                </View>
+              )}
+
+              {/* Condition - Hidden for Jobs & Employment */}
+              {selectedCategory !== 'Jobs & Employment' && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Item Condition</Text>
+                  <View style={styles.chipRow}>
+                    {conditions.map((cond) => {
+                      const isSelected = condition === cond;
+                      return (
+                        <Pressable
+                          key={cond}
+                          onPress={() => setCondition(cond)}
+                          style={[styles.chip, isSelected && styles.chipActive]}
+                        >
+                          <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                            {cond}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
+              {/* Exchange Possible Toggle - Hidden for Jobs & Employment */}
+              {selectedCategory !== 'Jobs & Employment' && (
+                <View style={styles.toggleRowContainer}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={styles.toggleTitle}>Exchange / Swap Possible</Text>
+                    <Text style={styles.toggleSubtitle}>Indicate if you accept item trade or exchange</Text>
+                  </View>
+                  <Switch
+                    value={isExchangeable}
+                    onValueChange={setIsExchangeable}
+                    trackColor={{ false: '#e2e8f0', true: '#10b981' }}
+                    thumbColor={isExchangeable ? '#ffffff' : '#f8fafc'}
+                  />
+                </View>
+              )}
+
+              {/* Location in Ghana */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Location in Ghana</Text>
+                <Text style={styles.label}>
+                  {selectedCategory === 'Jobs & Employment' ? 'Location (Region in Ghana)' : 'Location in Ghana'}
+                </Text>
                 <TextInput
                   value={location}
                   onChangeText={setLocation}
-                  placeholder="e.g. East Legon, Accra"
+                  placeholder={selectedCategory === 'Jobs & Employment' ? "e.g. East Legon, Greater Accra or Kumasi, Ashanti" : "e.g. East Legon, Accra"}
                   style={styles.input}
                   placeholderTextColor="#94a3b8"
                 />
@@ -233,7 +243,9 @@ export function SellScreen({ navigation }: SellScreenProps) {
 
               {/* Description */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Detailed Description</Text>
+                <Text style={styles.label}>
+                  {selectedCategory === 'Jobs & Employment' ? 'Detailed Job Description & Requirements' : 'Detailed Description'}
+                </Text>
                 <TextInput
                   value={description}
                   onChangeText={setDescription}
@@ -241,13 +253,28 @@ export function SellScreen({ navigation }: SellScreenProps) {
                     const nextH = Math.max(100, e.nativeEvent.contentSize.height);
                     setDescHeight(nextH);
                   }}
-                  placeholder="Describe your item condition, specifications, and if price is negotiable..."
+                  placeholder={selectedCategory === 'Jobs & Employment' ? "Describe job responsibilities, candidate requirements, work schedule, compensation, and how to apply..." : "Describe your item condition, specifications, and if price is negotiable..."}
                   style={[styles.input, styles.textArea, { height: Math.max(100, descHeight) }]}
                   multiline
                   numberOfLines={4}
                   scrollEnabled={false}
                   placeholderTextColor="#94a3b8"
                   textAlignVertical="top"
+                />
+              </View>
+
+              {/* Image URL (Optional) */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>
+                  {selectedCategory === 'Jobs & Employment' ? 'Company Logo / Job Flyer URL (Optional)' : 'Product Image URL (Optional)'}
+                </Text>
+                <TextInput
+                  value={imageUrl}
+                  onChangeText={setImageUrl}
+                  placeholder="https://images.unsplash.com/photo-..."
+                  style={styles.input}
+                  placeholderTextColor="#94a3b8"
+                  autoCapitalize="none"
                 />
               </View>
 
@@ -260,7 +287,9 @@ export function SellScreen({ navigation }: SellScreenProps) {
                 {loading ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text style={styles.publishButtonText}>PUBLISH CLASSIFIED AD</Text>
+                  <Text style={styles.publishButtonText}>
+                    {selectedCategory === 'Jobs & Employment' ? 'POST JOB VACANCY' : 'PUBLISH CLASSIFIED AD'}
+                  </Text>
                 )}
               </Pressable>
             </View>
@@ -350,17 +379,13 @@ const styles = StyleSheet.create({
   pricePrefix: { color: '#0f172a', fontSize: 14, fontWeight: '700' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 11,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
     backgroundColor: '#f1f5f9',
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  chipEmoji: { fontSize: 13 },
   chipActive: {
     backgroundColor: '#0f172a',
     borderColor: '#0f172a',

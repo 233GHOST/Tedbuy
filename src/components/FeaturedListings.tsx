@@ -20,16 +20,6 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Touch & Swipe gesture ref state
-  const touchStartXRef = useRef<number>(0);
-  const touchStartYRef = useRef<number>(0);
-  const scrollStartLeftRef = useRef<number>(0);
-  const isSwipingRef = useRef<boolean>(false);
-  const isTouchActiveRef = useRef<boolean>(false);
-
-  const autoSwipeTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [isHoveredOrTouched, setIsHoveredOrTouched] = useState<boolean>(false);
-
   // 1. Fetch or filter active non-expired boosted products with category sensitivity
   const filterAndSortFeatured = useCallback((allProducts: Product[], catFilter?: Category | string | null): Product[] => {
     if (!allProducts || allProducts.length === 0) return [];
@@ -136,82 +126,6 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
     }
   };
 
-  // Auto-swipe timer (scrolls every 5 seconds unless hovered/touched)
-  useEffect(() => {
-    if (featuredProducts.length <= 1 || isHoveredOrTouched) {
-      if (autoSwipeTimerRef.current) clearInterval(autoSwipeTimerRef.current);
-      return;
-    }
-
-    autoSwipeTimerRef.current = setInterval(() => {
-      handleScrollRight();
-    }, 5000);
-
-    return () => {
-      if (autoSwipeTimerRef.current) clearInterval(autoSwipeTimerRef.current);
-    };
-  }, [featuredProducts.length, isHoveredOrTouched, activeIndex]);
-
-  // Touch Swipe Gesture Handlers (Left/Right)
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (!containerRef.current || e.touches.length !== 1) return;
-    
-    isTouchActiveRef.current = true;
-    setIsHoveredOrTouched(true);
-
-    touchStartXRef.current = e.touches[0].clientX;
-    touchStartYRef.current = e.touches[0].clientY;
-    scrollStartLeftRef.current = containerRef.current.scrollLeft;
-    isSwipingRef.current = false;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!containerRef.current || !isTouchActiveRef.current || e.touches.length !== 1) return;
-
-    const currentX = e.touches[0].clientX;
-    const currentY = e.touches[0].clientY;
-    const deltaX = touchStartXRef.current - currentX;
-    const deltaY = touchStartYRef.current - currentY;
-
-    // Detect horizontal swipe vs vertical page scroll
-    if (!isSwipingRef.current) {
-      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 8) {
-        isSwipingRef.current = true;
-      }
-    }
-
-    if (isSwipingRef.current) {
-      // Direct 1:1 manual drag scrolling feedback
-      containerRef.current.scrollLeft = scrollStartLeftRef.current + deltaX;
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!isTouchActiveRef.current) return;
-    isTouchActiveRef.current = false;
-
-    if (isSwipingRef.current && containerRef.current) {
-      const endX = e.changedTouches[0]?.clientX || touchStartXRef.current;
-      const deltaX = touchStartXRef.current - endX;
-
-      // Threshold for manual swipe step completion
-      if (Math.abs(deltaX) > 35) {
-        if (deltaX > 0) {
-          // Swiped Left -> scroll right
-          handleScrollRight();
-        } else {
-          // Swiped Right -> scroll left
-          handleScrollLeft();
-        }
-      }
-    }
-
-    // Resume auto-swipe after 3 seconds of touch release
-    setTimeout(() => {
-      setIsHoveredOrTouched(false);
-    }, 3000);
-  };
-
   // View All click handler
   const handleViewAllClick = () => {
     setCurrentView('featured-listings');
@@ -243,8 +157,6 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
     <section 
       id="featured-listings-section"
       className="w-full mb-8 relative transition-all duration-300 animate-fade-in"
-      onMouseEnter={() => setIsHoveredOrTouched(true)}
-      onMouseLeave={() => setIsHoveredOrTouched(false)}
     >
         {/* Header Bar */}
         <div className="flex items-center justify-between gap-3 mb-4">
@@ -286,15 +198,16 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
           </div>
         </div>
 
-        {/* Touch Swipeable Horizontal Grid Container */}
+        {/* Native Touch Momentum Horizontal Grid Container with full vertical scroll support */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-mandatory py-1 px-0.5 touch-pan-x cursor-grab active:cursor-grabbing select-none"
-          style={{ scrollBehavior: isTouchActiveRef.current ? 'auto' : 'smooth' }}
+          className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-proximity py-1 px-0.5 touch-pan-y overscroll-x-contain"
+          style={{ 
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none'
+          }}
         >
           {featuredProducts.map((product) => (
             <div

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Category, Product, normalizeCategory, CATEGORY_ICONS } from '../types';
 import { BoostModal } from './BoostModal';
-import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Sparkles, Loader2, Tag } from 'lucide-react';
+import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Sparkles, Loader2 } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -16,7 +16,27 @@ interface ListingModalProps {
   productToEdit?: Product | null;
 }
 
-const CATEGORIES: Category[] = Object.keys(CATEGORY_ICONS) as Category[];
+const CATEGORIES: Category[] = [
+  'Phones',
+  'Laptops',
+  'Fashion',
+  'Home Appliances',
+  'Vehicles',
+  'Property',
+  'Furniture & Home',
+  'Beauty and Care',
+  'Games',
+  'Electronics',
+  'Services',
+  'Jobs & Employment',
+  'Agriculture & Food',
+  'Pets & Animals',
+  'Sports & Fitness',
+  'Kids & Baby',
+  'Commercial & Tools',
+  'Books & Hobbies',
+  'Other'
+];
 
 export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, productToEdit }) => {
   const { createProduct, updateProduct, currentUser, setCurrentView, showToast, setSelectedProductId } = useApp();
@@ -822,13 +842,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     setRateLimitWaitSeconds(null);
 
     if (category !== 'Services' && !title.trim()) {
-      return setErrorMsg('Product title is required.');
+      return setErrorMsg(category === 'Jobs & Employment' ? 'Job title is required.' : 'Product title is required.');
     }
     if (title.length > 150) {
-      return setErrorMsg('Product title must be 150 characters or less.');
+      return setErrorMsg(category === 'Jobs & Employment' ? 'Job title must be 150 characters or less.' : 'Product title must be 150 characters or less.');
     }
     if (description.length > 5000) {
-      return setErrorMsg('Product description must be 5000 characters or less.');
+      return setErrorMsg('Description must be 5000 characters or less.');
     }
     
     const finalTitle = category === 'Services'
@@ -836,7 +856,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       : title;
 
     let parsedPrice: string | number = "Inquire";
-    if (category !== 'Services') {
+    if (category !== 'Services' && category !== 'Jobs & Employment') {
       const rawPrice = price.trim();
       if (!rawPrice) {
         return setErrorMsg('Please enter a price or price details (e.g., Inquire).');
@@ -862,13 +882,15 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     if (category === 'Services' && serviceSubCategory === 'Other' && !customServiceType.trim()) {
       return setErrorMsg('Please write your service category type since you selected "Other".');
     }
-    if (!description.trim()) return setErrorMsg('Please write a detailed description of the item.');
+    if (!description.trim()) return setErrorMsg(category === 'Jobs & Employment' ? 'Please write a detailed job description.' : 'Please write a detailed description of the item.');
     
-    if (mediaType === 'image' && images.length === 0) {
-      return setErrorMsg('Please upload at least 1 image to describe your product (Max: 10).');
-    }
-    if (mediaType === 'video' && videos.length === 0) {
-      return setErrorMsg('Please upload at least 1 video demonstrating your product ad (Max: 2).');
+    if (category !== 'Jobs & Employment') {
+      if (mediaType === 'image' && images.length === 0) {
+        return setErrorMsg('Please upload at least 1 image to describe your product (Max: 10).');
+      }
+      if (mediaType === 'video' && videos.length === 0) {
+        return setErrorMsg('Please upload at least 1 video demonstrating your product ad (Max: 2).');
+      }
     }
 
     // Video listings keep their auto-generated thumbnail (see generateVideoThumbnail) as their image.
@@ -877,8 +899,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
     const finalBrand = category === 'Services'
       ? (serviceSubCategory === 'Other' ? (customServiceType.trim() || 'Other Service') : serviceSubCategory)
+      : category === 'Jobs & Employment'
+      ? 'Hiring / Employment'
       : brand;
-    const finalCondition = category === 'Services' ? 'Service Offered' : condition;
+    const finalCondition = category === 'Services' ? 'Service Offered' : category === 'Jobs & Employment' ? 'Job Opening' : condition;
+    const finalNegotiable = (category === 'Services' || category === 'Jobs & Employment') ? false : negotiable;
+    const finalIsExchangeable = (category === 'Services' || category === 'Jobs & Employment') ? false : isExchangeable;
 
     const estimateDataStringBytes = (value: string): number => {
       if (!value || typeof value !== 'string') return 0;
@@ -960,6 +986,11 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
       setUploadStatus('');
 
+      // If category is Jobs & Employment and no media was provided, attach professional placeholder banner
+      if (category === 'Jobs & Employment' && cloudinaryImages.length === 0 && cloudinaryVideos.length === 0) {
+        cloudinaryImages.push('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80');
+      }
+
       if (productToEdit) {
         // Cleanup replaced/removed Cloudinary assets
         if (Array.isArray(productToEdit.images)) {
@@ -984,9 +1015,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           primaryPicture: cloudinaryImages[0] || '',
           videos: cloudinaryVideos,
           videoUrls: cloudinaryVideos,
-          negotiable,
-          isExchangeable,
-          exchangePossible: isExchangeable,
+          negotiable: finalNegotiable,
+          isExchangeable: finalIsExchangeable,
+          exchangePossible: finalIsExchangeable,
           sellerId: productToEdit.sellerId,
           sellerName: productToEdit.sellerName,
           sellerEmail: productToEdit.sellerEmail,
@@ -1009,9 +1040,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           condition: finalCondition,
           images: cloudinaryImages,
           videos: cloudinaryVideos,
-          negotiable,
-          isExchangeable,
-          exchangePossible: isExchangeable
+          negotiable: finalNegotiable,
+          isExchangeable: finalIsExchangeable,
+          exchangePossible: finalIsExchangeable
         });
 
         showToast("Ad posted successfully!", "success");
@@ -1138,75 +1169,43 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           )}
 
           <form id="listing-creation-form" onSubmit={handleSubmit} className="space-y-4">
-            {/* Category selection first */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <Tag className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Ad Category ({CATEGORIES.length} Classified Categories)</span>
-                </label>
-                <span className="text-[11px] font-medium text-slate-500">Select category</span>
+            {/* Category selection first, then conditionally Title */}
+            <div className={`grid grid-cols-1 ${category !== 'Services' ? 'md:grid-cols-2' : ''} gap-4`}>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-bold text-slate-800">Ad Category</label>
+                <select
+                  id="listing-category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as Category)}
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer font-bold"
+                >
+                  {CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>
+                      {CATEGORY_ICONS[cat] ? `${CATEGORY_ICONS[cat]} ` : ''}{cat}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Scrollable quick-select category ribbon matching Explore Classified Categories */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
-                {CATEGORIES.map((cat) => {
-                  const isSelected = category === cat;
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      id={`modal-category-chip-${cat.toLowerCase().replace(/\s+/g, '-')}`}
-                      onClick={() => setCategory(cat)}
-                      className={`flex-shrink-0 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border cursor-pointer ${
-                        isSelected
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
-                      }`}
-                    >
-                      <span className="text-sm leading-none">{CATEGORY_ICONS[cat] || '📦'}</span>
-                      <span className="whitespace-nowrap">{cat}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Category Dropdown and conditionally Product Title */}
-              <div className={`grid grid-cols-1 ${category !== 'Services' ? 'md:grid-cols-2' : ''} gap-4 pt-1`}>
+              {category !== 'Services' && (
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category Dropdown</label>
-                  <select
-                    id="listing-category"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value as Category)}
-                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer font-bold text-slate-850"
-                  >
-                    {CATEGORIES.map(cat => (
-                      <option key={cat} value={cat}>
-                        {CATEGORY_ICONS[cat] ? `${CATEGORY_ICONS[cat]} ` : ''}{cat}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-bold text-slate-800">
+                    {category === 'Jobs & Employment' ? 'Job Title' : 'Product Title'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    id="listing-title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder={category === 'Jobs & Employment' ? "e.g. Graphic Designer, Store Manager, Sales Executive" : "e.g. iPhone 14 Pro 128GB"}
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
                 </div>
-
-                {category !== 'Services' && (
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product Title</label>
-                    <input
-                      type="text"
-                      required
-                      id="listing-title"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="e.g. iPhone 14 Pro 128GB"
-                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                )}
-              </div>
+              )}
             </div>
 
-            {/* Dynamic Brand & Condition / Services Details */}
+            {/* Dynamic Brand & Condition / Services Details / Jobs & Employment */}
             {category === 'Services' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className={serviceSubCategory !== 'Other' ? "col-span-1 md:col-span-2" : ""}>
@@ -1239,7 +1238,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   </div>
                 )}
               </div>
-            ) : (
+            ) : category === 'Jobs & Employment' ? null : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -1313,83 +1312,135 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             )}
 
             {/* Price & Location Selectors */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {category !== 'Services' ? (
-                <div className="space-y-2">
+            {category === 'Jobs & Employment' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-bold text-slate-800">
+                    Location (Region in Ghana)
+                  </label>
+                  <select
+                    id="listing-region"
+                    value={adRegion}
+                    onChange={(e) => setAdRegion(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer font-medium"
+                  >
+                    {GHANA_REGIONS.map(reg => (
+                      <option key={reg.name} value={reg.name}>{reg.name} Region</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-bold text-slate-800">City / Town</label>
+                  <select
+                    id="listing-city"
+                    value={adCity}
+                    onChange={(e) => setAdCity(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer"
+                  >
+                    {activeRegionObj?.cities.map(ct => (
+                      <option key={ct} value={ct}>{ct}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-span-1 md:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Specific Office Area / Work Location <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="listing-neighborhood"
+                    value={adNeighborhood}
+                    onChange={(e) => setAdNeighborhood(e.target.value)}
+                    placeholder="e.g. Airport Residential Area, Spintex Road, Remote, Osu"
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {category !== 'Services' ? (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price</label>
+                        <input
+                          type="text"
+                          required
+                          id="listing-price"
+                          value={price}
+                          onChange={(e) => setPrice(e.target.value)}
+                          placeholder="eg.50"
+                          className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2.5 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 cursor-pointer hover:bg-slate-50 transition select-none">
+                        <input
+                          type="checkbox"
+                          id="listing-exchangeable"
+                          checked={isExchangeable}
+                          onChange={(e) => setIsExchangeable(e.target.checked)}
+                          className="w-4 h-4 text-emerald-650 focus:ring-emerald-500 border-slate-300 rounded cursor-pointer"
+                        />
+                        <div className="flex flex-col text-left">
+                          <span className="text-[11px] font-bold text-slate-705 leading-none">Exchange Possible</span>
+                          <span className="text-[8px] text-slate-400">Open to swapping / item trade</span>
+                        </div>
+                      </label>
+                    </div>
+                  ) : null}
+
+                  <div className={category === 'Services' ? "col-span-1 md:col-span-2" : ""}>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Ghana Region</label>
+                    <select
+                      id="listing-region"
+                      value={adRegion}
+                      onChange={(e) => setAdRegion(e.target.value)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer"
+                    >
+                      {GHANA_REGIONS.map(reg => (
+                        <option key={reg.name} value={reg.name}>{reg.name} Region</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Price</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">City / Town</label>
+                    <select
+                      id="listing-city"
+                      value={adCity}
+                      onChange={(e) => setAdCity(e.target.value)}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer"
+                    >
+                      {activeRegionObj?.cities.map(ct => (
+                        <option key={ct} value={ct}>{ct}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Specific Neighborhood (Optional)</label>
                     <input
                       type="text"
-                      required
-                      id="listing-price"
-                      value={price}
-                      onChange={(e) => setPrice(e.target.value)}
-                      placeholder="eg.50"
+                      id="listing-neighborhood"
+                      value={adNeighborhood}
+                      onChange={(e) => setAdNeighborhood(e.target.value)}
+                      placeholder="e.g. Asokwa, North Legon, West Legon"
                       className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
                     />
                   </div>
-                  <label className="flex items-center gap-2.5 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 cursor-pointer hover:bg-slate-50 transition select-none">
-                    <input
-                      type="checkbox"
-                      id="listing-exchangeable"
-                      checked={isExchangeable}
-                      onChange={(e) => setIsExchangeable(e.target.checked)}
-                      className="w-4 h-4 text-emerald-650 focus:ring-emerald-500 border-slate-300 rounded cursor-pointer"
-                    />
-                    <div className="flex flex-col text-left">
-                      <span className="text-[11px] font-bold text-slate-705 leading-none">Exchange Possible</span>
-                      <span className="text-[8px] text-slate-400">Open to swapping / item trade</span>
-                    </div>
-                  </label>
                 </div>
-              ) : null}
-
-              <div className={category === 'Services' ? "col-span-1 md:col-span-2" : ""}>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Ghana Region</label>
-                <select
-                  id="listing-region"
-                  value={adRegion}
-                  onChange={(e) => setAdRegion(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer"
-                >
-                  {GHANA_REGIONS.map(reg => (
-                    <option key={reg.name} value={reg.name}>{reg.name} Region</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">City / Town</label>
-                <select
-                  id="listing-city"
-                  value={adCity}
-                  onChange={(e) => setAdCity(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-slate-500 focus:outline-none cursor-pointer"
-                >
-                  {activeRegionObj?.cities.map(ct => (
-                    <option key={ct} value={ct}>{ct}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Specific Neighborhood (Optional)</label>
-                <input
-                  type="text"
-                  id="listing-neighborhood"
-                  value={adNeighborhood}
-                  onChange={(e) => setAdNeighborhood(e.target.value)}
-                  placeholder="e.g. Asokwa, North Legon, West Legon"
-                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none"
-                />
-              </div>
-            </div>
+              </>
+            )}
 
             {/* Description */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Detailed Description</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-bold text-slate-800">
+                {category === 'Jobs & Employment' ? 'Detailed Description' : 'Detailed Description'}
+              </label>
               <textarea
                 ref={descriptionTextareaRef}
                 required
@@ -1400,7 +1451,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   e.target.style.height = 'auto';
                   e.target.style.height = `${Math.max(96, e.target.scrollHeight)}px`;
                 }}
-                placeholder="Write item status, usage duration, and notes for buyers..."
+                placeholder={category === 'Jobs & Employment' ? "Describe job roles, responsibilities, required qualifications/experience, work schedule, compensation, and how candidates can apply..." : "Write item status, usage duration, and notes for buyers..."}
                 rows={3}
                 className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none resize-none overflow-hidden transition-[height] duration-75 min-h-[96px]"
               />
@@ -1408,7 +1459,16 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
             {/* Media Type Segmented Selection */}
             <div className="pt-4 border-t border-slate-100">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-2.5">Ad Media Format</label>
+              <div className="flex items-center justify-between mb-2.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  {category === 'Jobs & Employment' ? 'Job Flyer, Logo or Video (Optional)' : 'Ad Media Format'}
+                </label>
+                {category === 'Jobs & Employment' && (
+                  <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    Optional
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3.5">
                 <button
                   type="button"
@@ -1420,7 +1480,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   }`}
                 >
                   <Upload className="w-4 h-4" />
-                  <span>Standard Image Ad</span>
+                  <span>{category === 'Jobs & Employment' ? 'Image / Flyer' : 'Standard Image Ad'}</span>
                 </button>
                 <button
                   type="button"
@@ -1432,11 +1492,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   }`}
                 >
                   <Video className="w-4 h-4 animate-pulse text-emerald-500" />
-                  <span>Dynamic Video Ad</span>
+                  <span>{category === 'Jobs & Employment' ? 'Video Intro' : 'Dynamic Video Ad'}</span>
                 </button>
               </div>
               <p className="text-[10px] text-slate-400 mt-1.5">
-                💡 Select <strong className="font-semibold text-slate-500">Dynamic Video Ad</strong> to showcase your product or services with a fully immersive video feed displayed prominently on the Home screen!
+                {category === 'Jobs & Employment' 
+                  ? '💡 You can post this job vacancy without uploading media, or optionally add a company logo, recruitment poster, or video.'
+                  : '💡 Select Dynamic Video Ad to showcase your product or services with a fully immersive video feed displayed prominently on the Home screen!'}
               </p>
             </div>
 
@@ -1444,7 +1506,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             {mediaType === 'image' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-705">Product Images (1 to 10 images)</label>
+                  <label className="block text-xs font-semibold text-slate-705">
+                    {category === 'Jobs & Employment' ? 'Company Logo / Flyer Images (Optional)' : 'Product Images (1 to 10 images)'}
+                  </label>
                   <span className="text-[11px] text-slate-400 font-mono">{images.length}/10 files uploaded</span>
                 </div>
 
@@ -1478,12 +1542,14 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         className="hidden"
                       />
                       <Upload className="w-5 h-5 text-slate-400 group-hover:text-slate-800 group-hover:-translate-y-0.5 transition" />
-                      <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-slate-900">Add Photos</span>
+                      <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-slate-900">
+                        {category === 'Jobs & Employment' ? 'Add Flyer/Logo' : 'Add Photos'}
+                      </span>
                     </label>
                   )}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2">
-                  <strong className="font-semibold text-slate-500">Tip</strong>: Click &ldquo;Add Photos&rdquo; to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.
+                  <strong className="font-semibold text-slate-500">Tip</strong>: {category === 'Jobs & Employment' ? 'Recruitment flyers and company logo images help candidates recognize your brand.' : 'Click "Add Photos" to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.'}
                 </p>
               </div>
             )}
@@ -1492,7 +1558,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             {mediaType === 'video' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-705">Product Video (Max 1 video)</label>
+                  <label className="block text-xs font-semibold text-slate-705">
+                    {category === 'Jobs & Employment' ? 'Job / Company Video (Optional - Max 1)' : 'Product Video (Max 1 video)'}
+                  </label>
                   <span className="text-[11px] text-slate-400 font-mono">{videos.length}/1 file uploaded</span>
                 </div>
 
@@ -1758,7 +1826,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 disabled={isSubmitting}
                 className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-1.5 disabled:opacity-50"
               >
-                {isSubmitting ? 'Processing...' : productToEdit ? 'Save Changes' : 'Post Ad Now'}
+                {isSubmitting ? 'Processing...' : productToEdit ? 'Save Changes' : (category === 'Jobs & Employment' ? 'Post Job Vacancy' : 'Post Ad Now')}
               </button>
             </div>
           </form>

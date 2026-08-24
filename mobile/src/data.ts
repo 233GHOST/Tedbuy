@@ -86,29 +86,6 @@ export const categories = [
   'Other',
 ];
 
-export const categoryIcons: Record<string, string> = {
-  All: '🌐',
-  Phones: '📱',
-  Laptops: '💻',
-  Fashion: '👟',
-  'Home Appliances': '🔌',
-  Vehicles: '🚗',
-  Property: '🏠',
-  'Furniture & Home': '🛋️',
-  'Beauty and Care': '💄',
-  Games: '🎮',
-  Electronics: '⚡',
-  Services: '🛠️',
-  'Jobs & Employment': '💼',
-  'Agriculture & Food': '🌾',
-  'Pets & Animals': '🐾',
-  'Sports & Fitness': '🏋️',
-  'Kids & Baby': '👶',
-  'Commercial & Tools': '🏗️',
-  'Books & Hobbies': '📚',
-  Other: '📦',
-};
-
 export const chats: ChatItem[] = [
   { id: 'c1', name: 'Nana K.', lastMessage: 'I can meet you at 7pm near the mall.', time: '10:25', unread: 2, avatar: 'NK' },
   { id: 'c2', name: 'Ama R.', lastMessage: 'The laptop is still available.', time: 'Yesterday', avatar: 'AR' },

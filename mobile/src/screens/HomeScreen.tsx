@@ -461,7 +461,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselTitle}>Featured Listings</Text>
                       </View>
                     </View>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalCarouselContainer}>
+                    <ScrollView 
+                      horizontal 
+                      nestedScrollEnabled={true}
+                      directionalLockEnabled={true}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false} 
+                      contentContainerStyle={styles.horizontalCarouselContainer}
+                    >
                       {featuredProducts.map((item) => (
                         <View key={`featured-${item.id}`} style={styles.carouselCardItem}>
                           <ProductCard
@@ -486,7 +493,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselTitle}>Trending Ads</Text>
                       </View>
                     </View>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalCarouselContainerSmall}>
+                    <ScrollView 
+                      horizontal 
+                      nestedScrollEnabled={true}
+                      directionalLockEnabled={true}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false} 
+                      contentContainerStyle={styles.horizontalCarouselContainerSmall}
+                    >
                       {trendingProducts.map((item) => (
                         <View key={`trending-${item.id}`} style={styles.carouselCardItemSmall}>
                           <ProductCard
