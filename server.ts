@@ -1471,7 +1471,11 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
       );
     }
     if (querySellerId) {
-      filtered = filtered.filter((p: any) => p.sellerId === querySellerId);
+      filtered = filtered.filter((p: any) => 
+        p.sellerId === querySellerId ||
+        p.user_id === querySellerId ||
+        (p.sellerName && p.sellerName.trim().toLowerCase() === querySellerId.toLowerCase())
+      );
     }
     if (queryCategory && queryCategory !== 'all') {
       const qCat = queryCategory.trim().toLowerCase();

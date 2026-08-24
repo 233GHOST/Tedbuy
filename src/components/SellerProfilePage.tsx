@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
 import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus, Edit, Settings, Flame, User, Search, PenLine, MessageCircle, CheckCircle2 } from 'lucide-react';
-import { isUserVerified, calculateTrustScore } from '../types';
+import { Product, isUserVerified, calculateTrustScore } from '../types';
 import { SellerBadge } from './SellerBadge';
 import { isBoostActive, formatTedbuyTenure } from '../utils/dateParser';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
+import { normalizeProduct } from '../utils/productUtils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const SellerProfilePage: React.FC = () => {
@@ -49,6 +50,34 @@ export const SellerProfilePage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
+  // Dedicated fetch state to ensure all listings for this specific seller are loaded from the database
+  const [serverSellerProducts, setServerSellerProducts] = useState<Product[]>([]);
+  const [isLoadingStore, setIsLoadingStore] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!selectedSellerId) return;
+    let active = true;
+    const fetchAllSellerListings = async () => {
+      setIsLoadingStore(true);
+      try {
+        const res = await fetch(`/api/products?sellerId=${encodeURIComponent(selectedSellerId)}&limit=1000&nocache=true`);
+        if (res.ok) {
+          const data = await res.json();
+          if (active && data && Array.isArray(data.products)) {
+            const clean = (data.products as Product[]).map(normalizeProduct);
+            setServerSellerProducts(clean);
+          }
+        }
+      } catch (err) {
+        console.warn('[SellerProfilePage] Failed to fetch seller specific listings:', err);
+      } finally {
+        if (active) setIsLoadingStore(false);
+      }
+    };
+    fetchAllSellerListings();
+    return () => { active = false; };
+  }, [selectedSellerId]);
+
   // Phase 4: Review submission modal state
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewRating, setReviewRating] = useState<number>(5);
@@ -57,7 +86,53 @@ export const SellerProfilePage: React.FC = () => {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewSuccessMessage, setReviewSuccessMessage] = useState<string | null>(null);
 
-  const seller = users.find(u => u.id === selectedSellerId);
+  // 1. Resolve seller from users directory or fallback to existing products
+  const foundUser = users.find(u => 
+    u.id === selectedSellerId || 
+    (u as any).uid === selectedSellerId ||
+    (selectedSellerId && u.username && u.username.toLowerCase() === selectedSellerId.toLowerCase())
+  );
+
+  // Combine products from context and server query
+  const combinedAllProducts = useMemo(() => {
+    const map = new Map<string, Product>();
+    products.forEach(p => { if (p?.id) map.set(String(p.id), p); });
+    serverSellerProducts.forEach(p => { if (p?.id) map.set(String(p.id), p); });
+    return Array.from(map.values());
+  }, [products, serverSellerProducts]);
+
+  // Derive matched products for this seller across all possible aliases
+  const allSellerMatchingProducts = useMemo(() => {
+    return combinedAllProducts.filter(p => {
+      if (selectedSellerId && (p.sellerId === selectedSellerId || (p as any).user_id === selectedSellerId)) return true;
+      if (foundUser) {
+        if (p.sellerId === foundUser.id || (foundUser as any).uid === p.sellerId || (p as any).user_id === foundUser.id) return true;
+        if (foundUser.username && p.sellerName && p.sellerName.trim().toLowerCase() === foundUser.username.trim().toLowerCase()) return true;
+        if (foundUser.email && p.sellerEmail && p.sellerEmail.trim().toLowerCase() === foundUser.email.trim().toLowerCase()) return true;
+      }
+      if (selectedSellerId && p.sellerName && p.sellerName.trim().toLowerCase() === selectedSellerId.trim().toLowerCase()) return true;
+      return false;
+    });
+  }, [combinedAllProducts, selectedSellerId, foundUser]);
+
+  // Synthesize seller profile if not in users table but listings exist
+  const firstProd: any = allSellerMatchingProducts[0] || null;
+  const seller: any = foundUser || (firstProd ? {
+    id: selectedSellerId || firstProd.sellerId,
+    username: firstProd.sellerName || 'Verified Merchant',
+    email: firstProd.sellerEmail || '',
+    phoneNumber: firstProd.sellerPhone || firstProd.phoneNumber || '',
+    whatsAppNumber: firstProd.sellerPhone || firstProd.whatsAppNumber || '',
+    location: firstProd.location || 'Ghana',
+    rating: 5,
+    reviewsCount: 0,
+    isVerified: true,
+    badgeLevel: 'trusted',
+    createdAt: firstProd.createdAt || new Date().toISOString(),
+    photoUrl: firstProd.images?.[0] || '',
+    bio: `Active merchant on TedBuy marketplace offering quality listings in ${firstProd.location || 'Ghana'}.`
+  } : null);
+
   const isSellerVerified = isUserVerified(seller);
 
   // Derive followers and following lists for this seller
@@ -65,7 +140,7 @@ export const SellerProfilePage: React.FC = () => {
   const sellerFollowing = seller ? users.filter(u => seller.followingSellers?.includes(u.id)) : [];
 
   // If no seller ID or seller not found, render fallback
-  if (!seller) {
+  if (!seller && !isLoadingStore) {
     return (
       <div className="max-w-md mx-auto my-12 px-6 py-12 bg-white border border-slate-200 rounded-3xl text-center shadow-xs min-h-[55vh] flex flex-col items-center justify-center font-sans">
         <div className="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 mb-4">
@@ -86,7 +161,7 @@ export const SellerProfilePage: React.FC = () => {
   }
 
   // Filter listings belonging strictly to this seller
-  const sellerProducts = products.filter(p => p.sellerId === seller.id);
+  const sellerProducts = allSellerMatchingProducts;
   const isPrioSeller = sellerProducts.some(p => isBoostActive(p));
 
   // Dynamic available categories from this seller's products

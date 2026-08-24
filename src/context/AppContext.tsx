@@ -1969,10 +1969,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let active = true;
     const fetchDashboardProducts = async () => {
       try {
+        const targetSeller = currentView === 'seller-profile' ? (selectedSellerId || currentUser?.id) : currentUser?.id;
         const url = currentUser?.isAdmin
           ? '/api/products?page=1&limit=1000&nocache=true'
-          : currentUser?.id
-            ? `/api/products?sellerId=${encodeURIComponent(currentUser.id)}&limit=1000&nocache=true`
+          : targetSeller
+            ? `/api/products?sellerId=${encodeURIComponent(targetSeller)}&limit=1000&nocache=true`
             : '/api/products?page=1&limit=1000&nocache=true';
 
         const res = await fetch(url);
@@ -1993,12 +1994,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
         }
       } catch (err) {
-        console.warn('[AppContext] Failed to load dashboard products:', err);
+        console.warn('[AppContext] Failed to load dashboard or seller products:', err);
       }
     };
     fetchDashboardProducts();
     return () => { active = false; };
-  }, [currentView, currentUser?.id, currentUser?.isAdmin]);
+  }, [currentView, selectedSellerId, currentUser?.id, currentUser?.isAdmin]);
 
   // Welcome Package Trigger (In-App CEO Support Thread + Outbound Welcome Email via Node/Nodemailer)
   const triggeredWelcomeUserId = useRef<string | null>(null);

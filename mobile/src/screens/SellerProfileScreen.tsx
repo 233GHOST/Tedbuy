@@ -62,18 +62,33 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
     
     const unsubUsers = watchUsers((usersList) => {
       if (!isMounted) return;
-      const found = usersList.find((u: any) => u.id === sellerId || u.uid === sellerId);
+      const found = usersList.find((u: any) => 
+        u.id === sellerId || 
+        u.uid === sellerId || 
+        (u.username && sellerId && u.username.toLowerCase() === sellerId.toLowerCase())
+      );
       if (found) {
         setSeller(found);
         if (currentUser && Array.isArray(currentUser.followingSellers)) {
-          setIsFollowing(currentUser.followingSellers.includes(sellerId));
+          setIsFollowing(currentUser.followingSellers.includes(sellerId) || currentUser.followingSellers.includes(found.id));
         }
       }
     });
 
     const unsubProducts = watchProducts((allProducts) => {
       if (!isMounted) return;
-      const filtered = (allProducts as Product[]).filter((p) => p.sellerId === sellerId);
+      const filtered = (allProducts as Product[]).filter((p: any) => {
+        if (p.sellerId === sellerId || p.user_id === sellerId) return true;
+        if (p.sellerName && sellerId && p.sellerName.trim().toLowerCase() === sellerId.trim().toLowerCase()) return true;
+        if (seller && (
+          p.sellerId === seller.id || 
+          p.sellerId === seller.uid || 
+          p.user_id === seller.id ||
+          (p.sellerName && seller.username && p.sellerName.trim().toLowerCase() === seller.username.trim().toLowerCase()) ||
+          (p.sellerEmail && seller.email && p.sellerEmail.trim().toLowerCase() === seller.email.trim().toLowerCase())
+        )) return true;
+        return false;
+      });
       setProducts(filtered);
       setLoading(false);
     });
@@ -83,7 +98,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
       unsubUsers();
       unsubProducts();
     };
-  }, [sellerId]);
+  }, [sellerId, seller?.id, seller?.username, seller?.email]);
 
   const handleToggleFollow = async () => {
     if (!currentUser) {
@@ -174,7 +189,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
     Alert.alert('Review Submitted ⭐', 'Thank you for building community trust on TedBuy!');
   };
 
-  const sellerName = seller?.username || seller?.displayName || 'Verified Merchant';
+  const sellerName = seller?.username || seller?.displayName || products[0]?.sellerName || 'Verified Merchant';
   const joinDate = seller?.joinDate || 'Jan 2026';
   const trustScore = 92; // High confidence trust score
 
