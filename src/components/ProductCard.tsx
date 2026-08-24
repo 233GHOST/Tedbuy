@@ -424,7 +424,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
         )}
 
         {/* Engagement Signals & Social micro-row */}
-        {!isTrendingVariant && (product.likesCount && product.likesCount > 0) && (
+        {!isTrendingVariant && Boolean(product.likesCount && product.likesCount > 0) && (
           <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-0.5">
             <span className="inline-flex items-center gap-1 font-semibold text-slate-500">
               <Heart className="w-2.5 h-2.5 text-rose-500 fill-rose-500" />

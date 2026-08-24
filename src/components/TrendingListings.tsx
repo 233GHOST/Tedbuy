@@ -192,7 +192,7 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-proximity py-1 px-0.5 touch-pan-y overscroll-x-contain"
+        className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-proximity py-1 px-0.5 touch-auto overscroll-x-contain"
         style={{ 
           WebkitOverflowScrolling: 'touch',
           scrollbarWidth: 'none',

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
-import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus, Edit, Settings, Flame, User } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus, Edit, Settings, Flame, User, Search, PenLine, MessageCircle, CheckCircle2 } from 'lucide-react';
 import { isUserVerified, calculateTrustScore } from '../types';
 import { SellerBadge } from './SellerBadge';
 import { isBoostActive, formatTedbuyTenure } from '../utils/dateParser';
@@ -22,6 +22,9 @@ export const SellerProfilePage: React.FC = () => {
     followSeller,
     unfollowSeller,
     reviews,
+    addReview,
+    startChat,
+    setActiveChatId,
     setShowAuthModal,
     setAuthMode,
     updateUserProfile
@@ -41,6 +44,18 @@ export const SellerProfilePage: React.FC = () => {
   const [activeFollowTab, setActiveFollowTab] = useState<'following' | 'followers'>('following');
   const [showSafetyTips, setShowSafetyTips] = useState(false);
   const [safetyTipsPendingAction, setSafetyTipsPendingAction] = useState<'whatsapp' | null>(null);
+
+  // Phase 4: Catalog Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Phase 4: Review submission modal state
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewProductTitle, setReviewProductTitle] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewSuccessMessage, setReviewSuccessMessage] = useState<string | null>(null);
 
   const seller = users.find(u => u.id === selectedSellerId);
   const isSellerVerified = isUserVerified(seller);
@@ -74,6 +89,19 @@ export const SellerProfilePage: React.FC = () => {
   const sellerProducts = products.filter(p => p.sellerId === seller.id);
   const isPrioSeller = sellerProducts.some(p => isBoostActive(p));
 
+  // Dynamic available categories from this seller's products
+  const availableCategories = Array.from(new Set(sellerProducts.map(p => p.category).filter(Boolean)));
+
+  // Filtered products based on search & category selection
+  const filteredSellerProducts = sellerProducts.filter(p => {
+    const matchesSearch = !searchQuery.trim() || 
+      p.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (p.brand && p.brand.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesCategory = !selectedCategory || p.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
   const isOwner = currentUser?.id === seller.id;
   const isFollowing = currentUser?.followingSellers?.includes(seller.id) || false;
 
@@ -90,13 +118,40 @@ export const SellerProfilePage: React.FC = () => {
     }
   };
 
+  const handleStartDirectChat = async () => {
+    if (!currentUser) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (isOwner) return;
+
+    try {
+      const targetProduct = sellerProducts[0] || {
+        id: `general_${seller.id}`,
+        title: `Store inquiry for ${seller.username}`,
+        price: 'Negotiable',
+        images: [seller.photoUrl || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'],
+        sellerId: seller.id,
+        sellerName: seller.username
+      };
+      const chatId = await startChat(targetProduct.id, `Hello ${seller.username}! I am interested in your listings on TedBuy.`);
+      if (chatId) {
+        setActiveChatId(chatId);
+        setCurrentView('chats');
+      }
+    } catch (err) {
+      console.error('Failed to initialize direct chat:', err);
+    }
+  };
+
   const handleMessageWhatsApp = () => {
     if (!currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    if (!seller?.whatsAppNumber) return;
+    if (!seller?.whatsAppNumber && !seller?.phoneNumber) return;
     setSafetyTipsPendingAction('whatsapp');
     setShowSafetyTips(true);
   };
@@ -105,18 +160,44 @@ export const SellerProfilePage: React.FC = () => {
     setShowSafetyTips(false);
     if (!seller) return;
     if (safetyTipsPendingAction === 'whatsapp') {
-      if (!seller.whatsAppNumber) return;
-      let cleanNumber = seller.whatsAppNumber.replace(/\D/g, '');
+      const rawNum = seller.whatsAppNumber || seller.phoneNumber;
+      if (!rawNum) return;
+      let cleanNumber = rawNum.replace(/\D/g, '');
       if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
         cleanNumber = '233' + cleanNumber.substring(1);
       } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
         cleanNumber = '233' + cleanNumber;
       }
-      const prefilledText = `Hello! I see your store on Tedbuy marketplace and would love to chat.`;
+      const prefilledText = `Hello ${seller.username}! I see your store on Tedbuy marketplace and would love to chat.`;
       const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
       window.open(finalUrl, '_blank', 'noopener,noreferrer');
     }
     setSafetyTipsPendingAction(null);
+  };
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) {
+      setAuthMode('login');
+      setShowAuthModal(true);
+      return;
+    }
+    if (!reviewComment.trim()) return;
+
+    setIsSubmittingReview(true);
+    try {
+      await addReview(seller.id, reviewRating, reviewComment.trim(), reviewProductTitle || undefined);
+      setReviewComment('');
+      setReviewRating(5);
+      setReviewProductTitle('');
+      setShowReviewModal(false);
+      setReviewSuccessMessage('Thank you! Your review has been submitted and verified.');
+      setTimeout(() => setReviewSuccessMessage(null), 5000);
+    } catch (err) {
+      console.error('Failed to submit review:', err);
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
 
   // Generate an approximate follow count based on seed/active metrics
@@ -169,6 +250,13 @@ export const SellerProfilePage: React.FC = () => {
     : null;
 
   const trustResult = calculateTrustScore(seller, sellerReviews);
+
+  // Rating Distribution breakdown (5 to 1 stars)
+  const ratingDistribution = [5, 4, 3, 2, 1].map(stars => {
+    const count = sellerReviews.filter(r => r.rating === stars).length;
+    const percentage = sellerReviews.length > 0 ? Math.round((count / sellerReviews.length) * 100) : 0;
+    return { stars, count, percentage };
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -382,23 +470,36 @@ export const SellerProfilePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Action button */}
+        {/* Action buttons (Phase 4 Social Commerce Strip) */}
         {!isOwner && (
-          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            {seller.whatsAppNumber && (
+          <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+            {/* Direct In-App Chat Action */}
+            <button
+              id="seller-profile-chat-btn"
+              onClick={handleStartDirectChat}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-slate-700 shadow-xs cursor-pointer active:scale-95"
+            >
+              <MessageCircle className="w-4 h-4 text-emerald-400" />
+              <span>Chat on TedBuy</span>
+            </button>
+
+            {/* WhatsApp Direct Action */}
+            {(seller.whatsAppNumber || seller.phoneNumber) && (
               <button
                 id="seller-profile-whatsapp-btn"
                 onClick={handleMessageWhatsApp}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition duration-200 text-sm flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
               >
-                <MessageSquare className="w-4.5 h-4.5 fill-white/20 stroke-[2.2]" />
-                <span>Message seller on whatsapp</span>
+                <MessageSquare className="w-4 h-4 fill-white/20 stroke-[2.2]" />
+                <span>WhatsApp</span>
               </button>
             )}
+
+            {/* Follow Store Action */}
             <button
               id="seller-profile-follow-btn"
               onClick={handleToggleFollow}
-              className={`px-5 py-2.5 rounded-xl font-bold transition duration-200 text-sm flex items-center justify-center gap-1.5 shrink-0 ${
+              className={`px-4 py-2.5 rounded-xl font-bold transition duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5 shrink-0 cursor-pointer active:scale-95 ${
                 isFollowing
                   ? 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-750'
                   : 'bg-white hover:bg-slate-100 text-slate-900 shadow-xs'
@@ -407,7 +508,7 @@ export const SellerProfilePage: React.FC = () => {
               {isFollowing ? (
                 <>
                   <UserCheck className="w-4 h-4" />
-                  <span>Following Store</span>
+                  <span>Following</span>
                 </>
               ) : (
                 <>
@@ -420,41 +521,133 @@ export const SellerProfilePage: React.FC = () => {
         )}
       </div>
 
-      {/* Two-Column Layout: Catalog on Left (col-span-8), Reviews on Right (col-span-4) */}
+      {/* Review Success Toast */}
+      {reviewSuccessMessage && (
+        <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm font-bold flex items-center gap-2 shadow-xs animate-fade-in">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <span>{reviewSuccessMessage}</span>
+        </div>
+      )}
+
+      {/* Two-Column Layout: Catalog on Left (col-span-8), Reviews & Trust on Right (col-span-4) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left pt-2">
         
-        {/* Left Column: Active Catalog (8 cols) */}
-        <div className="lg:col-span-8 space-y-6">
-          <div>
-            <h2 id="seller-catalog-title" className="text-lg font-bold text-slate-900 font-sans tracking-tight">
-              Active Catalog ({sellerProducts.length} items)
-            </h2>
-            <p className="text-xs text-slate-500">Contact the retailer directly to bargain prices or agree delivery options.</p>
+        {/* Left Column: Active Catalog with Search & Filter (8 cols) */}
+        <div className="lg:col-span-8 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 id="seller-catalog-title" className="text-lg font-bold text-slate-900 font-sans tracking-tight">
+                Store Catalog ({filteredSellerProducts.length} {filteredSellerProducts.length === 1 ? 'item' : 'items'})
+              </h2>
+              <p className="text-xs text-slate-500">Contact the seller directly to bargain prices or agree delivery options.</p>
+            </div>
+
+            {/* Search Input within Seller's listings */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search store inventory..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {sellerProducts.length === 0 ? (
+          {/* Category Filter Chips for this Merchant */}
+          {availableCategories.length > 1 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none touch-auto">
+              <button
+                onClick={() => setSelectedCategory(null)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer ${
+                  selectedCategory === null
+                    ? 'bg-slate-900 text-white shadow-3xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All ({sellerProducts.length})
+              </button>
+              {availableCategories.map(cat => {
+                const count = sellerProducts.filter(p => p.category === cat).length;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition cursor-pointer ${
+                      selectedCategory === cat
+                        ? 'bg-slate-900 text-white shadow-3xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {filteredSellerProducts.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400">
               <ShoppingBag className="w-12 h-12 mx-auto stroke-[1.2] text-slate-300 mb-2" />
-              <p className="font-semibold text-sm">No items posted yet</p>
-              <p className="text-xs text-slate-400 mt-1">This seller has no commercial listings published in the directory for now.</p>
+              <p className="font-semibold text-sm text-slate-700">No items match your criteria</p>
+              <p className="text-xs text-slate-400 mt-1">
+                {searchQuery ? `No results for "${searchQuery}" in this store.` : 'This seller has no commercial listings published right now.'}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setSelectedCategory(null); }}
+                  className="mt-4 px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl"
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-5">
-              {sellerProducts.map(prod => (
+              {filteredSellerProducts.map(prod => (
                 <ProductCard key={prod.id} product={prod} />
               ))}
             </div>
           )}
         </div>
 
-        {/* Right Column: Ratings & Reviews (4 cols) */}
+        {/* Right Column: Ratings, Reviews & Trust (4 cols) */}
         <div className="lg:col-span-4 space-y-6">
-          <div>
-            <h2 id="seller-reviews-title" className="text-lg font-bold text-slate-900 font-sans tracking-tight flex items-center gap-2">
-              <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
-              <span>Reviews ({sellerReviews.length})</span>
-            </h2>
-            <p className="text-xs text-slate-500">Customer feedback on completed marketplace transactions.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 id="seller-reviews-title" className="text-lg font-bold text-slate-900 font-sans tracking-tight flex items-center gap-2">
+                <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
+                <span>Reviews ({sellerReviews.length})</span>
+              </h2>
+              <p className="text-xs text-slate-500">Verified community transaction feedback.</p>
+            </div>
+
+            {/* Write Review Button */}
+            {!isOwner && (
+              <button
+                onClick={() => {
+                  if (!currentUser) {
+                    setAuthMode('login');
+                    setShowAuthModal(true);
+                    return;
+                  }
+                  setShowReviewModal(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-3xs cursor-pointer active:scale-95 transition"
+              >
+                <PenLine className="w-3.5 h-3.5" />
+                <span>Rate Seller</span>
+              </button>
+            )}
           </div>
 
           {/* Dynamic Trust Card Block */}
@@ -477,7 +670,7 @@ export const SellerProfilePage: React.FC = () => {
             <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden shadow-inner">
               <div 
                 className={`h-2 rounded-full transition-all duration-600 ${
-                  trustResult.score >= 90 ? 'bg-emerald-500' : trustResult.score >= 75 ? 'bg-indigo-600' : trustResult.score >= 50 ? 'bg-amber-505 bg-amber-500' : 'bg-rose-500'
+                  trustResult.score >= 90 ? 'bg-emerald-500' : trustResult.score >= 75 ? 'bg-indigo-600' : trustResult.score >= 50 ? 'bg-amber-500' : 'bg-rose-500'
                 }`}
                 style={{ width: `${trustResult.score}%` }}
               />
@@ -486,6 +679,25 @@ export const SellerProfilePage: React.FC = () => {
             <p className="text-[11px] text-slate-650 leading-relaxed">
               {trustResult.feedback}
             </p>
+
+            {/* Star Ratings Distribution Bars */}
+            <div className="pt-3 border-t border-slate-200/60 space-y-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Rating Distribution</span>
+              {ratingDistribution.map(({ stars, count, percentage }) => (
+                <div key={stars} className="flex items-center gap-2 text-xs">
+                  <span className="w-7 text-slate-600 font-bold flex items-center gap-0.5">
+                    {stars}<Star className="w-3 h-3 text-amber-500 fill-amber-500 inline" />
+                  </span>
+                  <div className="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-amber-400 h-2 rounded-full transition-all duration-500" 
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                  <span className="w-8 text-right text-[11px] text-slate-400 font-mono">{count}</span>
+                </div>
+              ))}
+            </div>
 
             {/* Score Breakdowns */}
             <div className="pt-3 border-t border-slate-200/60 space-y-2.5 text-xs">
@@ -540,8 +752,23 @@ export const SellerProfilePage: React.FC = () => {
             {sellerReviews.length === 0 ? (
               <div className="bg-slate-50 border border-slate-200 rounded-3xl p-8 text-center text-slate-400 text-xs">
                 <Star className="w-8 h-8 mx-auto stroke-[1.2] text-slate-305 mb-2 text-slate-400" />
-                <p className="font-semibold mb-1">No reviews yet</p>
-                <p className="text-slate-500">Be the first to complete a trade and rate this seller under your chats!</p>
+                <p className="font-semibold mb-1 text-slate-700">No reviews yet</p>
+                <p className="text-slate-500">Have you completed a trade with this seller? Leave them their first review!</p>
+                {!isOwner && (
+                  <button
+                    onClick={() => {
+                      if (!currentUser) {
+                        setAuthMode('login');
+                        setShowAuthModal(true);
+                        return;
+                      }
+                      setShowReviewModal(true);
+                    }}
+                    className="mt-3 px-4 py-2 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-slate-800 cursor-pointer"
+                  >
+                    Write First Review
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
@@ -559,11 +786,9 @@ export const SellerProfilePage: React.FC = () => {
                             onClick={() => setViewedPhoto({ url: rev.buyerPhoto!, name: `${rev.buyerName}'s Profile Picture` })}
                           />
                         ) : (
-                          <img
-                            src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
-                            alt={rev.buyerName}
-                            className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0"
-                          />
+                          <div className="w-7 h-7 rounded-full bg-slate-900 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                            {(rev.buyerName || 'B').charAt(0).toUpperCase()}
+                          </div>
                         )}
                         <div>
                           <p className="text-xs font-bold text-slate-900 leading-none">{rev.buyerName}</p>
@@ -597,6 +822,111 @@ export const SellerProfilePage: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Review Submission Modal (Phase 4) */}
+      <AnimatePresence>
+        {showReviewModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 font-sans text-slate-800">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowReviewModal(false)}
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden relative z-10 p-6 text-left space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-base font-black text-slate-900 tracking-tight">Review {seller.username}</h3>
+                  <p className="text-xs text-slate-500">Share your trade experience with the TedBuy community.</p>
+                </div>
+                <button 
+                  onClick={() => setShowReviewModal(false)}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitReview} className="space-y-4">
+                {/* Rating selection */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Rating</label>
+                  <div className="flex items-center gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        type="button"
+                        key={star}
+                        onClick={() => setReviewRating(star)}
+                        className="p-1 cursor-pointer transition transform active:scale-90"
+                      >
+                        <Star 
+                          className={`w-7 h-7 ${star <= reviewRating ? 'text-amber-400 fill-amber-400' : 'text-slate-200 hover:text-amber-200'}`} 
+                        />
+                      </button>
+                    ))}
+                    <span className="text-xs font-bold text-slate-600 ml-2">
+                      {reviewRating === 5 ? '⭐ Excellent' : reviewRating === 4 ? '👍 Good' : reviewRating === 3 ? '👌 Average' : reviewRating === 2 ? '⚠️ Poor' : '❌ Terrible'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Optional Purchased Item Tag */}
+                {sellerProducts.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Purchased Item (Optional)</label>
+                    <select
+                      value={reviewProductTitle}
+                      onChange={(e) => setReviewProductTitle(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    >
+                      <option value="">-- General Store Review --</option>
+                      {sellerProducts.map(p => (
+                        <option key={p.id} value={p.title}>{p.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Review feedback text */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Feedback Comment</label>
+                  <textarea
+                    rows={4}
+                    required
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    placeholder="Describe item condition, communication speed, punctuality, and overall trade experience..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowReviewModal(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingReview || !reviewComment.trim()}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 disabled:opacity-50 transition flex items-center justify-center gap-1.5"
+                  >
+                    {isSubmittingReview ? 'Submitting...' : 'Post Review'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Profile Picture Full-screen Lightbox Modal */}
       {viewedPhoto && (

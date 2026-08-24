@@ -964,7 +964,7 @@ const MarketplaceContent: React.FC = () => {
 
                   <div 
                     ref={categoriesScrollRef}
-                    className="flex gap-2 pb-2 overflow-x-auto w-full px-7 scrollbar-none snap-x snap-proximity touch-pan-y overscroll-x-contain"
+                    className="flex gap-2 pb-2 overflow-x-auto w-full px-7 scrollbar-none snap-x snap-proximity touch-auto overscroll-x-contain"
                     style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
                   >
                     <button
