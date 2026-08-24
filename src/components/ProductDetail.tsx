@@ -1705,8 +1705,8 @@ export const ProductDetail: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Seller Bio Module */}
-                  <div className="bg-slate-50/90 border border-slate-200/80 p-3 sm:p-4 rounded-xl sm:rounded-2xl">
+                  {/* Seller Bio & Trust Score Module */}
+                  <div className="bg-slate-50 border border-slate-200/90 p-3.5 sm:p-4.5 rounded-2xl space-y-3.5">
                     <div className="flex items-start justify-between gap-3">
                       {/* Left: Avatar + Info (Name, Badge, Tenure, Trust Score) */}
                       <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -1715,30 +1715,32 @@ export const ProductDetail: React.FC = () => {
                             src={sellerUser?.photoUrl || product.sellerPhoto}
                             alt={sellerUser?.username || product.sellerName}
                             loading="lazy"
-                            className="w-12 h-12 rounded-full border border-slate-100 object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-slate-350 transition-all mt-0.5"
+                            className="w-12 h-12 rounded-full border border-slate-200 object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-slate-900 transition-all mt-0.5"
                             title="Click to view profile picture"
                             onClick={() => setViewedPhoto({ url: (sellerUser?.photoUrl || product.sellerPhoto)!, name: `${sellerUser?.username || product.sellerName}'s Profile Picture` })}
                           />
                         ) : (
-                          <img
-                            src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23f1f5f9'/><path d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z' fill='%2394a3b8'/></svg>"
-                            alt={sellerUser?.username || product.sellerName}
-                            loading="lazy"
-                            className="w-12 h-12 rounded-full border border-slate-200/80 object-cover shrink-0 mt-0.5"
-                          />
+                          <div className="w-12 h-12 rounded-full bg-slate-900 text-white font-black text-base flex items-center justify-center shrink-0 mt-0.5 border border-slate-800">
+                            {(sellerUser?.username || product.sellerName || 'M').charAt(0).toUpperCase()}
+                          </div>
                         )}
                         <div className="flex-1 text-left min-w-0">
                           <h4 id="detail-seller-name" className="text-sm font-bold text-slate-900 flex items-center gap-1.5 min-w-0 flex-wrap">
-                            <span className="truncate">{sellerUser?.username || product.sellerName}</span>
+                            <span className="truncate">{sellerUser?.username || product.sellerName || 'TedBuy Merchant'}</span>
                             <SellerBadge seller={sellerUser} size="sm" />
                           </h4>
-                          <p className="text-[11px] text-slate-450 font-medium mt-0.5">
+                          <p className="text-[11px] text-slate-500 font-medium mt-0.5">
                             {formatTedbuyTenure(product.sellerJoinDate || sellerUser?.joinDate)}
                           </p>
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${trustResult.color.includes('emerald') ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : trustResult.color.includes('indigo') ? 'bg-indigo-50/80 text-indigo-750 border-indigo-200/50' : trustResult.color.includes('amber') ? 'bg-amber-50 text-amber-700 border-amber-200/30' : 'bg-slate-100 text-slate-600 border-slate-200'}`} title={trustResult.feedback}>
+                          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${trustResult.color.includes('emerald') ? 'bg-emerald-50 text-emerald-800 border-emerald-200/80' : trustResult.color.includes('indigo') ? 'bg-indigo-50 text-indigo-800 border-indigo-200/80' : trustResult.color.includes('amber') ? 'bg-amber-50 text-amber-800 border-amber-200/80' : 'bg-slate-100 text-slate-700 border-slate-200'}`} title={trustResult.feedback}>
                               🛡️ Trust Score: <b>{trustResult.score}%</b>
                             </span>
+                            {isSellerVerified && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-900 text-white shadow-3xs">
+                                ✓ Verified Merchant
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1748,7 +1750,7 @@ export const ProductDetail: React.FC = () => {
                         <button
                           id="btn-view-profile"
                           onClick={handleSellerClick}
-                          className="text-xs text-slate-900 hover:text-slate-750 font-bold hover:underline flex items-center gap-0.5 pt-0.5 cursor-pointer"
+                          className="text-xs text-slate-900 hover:text-emerald-700 font-bold hover:underline flex items-center gap-0.5 pt-0.5 cursor-pointer transition-colors"
                         >
                           <span>Visit Store</span>
                           <ChevronRight className="w-3.5 h-3.5" />
@@ -1760,7 +1762,7 @@ export const ProductDetail: React.FC = () => {
                             onClick={handleToggleFollow}
                             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 ${
                               isFollowing
-                                ? 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-red-50 hover:text-red-600 hover:border-red-100'
+                                ? 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200'
                                 : 'bg-slate-900 text-white hover:bg-slate-800'
                             }`}
                           >
@@ -1777,6 +1779,18 @@ export const ProductDetail: React.FC = () => {
                             )}
                           </button>
                         )}
+                      </div>
+                    </div>
+
+                    {/* Trust Guarantees Micro-Strip */}
+                    <div className="pt-2.5 border-t border-slate-200/70 grid grid-cols-2 gap-2 text-[10.5px] text-slate-600">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600 font-bold">✓</span>
+                        <span className="truncate">Direct seller negotiation</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600 font-bold">✓</span>
+                        <span className="truncate">In-person trade safety</span>
                       </div>
                     </div>
                   </div>

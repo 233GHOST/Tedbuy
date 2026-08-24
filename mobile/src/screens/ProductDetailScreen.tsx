@@ -323,7 +323,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
             </View>
           </View>
 
-          {/* Seller Profile teaser box */}
+          {/* Seller Profile & Trust Card */}
           <Pressable
             onPress={() => {
               const sid = seller?.id || product.sellerId;
@@ -338,19 +338,46 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
             <View style={styles.sellerRow}>
               <View style={styles.sellerAvatar}>
                 <Text style={styles.sellerAvatarText}>
-                  {String(seller?.username || product.sellerName || 'VS').substring(0, 2).toUpperCase()}
+                  {String(seller?.username || product.sellerName || 'M').substring(0, 2).toUpperCase()}
                 </Text>
               </View>
               <View style={styles.sellerInfo}>
-                <Text style={styles.sellerTitle}>Verified Merchant Partner</Text>
-                <Text style={styles.sellerName}>
-                  {seller?.username || product.sellerName || 'Verified TedBuy Seller'}
+                <View style={styles.sellerHeaderBadgeRow}>
+                  <Text style={styles.sellerName} numberOfLines={1}>
+                    {seller?.username || product.sellerName || 'TedBuy Merchant'}
+                  </Text>
+                  {isUserAdmin(seller) ? (
+                    <View style={[styles.microBadge, { backgroundColor: '#dbeafe', borderColor: '#bfdbfe' }]}>
+                      <Text style={[styles.microBadgeText, { color: '#1d4ed8' }]}>Admin</Text>
+                    </View>
+                  ) : isUserVerified(seller) ? (
+                    <View style={styles.microBadge}>
+                      <Text style={styles.microBadgeText}>✓ Verified</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={styles.sellerTenure}>
+                  {formatTedbuyTenure(seller?.joinDate || product.sellerJoinDate)}
                 </Text>
-                <Text style={styles.sellerRating}>
-                  ★ {product.likesCount || 0} engagement score
-                </Text>
+                <View style={styles.trustScorePill}>
+                  <Text style={styles.trustScorePillText}>🛡️ High Trust Verified</Text>
+                </View>
               </View>
-              <Text style={styles.viewSellerBtnText}>View →</Text>
+              <View style={styles.viewStoreBtn}>
+                <Text style={styles.viewSellerBtnText}>Store →</Text>
+              </View>
+            </View>
+
+            {/* Trust highlights */}
+            <View style={styles.trustGuaranteesRow}>
+              <View style={styles.trustGuaranteeItem}>
+                <Text style={styles.trustGuaranteeCheck}>✓</Text>
+                <Text style={styles.trustGuaranteeText}>Direct negotiation</Text>
+              </View>
+              <View style={styles.trustGuaranteeItem}>
+                <Text style={styles.trustGuaranteeCheck}>✓</Text>
+                <Text style={styles.trustGuaranteeText}>In-person trade safety</Text>
+              </View>
             </View>
           </Pressable>
 
@@ -561,15 +588,24 @@ const styles = StyleSheet.create({
   safetyTipsBody: { color: '#b91c1c', fontSize: 11, fontWeight: '500', lineHeight: 16 },
 
   /* Seller tease styling */
-  sellerBox: { marginTop: 16, backgroundColor: '#f8fafc', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+  sellerBox: { marginTop: 16, backgroundColor: '#f8fafc', borderRadius: 18, padding: 14, borderWidth: 1, borderColor: '#e2e8f0' },
   sellerRow: { flexDirection: 'row', alignItems: 'center' },
-  sellerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#ea580c', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  sellerAvatarText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
+  sellerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: '#1e293b' },
+  sellerAvatarText: { color: '#ffffff', fontSize: 16, fontWeight: '900' },
   sellerInfo: { flex: 1 },
-  sellerTitle: { color: '#ea580c', fontWeight: '800', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 },
-  sellerName: { color: '#0f172a', fontSize: 14, fontWeight: '800', marginTop: 1 },
-  sellerRating: { color: '#64748b', fontSize: 11, fontWeight: '500', marginTop: 1 },
-  viewSellerBtnText: { color: '#ea580c', fontWeight: '800', fontSize: 12, paddingHorizontal: 6 },
+  sellerHeaderBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  sellerName: { color: '#0f172a', fontSize: 14, fontWeight: '800' },
+  sellerTenure: { color: '#64748b', fontSize: 11, fontWeight: '500', marginTop: 1 },
+  microBadge: { backgroundColor: '#f0fdf4', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#bbf7d0' },
+  microBadgeText: { color: '#166534', fontSize: 9.5, fontWeight: '800' },
+  trustScorePill: { marginTop: 4, alignSelf: 'flex-start', backgroundColor: '#ecfdf5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#a7f3d0' },
+  trustScorePillText: { color: '#065f46', fontSize: 9.5, fontWeight: '800' },
+  viewStoreBtn: { paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#cbd5e1' },
+  viewSellerBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 11 },
+  trustGuaranteesRow: { flexDirection: 'row', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#e2e8f0', justifyContent: 'space-between' },
+  trustGuaranteeItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  trustGuaranteeCheck: { color: '#16a34a', fontWeight: '900', fontSize: 11 },
+  trustGuaranteeText: { color: '#475569', fontSize: 10.5, fontWeight: '600' },
 
   /* Modal styling */
   modalContainer: { flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.6)', justifyContent: 'flex-end' },
