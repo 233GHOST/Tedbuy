@@ -1,6 +1,6 @@
 {
   "name": "Tedbuy",
-  "description": "A clean, modern peer-to-peer classifieds marketplace like Jiji where buyers can browse listings and chat with sellers, and sellers can manage profiles and list items.",
+  "description": "Discover, buy and sell products on TedBuy, Ghana's social marketplace. Explore products, watch seller videos, connect with sellers and shop with confidence.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

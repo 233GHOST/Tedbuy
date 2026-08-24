@@ -27,8 +27,8 @@ export function useSEO({
       ? window.location.origin 
       : 'https://tedbuy.store';
 
-    let title = "TedBuy - Buy & Sell Verified Items in Ghana";
-    let description = "Ghana's #1 Social Classifieds & Video Commerce platform. Buy, sell, and discover items in action with immersive video ads, verified direct chats, and trusted local deals directly on TedBuy.";
+    let title = "TedBuy Ghana — Ghana's Social Marketplace | Discover, Buy & Sell";
+    let description = "Discover, buy and sell products on TedBuy, Ghana's social marketplace. Explore products, watch seller videos, connect with verified sellers and shop with confidence.";
     let canonical = `${origin}/`;
     let ogImage = `${origin}/icon-192.png`;
     let schemaType = "WebSite";

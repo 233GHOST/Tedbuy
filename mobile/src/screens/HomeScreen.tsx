@@ -210,6 +210,69 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     }).slice(0, 10);
   }, [products, selectedCategory]);
 
+  // Sellers to Discover memo (Active Ghanaian merchants with active listings)
+  const discoverSellers = useMemo(() => {
+    if (!users || users.length === 0 || !products || products.length === 0) return [];
+
+    const sellerListingCount: Record<string, number> = {};
+    const sellerActiveProducts: Record<string, Product[]> = {};
+
+    products.forEach((p) => {
+      if (!p || (p as any).status === 'hidden' || (p as any).isSold || (p as any).status === 'sold') return;
+      const sId = p.sellerId || (p as any).seller_id || (p as any).userId;
+      if (!sId) return;
+
+      if (selectedCategory && selectedCategory !== 'All') {
+        const pCat = String(p.category || '').toLowerCase().trim();
+        const selCat = String(selectedCategory).toLowerCase().trim();
+        if (pCat !== selCat && !pCat.includes(selCat) && !selCat.includes(pCat)) return;
+      }
+
+      sellerListingCount[sId] = (sellerListingCount[sId] || 0) + 1;
+      if (!sellerActiveProducts[sId]) sellerActiveProducts[sId] = [];
+      sellerActiveProducts[sId].push(p);
+    });
+
+    const activeSellerIds = Object.keys(sellerListingCount);
+    if (activeSellerIds.length === 0) return [];
+
+    return activeSellerIds
+      .map((id) => {
+        const user = users.find((u) => u && (u.id === id || u.uid === id));
+        const sellerListings = sellerActiveProducts[id] || [];
+        const isVerified = Boolean(
+          user?.isVerified ||
+          user?.verified ||
+          user?.idVerified ||
+          user?.badge === 'verified'
+        );
+
+        const name = user?.username || user?.displayName || user?.name || 'Verified Merchant';
+        const photo = user?.photoUrl || user?.avatar || user?.photoURL || '';
+        const location = user?.location || sellerListings[0]?.location || 'Ghana';
+        const rating = Number(user?.rating || user?.sellerRating || 4.9);
+        const count = sellerListingCount[id] || 0;
+
+        return {
+          id,
+          name,
+          photo,
+          location,
+          isVerified,
+          rating,
+          listingCount: count,
+          primaryCategory: sellerListings[0]?.category || 'General',
+        };
+      })
+      .filter((s) => s.listingCount > 0)
+      .sort((a, b) => {
+        if (a.isVerified && !b.isVerified) return -1;
+        if (!a.isVerified && b.isVerified) return 1;
+        return b.listingCount - a.listingCount;
+      })
+      .slice(0, 12);
+  }, [users, products, selectedCategory]);
+
   const handleToggleSave = (productId: string) => {
     setSavedProducts((prev) => {
       const updated = { ...prev, [productId]: !prev[productId] };
@@ -303,6 +366,15 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               <View>
                 {/* Search Container matching Web App "LOOKING FOR SOMETHING?" card */}
                 <View style={styles.searchBoxCard}>
+                  {/* Social Marketplace Headline Badge */}
+                  <View style={styles.socialBadgeRow}>
+                    <View style={styles.socialBadgePill}>
+                      <View style={styles.socialPulseDot} />
+                      <Text style={styles.socialBadgeText}>Ghana's Social Marketplace</Text>
+                    </View>
+                    <Text style={styles.socialBadgeSub}>Discover • Connect • Shop</Text>
+                  </View>
+
                   <Text style={styles.searchLabel}>LOOKING FOR SOMETHING?</Text>
                   <View style={styles.searchRow}>
                     <Text style={styles.searchEmoji}>🔍</Text>
@@ -334,11 +406,11 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   </Pressable>
                 </View>
 
-                {/* Explore Classified Categories Section Header */}
+                {/* Explore Marketplace Categories Section Header */}
                 <View style={styles.sectionHeaderRow}>
                   <View style={styles.sectionHeaderLeft}>
                     <Text style={styles.sectionHeaderIcon}>📈</Text>
-                    <Text style={styles.sectionHeaderTitle}>Explore Classified Categories</Text>
+                    <Text style={styles.sectionHeaderTitle}>Explore Marketplace Categories</Text>
                   </View>
                   <Pressable onPress={() => setSelectedCategory('All')} style={styles.viewAllBtn}>
                     <Text style={styles.viewAllText}>View All Grid</Text>
@@ -459,6 +531,71 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   </View>
                 </View>
 
+                {/* Sellers to Discover Section (Active Ghanaian Merchants & Storefronts) */}
+                {discoverSellers.length > 0 && !searchText.trim() && (
+                  <View style={styles.carouselSection}>
+                    <View style={styles.carouselHeaderRow}>
+                      <View style={styles.carouselHeaderLeft}>
+                        <Text style={styles.carouselIcon}>🏪</Text>
+                        <Text style={styles.carouselTitle}>Sellers to Discover</Text>
+                        <View style={styles.verifiedCountBadge}>
+                          <Text style={styles.verifiedCountBadgeText}>{discoverSellers.length}</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <ScrollView
+                      horizontal
+                      nestedScrollEnabled={true}
+                      directionalLockEnabled={true}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.horizontalCarouselContainer}
+                    >
+                      {discoverSellers.map((seller) => (
+                        <Pressable
+                          key={`seller-card-${seller.id}`}
+                          onPress={() => navigation?.navigate('SellerProfile', { sellerId: seller.id })}
+                          style={styles.sellerDiscoverCard}
+                        >
+                          <View style={styles.sellerAvatarBox}>
+                            {seller.photo ? (
+                              <Image source={{ uri: seller.photo }} style={styles.sellerAvatarImg} />
+                            ) : (
+                              <View style={styles.sellerAvatarFallback}>
+                                <Text style={styles.sellerAvatarInitial}>
+                                  {seller.name.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                            {seller.isVerified && (
+                              <View style={styles.sellerCardVerifiedBadge}>
+                                <Text style={styles.sellerCardVerifiedCheck}>✓</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          <Text style={styles.sellerCardName} numberOfLines={1}>
+                            {seller.name}
+                          </Text>
+
+                          <Text style={styles.sellerCardLocation} numberOfLines={1}>
+                            📍 {seller.location}
+                          </Text>
+
+                          <View style={styles.sellerCardMetaPill}>
+                            <Text style={styles.sellerCardMetaCount}>
+                              {seller.listingCount} {seller.listingCount === 1 ? 'Ad' : 'Ads'}
+                            </Text>
+                            <Text style={styles.sellerCardMetaCategory} numberOfLines={1}>
+                              • {seller.primaryCategory}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
                 {/* Featured Boosted Listings Carousel */}
                 {featuredProducts.length > 0 && !searchText.trim() && (
                   <View style={styles.carouselSection}>
@@ -481,6 +618,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                           <ProductCard
                             product={item}
                             onPress={() => onOpenProduct(item)}
+                            onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
                             isSaved={!!savedProducts[item.id]}
                             onToggleSave={handleToggleSave}
                             isFeaturedVariant={true}
@@ -513,6 +651,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                           <ProductCard
                             product={item}
                             onPress={() => onOpenProduct(item)}
+                            onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
                             isSaved={!!savedProducts[item.id]}
                             onToggleSave={handleToggleSave}
                             isTrendingVariant={true}
@@ -523,9 +662,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   </View>
                 )}
 
-                {/* Latest Classified Deals section */}
+                {/* Latest Marketplace Deals section */}
                 <View style={styles.dealsHeaderRow}>
-                  <Text style={styles.dealsTitle}>Latest Classified Deals</Text>
+                  <Text style={styles.dealsTitle}>Latest Marketplace Deals</Text>
                   <Pressable style={styles.refreshButton} onPress={handleRefresh}>
                     <Text style={styles.refreshIcon}>🔄</Text>
                   </Pressable>
@@ -547,6 +686,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               <ProductCard
                 product={item}
                 onPress={() => onOpenProduct(item)}
+                onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
                 isSaved={!!savedProducts[item.id]}
                 onToggleSave={handleToggleSave}
               />
@@ -1316,5 +1456,148 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 12,
     fontWeight: '700',
+  },
+  socialBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    gap: 6,
+  },
+  socialBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 5,
+  },
+  socialPulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10b981',
+  },
+  socialBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.2,
+  },
+  socialBadgeSub: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  verifiedCountBadge: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  verifiedCountBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  sellerDiscoverCard: {
+    width: 140,
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  sellerAvatarBox: {
+    position: 'relative',
+    marginBottom: 8,
+  },
+  sellerAvatarImg: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f1f5f9',
+  },
+  sellerAvatarFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sellerAvatarInitial: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  sellerCardVerifiedBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    backgroundColor: '#0f172a',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+  },
+  sellerCardVerifiedCheck: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  sellerCardName: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+    textAlign: 'center',
+    width: '100%',
+    marginBottom: 2,
+  },
+  sellerCardLocation: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+    textAlign: 'center',
+    width: '100%',
+    marginBottom: 8,
+  },
+  sellerCardMetaPill: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    gap: 3,
+  },
+  sellerCardMetaCount: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  sellerCardMetaCategory: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#64748b',
+    flexShrink: 1,
   },
 });

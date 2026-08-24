@@ -23,6 +23,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
     usersMap,
     toggleSaveProduct,
     setSelectedProductId,
+    setSelectedSellerId,
     setCurrentView,
     setShowAuthModal,
     setAuthMode,
@@ -34,7 +35,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
   
   // O(1) user profile resolution utilizing pre-mapped dictionary or array fallback
   const seller = usersMap ? usersMap.get(product.sellerId) : users?.find(u => u.id === product.sellerId);
-  const isSellerVerified = isUserVerified(seller);
+  const isSellerVerified = isUserVerified(seller) || Boolean((seller as any)?.isVerified || (seller as any)?.verified || (seller as any)?.idVerified);
   const isPrioSeller = isBoostActive(product) && !isFeaturedVariant && !isTrendingVariant;
 
   const handleDetailsClick = () => {
@@ -43,6 +44,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
     }
     setSelectedProductId(product.id);
     setCurrentView('product-detail');
+  };
+
+  const handleSellerClick = (sellerId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (sellerId) {
+      setSelectedSellerId(sellerId);
+      setCurrentView('seller-profile');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handleSaveClick = (e: React.MouseEvent) => {
@@ -69,6 +79,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
       isAdminOrSeller={isAdminOrSeller}
       priority={priority}
       onDetailsClick={handleDetailsClick}
+      onSellerClick={handleSellerClick}
       onSaveClick={handleSaveClick}
       onUpdateProduct={updateProduct}
     />
@@ -86,6 +97,7 @@ interface ProductCardInnerProps {
   isAdminOrSeller: boolean;
   priority?: boolean;
   onDetailsClick: () => void;
+  onSellerClick: (sellerId: string, e: React.MouseEvent) => void;
   onSaveClick: (e: React.MouseEvent) => void;
   onUpdateProduct: (productId: string, data: Partial<Product>) => Promise<any>;
 }
@@ -100,6 +112,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
   isAdminOrSeller,
   priority,
   onDetailsClick,
+  onSellerClick,
   onSaveClick,
   onUpdateProduct
 }) => {
@@ -202,41 +215,21 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
     };
   }, [product.videos, isVisible]);
 
-  const getLowResUrl = (url: string): string => {
-    if (!url) return '';
-    if (url.includes('images.unsplash.com')) {
-      let lowRes = url;
-      if (lowRes.includes('w=')) {
-        lowRes = lowRes.replace(/([?&])w=\d+/g, '$1w=32');
-      } else {
-        lowRes += (lowRes.includes('?') ? '&' : '?') + 'w=32';
-      }
-      if (lowRes.includes('q=')) {
-        lowRes = lowRes.replace(/([?&])q=\d+/g, '$1q=10');
-      } else {
-        lowRes += '&q=10';
-      }
-      return lowRes;
-    }
-    return 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" fill="%23f1f5f9"/></svg>';
-  };
-
   const formattedPrice = formatProductPrice(product.price);
   const isServiceCategory = normalizeCategory(product.category) === 'Services';
   const dateFormatted = new Date(product.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-  const [loaded, setLoaded] = React.useState(false);
-
-  console.log(`[ProductCard] product.id: ${product.id} | computed displayImage (imgSrc): ${imgSrc} | product.displayImage: ${product.displayImage}`);
+  const sellerName = seller?.username || (seller as any)?.displayName || product.sellerName || 'TedBuy Merchant';
+  const sellerPhoto = seller?.photoUrl && !String(seller?.photoUrl).includes('1549399542-7e3f8b79c341') ? seller.photoUrl : null;
+  const sellerId = seller?.id || product.sellerId;
 
   return (
     <article
       ref={cardRef as any}
       id={`product-card-${product.id}`}
       onClick={onDetailsClick}
-      className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.02] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group animate-fade-in"
+      className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.015] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group animate-fade-in"
     >
-      {/* Listing image section */}
+      {/* Listing image / video section */}
       <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-square flex items-center justify-center" style={{ aspectRatio: '1/1' }}>
         {isVisible ? (
           <>
@@ -289,6 +282,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
           </div>
         )}
 
+        {/* Top-Left Badges: Active Seller / Sold */}
         {((isPrioSeller && !isTrendingVariant) || product.isSold) && (
           <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-20">
             {isPrioSeller && !isTrendingVariant && (
@@ -305,34 +299,47 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
           </div>
         )}
 
+        {/* Top Condition Tag */}
         {product.condition && !isTrendingVariant && (
-          <div id={`product-card-condition-${product.id}`} className="absolute bottom-2.5 left-2.5 z-20">
-            <span className="px-2.5 py-0.5 bg-emerald-500 text-white text-[11px] font-medium rounded-full shadow-2xs">
-              {product.condition}
+          <div id={`product-card-condition-${product.id}`} className="absolute top-2.5 left-2.5 z-20">
+            {!(isPrioSeller && !isTrendingVariant) && !product.isSold && (
+              <span className="px-2.5 py-0.5 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-medium rounded-full shadow-2xs">
+                {product.condition}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Bottom Video Available Indicator Badge */}
+        {hasVideoAd && !isTrendingVariant && (
+          <div className="absolute bottom-2.5 right-2.5 z-20">
+            <span className="px-2 py-0.5 bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-bold rounded-md flex items-center gap-1 shadow-xs border border-white/10">
+              <Video className="w-3 h-3 text-emerald-400" />
+              <span>Video</span>
             </span>
           </div>
         )}
 
-        {/* Bookmark/Watchlist floating button */}
+        {/* Bookmark / Watchlist floating button */}
         <button
           id={`btn-save-product-${product.id}`}
           onClick={onSaveClick}
-          className={`absolute top-2.5 right-2.5 z-25 w-8 h-8 sm:w-9 sm:h-9 rounded-full shadow-md flex items-center justify-center transition-all duration-200 outline-none cursor-pointer ${
+          className={`absolute top-2.5 right-2.5 z-25 w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-full shadow-md flex items-center justify-center transition-all duration-200 outline-none cursor-pointer ${
             isSaved
               ? 'bg-rose-500 text-white hover:bg-rose-600 scale-105'
-              : 'bg-white text-slate-400 hover:text-slate-800 hover:bg-slate-50'
+              : 'bg-white/95 backdrop-blur-xs text-slate-400 hover:text-slate-800 hover:bg-white'
           }`}
-          title={isSaved ? "Remove from saved ads" : "Save to saved ads"}
+          title={isSaved ? "Remove from saved items" : "Save to wishlist"}
         >
-          <Heart className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
+          <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill={isSaved ? "currentColor" : "none"} />
         </button>
         
-        {/* Dynamic bottom status bar on image hover */}
+        {/* Dynamic bottom status bar on image hover for seller/admin */}
         {isAdminOrSeller && (
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/80 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/85 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
             <span className="text-[10px] flex items-center gap-1 font-sans">
               <Eye className="w-3 h-3 text-slate-100" />
-              {product.viewsCount} views
+              {product.viewsCount || 0} views
             </span>
             <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium">
               <Calendar className="w-3 h-3" />
@@ -343,43 +350,92 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
       </div>
 
       {/* Detail info section */}
-      <div className="p-2 sm:p-2.5 flex flex-col flex-1 justify-between gap-1 text-left bg-white">
-        <div className="space-y-0.5">
+      <div className="p-2.5 sm:p-3 flex flex-col flex-1 justify-between gap-1.5 text-left bg-white">
+        <div className="space-y-1">
+          {/* Title */}
           <h3 className="text-xs sm:text-sm font-bold line-clamp-2 leading-snug transition truncate-hover text-slate-800 group-hover:text-slate-950">
             {product.title}
           </h3>
 
+          {/* Price and negotiable tag */}
           {!isServiceCategory && (
             <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              <span className="text-sm sm:text-base font-extrabold text-slate-950 block leading-none font-sans tracking-tight">
+              <span className="text-sm sm:text-base font-black text-slate-950 block leading-none font-sans tracking-tight">
                 {formattedPrice}
               </span>
               {product.negotiable !== false && !isTrendingVariant && (
-                <span id={`product-card-negotiable-${product.id}`} className="inline-flex items-center text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider font-sans shrink-0">
+                <span id={`product-card-negotiable-${product.id}`} className="inline-flex items-center text-[8.5px] bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider font-sans shrink-0">
                   Negotiable
                 </span>
               )}
             </div>
           )}
+
           {product.brand && !isTrendingVariant && (
-            <span id={`product-card-brand-${product.id}`} className="inline-block text-[9px] bg-slate-100 text-slate-600 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider font-sans mb-1">
+            <span id={`product-card-brand-${product.id}`} className="inline-block text-[9px] bg-slate-100 text-slate-600 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider font-sans">
               {product.brand}
             </span>
           )}
         </div>
 
-        {product.location && !isTrendingVariant && (
-          <div className="flex flex-col gap-1 text-[11px] text-slate-400 font-sans mt-1">
-            <div className="flex items-center gap-1 text-slate-400 max-w-full truncate">
-              <MapPin className="w-3 h-3 text-slate-300 shrink-0" />
-              <span className="truncate">{product.location}</span>
+        {/* Social Touchpoint: Seller Profile Strip & Location */}
+        {!isTrendingVariant && (
+          <div
+            onClick={(e) => onSellerClick(sellerId, e)}
+            className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1 text-slate-600 hover:text-slate-900 group/seller transition-colors cursor-pointer"
+            title={`Visit ${sellerName}'s storefront`}
+          >
+            {/* Seller Avatar & Name */}
+            <div className="flex items-center gap-1.5 min-w-0">
+              {sellerPhoto ? (
+                <img
+                  src={sellerPhoto}
+                  alt={sellerName}
+                  className="w-5 h-5 rounded-full object-cover border border-slate-200 shrink-0"
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-slate-900 text-white text-[9.5px] font-black flex items-center justify-center shrink-0">
+                  {sellerName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex items-center gap-1 min-w-0">
+                <span className="text-[11px] font-bold text-slate-800 truncate group-hover/seller:text-emerald-700 transition-colors">
+                  {sellerName}
+                </span>
+                {isSellerVerified && (
+                  <span
+                    className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-900 text-white text-[8px] font-black shrink-0"
+                    title="Verified Seller"
+                  >
+                    ✓
+                  </span>
+                )}
+              </div>
             </div>
+
+            {/* Location */}
+            {product.location && (
+              <span className="text-[10.5px] text-slate-400 font-medium truncate shrink-0 max-w-[85px] sm:max-w-[110px] flex items-center gap-0.5">
+                <MapPin className="w-2.5 h-2.5 shrink-0 text-slate-400" />
+                <span className="truncate">{product.location}</span>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Engagement Signals & Social micro-row */}
+        {!isTrendingVariant && (product.likesCount && product.likesCount > 0) && (
+          <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-0.5">
+            <span className="inline-flex items-center gap-1 font-semibold text-slate-500">
+              <Heart className="w-2.5 h-2.5 text-rose-500 fill-rose-500" />
+              <span>{product.likesCount} {product.likesCount === 1 ? 'save' : 'saves'}</span>
+            </span>
           </div>
         )}
 
         {isAdminOrSeller && !isTrendingVariant && (
-          <div className="pt-2.5 border-t border-dashed border-slate-200 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status Toggle</span>
+          <div className="pt-2 border-t border-dashed border-slate-200 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status</span>
             <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700">
               <input
                 type="checkbox"
@@ -393,7 +449,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                 }}
                 className="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
               />
-              <span>Mark as Sold</span>
+              <span>Mark Sold</span>
             </label>
           </div>
         )}
@@ -427,6 +483,8 @@ const ProductCardMemo = React.memo(ProductCardInner, (prevProps, nextProps) => {
     prevProps.isPrioSeller === nextProps.isPrioSeller &&
     prevProps.isAdminOrSeller === nextProps.isAdminOrSeller &&
     prevProps.seller?.id === nextProps.seller?.id &&
+    prevProps.seller?.username === nextProps.seller?.username &&
+    prevProps.seller?.photoUrl === nextProps.seller?.photoUrl &&
     prevProps.seller?.isOnline === nextProps.seller?.isOnline &&
     prevProps.seller?.visitCount === nextProps.seller?.visitCount
   );

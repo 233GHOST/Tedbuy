@@ -7,12 +7,21 @@ interface ProductCardProps {
   product: Product;
   onPress?: () => void;
   onToggleSave?: (productId: string) => void;
+  onSellerPress?: (sellerId: string) => void;
   isSaved?: boolean;
   isFeaturedVariant?: boolean;
   isTrendingVariant?: boolean;
 }
 
-export function ProductCard({ product, onPress, onToggleSave, isSaved: propIsSaved, isFeaturedVariant, isTrendingVariant }: ProductCardProps) {
+export function ProductCard({
+  product,
+  onPress,
+  onToggleSave,
+  onSellerPress,
+  isSaved: propIsSaved,
+  isFeaturedVariant,
+  isTrendingVariant,
+}: ProductCardProps) {
   const [loaded, setLoaded] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [localIsSaved, setLocalIsSaved] = useState(false);
@@ -254,25 +263,56 @@ export function ProductCard({ product, onPress, onToggleSave, isSaved: propIsSav
           </View>
         ) : null}
 
-        {/* Location Indicator */}
+        {/* Social Touchpoint: Seller Info & Location Row */}
         {!isTrendingVariant && (
-          <View style={styles.locationContainer}>
-            <Text style={styles.locationPin}>📍</Text>
-            <Text style={styles.locationText} numberOfLines={1}>
-              {product.location || 'Ghana'}
-            </Text>
-          </View>
+          <Pressable
+            style={styles.sellerTouchpointRow}
+            onPress={() => onSellerPress?.(product.sellerId)}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          >
+            <View style={styles.sellerLeftCol}>
+              <View style={styles.sellerAvatarSmall}>
+                {(product as any).sellerPhoto || (product as any).sellerAvatar ? (
+                  <Image
+                    source={{ uri: (product as any).sellerPhoto || (product as any).sellerAvatar }}
+                    style={styles.sellerAvatarImgSmall}
+                  />
+                ) : (
+                  <Text style={styles.sellerAvatarLetterSmall}>
+                    {(product.sellerName || 'M').charAt(0).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.sellerNameCol}>
+                <View style={styles.sellerNameVerifiedRow}>
+                  <Text style={styles.sellerNameText} numberOfLines={1}>
+                    {product.sellerName || 'Verified Merchant'}
+                  </Text>
+                  {((product as any).isVerified || (product as any).sellerVerified || (product as any).verified) && (
+                    <View style={styles.verifiedCheckSmall}>
+                      <Text style={styles.verifiedCheckText}>✓</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            {product.location ? (
+              <View style={styles.sellerLocationBadge}>
+                <Text style={styles.locationPinSmall}>📍</Text>
+                <Text style={styles.locationTextSmall} numberOfLines={1}>
+                  {product.location}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
         )}
 
-        {/* Seller Info Row */}
-        {!isTrendingVariant && (
-          <View style={styles.sellerRow}>
-            <Text style={styles.sellerLabelText}>
-              Seller: <Text style={styles.sellerNameText}>{product.sellerName || 'Verified Merchant'}</Text>
-            </Text>
-            {product.likesCount && product.likesCount > 0 ? (
-              <Text style={styles.likesCountText}>❤️ {product.likesCount}</Text>
-            ) : null}
+        {/* Engagement Signals Row */}
+        {!isTrendingVariant && Boolean(product.likesCount && product.likesCount > 0) && (
+          <View style={styles.engagementRow}>
+            <Text style={styles.likesCountText}>❤️ {product.likesCount} {product.likesCount === 1 ? 'save' : 'saves'}</Text>
           </View>
         )}
 
@@ -537,7 +577,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
   },
-  sellerRow: {
+  sellerTouchpointRow: {
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
@@ -545,19 +585,83 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 6,
   },
-  sellerLabelText: {
-    color: '#64748b',
-    fontSize: 11,
-    fontWeight: '500',
+  sellerLeftCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 6,
+  },
+  sellerAvatarSmall: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  sellerAvatarImgSmall: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  sellerAvatarLetterSmall: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  sellerNameCol: {
+    flex: 1,
+  },
+  sellerNameVerifiedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   sellerNameText: {
-    color: '#334155',
+    color: '#1e293b',
+    fontSize: 11,
     fontWeight: '700',
+    flexShrink: 1,
+  },
+  verifiedCheckSmall: {
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  verifiedCheckText: {
+    color: '#ffffff',
+    fontSize: 8,
+    fontWeight: '900',
+  },
+  sellerLocationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    maxWidth: 80,
+  },
+  locationPinSmall: {
+    fontSize: 9.5,
+  },
+  locationTextSmall: {
+    color: '#64748b',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  engagementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 8,
   },
   likesCountText: {
-    fontSize: 11,
-    color: '#475569',
+    fontSize: 10,
+    color: '#64748b',
     fontWeight: '600',
   },
 

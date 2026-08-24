@@ -1,6 +1,7 @@
 {
-  "name": "Tedbuy - Buy and Sell Products in Ghana",
-  "short_name": "Tedbuy",
+  "name": "TedBuy Ghana — Ghana's Social Marketplace",
+  "short_name": "TedBuy",
+  "description": "Discover, buy and sell products on TedBuy, Ghana's social marketplace. Explore products, watch seller videos, connect with verified sellers and shop with confidence.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",

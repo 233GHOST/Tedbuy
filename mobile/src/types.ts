@@ -4,20 +4,33 @@ export interface Product {
   price: string | number;
   category?: string;
   location?: string;
+  brand?: string;
   image?: string;
   images?: string[];
+  displayImage?: string;
+  thumbnailUrl?: string;
+  primaryImage?: string;
   description?: string;
   seller?: string;
   sellerId?: string;
   sellerName?: string;
+  sellerPhoto?: string;
+  sellerAvatar?: string;
   sellerRating?: number;
+  isVerified?: boolean;
+  sellerVerified?: boolean;
   likes?: number;
   likesCount?: number;
+  viewsCount?: number;
+  views?: number;
   negotiable?: boolean;
   isExchangeable?: boolean;
   exchangePossible?: boolean;
   condition?: string;
   createdAt?: string;
+  isSold?: boolean;
+  boostStatus?: string;
+  boostEndDate?: string;
   likedUserIds?: string[];
   videos?: string[];
 }
@@ -34,6 +47,7 @@ export interface ChatItem {
 export interface User {
   id: string;
   username?: string;
+  displayName?: string;
   email?: string;
   phoneNumber?: string;
   photoUrl?: string;
@@ -41,12 +55,19 @@ export interface User {
   role?: string;
   isAdmin?: boolean;
   emailVerified?: boolean;
+  isVerified?: boolean;
   isGoogleAuth?: boolean;
+  region?: string;
+  location?: string;
+  rating?: number;
+  reviewCount?: number;
 }
+
+export type UserProfile = User;
 
 export const isUserVerified = (user?: User | UserProfile | null): boolean => {
   if (!user) return false;
-  return !!(user as any).emailVerified;
+  return !!(user as any).emailVerified || !!(user as any).isVerified;
 };
 
 export const isUserAdmin = (user?: User | UserProfile | any | null): boolean => {

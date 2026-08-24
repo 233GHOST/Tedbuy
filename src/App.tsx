@@ -42,6 +42,7 @@ import { GhanaLocationFilter } from './components/GhanaLocationFilter';
 import { SearchSuggestions } from './components/SearchSuggestions';
 import { FeaturedListings } from './components/FeaturedListings';
 import { TrendingListings } from './components/TrendingListings';
+import { SellersToDiscover } from './components/SellersToDiscover';
 import { FeaturedListingsView } from './components/FeaturedListingsView';
 import { getRegionForLocation } from './regions';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
@@ -217,8 +218,8 @@ const MarketplaceContent: React.FC = () => {
 
   // Dynamic Document Title and Meta Description for Client-Side SEO indexing
   React.useEffect(() => {
-    let title = 'Tedbuy Ghana - Verified Classifieds Marketplace';
-    let description = 'Shop safely on Tedbuy Ghana. Peer-verified electronics, phones, laptops, sneakers, fashion, and other listings with zero hidden fees and direct trade.';
+    let title = "TedBuy Ghana — Ghana's Social Marketplace | Discover, Buy & Sell";
+    let description = "Discover, buy and sell products on TedBuy, Ghana's social marketplace. Explore products, watch seller videos, connect with verified sellers and shop with confidence.";
 
     if (currentView === 'product-detail' && selectedProductId) {
       const product = products.find(p => p.id === selectedProductId);
@@ -727,6 +728,22 @@ const MarketplaceContent: React.FC = () => {
                 {/* Hidden programmatic click trigger so video empty-state CTA remains completely functional */}
                 <button id="hero-post-ad-btn" onClick={handlePostAdBtn} className="hidden" />
 
+                {/* Social Marketplace Headline Badge */}
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-slate-200/80 rounded-full shadow-3xs">
+                    <span className="flex h-2 w-2 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="text-xs font-black text-slate-800 tracking-tight">
+                      Ghana's Social Marketplace
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-500 hidden sm:inline font-medium">
+                    Discover products • Watch seller videos • Connect directly
+                  </span>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end relative z-30">
                   {/* Left Column: Prominent Search Bar */}
                   <div className="lg:col-span-6 text-left w-full">
@@ -873,7 +890,7 @@ const MarketplaceContent: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2.5">
                   <h2 className="text-base font-extrabold text-slate-900 font-sans tracking-tight flex items-center gap-1.5">
                     <TrendingUp className="w-4.5 h-4.5 text-slate-900" />
-                    <span>Explore Classified Categories</span>
+                    <span>Explore Marketplace Categories</span>
                   </h2>
                   <button
                     onClick={() => setShowAllCategories(!showAllCategories)}
@@ -1171,6 +1188,11 @@ const MarketplaceContent: React.FC = () => {
                 </div>
               )}
 
+              {/* Sellers to Discover Section (Active Ghanaian Merchants & Storefronts) - Hidden when user is searching */}
+              {!debouncedSearchQuery.trim() && !searchQuery.trim() && (
+                <SellersToDiscover selectedCategory={selectedCategory} />
+              )}
+
               {/* Featured Boosted Listings Section - Hidden when user is searching */}
               {!debouncedSearchQuery.trim() && !searchQuery.trim() && (
                 <FeaturedListings selectedCategory={selectedCategory} />
@@ -1189,10 +1211,10 @@ const MarketplaceContent: React.FC = () => {
                         {debouncedSearchQuery.trim()
                           ? `Results for ${debouncedSearchQuery}`
                           : selectedCategory
-                          ? selectedCategory
+                          ? `${selectedCategory} Deals`
                           : (selectedRegion !== 'All' || selectedCity !== 'All')
                           ? `${selectedRegion} Region ${selectedCity !== 'All' ? '- ' + selectedCity : ''} Deals`
-                          : 'Latest Classified Deals'}
+                          : 'Latest Marketplace Deals'}
                       </h3>
                       <button
                         id="btn-manual-refresh"

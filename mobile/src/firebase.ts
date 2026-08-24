@@ -15,7 +15,7 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-export async function getAuthHeaderMobile(): Promise<Record<string, string>> => {
+export async function getAuthHeaderMobile(): Promise<Record<string, string>> {
   try {
     if (auth.currentUser) {
       const token = await auth.currentUser.getIdToken();
