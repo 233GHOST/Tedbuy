@@ -48,6 +48,12 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const [maxPriceFilter, setMaxPriceFilter] = useState('');
   const [selectedBrandFilter, setSelectedBrandFilter] = useState('');
 
+  // Auto-swipe state for Featured Listings carousel (1.5s interval)
+  const featuredScrollRef = useRef<ScrollView | null>(null);
+  const featuredIndexRef = useRef<number>(0);
+  const [isFeaturedPaused, setIsFeaturedPaused] = useState<boolean>(false);
+  const featuredPauseTimeoutRef = useRef<any>(null);
+
   // Close filter dropdown on category change
   useEffect(() => {
     setIsFilterDropdownOpen(false);
@@ -189,6 +195,22 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       return scoreB - scoreA;
     });
   }, [products, selectedCategory]);
+
+  // Featured listings auto-swipe every 1.5s
+  useEffect(() => {
+    if (featuredProducts.length <= 1 || isFeaturedPaused) return;
+
+    const interval = setInterval(() => {
+      const nextIndex = (featuredIndexRef.current + 1) % featuredProducts.length;
+      featuredIndexRef.current = nextIndex;
+      featuredScrollRef.current?.scrollTo({
+        x: nextIndex * (175 + 12),
+        animated: true,
+      });
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [featuredProducts.length, isFeaturedPaused]);
 
   // Trending 10 most viewed listings memo
   const trendingProducts = useMemo(() => {
@@ -597,12 +619,23 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                       </View>
                     </View>
                     <ScrollView 
+                      ref={featuredScrollRef}
                       horizontal 
                       nestedScrollEnabled={true}
                       directionalLockEnabled={true}
                       scrollEventThrottle={16}
                       showsHorizontalScrollIndicator={false} 
                       contentContainerStyle={styles.horizontalCarouselContainer}
+                      onScrollBeginDrag={() => {
+                        setIsFeaturedPaused(true);
+                        if (featuredPauseTimeoutRef.current) clearTimeout(featuredPauseTimeoutRef.current);
+                      }}
+                      onScrollEndDrag={() => {
+                        if (featuredPauseTimeoutRef.current) clearTimeout(featuredPauseTimeoutRef.current);
+                        featuredPauseTimeoutRef.current = setTimeout(() => {
+                          setIsFeaturedPaused(false);
+                        }, 2500);
+                      }}
                     >
                       {featuredProducts.map((item) => (
                         <View key={`featured-${item.id}`} style={styles.carouselCardItem}>

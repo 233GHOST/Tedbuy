@@ -17,8 +17,12 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
 
   const [serverFeatured, setServerFeatured] = useState<Product[]>([]);
   const [activeIndex, setActiveIndex] = useState<number>(0);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const activeIndexRef = useRef<number>(activeIndex);
+  activeIndexRef.current = activeIndex;
+  const pauseTimerRef = useRef<any>(null);
 
   // 1. Fetch or filter active non-expired boosted products with category sensitivity
   const filterAndSortFeatured = useCallback((allProducts: Product[], catFilter?: Category | string | null): Product[] => {
@@ -102,7 +106,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
   };
 
   // Scroll to explicit index
-  const scrollToIndex = (index: number) => {
+  const scrollToIndex = useCallback((index: number) => {
     if (!containerRef.current) return;
     const cardWidth = containerRef.current.firstElementChild?.getBoundingClientRect().width || 160;
     containerRef.current.scrollTo({
@@ -110,20 +114,45 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
       behavior: 'smooth'
     });
     setActiveIndex(index);
+  }, []);
+
+  // Auto-swipe carousel every 1.5 seconds
+  useEffect(() => {
+    if (featuredProducts.length <= 1 || isPaused) return;
+
+    const interval = setInterval(() => {
+      const nextIndex = (activeIndexRef.current + 1) % featuredProducts.length;
+      scrollToIndex(nextIndex);
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [featuredProducts.length, isPaused, scrollToIndex]);
+
+  const handlePauseInteraction = () => {
+    setIsPaused(true);
+    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+  };
+
+  const handleResumeInteraction = (delayMs = 2500) => {
+    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+    pauseTimerRef.current = setTimeout(() => {
+      setIsPaused(false);
+    }, delayMs);
   };
 
   // Navigation handlers
   const handleScrollLeft = () => {
-    const nextIndex = Math.max(0, activeIndex - 1);
+    handlePauseInteraction();
+    const nextIndex = (activeIndex - 1 + featuredProducts.length) % featuredProducts.length;
     scrollToIndex(nextIndex);
+    handleResumeInteraction();
   };
 
   const handleScrollRight = () => {
-    if (activeIndex >= featuredProducts.length - 1) {
-      scrollToIndex(0);
-    } else {
-      scrollToIndex(activeIndex + 1);
-    }
+    handlePauseInteraction();
+    const nextIndex = (activeIndex + 1) % featuredProducts.length;
+    scrollToIndex(nextIndex);
+    handleResumeInteraction();
   };
 
   // View All click handler
@@ -202,6 +231,10 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
         <div
           ref={containerRef}
           onScroll={handleScroll}
+          onMouseEnter={handlePauseInteraction}
+          onMouseLeave={() => handleResumeInteraction(1500)}
+          onTouchStart={handlePauseInteraction}
+          onTouchEnd={() => handleResumeInteraction(2500)}
           className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-proximity py-1 px-0.5 touch-auto overscroll-x-contain"
           style={{ 
             WebkitOverflowScrolling: 'touch',
@@ -225,7 +258,11 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
             {featuredProducts.map((_, i) => (
               <button
                 key={`dot-${i}`}
-                onClick={() => scrollToIndex(i)}
+                onClick={() => {
+                  handlePauseInteraction();
+                  scrollToIndex(i);
+                  handleResumeInteraction();
+                }}
                 className={`transition-all duration-300 rounded-full cursor-pointer ${
                   activeIndex === i
                     ? 'w-7 h-2.5 bg-orange-500'
