@@ -524,7 +524,7 @@ const MarketplaceContent: React.FC = () => {
   // Dynamic category-specific extra filters state
   const [extraFilters, setExtraFilters] = useState<Record<string, string>>({});
 
-  const isAllCategoriesView = (!selectedCategory || (selectedCategory as string) === 'All') && !debouncedSearchQuery.trim();
+  const isAllCategoriesView = (!selectedCategory || (selectedCategory as string) === 'All') && !debouncedSearchQuery.trim() && !searchQuery.trim();
 
   // Reset category-specific filters state when the category changes
   React.useEffect(() => {
@@ -548,14 +548,10 @@ const MarketplaceContent: React.FC = () => {
     );
   }, [products, users, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters]);
 
-  // Reset pagination limit when any filter parameters change
+  // Reset pagination limit to first batch (24 items) when any category, search or filter parameters change
   React.useEffect(() => {
-    if (isAllCategoriesView) {
-      setDisplayLimit(24);
-    } else {
-      setDisplayLimit(Math.max(100, sortedProducts.length));
-    }
-  }, [selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters, isAllCategoriesView, sortedProducts.length]);
+    setDisplayLimit(24);
+  }, [selectedCategory, debouncedSearchQuery, searchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters]);
 
   // Prefetch cover images of the first few products dynamically to make browsing feel instant
   const prefetchedImagesRef = React.useRef<Set<string>>(new Set());
@@ -601,7 +597,7 @@ const MarketplaceContent: React.FC = () => {
     const observer = new IntersectionObserver((entries) => {
       const entry = entries[0];
       if (entry.isIntersecting) {
-        setDisplayLimit((prev) => Math.max(prev + 24, sortedProducts.length + 24));
+        setDisplayLimit((prev) => prev + 24);
         if (hasMoreProducts && !isLoadingMoreProducts) {
           loadMoreProducts();
         }
@@ -620,7 +616,7 @@ const MarketplaceContent: React.FC = () => {
       const isNearBottom = rect.top - 300 <= (window.innerHeight || document.documentElement.clientHeight);
       
       if (isNearBottom) {
-        setDisplayLimit((prev) => Math.max(prev + 24, sortedProducts.length + 24));
+        setDisplayLimit((prev) => prev + 24);
         if (hasMoreProducts && !isLoadingMoreProducts) {
           loadMoreProducts();
         }
@@ -1357,13 +1353,33 @@ const MarketplaceContent: React.FC = () => {
                     </div>
                     
                     {!isAllCategoriesView && (hasMoreProducts || sortedProducts.length > displayLimit) && (
-                      <div ref={scrollSentinelRef} className="flex justify-center pt-8 pb-4 min-h-[50px]">
-                        {(isLoadingMoreProducts || isProductsLoading) && (
-                          <div className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-2xl shadow-3xs text-slate-600 animate-pulse">
-                            <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-800 rounded-full animate-spin" />
-                            <span className="text-xs font-extrabold text-slate-700">Loading more...</span>
-                          </div>
-                        )}
+                      <div className="flex flex-col items-center justify-center pt-8 pb-4 gap-3">
+                        <div ref={scrollSentinelRef} className="h-2 w-full" />
+                        <button
+                          id="btn-load-more-category-products"
+                          onClick={() => {
+                            setDisplayLimit((prev) => prev + 24);
+                            if (hasMoreProducts && !isLoadingMoreProducts) {
+                              loadMoreProducts();
+                            }
+                          }}
+                          disabled={isLoadingMoreProducts || isProductsLoading}
+                          className="px-6 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 font-bold text-xs rounded-2xl shadow-xs transition-all duration-200 flex items-center gap-2 cursor-pointer active:scale-95 hover:border-slate-300"
+                        >
+                          {(isLoadingMoreProducts || isProductsLoading) ? (
+                            <>
+                              <span className="w-3.5 h-3.5 border-2 border-slate-400 border-t-slate-800 rounded-full animate-spin" />
+                              <span>Loading more...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Load More ({sortedProducts.length - displayLimit > 0 ? `+${Math.min(24, sortedProducts.length - displayLimit)} items` : 'More items'})</span>
+                              <span className="text-slate-400 font-mono text-[10px]">
+                                {Math.min(displayLimit, sortedProducts.length)} of {sortedProducts.length}
+                              </span>
+                            </>
+                          )}
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1402,8 +1418,8 @@ const MarketplaceContent: React.FC = () => {
         </Suspense>
       </main>
 
-      {/* Persistent platform footer - only appears in home tab or browse view */}
-      {currentView === 'browse' && homeViewMode !== 'video-feed' && (
+      {/* Persistent platform footer - Only shown in Home / Browse All Categories */}
+      {(currentView === 'browse' && homeViewMode !== 'video-feed' && isAllCategoriesView) && (
         <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-12 pb-6 sm:pb-10 mt-auto relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}

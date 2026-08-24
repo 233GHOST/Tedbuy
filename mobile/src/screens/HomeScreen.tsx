@@ -155,10 +155,17 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     });
   }, [products, searchText, selectedCategory]);
 
+  const [categoryDisplayLimit, setCategoryDisplayLimit] = useState(24);
+
+  // Reset pagination limit on filter or category change
+  useEffect(() => {
+    setCategoryDisplayLimit(24);
+  }, [selectedCategory, searchText, minPriceFilter, maxPriceFilter, selectedBrandFilter]);
+
   const isAllCategories = (selectedCategory === 'All' || !selectedCategory) && !searchText.trim();
   const displayedProducts = useMemo(() => {
-    return isAllCategories ? filteredProducts.slice(0, 24) : filteredProducts;
-  }, [isAllCategories, filteredProducts]);
+    return isAllCategories ? filteredProducts.slice(0, 24) : filteredProducts.slice(0, categoryDisplayLimit);
+  }, [isAllCategories, filteredProducts, categoryDisplayLimit]);
 
   // Featured boosted listings memo
   const featuredProducts = useMemo(() => {
@@ -544,6 +551,26 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                 onToggleSave={handleToggleSave}
               />
             )}
+            onEndReached={() => {
+              if (!isAllCategories && displayedProducts.length < filteredProducts.length) {
+                setCategoryDisplayLimit((prev) => prev + 24);
+              }
+            }}
+            onEndReachedThreshold={0.4}
+            ListFooterComponent={
+              !isAllCategories && displayedProducts.length < filteredProducts.length ? (
+                <View style={styles.loadMoreContainer}>
+                  <Pressable
+                    onPress={() => setCategoryDisplayLimit((prev) => prev + 24)}
+                    style={styles.loadMoreBtn}
+                  >
+                    <Text style={styles.loadMoreText}>
+                      Load More (+{Math.min(24, filteredProducts.length - displayedProducts.length)} more)
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null
+            }
           />
         ) : (
           /* IMERSIVE VIDEO ADS FEED (Swiper/Reels style) */
@@ -1266,5 +1293,28 @@ const styles = StyleSheet.create({
   },
   carouselCardItemSmall: {
     width: 118,
+  },
+  loadMoreContainer: {
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreBtn: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  loadMoreText: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });
