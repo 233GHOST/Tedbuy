@@ -11,6 +11,7 @@ import { isBoostActive, parseDate, getBoostEndDate, formatTedbuyTenure } from '.
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 import { resolveProductImage, resolveProductImages, getCategoryPlaceholder, getCanonicalMediaKey } from '../utils/productUtils';
 import { MediaRenderer, isVideoAsset } from './MediaRenderer';
+import { ProductDetailSkeleton } from './PageLoadingSkeletons';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -456,96 +457,7 @@ export const ProductDetail: React.FC = () => {
 
   if (!product) {
     if (isProductsLoading || isFetchingDirect || (!fetchNotFound && selectedProductId)) {
-      return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 animate-pulse font-sans">
-          {/* Navigation Breadcrumb Skeleton */}
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-28 bg-slate-200 rounded-md" />
-            <div className="h-4 w-4 bg-slate-200 rounded-md" />
-            <div className="h-4 w-36 bg-slate-200 rounded-md" />
-          </div>
-
-          {/* Top Action Back Button */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handleGoBack}
-              className="flex items-center gap-2 text-xs font-black text-slate-500 hover:text-slate-900 transition uppercase tracking-wider cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back</span>
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 bg-slate-100 rounded-full" />
-              <div className="h-8 w-8 bg-slate-100 rounded-full" />
-            </div>
-          </div>
-
-          {/* Main Grid Skeleton */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Media & Gallery Skeleton (Left 7 cols) */}
-            <div className="lg:col-span-7 space-y-4">
-              <div className="w-full aspect-[4/3] rounded-3xl bg-slate-100 border border-slate-200 flex flex-col items-center justify-center text-slate-400">
-                <Package className="w-12 h-12 stroke-[1.2] text-slate-300 animate-bounce mb-2" />
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">
-                  Loading Listing Details...
-                </p>
-              </div>
-              <div className="flex gap-3 overflow-x-auto py-1">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="w-20 h-20 rounded-2xl bg-slate-100 border border-slate-200 shrink-0" />
-                ))}
-              </div>
-
-              {/* Detailed specifications skeleton block */}
-              <div className="p-6 bg-white border border-slate-200 rounded-3xl space-y-4 mt-6">
-                <div className="h-5 w-40 bg-slate-200 rounded-md" />
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div key={i} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
-                      <div className="h-3 w-16 bg-slate-200 rounded" />
-                      <div className="h-4 w-24 bg-slate-300 rounded" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Details & Pricing Skeleton (Right 5 cols) */}
-            <div className="lg:col-span-5 space-y-5">
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="h-6 w-24 bg-orange-100 rounded-full" />
-                  <div className="h-4 w-16 bg-slate-100 rounded" />
-                </div>
-                <div className="h-8 w-4/5 bg-slate-200 rounded-xl" />
-                <div className="h-10 w-44 bg-slate-900/10 rounded-2xl" />
-
-                <div className="flex items-center gap-4 pt-2">
-                  <div className="h-4 w-28 bg-slate-100 rounded" />
-                  <div className="h-4 w-24 bg-slate-100 rounded" />
-                </div>
-
-                {/* Seller Card Skeleton */}
-                <div className="pt-4 border-t border-slate-100">
-                  <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div className="w-12 h-12 rounded-full bg-slate-200 shrink-0" />
-                    <div className="space-y-1.5 flex-1">
-                      <div className="h-4 w-32 bg-slate-200 rounded" />
-                      <div className="h-3 w-20 bg-slate-100 rounded" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Buttons Skeleton */}
-                <div className="space-y-2.5 pt-2">
-                  <div className="h-12 w-full bg-orange-500/20 rounded-2xl" />
-                  <div className="h-12 w-full bg-emerald-500/20 rounded-2xl" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
+      return <ProductDetailSkeleton />;
     }
 
     if (pId || pTitle) {

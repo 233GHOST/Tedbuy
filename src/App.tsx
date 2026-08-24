@@ -49,6 +49,15 @@ import { createProductSelector } from './utils/productSelector';
 import { DynamicCategoryFilters } from './components/DynamicCategoryFilters';
 import { getOptimizedImageUrl } from './utils/imageOptimizer';
 import { getUnreadMessageCount } from './utils/chatStateUtils';
+import { 
+  UniversalPageLoader, 
+  ProductDetailSkeleton, 
+  ChatInterfaceSkeleton, 
+  SellerDashboardSkeleton, 
+  SellerProfileSkeleton, 
+  ProfileSettingsSkeleton, 
+  FeaturedListingsSkeleton 
+} from './components/PageLoadingSkeletons';
 
 const selectProducts = createProductSelector();
 
@@ -180,8 +189,11 @@ const MarketplaceContent: React.FC = () => {
           };
         }
       }
+    } else {
+      // Instantly scroll to top when opening a sub page (product details, inbox, dashboard, profile, settings)
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as any });
     }
-  }, [currentView]);
+  }, [currentView, selectedProductId, selectedSellerId]);
 
   // Dynamically lock the parent web page scrolling on mobile devices when watching video ads
   React.useEffect(() => {
@@ -678,7 +690,7 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       <main 
-        className={`flex-1 min-h-0 pb-16 md:pb-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full pb-0' : ''}`}
+        className={`flex-1 flex flex-col w-full min-h-[calc(100vh-80px)] md:min-h-[calc(100vh-140px)] pb-16 md:pb-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full pb-0' : ''}`}
         style={
           currentView === 'browse' && homeViewMode === 'video-feed'
             ? {
@@ -1365,9 +1377,21 @@ const MarketplaceContent: React.FC = () => {
 
         {/* Dynamic sub screens */}
         <Suspense fallback={
-          <div className="flex items-center justify-center py-24">
-            <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
-          </div>
+          currentView === 'product-detail' ? (
+            <ProductDetailSkeleton />
+          ) : currentView === 'chats' ? (
+            <ChatInterfaceSkeleton />
+          ) : currentView === 'my-dashboard' ? (
+            <SellerDashboardSkeleton />
+          ) : currentView === 'seller-profile' ? (
+            <SellerProfileSkeleton />
+          ) : currentView === 'profile-settings' ? (
+            <ProfileSettingsSkeleton />
+          ) : currentView === 'featured-listings' ? (
+            <FeaturedListingsSkeleton />
+          ) : (
+            <UniversalPageLoader />
+          )
         }>
           {currentView === 'product-detail' && <ProductDetail />}
           {currentView === 'featured-listings' && <FeaturedListingsView />}
@@ -1380,7 +1404,7 @@ const MarketplaceContent: React.FC = () => {
 
       {/* Persistent platform footer */}
       {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
-        <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-12 pb-6 sm:pb-10 mt-16 relative overflow-hidden">
+        <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-12 pb-6 sm:pb-10 mt-auto relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-8 sm:gap-10">

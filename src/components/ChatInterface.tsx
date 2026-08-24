@@ -145,6 +145,7 @@ export const ChatInterface: React.FC = () => {
     setBlockedActionType,
     products,
     showToast,
+    setShowAuthModal,
   } = useApp();
 
   const [inputText, setInputText] = useState('');
@@ -282,9 +283,30 @@ export const ChatInterface: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center text-slate-500">
-        <p className="mb-4">You need to sign in or select a profile to view your inbox messages.</p>
-        <p className="text-xs text-slate-400">Use the developer account selector bar at the top to quickly select a user.</p>
+      <div className="max-w-md mx-auto my-12 px-6 py-12 bg-white border border-slate-200 rounded-3xl text-center shadow-xs min-h-[55vh] flex flex-col items-center justify-center font-sans">
+        <div className="w-16 h-16 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-[#ea580c] mb-4 shadow-3xs">
+          <MessageSquare className="w-8 h-8 stroke-[1.5]" />
+        </div>
+        <h3 className="text-lg font-black text-slate-900 font-sans">Sign In to View Inbox</h3>
+        <p className="text-xs text-slate-500 mt-2 mb-6 max-w-xs leading-relaxed">
+          Log in to your TedBuy account to chat with verified buyers and sellers, negotiate price deals, and manage delivery confirmations.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+          <button
+            onClick={() => {
+              if (setShowAuthModal) setShowAuthModal(true);
+            }}
+            className="flex-1 py-3 px-4 bg-[#ea580c] hover:bg-[#c2410c] text-white font-bold rounded-xl text-xs transition shadow-3xs cursor-pointer"
+          >
+            Sign In / Register
+          </button>
+          <button
+            onClick={() => setCurrentView('browse')}
+            className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+          >
+            Browse Ads
+          </button>
+        </div>
       </div>
     );
   }

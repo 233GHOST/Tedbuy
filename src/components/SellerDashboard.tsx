@@ -20,7 +20,8 @@ export const SellerDashboard: React.FC = () => {
     setDashboardTab: setActiveTab,
     updateProduct,
     isAuthLoading,
-    users
+    users,
+    setShowAuthModal,
   } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -48,17 +49,17 @@ export const SellerDashboard: React.FC = () => {
 
   if (isAuthLoading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-left space-y-6 animate-pulse">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-left space-y-6 animate-pulse min-h-[70vh] font-sans">
         <div className="h-8 bg-slate-200 rounded-lg w-1/4"></div>
         <div className="h-4 bg-slate-200 rounded-lg w-2/3"></div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-24 bg-slate-200 rounded-2xl"></div>
+            <div key={i} className="h-24 bg-slate-100 border border-slate-200 rounded-2xl"></div>
           ))}
         </div>
-        <div className="h-40 bg-slate-100 border border-slate-200 rounded-3xl mt-8 flex flex-col items-center justify-center space-y-3 p-12">
-          <div className="h-10 w-10 border-4 border-slate-300 border-t-slate-800 rounded-full animate-spin"></div>
-          <span className="text-xs text-slate-400 font-medium">Verifying store identity...</span>
+        <div className="h-64 bg-slate-50 border border-slate-200 rounded-3xl mt-8 flex flex-col items-center justify-center space-y-3 p-12">
+          <div className="h-10 w-10 border-4 border-slate-300 border-t-[#ea580c] rounded-full animate-spin"></div>
+          <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Loading Seller Dashboard...</span>
         </div>
       </div>
     );
@@ -66,9 +67,30 @@ export const SellerDashboard: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center text-slate-500">
-        <p className="mb-4">You need to log in or select a profile to view your seller dashboard.</p>
-        <p className="text-xs text-slate-400">Use the developer account selector bar at the top to select an active profile.</p>
+      <div className="max-w-md mx-auto my-12 px-6 py-12 bg-white border border-slate-200 rounded-3xl text-center shadow-xs min-h-[55vh] flex flex-col items-center justify-center font-sans">
+        <div className="w-16 h-16 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-[#ea580c] mb-4 shadow-3xs">
+          <ShoppingBag className="w-8 h-8 stroke-[1.5]" />
+        </div>
+        <h3 className="text-lg font-black text-slate-900 font-sans">Sign In to View Dashboard</h3>
+        <p className="text-xs text-slate-500 mt-2 mb-6 max-w-xs leading-relaxed">
+          Log in to your TedBuy account to manage your listings, view performance stats, and promote your items.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+          <button
+            onClick={() => {
+              if (setShowAuthModal) setShowAuthModal(true);
+            }}
+            className="flex-1 py-3 px-4 bg-[#ea580c] hover:bg-[#c2410c] text-white font-bold rounded-xl text-xs transition shadow-3xs cursor-pointer"
+          >
+            Sign In / Register
+          </button>
+          <button
+            onClick={() => setCurrentView('browse')}
+            className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+          >
+            Browse Ads
+          </button>
+        </div>
       </div>
     );
   }

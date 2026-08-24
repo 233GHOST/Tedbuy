@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductCard } from './ProductCard';
-import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus, Edit, Settings, Flame } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserCheck, ShoppingBag, Users, Calendar, MapPin, Star, MessageSquare, ShieldCheck, ThumbsUp, Camera, X, Check, UserMinus, Plus, Edit, Settings, Flame, User } from 'lucide-react';
 import { isUserVerified, calculateTrustScore } from '../types';
 import { SellerBadge } from './SellerBadge';
 import { isBoostActive, formatTedbuyTenure } from '../utils/dateParser';
@@ -52,13 +52,19 @@ export const SellerProfilePage: React.FC = () => {
   // If no seller ID or seller not found, render fallback
   if (!seller) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-12 text-center text-slate-500">
-        <p>Seller profile not found.</p>
+      <div className="max-w-md mx-auto my-12 px-6 py-12 bg-white border border-slate-200 rounded-3xl text-center shadow-xs min-h-[55vh] flex flex-col items-center justify-center font-sans">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 mb-4">
+          <User className="w-8 h-8 stroke-[1.5]" />
+        </div>
+        <h3 className="text-lg font-black text-slate-900 font-sans">Seller Profile Not Found</h3>
+        <p className="text-xs text-slate-500 mt-2 mb-6 max-w-xs leading-relaxed">
+          The requested seller profile could not be located or may have been deactivated.
+        </p>
         <button
           onClick={() => setCurrentView('browse')}
-          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl mt-4"
+          className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition cursor-pointer"
         >
-          Back to Marketplace
+          Return to Marketplace
         </button>
       </div>
     );

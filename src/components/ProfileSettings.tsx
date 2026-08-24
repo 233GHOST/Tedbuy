@@ -43,7 +43,7 @@ export const ProfileSettings: React.FC = () => {
 
   if (!currentUser) {
     return (
-      <div className="max-w-md mx-auto my-16 p-8 bg-white border border-slate-200 rounded-3xl text-center shadow-xs">
+      <div className="max-w-md mx-auto my-16 p-8 bg-white border border-slate-200 rounded-3xl text-center shadow-xs min-h-[55vh] flex flex-col items-center justify-center font-sans">
         <User className="w-12 h-12 mx-auto stroke-[1.2] text-slate-400 mb-3" />
         <h3 className="text-base font-extrabold text-slate-900">Sign In Required</h3>
         <p className="text-xs text-slate-500 mt-2 mb-6">
@@ -670,7 +670,7 @@ CEO, Tedbuy Inc`;
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -15 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left font-sans"
+      className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left font-sans min-h-[70vh]"
     >
       {/* Hidden file input for avatar */}
       <input
