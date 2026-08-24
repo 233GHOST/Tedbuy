@@ -1402,8 +1402,8 @@ const MarketplaceContent: React.FC = () => {
         </Suspense>
       </main>
 
-      {/* Persistent platform footer */}
-      {!(currentView === 'browse' && homeViewMode === 'video-feed') && (
+      {/* Persistent platform footer - only appears in home tab or browse view */}
+      {currentView === 'browse' && homeViewMode !== 'video-feed' && (
         <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-12 pb-6 sm:pb-10 mt-auto relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}
