@@ -323,20 +323,18 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     setErrorMsg('');
   }, [productToEdit, isOpen]);
 
-  // Object URL, duration and trim range setup for oversized video
+  // Object URL and trim-range reset for the video editor. Duration itself is
+  // read from the visible player's own loadedmetadata event (see
+  // onLoadedMetadata below) rather than a detached probe element here — a
+  // hidden, unattached <video> with no preload/muted/playsInline set is
+  // unreliable on mobile browsers and could leave videoDuration stuck at 0.
   useEffect(() => {
     if (oversizedVideoFile) {
       const url = URL.createObjectURL(oversizedVideoFile);
       setOversizedVideoUrl(url);
-      
-      const tempVideo = document.createElement('video');
-      tempVideo.src = url;
-      tempVideo.onloadedmetadata = () => {
-        setVideoDuration(tempVideo.duration || 30);
-        setTrimStart(0);
-        setTrimEnd(Math.min(30, tempVideo.duration || 30));
-      };
-      
+      setTrimStart(0);
+      setTrimEnd(30); // optimistic default; corrected to the real duration by onLoadedMetadata
+
       return () => {
         URL.revokeObjectURL(url);
         setOversizedVideoUrl('');
@@ -1624,9 +1622,22 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             controls
                             playsInline
                             webkit-playsinline="true"
+                            preload="metadata"
                             disablePictureInPicture
                             controlsList="nodownload nofullscreen noremoteplayback"
                             className="w-full h-full object-contain"
+                            onLoadedMetadata={(e) => {
+                              // Authoritative duration source: this visible, on-screen
+                              // player reliably fires loadedmetadata across browsers,
+                              // unlike a detached probe element. Fixes the trim range
+                              // silently staying capped at its 10s initial default when
+                              // the probe never fired on some mobile browsers.
+                              const dur = e.currentTarget.duration;
+                              if (!isNaN(dur) && dur > 0) {
+                                setVideoDuration(dur);
+                                setTrimEnd(Math.min(30, dur));
+                              }
+                            }}
                           />
                         </div>
 

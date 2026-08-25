@@ -118,8 +118,16 @@ export function resolveProductImages(product?: Partial<Product> | null, width?: 
     list = filterValid(prod.imageUrls);
   }
 
-  // Only check candidate single fields if no image array was found
-  if (list.length === 0) {
+  // Only check candidate single fields if no image array was found, AND the
+  // product has no video. For video listings, displayImage/primaryPicture are
+  // often just an auto-derived cover frame (see getCloudinaryVideoPoster) —
+  // a real, useful fallback for card/thumbnail contexts, but not a genuine
+  // uploaded photo. Surfacing it here would make it appear as a second,
+  // independently-swipeable gallery item alongside the video, which is
+  // exactly the "phantom extra image" this function must not produce. An
+  // empty gallery for a video-only listing is the correct, truthful result.
+  const hasVideo = Array.isArray(prod.videos) && prod.videos.length > 0;
+  if (list.length === 0 && !hasVideo) {
     const candidateSingleFields = [
       prod.displayImage,
       prod.primaryImage,
@@ -138,7 +146,9 @@ export function resolveProductImages(product?: Partial<Product> | null, width?: 
 
   const dedupedList = deduplicateImageUrls(list);
 
-  if (dedupedList.length === 0) {
+  // Same reasoning as above: a video-only listing genuinely has zero photos,
+  // and that's correct — don't pad the gallery with a placeholder icon either.
+  if (dedupedList.length === 0 && !hasVideo) {
     dedupedList.push(getCategoryPlaceholder(product.category));
   }
 
