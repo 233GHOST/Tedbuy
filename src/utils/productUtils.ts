@@ -81,7 +81,16 @@ export function deduplicateImageUrls(urls: string[]): string[] {
 export function resolveProductImage(product?: Partial<Product> | null, width: number = 400): string {
   if (!product) return getCategoryPlaceholder('Other');
   const allImages = resolveProductImages(product, width);
-  return allImages[0] || getCategoryPlaceholder(product.category);
+  if (allImages[0]) return allImages[0];
+  // Fall back to a poster frame derived from the product's video (never mixed
+  // into the images gallery itself) before the generic category icon.
+  // normalizeProduct() already computes this for normalized products; recompute
+  // on-the-fly here only for callers passing an un-normalized product-like object.
+  if (product.videoPoster) return product.videoPoster;
+  if (Array.isArray(product.videos) && product.videos[0]) {
+    return getCloudinaryVideoPoster(product.videos[0]);
+  }
+  return getCategoryPlaceholder(product.category);
 }
 
 /**

@@ -249,6 +249,101 @@ export async function uploadToCloudinary(
 }
 
 /**
+ * Upload a video directly from the browser to Cloudinary, bypassing the TedBuy
+ * server for the actual video bytes entirely. The server (via
+ * /api/cloudinary/sign-video-upload) only issues a short-lived signature — it
+ * never receives the Cloudinary API secret client-side, and never receives or
+ * proxies the video payload. Requires the caller to be authenticated; the
+ * signing endpoint enforces that server-side using the app's existing auth.
+ *
+ * Video only — images still go through uploadToCloudinary()/the server relay.
+ */
+export async function uploadVideoDirectToCloudinary(
+  file: File | Blob,
+  onProgress?: (progress: number) => void
+): Promise<CloudinaryUploadResult> {
+  const authHeaders = await getAuthHeader();
+  const signRes = await fetch('/api/cloudinary/sign-video-upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders }
+  });
+
+  if (!signRes.ok) {
+    let errMsg = `Failed to get upload authorization (status ${signRes.status})`;
+    try {
+      const errBody = await signRes.json();
+      if (errBody?.error) errMsg = errBody.error;
+    } catch (_) {}
+    throw new Error(errMsg);
+  }
+
+  const signData = await signRes.json();
+  if (!signData?.success) {
+    throw new Error(signData?.error || 'Failed to get upload authorization');
+  }
+
+  const { signature, timestamp, apiKey, cloudName, folder } = signData;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('api_key', apiKey);
+  formData.append('timestamp', String(timestamp));
+  formData.append('signature', signature);
+  formData.append('folder', folder);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`, true);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          const secureUrl = response.secure_url;
+          if (!secureUrl) {
+            reject(new Error('Cloudinary upload succeeded but returned no secure URL.'));
+            return;
+          }
+          resolve({
+            url: response.url || secureUrl,
+            secure_url: secureUrl,
+            public_id: response.public_id || '',
+            format: response.format || 'mp4',
+            resource_type: 'video',
+            bytes: response.bytes || 0,
+            width: response.width,
+            height: response.height,
+            duration: response.duration,
+            thumbnail_url: getCloudinaryVideoPoster(secureUrl),
+            small_url: getCloudinaryResponsiveUrl(secureUrl, 400),
+            medium_url: getCloudinaryResponsiveUrl(secureUrl, 800),
+            large_url: getCloudinaryResponsiveUrl(secureUrl, 1200)
+          });
+        } catch (e) {
+          reject(new Error('Invalid JSON response from Cloudinary.'));
+        }
+      } else {
+        let errorDetails = `Cloudinary upload error status: ${xhr.status}`;
+        try {
+          const errParsed = JSON.parse(xhr.responseText);
+          if (errParsed?.error?.message) errorDetails = errParsed.error.message;
+        } catch (_) {}
+        reject(new Error(errorDetails));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during direct Cloudinary upload.'));
+    xhr.send(formData);
+  });
+}
+
+/**
  * Extract resource_type and public_id from a Cloudinary URL
  */
 export function extractCloudinaryInfo(url: string): { publicId: string; resourceType: 'image' | 'video' } | null {

@@ -43,12 +43,14 @@ import { SearchSuggestions } from './components/SearchSuggestions';
 import { FeaturedListings } from './components/FeaturedListings';
 import { TrendingListings } from './components/TrendingListings';
 import { SellersToDiscover } from './components/SellersToDiscover';
+import { ForYouSection } from './components/ForYouSection';
 import { FeaturedListingsView } from './components/FeaturedListingsView';
 import { getRegionForLocation } from './regions';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
 import { createProductSelector } from './utils/productSelector';
 import { DynamicCategoryFilters } from './components/DynamicCategoryFilters';
 import { getOptimizedImageUrl } from './utils/imageOptimizer';
+import { getCloudinaryVideoPoster } from './utils/cloudinary';
 import { getUnreadMessageCount } from './utils/chatStateUtils';
 import { 
   UniversalPageLoader, 
@@ -1137,14 +1139,11 @@ const MarketplaceContent: React.FC = () => {
                         >
                           <div className="relative w-10 h-10 rounded-xl overflow-hidden bg-slate-100 border border-slate-150 shrink-0">
                             {product.videos && product.videos.length > 0 ? (
-                              <video
-                                src={product.videos[0]}
-                                muted
-                                loop
-                                playsInline
-                                webkit-playsinline="true"
-                                disablePictureInPicture
-                                autoPlay
+                              <img
+                                src={product.videoPoster || getCloudinaryVideoPoster(product.videos[0]) || resolveProductImage(product, 100)}
+                                alt={product.title}
+                                loading="lazy"
+                                decoding="async"
                                 className="w-full h-full object-cover transition duration-300 group-hover:scale-110"
                               />
                             ) : (
@@ -1170,6 +1169,11 @@ const MarketplaceContent: React.FC = () => {
                     })}
                   </div>
                 </div>
+              )}
+
+              {/* Personalized "For You" discovery section - Hidden when user is searching */}
+              {!debouncedSearchQuery.trim() && !searchQuery.trim() && (
+                <ForYouSection selectedRegion={selectedRegion} selectedCity={selectedCity} />
               )}
 
               {/* Sellers to Discover Section (Active Ghanaian Merchants & Storefronts) - Hidden when user is searching */}

@@ -44,7 +44,7 @@ import { auth, getAuthHeader, handleBackendError, OperationType, registerBackend
 import { slugify } from '../utils/slugify';
 import { getAuthErrorMessage, toUserFriendlyError } from '../utils/authErrorHelper';
 import { useHashRouting } from '../hooks/useHashRouting';
-import { deleteMultipleFromCloudinary } from '../utils/cloudinary';
+import { deleteMultipleFromCloudinary, getCloudinaryVideoPoster } from '../utils/cloudinary';
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 import { checkClientRateLimit } from '../utils/rateLimiter';
 import { sanitizeText, validateInputLength } from '../utils/inputValidation';
@@ -1655,9 +1655,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (!currentUser) return;
     const interval = setInterval(() => {
+      // Skip the write while backgrounded — a hidden tab doesn't need to keep
+      // announcing presence, and this write is what drives the users-table
+      // refresh cadence above, so a quieter heartbeat matters for egress too.
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
       const nowIso = new Date().toISOString();
-      
-      // Update local state copy every 30s
+
+      // Update local state copy every 2 minutes
       setCurrentUserState(prev => {
         if (!prev) return null;
         return {
@@ -1671,7 +1676,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastSeen: nowIso,
         isOnline: true
       }).catch(() => {});
-    }, 30000);
+    }, 120000);
 
     return () => {
       clearInterval(interval);
@@ -1738,14 +1743,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // 1. Real-time Users Synchronization from the legacy user database
+  // 1. Users Synchronization from the legacy user database.
+  // Deliberately polled, NOT a realtime table listener: subscribing to the whole
+  // `users` collection means every single presence heartbeat (any user, anywhere)
+  // re-downloads the entire table to every connected client (O(users^2) egress).
+  // A periodic pull keeps names/photos/online-status fresh enough for a
+  // marketplace without that blowup.
   useEffect(() => {
-    let unsubscribe: () => void = () => {};
+    let active = true;
 
-    try {
-      unsubscribe = onSnapshot(collection(null, 'users'), (snapshot) => {
+    const fetchUsersOnce = async () => {
+      try {
+        const snapshot = await getDocs(collection(null, 'users'));
+        if (!active) return;
         const uList: User[] = [];
-        snapshot.forEach(docSnap => {
+        snapshot.forEach((docSnap: any) => {
           const data = docSnap.data();
           if (data) {
             uList.push({
@@ -1758,28 +1770,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         try {
           safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
         } catch (_) {}
-      }, (err) => {
-        console.warn('[Users Sync] onSnapshot error, falling back to getDocs:', err);
-        getDocs(collection(null, 'users')).then((snapshot) => {
-          const uList: User[] = [];
-          snapshot.forEach(docSnap => {
-            const data = docSnap.data();
-            if (data) {
-              uList.push({
-                ...data,
-                id: docSnap.id || data.id
-              } as User);
-            }
-          });
-          setUsers(uList);
-        }).catch((e) => console.warn('[Users Sync] getDocs fallback error:', e));
-      });
-    } catch (err) {
-      console.warn('[Users Sync] Failed to attach listener:', err);
-    }
+      } catch (err) {
+        console.warn('[Users Sync] getDocs fetch error:', err);
+      }
+    };
+
+    fetchUsersOnce();
+
+    const interval = setInterval(fetchUsersOnce, 3 * 60 * 1000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchUsersOnce();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      active = false;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 
@@ -2542,13 +2550,16 @@ CEO, Tedbuy Inc`;
       console.warn('[Active Chat Listener] onSnapshot error:', err);
     });
 
-    // Backup polling loop every 3 seconds while viewing an active chat room
+    // Safety-net poll in case the realtime channel silently drops — the
+    // onSnapshot subscription above is the primary path, so this only needs
+    // to be a slow backstop, not a duplicate live feed re-fetching the whole
+    // conversation every few seconds.
     const interval = setInterval(async () => {
       try {
         const snap = await getDocs(q);
         syncChatSnapshot(snap);
       } catch (_) {}
-    }, 3000);
+    }, 30000);
 
     return () => {
       unsub();
@@ -3468,8 +3479,8 @@ CEO, Tedbuy Inc`;
       ...sanitizedProductData,
       images: cleanImgs,
       imageUrls: cleanImgs,
-      displayImage: cleanImgs[0] || '',
-      primaryPicture: cleanImgs[0] || '',
+      displayImage: cleanImgs[0] || (sanitizedProductData.videos?.[0] ? getCloudinaryVideoPoster(sanitizedProductData.videos[0]) : '') || '',
+      primaryPicture: cleanImgs[0] || (sanitizedProductData.videos?.[0] ? getCloudinaryVideoPoster(sanitizedProductData.videos[0]) : '') || '',
       category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
       viewsCount: 0,

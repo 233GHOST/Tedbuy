@@ -687,7 +687,16 @@ if (supabaseUrl && supabaseKey) {
 function initCloudinaryConfig() {
   const cloudName = process.env.VITE_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME || 'dfm3g2qvg';
   const apiKey = process.env.VITE_CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY || '896944673641399';
-  const apiSecret = process.env.CLOUDINARY_API_SECRET || process.env.VITE_CLOUDINARY_API_SECRET || 'Zk6x2G9e0_U0M637X4A0-aX8-1k';
+  // No hardcoded fallback here deliberately: unlike cloud name/API key (public
+  // identifiers), the API secret grants full account control and must come
+  // from real configuration only. Fail fast and loud rather than silently
+  // falling back to a stale value baked into source.
+  const apiSecret = process.env.CLOUDINARY_API_SECRET || process.env.VITE_CLOUDINARY_API_SECRET;
+
+  if (!apiSecret) {
+    console.error('[Cloudinary Server] FATAL: CLOUDINARY_API_SECRET (or VITE_CLOUDINARY_API_SECRET) is not set. Cloudinary uploads and deletes will fail until this is configured.');
+    return false;
+  }
 
   if (cloudName && apiKey && apiSecret) {
     cloudinary.config({
@@ -732,7 +741,9 @@ function extractCloudinaryInfo(url: string): { publicId: string; resourceType: '
 }
 
 async function deleteCloudinaryAsset(publicId: string, resourceType: 'image' | 'video' = 'image'): Promise<any> {
-  initCloudinaryConfig();
+  if (!initCloudinaryConfig()) {
+    throw new Error('Cloudinary is not configured on this server (missing API secret).');
+  }
   return new Promise((resolve, reject) => {
     cloudinary.uploader.destroy(publicId, { resource_type: resourceType, invalidate: true }, (error, result) => {
       if (error) {
@@ -747,7 +758,9 @@ async function deleteCloudinaryAsset(publicId: string, resourceType: 'image' | '
 
 app.post("/api/cloudinary/upload", serverRateLimiter(60 * 1000, 120, "cloudinary-upload"), async (req: express.Request, res: express.Response) => {
   try {
-    initCloudinaryConfig();
+    if (!initCloudinaryConfig()) {
+      return res.status(503).json({ success: false, error: 'Cloudinary is not configured on this server (missing API secret).' });
+    }
     const { file, resource_type, folder } = req.body;
     if (!file) {
       return res.status(400).json({ success: false, error: 'Missing file payload' });
@@ -790,6 +803,47 @@ app.post("/api/cloudinary/upload", serverRateLimiter(60 * 1000, 120, "cloudinary
     return res.status(500).json({ success: false, error: err?.message || 'Cloudinary upload failed' });
   }
 });
+
+// Signed direct-to-Cloudinary upload for video only (see recommendationScore-adjacent
+// Phase 4A egress work). The browser never receives the Cloudinary API secret — this
+// endpoint only returns a short-lived signature computed server-side, then the client
+// uploads the actual video bytes straight to Cloudinary. TedBuy never receives or
+// proxies the video payload for this path.
+app.post(
+  "/api/cloudinary/sign-video-upload",
+  serverRateLimiter(60 * 1000, 30, "cloudinary-sign-video"),
+  async (req: express.Request, res: express.Response) => {
+    const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+    if (!verified) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to upload video' });
+    }
+
+    try {
+      if (!initCloudinaryConfig()) {
+        return res.status(503).json({ success: false, error: 'Cloudinary is not configured on this server (missing API secret).' });
+      }
+
+      const cfg = cloudinary.config();
+      const timestamp = Math.round(Date.now() / 1000);
+      // Folder is fixed server-side (not client-supplied) so it's protected by the
+      // signature — a tampered folder value would fail Cloudinary's own signature check.
+      const paramsToSign = { folder: 'tedbuy_products', timestamp };
+      const signature = cloudinary.utils.api_sign_request(paramsToSign, cfg.api_secret as string);
+
+      return res.json({
+        success: true,
+        signature,
+        timestamp,
+        apiKey: cfg.api_key,
+        cloudName: cfg.cloud_name,
+        folder: paramsToSign.folder
+      });
+    } catch (err: any) {
+      console.error('[Cloudinary Sign Video Upload Error]:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to generate upload signature' });
+    }
+  }
+);
 
 app.post("/api/cloudinary/delete", async (req: express.Request, res: express.Response) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);

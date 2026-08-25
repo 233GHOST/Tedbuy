@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { categories } from '../data';
 import { Product } from '../types';
 import { auth, fetchProducts, watchProducts, watchUsers } from '../firebase';
 import { ProductCard } from '../components/ProductCard';
+import { getForYouProducts } from '../utils/recommendationScore';
 
 interface HomeScreenProps {
   onOpenProduct: (product: Product) => void;
@@ -231,6 +232,18 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     }).slice(0, 10);
   }, [products, selectedCategory]);
+
+  // Personalized "For You" discovery memo (Phase 4A) — computed entirely from
+  // products/users already loaded above; zero additional network requests.
+  const forYouResult = useMemo(() => {
+    return getForYouProducts({
+      products,
+      users,
+      currentUserId: auth.currentUser?.uid,
+      selectedCategory,
+      limit: 12,
+    });
+  }, [products, users, selectedCategory]);
 
   // Sellers to Discover memo (Active Ghanaian merchants with active listings)
   const discoverSellers = useMemo(() => {
@@ -543,6 +556,41 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                     <Text style={styles.dropdownChevron}>▼</Text>
                   </View>
                 </View>
+
+                {/* Personalized "For You" discovery Carousel (Phase 4A) */}
+                {forYouResult.items.length > 0 && !searchText.trim() && (
+                  <View style={styles.carouselSection}>
+                    <View style={styles.carouselHeaderRow}>
+                      <View style={styles.carouselHeaderLeft}>
+                        <Text style={styles.carouselIcon}>✨</Text>
+                        <Text style={styles.carouselTitle}>{forYouResult.headline}</Text>
+                      </View>
+                    </View>
+                    {forYouResult.subtitle && (
+                      <Text style={styles.forYouSubtitle}>{forYouResult.subtitle}</Text>
+                    )}
+                    <ScrollView
+                      horizontal
+                      nestedScrollEnabled={true}
+                      directionalLockEnabled={true}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.horizontalCarouselContainer}
+                    >
+                      {forYouResult.items.map((item) => (
+                        <View key={`for-you-${item.id}`} style={styles.carouselCardItem}>
+                          <ProductCard
+                            product={item}
+                            onPress={() => onOpenProduct(item)}
+                            onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+                            isSaved={!!savedProducts[item.id]}
+                            onToggleSave={handleToggleSave}
+                          />
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
 
                 {/* Sellers to Discover Section (Active Ghanaian Merchants & Storefronts) */}
                 {discoverSellers.length > 0 && !searchText.trim() && (
@@ -1430,6 +1478,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0f172a',
     letterSpacing: -0.3,
+  },
+  forYouSubtitle: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: -6,
+    marginBottom: 10,
+    paddingHorizontal: 2,
   },
   trendingPill: {
     backgroundColor: '#ffe4e6',

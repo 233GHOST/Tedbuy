@@ -7,7 +7,7 @@ import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
 import { toUserFriendlyError } from '../utils/authErrorHelper';
-import { uploadToCloudinary, cleanupOrphanedCloudinaryAssets } from '../utils/cloudinary';
+import { uploadToCloudinary, uploadVideoDirectToCloudinary, cleanupOrphanedCloudinaryAssets, getCloudinaryVideoPoster } from '../utils/cloudinary';
 import { resolveProductImages } from '../utils/productUtils';
 
 interface ListingModalProps {
@@ -62,6 +62,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [images, setImages] = useState<string[]>([]);
   const [videos, setVideos] = useState<string[]>([]);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string>('');
+  // The raw File/Blob for a newly-selected (not-yet-uploaded) video, kept alongside
+  // its base64 form in `videos` so submit can upload the real binary directly to
+  // Cloudinary instead of round-tripping through a base64 string. Only ever set for
+  // NEW videos selected this session — editing an existing listing's video (already
+  // an https:// URL) never populates this.
+  const [pendingVideoFile, setPendingVideoFile] = useState<File | Blob | null>(null);
 
   const convertBase64ToBlobUrl = (base64Str: string): string => {
     if (!base64Str) return '';
@@ -223,6 +229,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       } else {
         setVideoPreviewUrl('');
       }
+      // Editing loads an already-uploaded https:// video URL, never a new local
+      // file, so there is nothing pending to direct-upload until the user picks
+      // a replacement.
+      setPendingVideoFile(null);
       setBrand(productToEdit.brand || '');
       setCondition(productToEdit.condition || '');
       setNegotiable(productToEdit.negotiable !== false); // Default to true if undefined or true
@@ -302,6 +312,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setImages([]);
       setVideos([]);
       setVideoPreviewUrl('');
+      setPendingVideoFile(null);
       setOversizedVideoFile(null);
       setMediaType('image');
       setAdRegion('Greater Accra');
@@ -450,55 +461,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     }
   };
 
-  const generateVideoThumbnail = (videoFileOrUrl: File | Blob | string): Promise<string> => {
-    return new Promise((resolve) => {
-      const video = document.createElement('video');
-      video.preload = 'auto';
-      video.muted = true;
-      video.playsInline = true;
-      video.setAttribute('webkit-playsinline', 'true');
-      video.disablePictureInPicture = true;
-
-      let objectUrl = '';
-      if (typeof videoFileOrUrl === 'string') {
-        video.src = videoFileOrUrl;
-      } else {
-        objectUrl = URL.createObjectURL(videoFileOrUrl);
-        video.src = objectUrl;
-      }
-
-      video.onloadeddata = () => {
-        // Seek to 0.5s to capture a good frame instead of just black
-        video.currentTime = 0.5;
-      };
-
-      video.onseeked = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth || 640;
-          canvas.height = video.videoHeight || 480;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            if (objectUrl) URL.revokeObjectURL(objectUrl);
-            resolve(dataUrl);
-            return;
-          }
-        } catch (e) {
-          console.warn("Failed to capture video frame via canvas:", e);
-        }
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
-        resolve('');
-      };
-
-      video.onerror = () => {
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
-        resolve('');
-      };
-    });
-  };
-
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMsg('');
     const files = e.target.files;
@@ -519,10 +481,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return;
     }
     
-    // If the video is oversized (> 30MB), set the oversized file and prompt the user to compress it
-    if (file.size > 30 * 1024 * 1024) {
+    // If the video is oversized (> 18MB), set the oversized file and prompt the user to compress it.
+    // 18MB is the real ceiling, not an arbitrary number: videos are base64-encoded before
+    // upload (~33% larger) and must fit under the server's 25MB JSON body limit — going higher
+    // here would let users past this check only to hit a hard server-side rejection on submit.
+    if (file.size > 18 * 1024 * 1024) {
       setOversizedVideoFile(file);
-      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Videos larger than 30MB must be optimized. Use our built-in high-quality compressor below.`);
+      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Videos larger than 18MB must be optimized. Use our built-in high-quality compressor below.`);
       return;
     }
 
@@ -544,17 +509,11 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
           setVideos([reader.result]);
+          setPendingVideoFile(file);
           setOversizedVideoFile(null);
           // Set immediate local preview URL using the uploaded file's blob URL
           const blobUrl = URL.createObjectURL(file);
           setVideoPreviewUrl(blobUrl);
-          
-          // Generate thumbnail
-          generateVideoThumbnail(file).then((thumbnail) => {
-            if (thumbnail) {
-              setImages([thumbnail]);
-            }
-          });
         }
       };
       reader.readAsDataURL(file);
@@ -569,16 +528,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
           setVideos([reader.result]);
+          setPendingVideoFile(file);
           setOversizedVideoFile(null);
           const blobUrl = URL.createObjectURL(file);
           setVideoPreviewUrl(blobUrl);
-          
-          // Generate thumbnail
-          generateVideoThumbnail(file).then((thumbnail) => {
-            if (thumbnail) {
-              setImages([thumbnail]);
-            }
-          });
         }
       };
       reader.readAsDataURL(file);
@@ -802,6 +755,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
       const finalBase64Result = await base64Promise;
       setVideos([finalBase64Result]);
+      setPendingVideoFile(compressedBlob);
       // Set the resulting blob URL as the persistent player and preview source
       const finalBlobUrl = URL.createObjectURL(compressedBlob);
       setVideoPreviewUrl(finalBlobUrl);
@@ -809,12 +763,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setCompressionProgress(null);
       setIsCompressing(false);
 
-      // Generate and set video frame thumbnail
-      generateVideoThumbnail(compressedBlob).then((thumbnail) => {
-        if (thumbnail) {
-          setImages([thumbnail]);
-        }
-      });
 
     } catch (err: any) {
       console.error(err);
@@ -834,6 +782,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const removeVideo = (indexToRemove: number) => {
     setVideos(prev => prev.filter((_, idx) => idx !== indexToRemove));
     setVideoPreviewUrl('');
+    setPendingVideoFile(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -893,7 +842,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       }
     }
 
-    // Video listings keep their auto-generated thumbnail (see generateVideoThumbnail) as their image.
     const finalImages = images;
     const finalVideos = mediaType === 'video' ? videos : [];
 
@@ -967,7 +915,17 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         if (vid.startsWith('data:') || vid.startsWith('blob:')) {
           setUploadStatus(`Uploading video ${i + 1}/${finalVideos.length} to Cloudinary...`);
           try {
-            const res = await uploadToCloudinary(vid, 'video');
+            // Direct-to-Cloudinary path: the raw File/Blob never passes through the
+            // TedBuy server, only a short-lived signature does (see
+            // /api/cloudinary/sign-video-upload). Falls back to the base64 server
+            // relay only in the defensive case where no raw file reference exists
+            // (e.g. a video string arrived via some path other than the normal
+            // select/compress flow).
+            const res = pendingVideoFile
+              ? await uploadVideoDirectToCloudinary(pendingVideoFile, (pct) => {
+                  setUploadStatus(`Uploading video ${i + 1}/${finalVideos.length} to Cloudinary... (${pct}%)`);
+                })
+              : await uploadToCloudinary(vid, 'video');
             if (res && res.secure_url) {
               cloudinaryVideos.push(res.secure_url);
             } else {
@@ -983,6 +941,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           throw new Error('Invalid video data format. Please upload a valid video file.');
         }
       }
+
+      // Fallback cover image for video-only listings with no manually-uploaded
+      // photos — derived on-the-fly from the uploaded video via Cloudinary's
+      // own frame-extraction transform, so no separate poster image needs to
+      // be captured, uploaded, or stored.
+      const cloudinaryVideoPoster = cloudinaryVideos[0] ? getCloudinaryVideoPoster(cloudinaryVideos[0]) : '';
 
       setUploadStatus('');
 
@@ -1011,8 +975,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           condition: finalCondition,
           images: cloudinaryImages,
           imageUrls: cloudinaryImages,
-          displayImage: cloudinaryImages[0] || '',
-          primaryPicture: cloudinaryImages[0] || '',
+          displayImage: cloudinaryImages[0] || cloudinaryVideoPoster || '',
+          primaryPicture: cloudinaryImages[0] || cloudinaryVideoPoster || '',
           videos: cloudinaryVideos,
           videoUrls: cloudinaryVideos,
           negotiable: finalNegotiable,
@@ -1060,6 +1024,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         setImages([]);
         setVideos([]);
         setVideoPreviewUrl('');
+        setPendingVideoFile(null);
         setOversizedVideoFile(null);
         setMediaType('image');
         setAdRegion('Greater Accra');
@@ -1782,7 +1747,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 )}
 
                 <p className="text-[10px] text-slate-400 mt-2">
-                  <strong className="font-semibold text-slate-500">Tip</strong>: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 30MB) showing proof of functionality or live product demo.
+                  <strong className="font-semibold text-slate-500">Tip</strong>: Click &ldquo;Add Video&rdquo; to upload a video guide (Max 1 video, Max 18MB) showing proof of functionality or live product demo.
                 </p>
               </div>
             )}
