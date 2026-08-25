@@ -497,6 +497,7 @@ export const ProductDetail: React.FC = () => {
                   src={previewVideoUrl}
                   controls
                   autoPlay
+                  muted
                   playsInline
                   webkit-playsinline="true"
                   disablePictureInPicture
@@ -1172,6 +1173,7 @@ export const ProductDetail: React.FC = () => {
                 className="absolute inset-0 w-full h-full object-cover"
                 controls
                 autoPlay
+                muted
                 playsInline
                 webkit-playsinline="true"
                 disablePictureInPicture
@@ -1997,6 +1999,7 @@ export const ProductDetail: React.FC = () => {
                   className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/5 shadow-2xl"
                   controls
                   autoPlay
+                  muted
                   playsInline
                   webkit-playsinline="true"
                   disablePictureInPicture

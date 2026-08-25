@@ -63,7 +63,10 @@ export const MediaRenderer: React.FC<MediaRendererProps> = ({
   autoPlay = true,
   controls = false,
   loop = true,
-  muted = false,
+  // Defaults to true: browsers (especially mobile) silently block autoPlay
+  // on unmuted video with no error event — an autoplaying-by-default
+  // component must default to muted, or it'll appear broken out of the box.
+  muted = true,
   playsInline = true,
   objectFit = 'cover',
   onLoad,
