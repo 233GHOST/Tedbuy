@@ -51,6 +51,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
 
   // Auto-swipe state for Featured Listings carousel (1.5s interval)
   const featuredScrollRef = useRef<ScrollView | null>(null);
+  const mainGridRef = useRef<FlatList | null>(null);
   const featuredIndexRef = useRef<number>(0);
   const [isFeaturedPaused, setIsFeaturedPaused] = useState<boolean>(false);
   const featuredPauseTimeoutRef = useRef<any>(null);
@@ -390,6 +391,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       <View style={styles.body}>
         {viewMode === 'grid' ? (
           <FlatList
+            ref={mainGridRef}
             key="grid-2-cols"
             numColumns={2}
             columnWrapperStyle={styles.columnWrapper}
@@ -397,6 +399,15 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
+            onScrollToIndexFailed={(info) => {
+              // Standard RN fallback: without getItemLayout, scrollToIndex can fail
+              // before enough items have been measured — approximate with an offset,
+              // then retry the precise scroll once layout has caught up.
+              mainGridRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+              setTimeout(() => {
+                mainGridRef.current?.scrollToIndex({ index: info.index, animated: true });
+              }, 150);
+            }}
             ListHeaderComponent={
               <View>
                 {/* Search Container matching Web App "LOOKING FOR SOMETHING?" card */}
@@ -565,6 +576,16 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselIcon}>✨</Text>
                         <Text style={styles.carouselTitle}>{forYouResult.headline}</Text>
                       </View>
+                      <Pressable
+                        onPress={() => {
+                          if (displayedProducts.length > 0) {
+                            mainGridRef.current?.scrollToIndex({ index: 0, animated: true });
+                          }
+                        }}
+                        style={styles.carouselViewAllBtn}
+                      >
+                        <Text style={styles.carouselViewAllText}>View all ›</Text>
+                      </Pressable>
                     </View>
                     {forYouResult.subtitle && (
                       <Text style={styles.forYouSubtitle}>{forYouResult.subtitle}</Text>
@@ -727,7 +748,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                       </View>
                       <Pressable
                         onPress={() => {
-                          // Scroll to main ads or view all
+                          if (displayedProducts.length > 0) {
+                            mainGridRef.current?.scrollToIndex({ index: 0, animated: true });
+                          }
                         }}
                         style={styles.carouselViewAllBtn}
                       >

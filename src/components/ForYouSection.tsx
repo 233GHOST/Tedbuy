@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { useApp } from '../context/AppContext';
 import { getForYouProducts } from '../utils/recommendationScore';
@@ -41,10 +42,21 @@ export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, se
 
   return (
     <section id="for-you-section" className="w-full mb-8 animate-fade-in">
-      <div className="flex items-center gap-2 font-sans mb-1">
+      <div className="flex items-center justify-between gap-3 mb-1">
         <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
           {result.headline}
         </h3>
+        <button
+          type="button"
+          onClick={() => {
+            const el = document.getElementById('all-products-section') || document.getElementById('product-grid');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer whitespace-nowrap"
+        >
+          View all
+          <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+        </button>
       </div>
 
       <p className={`text-xs font-semibold text-slate-500 ${result.subtitle ? 'mb-4' : 'mb-4 h-0 overflow-hidden'}`}>
