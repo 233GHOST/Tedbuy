@@ -1577,27 +1577,27 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   )}
                 </div>
 
-                {/* Video Edit/Compressor Prompt Card — styled in Tedbuy's signature dark aesthetic */}
+                {/* Video Edit/Compressor Prompt Card — styled in Tedbuy's signature dark aesthetic, edge-to-edge on mobile for maximum editing workspace */}
                 {oversizedVideoFile && (
-                  <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-4.5 space-y-4 mt-2 shadow-xl animate-fadeIn">
-                    <div className="flex gap-3">
+                  <div className="-mx-4 sm:mx-0 bg-slate-900 border-y sm:border sm:border-slate-800 text-white rounded-none sm:rounded-2xl p-4 sm:p-5 space-y-4 mt-2 shadow-2xl animate-fadeIn">
+                    <div className="flex gap-3 px-1 sm:px-0">
                       <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                       <div className="space-y-1">
                         {oversizedVideoFile.size > 18 * 1024 * 1024 ? (
                           <>
-                            <h4 className="text-xs font-black text-white leading-snug font-sans">
+                            <h4 className="text-xs sm:text-sm font-black text-white leading-snug font-sans">
                               Video File is Too Large ({Math.round(oversizedVideoFile.size / 1024)}KB)
                             </h4>
-                            <p className="text-[11px] text-slate-300 leading-relaxed">
+                            <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
                               Edit video to required size
                             </p>
                           </>
                         ) : (
                           <>
-                            <h4 className="text-xs font-black text-white leading-snug font-sans">
+                            <h4 className="text-xs sm:text-sm font-black text-white leading-snug font-sans">
                               Edit Your Video
                             </h4>
-                            <p className="text-[11px] text-slate-300 leading-relaxed">
+                            <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
                               Trim to the best moment, or tap Save to post as-is
                             </p>
                           </>
@@ -1607,19 +1607,19 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
                     {/* Interactive Video Snippet Editor Console */}
                     {!isCompressing && oversizedVideoUrl && (
-                      <div className="bg-slate-950/90 text-white rounded-xl p-3.5 space-y-3 shadow-inner border border-slate-800">
-                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="w-full bg-slate-950 text-white rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-3 shadow-inner border border-slate-800">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                           <div className="flex items-center gap-1.5">
-                            <Scissors className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                            <span className="text-[10px] font-black tracking-wider uppercase text-slate-200">Video Snippet Trimmer</span>
+                            <Scissors className="w-4 h-4 text-emerald-400 animate-pulse" />
+                            <span className="text-[11px] sm:text-xs font-black tracking-wider uppercase text-slate-200">Video Snippet Trimmer</span>
                           </div>
-                          <span className="text-[9px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/50">
+                          <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50">
                             Max 30s Limit
                           </span>
                         </div>
 
                         {/* Player Preview */}
-                        <div className="relative aspect-video bg-black rounded-lg overflow-hidden border border-slate-800 flex items-center justify-center">
+                        <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-slate-800 flex items-center justify-center">
                           <video
                             id="oversized-video-player"
                             src={oversizedVideoUrl}
@@ -1658,7 +1658,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         {/* Range Selectors */}
                         <div className="space-y-3 pt-1">
                           <div>
-                            <div className="flex justify-between text-[10px] mb-1 text-slate-300 font-mono">
+                            <div className="flex justify-between text-[11px] mb-1.5 text-slate-300 font-mono">
                               <span className="font-semibold text-slate-400">Start Time:</span>
                               <span className="font-mono text-emerald-400 font-bold">{trimStart.toFixed(1)}s</span>
                             </div>
@@ -1683,12 +1683,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                                   playerCurrent.currentTime = val;
                                 }
                               }}
-                              className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                              className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer"
                             />
                           </div>
 
                           <div>
-                            <div className="flex justify-between text-[10px] mb-1 text-slate-300 font-mono">
+                            <div className="flex justify-between text-[11px] mb-1.5 text-slate-300 font-mono">
                               <span className="font-semibold text-slate-400">End Time:</span>
                               <span className="font-mono text-emerald-400 font-bold">{trimEnd.toFixed(1)}s</span>
                             </div>
@@ -1715,14 +1715,14 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                                   playerCurrent.currentTime = val;
                                 }
                               }}
-                              className="w-full accent-emerald-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                              className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer"
                             />
                           </div>
 
                           {/* Interval Information */}
-                          <div className="flex items-center justify-between text-[10px] bg-slate-900 px-2.5 py-1.5 rounded border border-slate-800 font-sans">
+                          <div className="flex items-center justify-between text-xs bg-slate-900 px-3 py-2 rounded-lg border border-slate-800 font-sans">
                             <span className="text-slate-400 font-medium">Selected Duration:</span>
-                            <span className="text-emerald-400 font-black font-mono">
+                            <span className="text-emerald-400 font-black font-mono text-xs">
                               {(trimEnd - trimStart).toFixed(1)} seconds
                             </span>
                           </div>
@@ -1731,7 +1731,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                     )}
 
                     {isCompressing ? (
-                      <div className="space-y-2.5 pt-1">
+                      <div className="space-y-2.5 pt-1 px-1 sm:px-0">
                         <div className="flex items-center justify-between text-xs font-bold text-white font-sans">
                           <span className="flex items-center gap-1.5">
                             <Video className="w-4 h-4 animate-spin text-emerald-400" />
@@ -1750,13 +1750,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         </p>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 pt-1">
+                      <div className="flex items-center gap-2 pt-1 px-1 sm:px-0">
                         <button
                           type="button"
                           onClick={handleSaveVideoEdit}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl cursor-pointer shadow-md flex items-center gap-1.5 transition active:scale-95"
+                          className="flex-1 sm:flex-initial px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-black rounded-xl cursor-pointer shadow-md flex items-center justify-center gap-1.5 transition active:scale-95"
                         >
-                          <Scissors className="w-3.5 h-3.5" />
+                          <Scissors className="w-4 h-4" />
                           Save
                         </button>
                         <button
@@ -1765,7 +1765,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             setOversizedVideoFile(null);
                             setErrorMsg('');
                           }}
-                          className="px-3.5 py-2 border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition cursor-pointer active:scale-95"
+                          className="flex-1 sm:flex-initial px-5 py-2.5 border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer active:scale-95"
                         >
                           Cancel
                         </button>
