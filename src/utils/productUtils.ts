@@ -101,13 +101,22 @@ export function resolveProductImages(product?: Partial<Product> | null, width?: 
 
   const prod = product as any;
 
+  // Matches the exact transform signature getCloudinaryVideoPoster() builds
+  // (so_0,f_jpg,...). Excluding it here — not just via the hasVideo fallback
+  // guard below — means any listing that already has one of these URLs
+  // sitting in its stored images array (written before this fix existed)
+  // self-heals automatically the moment this code deploys, with no need to
+  // re-save each affected listing individually.
+  const isVideoPosterUrl = (url: string) => url.includes('res.cloudinary.com') && url.includes('/upload/so_0,f_jpg');
+
   const filterValid = (arr: any[]) =>
     arr.filter(
       (img: any) =>
         typeof img === 'string' &&
         img.trim().length > 0 &&
         !img.includes('/api/products/') &&
-        !img.startsWith('data:image/svg+xml')
+        !img.startsWith('data:image/svg+xml') &&
+        !isVideoPosterUrl(img)
     );
 
   let list: string[] = [];
@@ -137,7 +146,7 @@ export function resolveProductImages(product?: Partial<Product> | null, width?: 
     ];
 
     for (const field of candidateSingleFields) {
-      if (typeof field === 'string' && field.trim().length > 0 && !field.includes('/api/products/') && !field.startsWith('data:image/svg+xml')) {
+      if (typeof field === 'string' && field.trim().length > 0 && !field.includes('/api/products/') && !field.startsWith('data:image/svg+xml') && !isVideoPosterUrl(field)) {
         list = [field.trim()];
         break;
       }
