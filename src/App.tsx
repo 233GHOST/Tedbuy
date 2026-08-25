@@ -1217,34 +1217,37 @@ const MarketplaceContent: React.FC = () => {
                   </div>
 
                   {/* Multi-Dimensional Dual Selection Controls (Ads and Price side-by-side) */}
-                  <div className="flex flex-wrap items-center gap-3.5 self-start sm:self-center">
-                    {/* Sort by Date/Ads */}
-                    <div className="flex items-center gap-1.5">
-                      <label htmlFor="sort-ads" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort Ads:</label>
-                      <select
-                        id="sort-ads"
-                        value={sortByAds}
-                        onChange={(e) => setSortByAds(e.target.value as 'newest' | 'oldest')}
-                        className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300 animate-fade-in"
-                      >
-                        <option value="newest">Newest First</option>
-                        <option value="oldest">Oldest First</option>
-                      </select>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2.5 self-start sm:self-center">
+                    {/* Primary Sorting Row (Sort Ads & Sort Price placed side-by-side on mobile) */}
+                    <div className="flex items-center gap-2 sm:gap-3.5">
+                      {/* Sort by Date/Ads */}
+                      <div className="flex items-center gap-1.5">
+                        <label htmlFor="sort-ads" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort Ads:</label>
+                        <select
+                          id="sort-ads"
+                          value={sortByAds}
+                          onChange={(e) => setSortByAds(e.target.value as 'newest' | 'oldest')}
+                          className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-2.5 sm:px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300 animate-fade-in"
+                        >
+                          <option value="newest">Newest First</option>
+                          <option value="oldest">Oldest First</option>
+                        </select>
+                      </div>
 
-                    {/* Sort by Price */}
-                    <div className="flex items-center gap-1.5">
-                      <label htmlFor="sort-price" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort Price:</label>
-                      <select
-                        id="sort-price"
-                        value={sortByPrice}
-                        onChange={(e) => setSortByPrice(e.target.value as 'default' | 'asc' | 'desc')}
-                        className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300 animate-fade-in"
-                      >
-                        <option value="default">All Prices</option>
-                        <option value="asc">Low to High</option>
-                        <option value="desc">High to Low</option>
-                      </select>
+                      {/* Sort by Price */}
+                      <div className="flex items-center gap-1.5">
+                        <label htmlFor="sort-price" className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort Price:</label>
+                        <select
+                          id="sort-price"
+                          value={sortByPrice}
+                          onChange={(e) => setSortByPrice(e.target.value as 'default' | 'asc' | 'desc')}
+                          className="bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl px-2.5 sm:px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-350 cursor-pointer shadow-3xs transition hover:border-slate-300 animate-fade-in"
+                        >
+                          <option value="default">All Prices</option>
+                          <option value="asc">Low to High</option>
+                          <option value="desc">High to Low</option>
+                        </select>
+                      </div>
                     </div>
 
                     {/* Price Range Filter */}
