@@ -133,13 +133,22 @@ export function useSEO({
     }
 
     updateMeta('meta[name="description"]', description);
+    updateMeta('meta[property="og:site_name"]', 'TedBuy Ghana');
+    updateMeta('meta[property="og:type"]', 'website');
     updateMeta('meta[property="og:title"]', title);
     updateMeta('meta[property="og:description"]', description);
     updateMeta('meta[property="og:image"]', ogImage);
+    updateMeta('meta[property="og:image:secure_url"]', ogImage);
+    updateMeta('meta[property="og:image:type"]', 'image/jpeg');
+    updateMeta('meta[property="og:image:width"]', '1200');
+    updateMeta('meta[property="og:image:height"]', '630');
     updateMeta('meta[property="og:url"]', canonical);
+    updateMeta('meta[name="twitter:card"]', 'summary_large_image');
     updateMeta('meta[name="twitter:title"]', title);
     updateMeta('meta[name="twitter:description"]', description);
     updateMeta('meta[name="twitter:image"]', ogImage);
+    updateMeta('meta[name="twitter:image:width"]', '1200');
+    updateMeta('meta[name="twitter:image:height"]', '630');
 
     // Update Canonical URL
     let linkCanonical = document.querySelector('link[rel="canonical"]');
