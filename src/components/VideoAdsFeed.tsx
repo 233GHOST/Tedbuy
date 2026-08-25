@@ -30,82 +30,11 @@ import {
   Eye,
   X
 } from 'lucide-react';
-
-// Helper to convert base64 data URIs securely into highly compatible, sandboxing-safe Blob URLs.
-// This implements a bulletproof decoder using browser-native atob() with full support for URL-safe base64 and standard padding.
-const base64ToBlobUrl = (base64Str: string, defaultMime = 'video/mp4'): string => {
-  if (!base64Str) return '';
-  if (!base64Str.startsWith('data:')) return base64Str;
-  
-  try {
-    const parts = base64Str.split(',');
-    if (parts.length < 2) return base64Str;
-    const header = parts[0];
-    const base64Part = parts.slice(1).join(',');
-
-    const mimeMatch = header.match(/:(.*?);/);
-    const mime = mimeMatch ? mimeMatch[1] : defaultMime;
-
-    // Normalize any URL-safe base64 characters (- to +, _ to /) and trim
-    let normalizedBase64 = base64Part.trim()
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-
-    // Remove any whitespaces, newlines, or invalid non-base64 characters
-    normalizedBase64 = normalizedBase64.replace(/[^A-Za-z0-9+/=]/g, '');
-
-    // Restore missing padding if needed
-    const pad = normalizedBase64.length % 4;
-    if (pad === 2) {
-      normalizedBase64 += '==';
-    } else if (pad === 3) {
-      normalizedBase64 += '=';
-    }
-
-    const binaryStr = atob(normalizedBase64);
-    const len = binaryStr.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-
-    const blob = new Blob([bytes], { type: mime });
-    return URL.createObjectURL(blob);
-  } catch (error) {
-    console.warn("[VideoAdsFeed] base64ToBlobUrl custom native decoder error, returning raw:", error);
-    return base64Str;
-  }
-};
-
-// Global ultra-high performance cache for Decoded Blob URLs.
-// Avoids redundant, blocking, expensive Base64 reconversions on quick scrolls, creating seamless TikTok-like transitions.
-const decodedBlobUrlCache = new Map<string, string>();
-const MAX_DECODED_CACHE_SIZE = 32;
-
-const getProcessedUrl = (url: string): string => {
-  if (!url) return '';
-  if (!url.startsWith('data:')) return url;
-  
-  if (decodedBlobUrlCache.has(url)) {
-    return decodedBlobUrlCache.get(url)!;
-  }
-  
-  if (decodedBlobUrlCache.size >= MAX_DECODED_CACHE_SIZE) {
-    const oldestKey = decodedBlobUrlCache.keys().next().value;
-    if (oldestKey) {
-      try {
-        URL.revokeObjectURL(decodedBlobUrlCache.get(oldestKey)!);
-      } catch (err) {
-        console.warn("[VideoAdsFeed] Failed evicting and revoking cached object URL:", err);
-      }
-      decodedBlobUrlCache.delete(oldestKey);
-    }
-  }
-  
-  const bUrl = base64ToBlobUrl(url, 'video/mp4');
-  decodedBlobUrlCache.set(url, bUrl);
-  return bUrl;
-};
+import { 
+  getOrFetchCachedVideoUrl, 
+  getCachedVideoUrlSync, 
+  preloadVideoBatch 
+} from '../utils/videoCache';
 
 let globalBottomNavTimeout: NodeJS.Timeout | null = null;
 
@@ -293,8 +222,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   const currentVideoUrl = product?.videos?.[0] || '';
 
-  // Instant preloading & decoding using global memoized Blob cache to prevent freeze and enable buttery smooth TikTok swipe
+  // Instant preloading & decoding using offline CacheStorage and memory Blob cache to prevent freeze and enable buttery smooth TikTok swipe
   useEffect(() => {
+    let isMounted = true;
     setVideoError(false);
     setVideoErrorDetails('');
 
@@ -308,8 +238,29 @@ const ReelItem: React.FC<ReelItemProps> = ({
       return;
     }
 
-    const cachedUrl = getProcessedUrl(currentVideoUrl);
-    setProcessedVideoUrl(cachedUrl);
+    // Check synchronous cache first for instant frame-1 rendering
+    const syncUrl = getCachedVideoUrlSync(currentVideoUrl);
+    if (syncUrl) {
+      setProcessedVideoUrl(syncUrl);
+    }
+
+    // Resolve or download asynchronously to CacheStorage & Blob store
+    getOrFetchCachedVideoUrl(currentVideoUrl)
+      .then(url => {
+        if (isMounted && url) {
+          setProcessedVideoUrl(url);
+        }
+      })
+      .catch(err => {
+        console.warn('[ReelItem] Error resolving video url:', err);
+        if (isMounted) {
+          setProcessedVideoUrl(currentVideoUrl);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [currentVideoUrl, shouldLoad]);
 
   // Sync volume and mute changes dynamically without triggering video play re-initializations
@@ -1153,6 +1104,28 @@ export const VideoAdsFeed: React.FC = () => {
     };
   }, [feedItems, loadNextBatch]);
 
+  // Proactive TikTok-style video preloader:
+  // Automatically downloads and caches in CacheStorage all past watched videos (up to activeIndex)
+  // as well as the next 4 upcoming videos, so scrolling back up or going offline guarantees instant playback.
+  useEffect(() => {
+    if (feedItems.length === 0) return;
+
+    const urlsToPreload: string[] = [];
+    const startIndex = Math.max(0, activeIndex - 15);
+    const endIndex = Math.min(feedItems.length - 1, activeIndex + 4);
+
+    for (let i = startIndex; i <= endIndex; i++) {
+      const vid = feedItems[i]?.product?.videos?.[0];
+      if (vid) {
+        urlsToPreload.push(vid);
+      }
+    }
+
+    if (urlsToPreload.length > 0) {
+      preloadVideoBatch(urlsToPreload);
+    }
+  }, [activeIndex, feedItems]);
+
   // Scroll listener to toggle bottom navigation & trigger infinite scroll when near bottom
   useEffect(() => {
     const container = feedScrollContainerRef.current;
@@ -1323,13 +1296,11 @@ export const VideoAdsFeed: React.FC = () => {
                 <ReelItem
                   product={product}
                   isActive={activeIndex === idx}
-                  // Keep a 3-item window (previous, current, next) mounted so scrolling
-                  // back up to a video you just watched doesn't force a full unmount/
-                  // remount — that re-buffering is exactly what read as "loading again".
+                  // TikTok-like retention window:
+                  // Keep at least 15 previous videos + current + 3 ahead mounted and cached,
+                  // so scrolling back up plays instantly even when internet is completely disconnected!
                   shouldLoad={
-                    activeIndex === idx ||
-                    (activeIndex + 1) % feedItems.length === idx ||
-                    (activeIndex - 1 + feedItems.length) % feedItems.length === idx
+                    idx >= activeIndex - 15 && idx <= activeIndex + 3
                   }
                   isMuted={isMuted}
                   onMuteToggle={(e) => {
