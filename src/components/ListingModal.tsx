@@ -1638,6 +1638,16 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                                 setTrimEnd(Math.min(30, dur));
                               }
                             }}
+                            onDurationChange={(e) => {
+                              // Redundant signal alongside onLoadedMetadata — some mobile
+                              // browsers fire this reliably even when loadedmetadata is
+                              // delayed or skipped, so duration never stays stuck at 0.
+                              const dur = e.currentTarget.duration;
+                              if (!isNaN(dur) && dur > 0 && videoDuration === 0) {
+                                setVideoDuration(dur);
+                                setTrimEnd(Math.min(30, dur));
+                              }
+                            }}
                           />
                         </div>
 
