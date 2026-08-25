@@ -154,10 +154,15 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   if (!product) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>This listing has been removed or is no longer available.</Text>
-        <Pressable onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>Return Home</Text>
-        </Pressable>
+        <Text style={styles.errorText}>This listing has expired, been sold, or is no longer available.</Text>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <Pressable onPress={onBack} style={styles.backButton}>
+            <Text style={styles.backText}>Return to Marketplace</Text>
+          </Pressable>
+          <Pressable onPress={onBack} style={[styles.backButton, { backgroundColor: '#f97316', borderColor: '#ea580c' }]}>
+            <Text style={[styles.backText, { color: '#ffffff' }]}>Browse Similar Listings</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }

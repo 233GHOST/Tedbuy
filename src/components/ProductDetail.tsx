@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus, Sparkles, Video, Loader2, Flame, FileText, Send } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
-import { isUserVerified, calculateTrustScore, normalizeCategory, isUserAdmin } from '../types';
+import { isUserVerified, calculateTrustScore, normalizeCategory, isUserAdmin, Category } from '../types';
 import { SellerBadge } from './SellerBadge';
 import { slugify } from '../utils/slugify';
 import { auth } from '../firebase';
@@ -36,6 +36,8 @@ export const ProductDetail: React.FC = () => {
     setIsVerificationBlockOpen,
     setBlockedActionType,
     showToast,
+    selectedCategory,
+    setSelectedCategory,
     isProductsLoading,
     registerProduct
   } = useApp();
@@ -557,6 +559,107 @@ export const ProductDetail: React.FC = () => {
       );
     }
 
+    // Infer category from context (URL params, slug, previous state, etc.)
+    const inferCategoryFromContext = (): Category | null => {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const catParam = urlParams.get('category') || urlParams.get('cat');
+        if (catParam) {
+          const norm = normalizeCategory(catParam);
+          if (norm && norm !== 'Other') return norm as Category;
+        }
+      }
+
+      if (selectedCategory && (selectedCategory as string) !== 'All') {
+        return selectedCategory;
+      }
+
+      const textToExamine = [
+        pTitle,
+        selectedProductId,
+        typeof window !== 'undefined' ? window.location.hash : '',
+        typeof window !== 'undefined' ? window.location.pathname : '',
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      if (/\b(phone|phones|iphone|samsung|pixel|tecno|infinix|redmi|xiaomi|huawei|oppo|vivo|galaxy|nokia|oneplus|smartphone|ios|android)\b/.test(textToExamine)) {
+        return 'Phones';
+      }
+      if (/\b(laptop|laptops|macbook|dell|hp|lenovo|thinkpad|asus|acer|notebook|chromebook|computer)\b/.test(textToExamine)) {
+        return 'Laptops';
+      }
+      if (/\b(car|cars|toyota|hyundai|kia|benz|honda|nissan|vehicle|vehicles|elantra|corolla|motor|suv|truck|auto)\b/.test(textToExamine)) {
+        return 'Vehicles';
+      }
+      if (/\b(house|houses|apartment|apartments|land|plot|rent|property|properties|room|estate|mansion|flat)\b/.test(textToExamine)) {
+        return 'Property';
+      }
+      if (/\b(tv|television|fridge|refrigerator|microwave|blender|iron|cooker|appliance|appliances|washer|kettle)\b/.test(textToExamine)) {
+        return 'Home Appliances';
+      }
+      if (/\b(dress|dresses|shirt|shirts|shoe|shoes|sneaker|sneakers|bag|bags|watch|watches|suit|suits|cloth|fashion|jeans|trouser|heels|hoodie|clothing)\b/.test(textToExamine)) {
+        return 'Fashion';
+      }
+      if (/\b(ps4|ps5|playstation|xbox|nintendo|fifa|game|games|gaming|controller|console)\b/.test(textToExamine)) {
+        return 'Games';
+      }
+      if (/\b(sound|speaker|speakers|camera|cameras|headphone|headphones|audio|electronic|electronics|airpod|earbud|microphone)\b/.test(textToExamine)) {
+        return 'Electronics';
+      }
+      if (/\b(sofa|bed|beds|chair|chairs|table|tables|wardrobe|furniture|desk|cabinet|mattress)\b/.test(textToExamine)) {
+        return 'Furniture & Home';
+      }
+      if (/\b(perfume|perfumes|cream|hair|wig|wigs|lotion|beauty|makeup|skincare|fragrance)\b/.test(textToExamine)) {
+        return 'Beauty and Care';
+      }
+      if (/\b(dog|dogs|puppy|puppies|cat|cats|pet|pets|bird|fish|kitten)\b/.test(textToExamine)) {
+        return 'Pets & Animals';
+      }
+      if (/\b(treadmill|gym|dumbbell|fitness|sport|sports|bicycle|bike|football)\b/.test(textToExamine)) {
+        return 'Sports & Fitness';
+      }
+      if (/\b(service|services|plumber|electrician|mechanic|repair|cleaning|mason|painter|carpenter)\b/.test(textToExamine)) {
+        return 'Services';
+      }
+      if (/\b(job|jobs|vacancy|employment|hiring|work)\b/.test(textToExamine)) {
+        return 'Jobs & Employment';
+      }
+      if (/\b(food|agriculture|farm|rice|oil|yam|plantain|poultry)\b/.test(textToExamine)) {
+        return 'Agriculture & Food';
+      }
+      if (/\b(baby|kids|toy|toys|diaper|stroller|cot)\b/.test(textToExamine)) {
+        return 'Kids & Baby';
+      }
+      if (/\b(tool|tools|machine|generator|commercial)\b/.test(textToExamine)) {
+        return 'Commercial & Tools';
+      }
+      if (/\b(book|books|novel|hobby|hobbies|guitar|piano|art)\b/.test(textToExamine)) {
+        return 'Books & Hobbies';
+      }
+
+      return null;
+    };
+
+    const inferredCategory = inferCategoryFromContext();
+    const similarLabel = inferredCategory
+      ? `Browse Similar ${inferredCategory === 'Home Appliances' ? 'Appliances' : inferredCategory}`
+      : 'Browse Similar Listings';
+
+    const handleBrowseSimilar = () => {
+      if (inferredCategory) {
+        setSelectedCategory(inferredCategory);
+      }
+      setSelectedProductId(null);
+      setCurrentView('browse');
+      if (typeof window !== 'undefined') {
+        setTimeout(() => {
+          const el = document.getElementById('all-products-section') || document.getElementById('product-grid');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 100);
+      }
+    };
+
     return (
       <div className="max-w-3xl mx-auto px-4 py-16 text-center space-y-6 animate-fade-in font-sans">
         <div className="w-16 h-16 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto shadow-inner">
@@ -578,11 +681,10 @@ export const ProductDetail: React.FC = () => {
             Return to Marketplace
           </button>
           <button
-            onClick={() => setCurrentView('featured-listings')}
-            className="px-6 py-3 bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-extrabold uppercase tracking-wider rounded-2xl transition border border-orange-200 cursor-pointer active:scale-95 flex items-center gap-2"
+            onClick={handleBrowseSimilar}
+            className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white text-xs font-extrabold uppercase tracking-wider rounded-2xl transition shadow-md shadow-orange-500/20 cursor-pointer active:scale-95 text-center"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>Explore Featured Listings</span>
+            <span>{similarLabel}</span>
           </button>
         </div>
       </div>
