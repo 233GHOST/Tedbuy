@@ -165,7 +165,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [oversizedVideoUrl, setOversizedVideoUrl] = useState<string>('');
   const [videoDuration, setVideoDuration] = useState<number>(0);
   const [trimStart, setTrimStart] = useState<number>(0);
-  const [trimEnd, setTrimEnd] = useState<number>(10);
+  const [trimEnd, setTrimEnd] = useState<number>(30);
   const [compressionProgress, setCompressionProgress] = useState<number | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
@@ -1661,17 +1661,17 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             <input
                               type="range"
                               min="0"
-                              max={videoDuration || 10}
+                              max={videoDuration || 30}
                               step="0.1"
                               value={trimStart}
                               onChange={(e) => {
                                 const val = parseFloat(e.target.value);
                                 setTrimStart(val);
-                                // Ensure trimEnd is at least trimStart and at most trimStart + 10
+                                // Ensure trimEnd is at least trimStart and at most trimStart + 30
                                 if (trimEnd < val) {
-                                  setTrimEnd(Math.min(videoDuration, val + 5));
-                                } else if (trimEnd - val > 10) {
-                                  setTrimEnd(val + 10);
+                                  setTrimEnd(Math.min(videoDuration || 30, val + 5));
+                                } else if (trimEnd - val > 30) {
+                                  setTrimEnd(val + 30);
                                 }
                                 // Seek player to preview start frame
                                 const playerCurrent = document.getElementById('oversized-video-player') as HTMLVideoElement;
@@ -1691,7 +1691,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             <input
                               type="range"
                               min="0"
-                              max={videoDuration || 10}
+                              max={videoDuration || 30}
                               step="0.1"
                               value={trimEnd}
                               onChange={(e) => {
@@ -1699,8 +1699,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                                 if (val < trimStart) {
                                   setTrimStart(Math.max(0, val - 5));
                                   setTrimEnd(val);
-                                } else if (val - trimStart > 10) {
-                                  setTrimStart(val - 10);
+                                } else if (val - trimStart > 30) {
+                                  setTrimStart(val - 30);
                                   setTrimEnd(val);
                                 } else {
                                   setTrimEnd(val);
