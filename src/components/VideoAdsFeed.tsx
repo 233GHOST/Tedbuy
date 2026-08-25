@@ -28,8 +28,7 @@ import {
   Forward,
   Flame,
   Eye,
-  X,
-  Home
+  X
 } from 'lucide-react';
 
 // Helper to convert base64 data URIs securely into highly compatible, sandboxing-safe Blob URLs.
@@ -779,23 +778,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
             </button>
             <span className="text-[9px] sm:text-[10px] font-black text-white mt-1 sm:mt-1.5 tracking-wide drop-shadow-md select-none">
               Specs
-            </span>
-          </div>
-
-          {/* Home button taking back to standard grid */}
-          <div className="flex flex-col items-center">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setHomeViewMode('grid');
-              }}
-              className="w-8.5 h-8.5 sm:w-10.5 sm:h-10.5 rounded-full bg-black/50 text-white flex items-center justify-center transition-all duration-300 shadow-xl hover:bg-black/80 hover:scale-110 active:scale-95 border border-white/20"
-              title="Return to standard grid"
-            >
-              <Home className="w-4 h-4 sm:w-5 sm:h-5 text-[#FFFC00]" />
-            </button>
-            <span className="text-[9px] sm:text-[10px] font-black text-white mt-1 sm:mt-1.5 tracking-wide drop-shadow-md select-none">
-              Home
             </span>
           </div>
         </div>

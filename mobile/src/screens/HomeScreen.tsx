@@ -902,14 +902,6 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         </View>
                         <Text style={styles.actionBtnLabel}>Specs</Text>
                       </Pressable>
-
-                      {/* Return to grid */}
-                      <Pressable style={styles.actionBtn} onPress={() => setViewMode('grid')}>
-                        <View style={[styles.actionBtnCircle, { backgroundColor: '#020617' }]}>
-                          <Text style={styles.actionBtnIcon}>⊞</Text>
-                        </View>
-                        <Text style={styles.actionBtnLabel}>Grid</Text>
-                      </Pressable>
                     </View>
                   </View>
                 );
