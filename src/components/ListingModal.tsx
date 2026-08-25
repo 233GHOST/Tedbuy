@@ -1577,29 +1577,27 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   )}
                 </div>
 
-                {/* Video Edit/Compressor Prompt Card — shown for every newly selected
-                    video so sellers can trim before posting; wording adapts if the
-                    file is also genuinely over the 18MB limit and must be optimized. */}
+                {/* Video Edit/Compressor Prompt Card — styled in Tedbuy's signature dark aesthetic */}
                 {oversizedVideoFile && (
-                  <div className="bg-amber-50/70 border border-amber-250 rounded-2xl p-4.5 space-y-4 mt-2 animate-fadeIn">
+                  <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-4.5 space-y-4 mt-2 shadow-xl animate-fadeIn">
                     <div className="flex gap-3">
-                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                      <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                       <div className="space-y-1">
                         {oversizedVideoFile.size > 18 * 1024 * 1024 ? (
                           <>
-                            <h4 className="text-xs font-black text-amber-900 leading-snug font-sans">
+                            <h4 className="text-xs font-black text-white leading-snug font-sans">
                               Video File is Too Large ({Math.round(oversizedVideoFile.size / 1024)}KB)
                             </h4>
-                            <p className="text-[11px] text-amber-700 leading-relaxed">
+                            <p className="text-[11px] text-slate-300 leading-relaxed">
                               Edit video to required size
                             </p>
                           </>
                         ) : (
                           <>
-                            <h4 className="text-xs font-black text-amber-900 leading-snug font-sans">
+                            <h4 className="text-xs font-black text-white leading-snug font-sans">
                               Edit Your Video
                             </h4>
-                            <p className="text-[11px] text-amber-700 leading-relaxed">
+                            <p className="text-[11px] text-slate-300 leading-relaxed">
                               Trim to the best moment, or tap Save to post as-is
                             </p>
                           </>
@@ -1609,13 +1607,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
                     {/* Interactive Video Snippet Editor Console */}
                     {!isCompressing && oversizedVideoUrl && (
-                      <div className="bg-slate-900 text-white rounded-xl p-3.5 space-y-3 shadow-md border border-slate-800">
+                      <div className="bg-slate-950/90 text-white rounded-xl p-3.5 space-y-3 shadow-inner border border-slate-800">
                         <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                           <div className="flex items-center gap-1.5">
                             <Scissors className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
                             <span className="text-[10px] font-black tracking-wider uppercase text-slate-200">Video Snippet Trimmer</span>
                           </div>
-                          <span className="text-[9px] font-mono text-emerald-400 font-bold bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-900/30">
+                          <span className="text-[9px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/50">
                             Max 30s Limit
                           </span>
                         </div>
@@ -1722,7 +1720,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                           </div>
 
                           {/* Interval Information */}
-                          <div className="flex items-center justify-between text-[10px] bg-slate-950/60 px-2.5 py-1.5 rounded border border-slate-850 font-sans">
+                          <div className="flex items-center justify-between text-[10px] bg-slate-900 px-2.5 py-1.5 rounded border border-slate-800 font-sans">
                             <span className="text-slate-400 font-medium">Selected Duration:</span>
                             <span className="text-emerald-400 font-black font-mono">
                               {(trimEnd - trimStart).toFixed(1)} seconds
@@ -1734,20 +1732,20 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
                     {isCompressing ? (
                       <div className="space-y-2.5 pt-1">
-                        <div className="flex items-center justify-between text-xs font-bold text-amber-900 font-sans">
+                        <div className="flex items-center justify-between text-xs font-bold text-white font-sans">
                           <span className="flex items-center gap-1.5">
-                            <Video className="w-4 h-4 animate-spin text-amber-600" />
+                            <Video className="w-4 h-4 animate-spin text-emerald-400" />
                             Trim-encoding & exporting clip...
                           </span>
-                          <span className="font-mono">{compressionProgress ?? 0}%</span>
+                          <span className="font-mono text-emerald-400 font-bold">{compressionProgress ?? 0}%</span>
                         </div>
-                        <div className="w-full bg-amber-200/60 h-2 rounded-full overflow-hidden">
+                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden border border-slate-700/60">
                           <div 
-                            className="bg-amber-600 h-full rounded-full transition-all duration-300"
+                            className="bg-emerald-500 h-full rounded-full transition-all duration-300"
                             style={{ width: `${compressionProgress ?? 0}%` }}
                           />
                         </div>
-                        <p className="text-[10px] text-amber-600 italic font-mono">
+                        <p className="text-[10px] text-slate-400 italic font-mono">
                           Re-encoding to light efficiency. Do not close this modal...
                         </p>
                       </div>
@@ -1756,7 +1754,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         <button
                           type="button"
                           onClick={handleSaveVideoEdit}
-                          className="px-4 py-2 bg-amber-600 hover:bg-amber-750 text-white text-xs font-black rounded-xl cursor-pointer shadow-sm flex items-center gap-1.5 transition"
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl cursor-pointer shadow-md flex items-center gap-1.5 transition active:scale-95"
                         >
                           <Scissors className="w-3.5 h-3.5" />
                           Save
@@ -1767,7 +1765,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             setOversizedVideoFile(null);
                             setErrorMsg('');
                           }}
-                          className="px-3.5 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                          className="px-3.5 py-2 border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition cursor-pointer active:scale-95"
                         >
                           Cancel
                         </button>
