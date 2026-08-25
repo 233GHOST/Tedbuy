@@ -167,8 +167,8 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
           </div>
         </div>
 
-        {/* Navigation Controls */}
-        <div className="flex items-center gap-2">
+        {/* Navigation Controls & View All */}
+        <div className="flex items-center gap-2.5">
           <div className="hidden sm:flex items-center gap-1.5">
             <button
               onClick={handleScrollLeft}
@@ -185,6 +185,19 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
               <ChevronRight className="w-4 h-4 stroke-[2.5]" />
             </button>
           </div>
+
+          <button
+            onClick={() => {
+              const el = document.getElementById('all-products-section') || document.getElementById('product-grid');
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth' });
+              }
+            }}
+            className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1 whitespace-nowrap"
+          >
+            View all
+            <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+          </button>
         </div>
       </div>
 

@@ -598,11 +598,21 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                     <View style={styles.carouselHeaderRow}>
                       <View style={styles.carouselHeaderLeft}>
                         <Text style={styles.carouselIcon}>🏪</Text>
-                        <Text style={styles.carouselTitle}>Sellers to Discover</Text>
+                        <Text style={styles.carouselTitle}>Discover on TedBuy</Text>
                         <View style={styles.verifiedCountBadge}>
                           <Text style={styles.verifiedCountBadgeText}>{discoverSellers.length}</Text>
                         </View>
                       </View>
+                      <Pressable
+                        onPress={() => {
+                          if (discoverSellers.length > 0) {
+                            navigation?.navigate('SellerProfile', { sellerId: discoverSellers[0].id });
+                          }
+                        }}
+                        style={styles.carouselViewAllBtn}
+                      >
+                        <Text style={styles.carouselViewAllText}>View all ›</Text>
+                      </Pressable>
                     </View>
                     <ScrollView
                       horizontal
@@ -665,6 +675,12 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselIcon}>🔥</Text>
                         <Text style={styles.carouselTitle}>Featured Listings</Text>
                       </View>
+                      <Pressable
+                        onPress={() => navigation?.navigate('FeaturedListings')}
+                        style={styles.carouselViewAllBtn}
+                      >
+                        <Text style={styles.carouselViewAllText}>View all ›</Text>
+                      </Pressable>
                     </View>
                     <ScrollView 
                       ref={featuredScrollRef}
@@ -709,6 +725,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselIcon}>📈</Text>
                         <Text style={styles.carouselTitle}>Trending Ads</Text>
                       </View>
+                      <Pressable
+                        onPress={() => {
+                          // Scroll to main ads or view all
+                        }}
+                        style={styles.carouselViewAllBtn}
+                      >
+                        <Text style={styles.carouselViewAllText}>View all ›</Text>
+                      </Pressable>
                     </View>
                     <ScrollView 
                       horizontal 
@@ -1486,6 +1510,15 @@ const styles = StyleSheet.create({
     marginTop: -6,
     marginBottom: 10,
     paddingHorizontal: 2,
+  },
+  carouselViewAllBtn: {
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+  },
+  carouselViewAllText: {
+    color: '#f97316',
+    fontSize: 13,
+    fontWeight: '800',
   },
   trendingPill: {
     backgroundColor: '#ffe4e6',

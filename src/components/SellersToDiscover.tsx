@@ -78,7 +78,7 @@ export function SellersToDiscover({ selectedCategory }: SellersToDiscoverProps) 
   return (
     <section className="bg-white border border-slate-200 rounded-3xl p-5 shadow-xs space-y-4 text-left font-sans animate-fade-in relative mb-6">
       {/* Section Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
         <div>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-white shadow-xs">
@@ -86,30 +86,44 @@ export function SellersToDiscover({ selectedCategory }: SellersToDiscoverProps) 
             </div>
             <div>
               <h3 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
-                <span>Sellers to Discover</span>
+                <span>Discover on TedBuy</span>
               </h3>
             </div>
           </div>
-          <p className="text-xs text-slate-550 mt-1">
+          <p className="text-xs text-slate-550 mt-1 hidden sm:block">
             Explore active Ghanaian storefronts, browse their full catalogs, and connect directly.
           </p>
         </div>
 
-        {/* Scroll navigation arrows for desktop */}
-        <div className="hidden sm:flex items-center gap-1.5 self-end sm:self-center">
+        {/* Scroll navigation arrows for desktop & View All */}
+        <div className="flex items-center gap-2.5">
+          <div className="hidden sm:flex items-center gap-1.5">
+            <button
+              onClick={() => handleScroll('left')}
+              className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 text-slate-700 flex items-center justify-center transition cursor-pointer active:scale-95"
+              aria-label="Previous sellers"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleScroll('right')}
+              className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 text-slate-700 flex items-center justify-center transition cursor-pointer active:scale-95"
+              aria-label="Next sellers"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
           <button
-            onClick={() => handleScroll('left')}
-            className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 text-slate-700 flex items-center justify-center transition cursor-pointer active:scale-95"
-            aria-label="Previous sellers"
+            onClick={() => {
+              if (scrollContainerRef.current) {
+                scrollContainerRef.current.scrollBy({ left: 400, behavior: 'smooth' });
+              }
+            }}
+            className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1 whitespace-nowrap"
           >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => handleScroll('right')}
-            className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 text-slate-700 flex items-center justify-center transition cursor-pointer active:scale-95"
-            aria-label="Next sellers"
-          >
-            <ChevronRight className="w-4 h-4" />
+            View all
+            <ChevronRight className="w-4 h-4 stroke-[2.5]" />
           </button>
         </div>
       </div>
