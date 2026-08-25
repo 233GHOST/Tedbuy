@@ -7,7 +7,7 @@ import { SellerBadge } from './SellerBadge';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
-import { auth, getAuthHeader } from '../firebase';
+import { auth, getAuthHeader, fetchAllMessagesFromApi } from '../firebase';
 import { doc, getDoc, setDoc } from '../dbAdapter';
 import { uploadToCloudinary, deleteFromCloudinary } from '../utils/cloudinary';
 import { formatTedbuyTenure } from '../utils/dateParser';
@@ -36,7 +36,6 @@ export const ProfileSettings: React.FC = () => {
     isStandalone,
     products,
     chats,
-    messages,
     reviews,
     notifications
   } = useApp();
@@ -256,10 +255,18 @@ CEO, Tedbuy Inc`;
       const userReviewsReceived = reviews?.filter(r => r.sellerId === currentUser.id) || [];
       const userChats = chats?.filter(c => c.buyerId === currentUser.id || c.sellerId === currentUser.id) || [];
       const userNotifications = notifications?.filter(n => n.userId === currentUser.id) || [];
-      
-      // Filter messages belonging to user's chats
-      const userChatIds = new Set(userChats.map(c => c.id));
-      const userMessages = messages?.filter(m => userChatIds.has(m.chatId) || m.senderId === currentUser.id || m.recipientId === currentUser.id) || [];
+
+      // Full message history per chat, fetched on demand via the
+      // authenticated API (paginated to completion) — this export only runs
+      // on a deliberate user action, so the extra requests are a fine
+      // trade-off for a complete, correct "right to data portability" export.
+      // The live chat UI does NOT do this; it stays on the lightweight
+      // single-page fetch to keep polling cheap.
+      const messagesByChatId = new Map<string, any[]>();
+      await Promise.all(userChats.map(async (c) => {
+        const msgs = await fetchAllMessagesFromApi(c.id);
+        messagesByChatId.set(c.id, msgs);
+      }));
 
       // 2. Format a highly descriptive, readable data package
       const dataPackage = {
@@ -313,7 +320,7 @@ CEO, Tedbuy Inc`;
         },
         chatsCount: userChats.length,
         chats: userChats.map(c => {
-          const chatMsgs = userMessages.filter(m => m.chatId === c.id);
+          const chatMsgs = messagesByChatId.get(c.id) || [];
           return {
             id: c.id,
             productId: c.productId,

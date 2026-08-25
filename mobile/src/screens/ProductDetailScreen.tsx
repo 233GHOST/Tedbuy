@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Dimensions, Share, Linking, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { fetchProductById, fetchUserById, toggleLikeProduct, startChat, auth, watchProducts } from '../firebase';
+import { fetchProductById, fetchUserById, toggleLikeProduct, startChatApi, auth, watchProducts } from '../firebase';
 import { Product, isUserAdmin, isUserVerified } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
 
@@ -127,7 +127,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
       const chosenMsg = (customMessage && customMessage.trim()) 
         ? customMessage.trim() 
         : (inlineMessage.trim() || `Hi, is "${product.title}" still available?`);
-      const chatId = await startChat(productId, chosenMsg);
+      const chatId = await startChatApi(productId, chosenMsg);
       if (chatId) {
         setInlineMessage('');
         navigation.navigate('MainTabs', { screen: 'Chats', params: { activeChatId: chatId } });

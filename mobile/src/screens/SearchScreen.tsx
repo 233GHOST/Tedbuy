@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { categories, products as sampleProducts } from '../data';
-import { getPrefixAutocompleteSuggestions } from '../../src/utils/searchAutocomplete';
+import { getPrefixAutocompleteSuggestions } from '../utils/searchAutocomplete';
 
 interface SearchScreenProps {
   navigation: any;

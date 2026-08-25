@@ -1,11 +1,24 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { categories } from '../data';
-import { auth, createProduct } from '../firebase';
+import { auth, createProduct, uploadMediaToCloudinaryMobile } from '../firebase';
 
 interface SellScreenProps {
   navigation: any;
+}
+
+const MAX_IMAGES = 10;
+
+interface PickedImage {
+  id: string;
+  localUri: string;
+  status: 'uploading' | 'done' | 'error';
+  progress: number;
+  remoteUrl?: string;
+  error?: string;
 }
 
 export function SellScreen({ navigation }: SellScreenProps) {
@@ -16,13 +29,106 @@ export function SellScreen({ navigation }: SellScreenProps) {
   const [negotiable, setNegotiable] = useState(true);
   const [isExchangeable, setIsExchangeable] = useState(false);
   const [location, setLocation] = useState('Accra Mall');
-  const [imageUrl, setImageUrl] = useState('');
+  const [images, setImages] = useState<PickedImage[]>([]);
   const [description, setDescription] = useState('');
   const [descHeight, setDescHeight] = useState(100);
   const [loading, setLoading] = useState(false);
 
   const formCategories = categories.filter((c) => c !== 'All');
   const conditions = ['Brand New', 'Refurbished', 'Used'];
+
+  const updateImage = (id: string, patch: Partial<PickedImage>) => {
+    setImages((prev) => prev.map((img) => (img.id === id ? { ...img, ...patch } : img)));
+  };
+
+  const uploadPickedImage = async (id: string, localUri: string, base64: string) => {
+    updateImage(id, { status: 'uploading', progress: 0, error: undefined });
+    try {
+      const remoteUrl = await uploadMediaToCloudinaryMobile(
+        `data:image/jpeg;base64,${base64}`,
+        'image',
+        (percent) => updateImage(id, { progress: percent })
+      );
+      updateImage(id, { status: 'done', progress: 100, remoteUrl });
+    } catch (err: any) {
+      updateImage(id, { status: 'error', error: err?.message || 'Upload failed' });
+    }
+  };
+
+  const handlePickImages = async () => {
+    const remainingSlots = MAX_IMAGES - images.length;
+    if (remainingSlots <= 0) {
+      Alert.alert('Limit Reached', `You can only upload up to ${MAX_IMAGES} images per listing.`);
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Photo Access Needed',
+        'TedBuy needs access to your photos to add pictures to your listing. Please enable photo access in your device Settings.'
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: remainingSlots,
+      quality: 1,
+    });
+
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+    for (const asset of result.assets) {
+      const id = `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      try {
+        const manipulated = await ImageManipulator.manipulateAsync(
+          asset.uri,
+          [{ resize: { width: 1200 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        setImages((prev) => [
+          ...prev,
+          { id, localUri: manipulated.uri, status: 'uploading', progress: 0 },
+        ]);
+        if (manipulated.base64) {
+          uploadPickedImage(id, manipulated.uri, manipulated.base64);
+        } else {
+          updateImage(id, { status: 'error', error: 'Could not process image' });
+        }
+      } catch (err: any) {
+        Alert.alert('Image Error', `Could not process one of the selected photos: ${err?.message || 'Unknown error'}`);
+      }
+    }
+  };
+
+  const handleRemoveImage = (id: string) => {
+    setImages((prev) => prev.filter((img) => img.id !== id));
+  };
+
+  const handleRetryImage = (id: string) => {
+    const img = images.find((i) => i.id === id);
+    if (!img) return;
+    // Re-read the already-compressed local file back to base64 for retry.
+    ImageManipulator.manipulateAsync(img.localUri, [], { base64: true, compress: 1 })
+      .then((res) => {
+        if (res.base64) uploadPickedImage(id, img.localUri, res.base64);
+        else updateImage(id, { status: 'error', error: 'Could not re-read image for retry' });
+      })
+      .catch(() => updateImage(id, { status: 'error', error: 'Could not re-read image for retry' }));
+  };
+
+  const handleSetCover = (id: string) => {
+    setImages((prev) => {
+      const idx = prev.findIndex((img) => img.id === id);
+      if (idx <= 0) return prev;
+      const next = [...prev];
+      const [item] = next.splice(idx, 1);
+      next.unshift(item);
+      return next;
+    });
+  };
 
   const handlePublish = async () => {
     if (!auth.currentUser) {
@@ -45,6 +151,15 @@ export function SellScreen({ navigation }: SellScreenProps) {
       }
     }
 
+    if (images.some((img) => img.status === 'uploading')) {
+      Alert.alert('Please Wait', 'Some photos are still uploading. Please wait for them to finish.');
+      return;
+    }
+    if (images.some((img) => img.status === 'error')) {
+      Alert.alert('Photo Upload Failed', 'One or more photos failed to upload. Remove them or retry before publishing.');
+      return;
+    }
+
     setLoading(true);
     try {
       let formattedPrice = 'Inquire';
@@ -54,9 +169,11 @@ export function SellScreen({ navigation }: SellScreenProps) {
           : `GHS ${Number(price.replace(/[^0-9]/g, '')).toLocaleString()}`;
       }
 
-      const defaultImage = imageUrl.trim() || (selectedCategory === 'Jobs & Employment' 
-        ? 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80' 
-        : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80');
+      const uploadedImageUrls = images.map((img) => img.remoteUrl!).filter(Boolean);
+      const defaultImage = selectedCategory === 'Jobs & Employment'
+        ? 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80'
+        : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+      const finalImages = uploadedImageUrls.length > 0 ? uploadedImageUrls : [defaultImage];
       const prodId = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       const productData = {
@@ -70,8 +187,8 @@ export function SellScreen({ navigation }: SellScreenProps) {
         exchangePossible: selectedCategory === 'Jobs & Employment' ? false : isExchangeable,
         location: location.trim() || 'Accra, Ghana',
         description: description.trim(),
-        image: defaultImage,
-        images: [defaultImage],
+        image: finalImages[0],
+        images: finalImages,
         sellerId: auth.currentUser.uid,
         sellerName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
         sellerPhoto: auth.currentUser.photoURL || '',
@@ -90,7 +207,7 @@ export function SellScreen({ navigation }: SellScreenProps) {
             setTitle('');
             setPrice('');
             setDescription('');
-            setImageUrl('');
+            setImages([]);
             setIsExchangeable(false);
             navigation.navigate('Home');
           },
@@ -263,32 +380,68 @@ export function SellScreen({ navigation }: SellScreenProps) {
                 />
               </View>
 
-              {/* Image URL (Optional) */}
+              {/* Photos */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>
-                  {selectedCategory === 'Jobs & Employment' ? 'Company Logo / Job Flyer URL (Optional)' : 'Product Image URL (Optional)'}
+                  {selectedCategory === 'Jobs & Employment' ? 'Company Logo / Job Flyer Photos (Optional)' : 'Product Photos (Optional)'}
                 </Text>
-                <TextInput
-                  value={imageUrl}
-                  onChangeText={setImageUrl}
-                  placeholder="https://images.unsplash.com/photo-..."
-                  style={styles.input}
-                  placeholderTextColor="#94a3b8"
-                  autoCapitalize="none"
-                />
+                <Text style={styles.photoHint}>
+                  The first photo is your cover image. Tap any other photo to make it the cover. Up to {MAX_IMAGES} photos.
+                </Text>
+                <View style={styles.photoGrid}>
+                  {images.map((img, idx) => (
+                    <Pressable
+                      key={img.id}
+                      onPress={() => img.status === 'done' && idx !== 0 && handleSetCover(img.id)}
+                      style={styles.photoThumbWrapper}
+                    >
+                      <Image source={{ uri: img.localUri }} style={styles.photoThumb} />
+                      {idx === 0 && (
+                        <View style={styles.coverBadge}>
+                          <Text style={styles.coverBadgeText}>COVER</Text>
+                        </View>
+                      )}
+                      {img.status === 'uploading' && (
+                        <View style={styles.photoOverlay}>
+                          <ActivityIndicator size="small" color="#ffffff" />
+                          <Text style={styles.photoOverlayText}>{img.progress}%</Text>
+                        </View>
+                      )}
+                      {img.status === 'error' && (
+                        <View style={[styles.photoOverlay, styles.photoOverlayError]}>
+                          <Text style={styles.photoOverlayText}>Failed</Text>
+                          <Pressable onPress={() => handleRetryImage(img.id)} style={styles.retryBtn}>
+                            <Text style={styles.retryBtnText}>Retry</Text>
+                          </Pressable>
+                        </View>
+                      )}
+                      <Pressable onPress={() => handleRemoveImage(img.id)} style={styles.removePhotoBtn} hitSlop={6}>
+                        <Text style={styles.removePhotoBtnText}>✕</Text>
+                      </Pressable>
+                    </Pressable>
+                  ))}
+                  {images.length < MAX_IMAGES && (
+                    <Pressable onPress={handlePickImages} style={styles.addPhotoBtn}>
+                      <Text style={styles.addPhotoBtnIcon}>+</Text>
+                      <Text style={styles.addPhotoBtnText}>Add Photo</Text>
+                    </Pressable>
+                  )}
+                </View>
               </View>
 
               {/* Publish Button */}
               <Pressable
                 onPress={handlePublish}
-                disabled={loading}
-                style={[styles.publishButton, loading && styles.publishButtonDisabled]}
+                disabled={loading || images.some((img) => img.status === 'uploading')}
+                style={[styles.publishButton, (loading || images.some((img) => img.status === 'uploading')) && styles.publishButtonDisabled]}
               >
                 {loading ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
                   <Text style={styles.publishButtonText}>
-                    {selectedCategory === 'Jobs & Employment' ? 'POST JOB VACANCY' : 'PUBLISH CLASSIFIED AD'}
+                    {images.some((img) => img.status === 'uploading')
+                      ? 'UPLOADING PHOTOS...'
+                      : selectedCategory === 'Jobs & Employment' ? 'POST JOB VACANCY' : 'PUBLISH CLASSIFIED AD'}
                   </Text>
                 )}
               </Pressable>
@@ -429,4 +582,68 @@ const styles = StyleSheet.create({
   },
   publishButtonDisabled: { backgroundColor: '#ffedd5' },
   publishButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 13, letterSpacing: 0.8 },
+
+  photoHint: { fontSize: 11, color: '#94a3b8', marginBottom: 10, marginTop: -2, lineHeight: 15 },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  photoThumbWrapper: {
+    width: 84,
+    height: 84,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    position: 'relative',
+  },
+  photoThumb: { width: '100%', height: '100%', resizeMode: 'cover' },
+  coverBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: '#0f172a',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  coverBadgeText: { color: '#ffffff', fontSize: 8, fontWeight: '900', letterSpacing: 0.3 },
+  photoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  photoOverlayError: { backgroundColor: 'rgba(220, 38, 38, 0.75)' },
+  photoOverlayText: { color: '#ffffff', fontSize: 10, fontWeight: '800' },
+  retryBtn: { backgroundColor: '#ffffff', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginTop: 2 },
+  retryBtnText: { color: '#dc2626', fontSize: 10, fontWeight: '800' },
+  removePhotoBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removePhotoBtnText: { color: '#ffffff', fontSize: 9, fontWeight: '900' },
+  addPhotoBtn: {
+    width: 84,
+    height: 84,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  addPhotoBtnIcon: { fontSize: 22, color: '#64748b', fontWeight: '300' },
+  addPhotoBtnText: { fontSize: 9.5, color: '#64748b', fontWeight: '700', marginTop: 2 },
 });

@@ -2334,6 +2334,292 @@ app.get('/api/users/get', async (req: express.Request, res: express.Response) =>
   }
 });
 
+// ---------------------------------------------------------------
+// Chats & Messages API (server-mediated, authenticated)
+// ---------------------------------------------------------------
+// Chats/messages are canonically stored in Supabase (public.chats /
+// public.messages), accessed only through backendSupabase (server-side).
+// Clients never talk to Supabase directly for this data — every request
+// here goes through verifyUser() first, and the authenticated Firebase
+// UID (never a client-supplied id) is the only value ever used to decide
+// buyerId/senderId or to authorize access. A caller may only read or act
+// on a chat where they are the buyer or the seller.
+
+async function getChatIfParticipant(chatId: string, uid: string): Promise<any | null> {
+  if (!backendSupabase || !chatId) return null;
+  const { data } = await backendSupabase.from('chats').select('*').eq('id', chatId).maybeSingle();
+  if (!data) return null;
+  if (data.buyerId !== uid && data.sellerId !== uid) return null;
+  return data;
+}
+
+async function createChatMessage(chatId: string, senderId: string, recipientId: string, text: string) {
+  const msgId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+  const newMsg = {
+    id: msgId,
+    chatId,
+    senderId,
+    recipientId,
+    text,
+    createdAt: new Date().toISOString(),
+    read: false
+  };
+
+  const { error } = await safeBackendSupabaseUpsert('messages', newMsg, { onConflict: 'id' });
+  if (error) throw error;
+
+  await safeBackendSupabaseUpsert(
+    'chats',
+    { id: chatId, lastMessageText: text, lastMessageTime: newMsg.createdAt },
+    { onConflict: 'id' }
+  );
+
+  return newMsg;
+}
+
+app.get('/api/chats', serverRateLimiter(60 * 1000, 120, "chats-list"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to list chats' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const { data: chatRows, error } = await backendSupabase
+      .from('chats')
+      .select('*')
+      .or(`buyerId.eq.${verified.uid},sellerId.eq.${verified.uid}`)
+      .order('lastMessageTime', { ascending: false });
+
+    if (error) throw error;
+
+    const chatList = chatRows || [];
+    const chatIds = chatList.map((c: any) => c.id);
+
+    let unreadByChat: Record<string, number> = {};
+    if (chatIds.length > 0) {
+      const { data: unreadMsgs } = await backendSupabase
+        .from('messages')
+        .select('chatId')
+        .eq('recipientId', verified.uid)
+        .eq('read', false)
+        .in('chatId', chatIds);
+      (unreadMsgs || []).forEach((m: any) => {
+        unreadByChat[m.chatId] = (unreadByChat[m.chatId] || 0) + 1;
+      });
+    }
+
+    const chats = chatList.map((c: any) => ({ ...c, unreadCount: unreadByChat[c.id] || 0 }));
+    return res.json({ success: true, chats });
+  } catch (err: any) {
+    console.error('[Chats List API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch chats' });
+  }
+});
+
+app.get('/api/chats/:chatId', serverRateLimiter(60 * 1000, 300, "chat-detail"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+
+  const chat = await getChatIfParticipant(req.params.chatId, verified.uid);
+  if (!chat) {
+    return res.status(404).json({ success: false, error: 'Chat not found' });
+  }
+  return res.json({ success: true, chat });
+});
+
+app.post('/api/chats/start', serverRateLimiter(5 * 60 * 1000, 5, "chat-start"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to start a chat' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  const { productId, initialMessage } = req.body || {};
+  if (!productId || typeof productId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing productId' });
+  }
+
+  try {
+    const { data: product } = await backendSupabase.from('products').select('*').eq('id', productId).maybeSingle();
+    if (!product) {
+      return res.status(404).json({ success: false, error: 'Product not found' });
+    }
+
+    const buyerId = verified.uid;
+    const sellerId = product.sellerId || product.seller_id;
+    if (!sellerId) {
+      return res.status(400).json({ success: false, error: 'This listing has no seller on record' });
+    }
+    if (buyerId === sellerId) {
+      return res.status(400).json({ success: false, error: 'You cannot start a chat on your own listing.' });
+    }
+
+    const { data: existingChat } = await backendSupabase
+      .from('chats')
+      .select('*')
+      .eq('productId', productId)
+      .eq('buyerId', buyerId)
+      .eq('sellerId', sellerId)
+      .maybeSingle();
+
+    let chat = existingChat;
+    if (!chat) {
+      const { data: buyerProfile } = await backendSupabase.from('users').select('username').eq('id', buyerId).maybeSingle();
+      const chatId = `chat_${buyerId}_${sellerId}_${productId}_${Date.now()}`;
+      const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : '';
+
+      const newChat = {
+        id: chatId,
+        productId: product.id,
+        productTitle: product.title,
+        productPrice: product.price,
+        productImage,
+        buyerId,
+        buyerName: buyerProfile?.username || verified.email?.split('@')[0] || 'Buyer',
+        sellerId,
+        sellerName: product.sellerName || 'Seller',
+        lastMessageText: 'Chat started',
+        lastMessageTime: new Date().toISOString(),
+        tradeStatus: 'pending',
+        adId: product.id,
+        adTitle: product.title,
+        adImage: productImage,
+        adType: Array.isArray(product.videos) && product.videos.length > 0 ? 'video' : 'image'
+      };
+
+      const { error: createErr } = await safeBackendSupabaseUpsert('chats', newChat, { onConflict: 'id' });
+      if (createErr) throw createErr;
+      chat = newChat;
+    }
+
+    let message = null;
+    const cleanInitial = typeof initialMessage === 'string' ? initialMessage.trim().slice(0, 5000) : '';
+    if (cleanInitial) {
+      message = await createChatMessage(chat.id, buyerId, sellerId, cleanInitial);
+    }
+
+    return res.json({ success: true, chatId: chat.id, chat, message });
+  } catch (err: any) {
+    console.error('[Chat Start API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to start chat' });
+  }
+});
+
+app.get('/api/messages/:chatId', serverRateLimiter(60 * 1000, 300, "messages-list"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+
+  const chat = await getChatIfParticipant(req.params.chatId, verified.uid);
+  if (!chat) {
+    return res.status(404).json({ success: false, error: 'Chat not found' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  const limitParam = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '50'), 10) || 50));
+  const before = typeof req.query.before === 'string' ? req.query.before : null;
+
+  try {
+    let q = backendSupabase
+      .from('messages')
+      .select('*')
+      .eq('chatId', req.params.chatId)
+      .order('createdAt', { ascending: false })
+      .limit(limitParam);
+    if (before) {
+      q = q.lt('createdAt', before);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const rows = data || [];
+    const messages = rows.slice().reverse();
+    return res.json({ success: true, messages, hasMore: rows.length === limitParam });
+  } catch (err: any) {
+    console.error('[Messages List API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch messages' });
+  }
+});
+
+app.post('/api/messages/send', serverRateLimiter(60 * 1000, 30, "message-send"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to send a message' });
+  }
+
+  const { chatId, text } = req.body || {};
+  if (!chatId || typeof text !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing chatId or text' });
+  }
+  const cleanText = text.trim();
+  if (!cleanText) {
+    return res.status(400).json({ success: false, error: 'Message text cannot be empty.' });
+  }
+  if (cleanText.length > 5000) {
+    return res.status(400).json({ success: false, error: 'Message cannot exceed 5000 characters.' });
+  }
+
+  const chat = await getChatIfParticipant(chatId, verified.uid);
+  if (!chat) {
+    return res.status(404).json({ success: false, error: 'Chat not found' });
+  }
+
+  try {
+    const recipientId = chat.buyerId === verified.uid ? chat.sellerId : chat.buyerId;
+    const message = await createChatMessage(chatId, verified.uid, recipientId, cleanText);
+    return res.json({ success: true, message });
+  } catch (err: any) {
+    console.error('[Message Send API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to send message' });
+  }
+});
+
+app.post('/api/messages/mark-read', serverRateLimiter(60 * 1000, 120, "messages-mark-read"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+
+  const { chatId } = req.body || {};
+  if (!chatId) {
+    return res.status(400).json({ success: false, error: 'Missing chatId' });
+  }
+
+  const chat = await getChatIfParticipant(chatId, verified.uid);
+  if (!chat) {
+    return res.status(404).json({ success: false, error: 'Chat not found' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const { data, error } = await backendSupabase
+      .from('messages')
+      .update({ read: true })
+      .eq('chatId', chatId)
+      .eq('recipientId', verified.uid)
+      .eq('read', false)
+      .select('id');
+
+    if (error) throw error;
+    return res.json({ success: true, updatedCount: (data || []).length });
+  } catch (err: any) {
+    console.error('[Messages Mark Read API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to mark messages as read' });
+  }
+});
+
 app.post('/api/cache/clear', (req, res) => {
   clearSitemapCache();
   res.json({ success: true, message: 'Cache cleared' });

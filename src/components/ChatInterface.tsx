@@ -251,10 +251,13 @@ export const ChatInterface: React.FC = () => {
       } else if (inboxFilter === 'selling') {
         if (c.sellerId !== currentUser.id) return false;
       } else if (inboxFilter === 'unread') {
-        const unreadCount = messages.filter(
-          m => m.chatId === c.id && m.recipientId === currentUser.id && !m.read && !deletedMessageIds.has(m.id)
-        ).length;
-        if (unreadCount === 0) return false;
+        // Server-provided per-chat count (GET /api/chats) — authoritative,
+        // not recomputed from a local messages list. One nuance: a message
+        // the user individually "deleted for me" (deletedMessageIds) still
+        // counts here, since the server doesn't know about that client-only
+        // local hide-state; this only affects the rare case of an unread
+        // message someone already deleted locally.
+        if ((c.unreadCount || 0) === 0) return false;
       }
 
       // Search query filter
@@ -269,7 +272,7 @@ export const ChatInterface: React.FC = () => {
 
       return true;
     });
-  }, [chats, currentUser, isAdminUser, adminChatFilter, inboxFilter, searchQuery, deletedChatIds, messages, deletedMessageIds]);
+  }, [chats, currentUser, isAdminUser, adminChatFilter, inboxFilter, searchQuery, deletedChatIds, deletedMessageIds]);
 
   // If no chat is active, pick the first one from the list by default
   useEffect(() => {
@@ -283,12 +286,11 @@ export const ChatInterface: React.FC = () => {
   // Get active chat messages
   const activeMessages = messages.filter(m => m.chatId === activeChatId && !deletedMessageIds.has(m.id));
 
-  // Calculate unread count for current active chat, ignoring if trade is completed
+  // Unread count for the current active chat — server-provided (GET
+  // /api/chats), ignoring if trade is completed
   const activeUnreadCount = activeChat?.tradeStatus === 'completed'
     ? 0
-    : messages.filter(
-        m => m.chatId === activeChatId && m.recipientId === currentUser?.id && !m.read && !deletedMessageIds.has(m.id)
-      ).length;
+    : (activeChat?.unreadCount || 0);
 
   // Set messages as read when active chat changes or new messages arrive
   useEffect(() => {
@@ -693,10 +695,10 @@ export const ChatInterface: React.FC = () => {
 
                 const active = chat.id === activeChatId;
 
-                // Count unread messages for this particular chat, ignoring if trade is completed
+                // Server-provided unread count for this chat, ignoring if trade is completed
                 const unreadForThisChat = chat.tradeStatus === 'completed'
                   ? 0
-                  : messages.filter(m => m.chatId === chat.id && m.recipientId === currentUser?.id && !m.read).length;
+                  : (chat.unreadCount || 0);
 
                 return (
                   <button

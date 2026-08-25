@@ -40,7 +40,7 @@ import {
   isSupabaseActive,
   supabase
 } from '../dbAdapter';
-import { auth, getAuthHeader, handleBackendError, OperationType, registerBackendErrorListener, requestFcmToken } from '../firebase';
+import { auth, getAuthHeader, handleBackendError, OperationType, registerBackendErrorListener, requestFcmToken, fetchChatsFromApi, fetchMessagesFromApi, startChatViaApi, sendMessageViaApi, markChatReadViaApi } from '../firebase';
 import { slugify } from '../utils/slugify';
 import { getAuthErrorMessage, toUserFriendlyError } from '../utils/authErrorHelper';
 import { useHashRouting } from '../hooks/useHashRouting';
@@ -176,7 +176,7 @@ interface AppContextType {
   messages: Message[];
   startChat: (productId: string, initialMessage?: string) => Promise<string>;
   reportProduct: (productId: string, reason: string, comment?: string) => Promise<boolean>;
-  sendMessage: (chatId: string, text: string, optionalSenderId?: string) => Promise<void>;
+  sendMessage: (chatId: string, text: string) => Promise<void>;
   sendTypingStatus: (chatId: string, isTyping: boolean) => Promise<void>;
   markChatAsRead: (chatId: string) => Promise<void>;
   toggleMessageReadStatus: (messageId: string, read?: boolean) => Promise<void>;
@@ -2309,7 +2309,14 @@ CEO, Tedbuy Inc`;
     };
   }, []);
 
-  // 4. Real-time Chats Synchronization (Secure Participant Filtering)
+  // 4. Chat list synchronization — authenticated polling of GET /api/chats.
+  // This replaced a pair of direct Firestore/Supabase onSnapshot listeners
+  // that had zero server-side authorization once Supabase was active
+  // client-side (any caller holding the anon key could read any user's
+  // chats, since RLS is disabled on that table). The server verifies the
+  // Firebase ID token and returns only chats where the caller is buyer or
+  // seller, with an authoritative per-chat unreadCount — see mobile's
+  // identical migration in mobile/src/screens/ChatsScreen.tsx.
   useEffect(() => {
     if (!currentUserId) {
       console.log('[Chats Sync] No current user found. Clearing chats state.');
@@ -2317,260 +2324,144 @@ CEO, Tedbuy Inc`;
       return;
     }
 
-    console.log(`[Chats Sync] Initializing real-time listeners for user: ${currentUserId}`);
+    console.log(`[Chats Sync] Polling chat list via API for user: ${currentUserId}`);
+    let active = true;
 
-    const qBuyer = query(collection(null, 'chats'), where('buyerId', '==', currentUserId));
-    const qSeller = query(collection(null, 'chats'), where('sellerId', '==', currentUserId));
-
-    const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
-    const qAdminSupport = isAdminUser ? query(collection(null, 'chats'), where('sellerId', '==', 'user_ted_ceo_support')) : null;
-
-    const chatMap = new Map<string, Chat>();
-
-    const updateCombined = () => {
-      const combined = Array.from(chatMap.values()).sort((a, b) => {
-        const timeA = typeof a?.lastMessageTime === 'string' ? a.lastMessageTime : '';
-        const timeB = typeof b?.lastMessageTime === 'string' ? b.lastMessageTime : '';
-        return timeB.localeCompare(timeA);
-      });
-      setChats(combined);
-      try {
-        safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(combined));
-        safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUserId}`, JSON.stringify(combined));
-      } catch (err) {
-        console.warn('Could not save chats backup:', err);
-      }
-    };
-
-    const unsub1 = onSnapshot(qBuyer, (snap) => {
-      console.log(`[Chats Sync] Received buyer chats update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
-      snap.forEach(docSnap => {
-        const data = docSnap.data();
-        chatMap.set(docSnap.id, normalizeChat({
-          ...data,
-          id: docSnap.id || data.id
-        }) as Chat);
-      });
-      updateCombined();
-    }, (error) => {
-      handleBackendError(error, OperationType.LIST, 'chats');
-    });
-
-    const unsub2 = onSnapshot(qSeller, (snap) => {
-      console.log(`[Chats Sync] Received seller chats update. Size: ${snap.size}, pendingWrites: ${snap.metadata.hasPendingWrites}, fromCache: ${snap.metadata.fromCache}`);
-      snap.forEach(docSnap => {
-        const data = docSnap.data();
-        chatMap.set(docSnap.id, normalizeChat({
-          ...data,
-          id: docSnap.id || data.id
-        }) as Chat);
-      });
-      updateCombined();
-    }, (error) => {
-      handleBackendError(error, OperationType.LIST, 'chats');
-    });
-
-    let unsub3: (() => void) | null = null;
-    if (qAdminSupport) {
-      unsub3 = onSnapshot(qAdminSupport, (snap) => {
-        console.log(`[Chats Sync] Received admin support chats update. Size: ${snap.size}`);
-        snap.forEach(docSnap => {
-          const data = docSnap.data();
-          chatMap.set(docSnap.id, normalizeChat({
-            ...data,
-            id: docSnap.id || data.id
-          }) as Chat);
+    const load = async () => {
+      const apiChats = (await fetchChatsFromApi()).map((c: any) => normalizeChat(c)) as Chat[];
+      if (!active) return;
+      setChats(prev => {
+        // Preserve any admin-only TedBuy Support chat merged in by the
+        // effect below — the API never returns it (see that effect's
+        // comment for why), so a plain overwrite would drop it every tick.
+        const supportChats = prev.filter(c => c.sellerId === 'user_ted_ceo_support' || c.buyerId === 'user_ted_ceo_support');
+        const merged = [...apiChats, ...supportChats.filter(sc => !apiChats.some(ac => ac.id === sc.id))];
+        merged.sort((a, b) => {
+          const timeA = typeof a?.lastMessageTime === 'string' ? a.lastMessageTime : '';
+          const timeB = typeof b?.lastMessageTime === 'string' ? b.lastMessageTime : '';
+          return timeB.localeCompare(timeA);
         });
-        updateCombined();
-      }, (error) => {
-        handleBackendError(error, OperationType.LIST, 'chats');
+        try {
+          safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(merged));
+          safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUserId}`, JSON.stringify(merged));
+        } catch (err) {
+          console.warn('Could not save chats backup:', err);
+        }
+        return merged;
       });
-    }
+    };
+    load();
+    const interval = setInterval(load, 15000);
 
     return () => {
-      console.log(`[Chats Sync] Tearing down real-time chat listeners for user: ${currentUserId}`);
-      unsub1();
-      unsub2();
-      if (unsub3) unsub3();
+      active = false;
+      clearInterval(interval);
     };
   }, [currentUserId]);
 
-  // 5. Real-time Messages Synchronization (Secure Participant Querying)
+  // 4b. Admin-only: TedBuy Support inbox (sellerId === 'user_ted_ceo_support').
+  // This pseudo-account chat can't be expressed by the authenticated API's
+  // buyer/seller authorization rule — the admin's own uid is neither party —
+  // so extending that endpoint to allow it would mean adding an authorization
+  // bypass to a security-critical boundary. Left on the pre-existing direct
+  // Firestore/Supabase read instead: a narrow, already-privileged, admin-only
+  // path, unchanged from before this migration. Flagged for a dedicated
+  // support-ticket design in a future phase rather than forced into this API.
+  useEffect(() => {
+    const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
+    if (!isAdminUser) return;
+
+    const qAdminSupport = query(collection(null, 'chats'), where('sellerId', '==', 'user_ted_ceo_support'));
+    const unsub = onSnapshot(qAdminSupport, (snap) => {
+      const supportChats: Chat[] = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        supportChats.push(normalizeChat({ ...data, id: docSnap.id || data.id }) as Chat);
+      });
+      setChats(prev => {
+        const map = new Map(prev.map(c => [c.id, c]));
+        supportChats.forEach(c => map.set(c.id, c));
+        return Array.from(map.values());
+      });
+    }, (error) => {
+      handleBackendError(error, OperationType.LIST, 'chats');
+    });
+
+    return () => unsub();
+  }, [currentUser?.email, currentUser?.isAdmin, isAdminSessionVerified]);
+
+  // 5. Active chat thread — polls GET /api/messages/:chatId (paginated,
+  // oldest-to-newest) for the chat currently open. `messages` state now
+  // represents only this one thread rather than every message the user has
+  // ever sent/received across all chats — that bulk cross-chat sync was a
+  // much larger direct-read surface than any UI actually needed, now that
+  // unread counts come from chat.unreadCount instead (see
+  // utils/chatStateUtils.ts's getUnreadChatCount).
   useEffect(() => {
     msgMapRef.current.clear();
-    if (!currentUserId) {
-      console.log('[Messages Sync] No current user found. Clearing messages state.');
+
+    if (!activeChatId) {
       setMessages([]);
       return;
     }
 
-    console.log(`[Messages Sync] Initializing real-time message listeners for user: ${currentUserId}`);
+    const activeChat = chats.find(c => c.id === activeChatId);
+    const isSupportChat = activeChat?.sellerId === 'user_ted_ceo_support' || activeChat?.buyerId === 'user_ted_ceo_support';
 
-    const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
+    // Admin-only support-desk thread — same authorization gap as 4b above,
+    // same narrow exception, unchanged direct realtime path.
+    if (isSupportChat) {
+      console.log(`[Support Chat Listener] Subscribing directly to messages in support chat: ${activeChatId}`);
+      const q = query(collection(null, 'messages'), where('chatId', '==', activeChatId));
 
-    const rawUid = currentUserId.replace(/^(user_|phone_)/, '');
-    const userVariants = Array.from(new Set([currentUserId, rawUid, `user_${rawUid}`, `phone_${rawUid}`])).filter(Boolean);
+      const syncSnapshot = (snap: any) => {
+        const sorted: Message[] = [];
+        snap.forEach((docSnap: any) => {
+          const data = docSnap.data();
+          sorted.push({ ...data, id: docSnap.id || data.id } as Message);
+        });
+        sorted.sort((a, b) => (typeof a?.createdAt === 'string' ? a.createdAt : '').localeCompare(typeof b?.createdAt === 'string' ? b.createdAt : ''));
+        setMessages(sorted);
+      };
 
-    // Pre-populate with currently loaded messages from previous session backup to prevent flicker
-    messages.forEach(m => {
-      if (
-        userVariants.includes(m.senderId) || userVariants.includes(m.recipientId) ||
-        (isAdminUser && (m.senderId === 'user_ted_ceo_support' || m.recipientId === 'user_ted_ceo_support'))
-      ) {
-        msgMapRef.current.set(m.id, m);
-      }
-    });
-
-    const updateCombined = () => {
-      const sorted = (Array.from(msgMapRef.current.values()) as Message[]).sort((a, b) => {
-        const dateA = typeof a?.createdAt === 'string' ? a.createdAt : '';
-        const dateB = typeof b?.createdAt === 'string' ? b.createdAt : '';
-        return dateA.localeCompare(dateB);
+      const unsub = onSnapshot(q, syncSnapshot, (err) => {
+        console.warn('[Support Chat Listener] onSnapshot error:', err);
       });
-      setMessages(sorted);
-      try {
-        safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(sorted));
-        safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUserId}`, JSON.stringify(sorted));
-      } catch (err) {
-        console.warn('Could not save messages backup:', err);
-      }
-    };
+      const interval = setInterval(async () => {
+        try {
+          const snap = await getDocs(q);
+          syncSnapshot(snap);
+        } catch (_) {}
+      }, 30000);
 
-    const unsubs: (() => void)[] = [];
-
-    // Subscribe to sender and recipient queries across all user ID variants
-    userVariants.forEach(variant => {
-      const qS = query(collection(null, 'messages'), where('senderId', '==', variant));
-      const qR = query(collection(null, 'messages'), where('recipientId', '==', variant));
-
-      const uS = onSnapshot(qS, (snap) => {
-        snap.forEach(docSnap => {
-          const data = docSnap.data();
-          msgMapRef.current.set(docSnap.id, {
-            ...data,
-            id: docSnap.id || data.id
-          } as Message);
-        });
-        updateCombined();
-      }, (error) => {
-        handleBackendError(error, OperationType.LIST, 'messages');
-      });
-
-      const uR = onSnapshot(qR, (snap) => {
-        let hasNewIncoming = false;
-        snap.forEach(docSnap => {
-          const data = docSnap.data();
-          const mId = docSnap.id || data.id;
-          if (!msgMapRef.current.has(mId) && !userVariants.includes(data.senderId)) {
-            hasNewIncoming = true;
-          }
-          msgMapRef.current.set(mId, {
-            ...data,
-            id: mId
-          } as Message);
-        });
-        updateCombined();
-        if (hasNewIncoming) {
-          playMessageChime();
-        }
-      }, (error) => {
-        handleBackendError(error, OperationType.LIST, 'messages');
-      });
-
-      unsubs.push(uS, uR);
-    });
-
-    if (isAdminUser) {
-      const qAdminSender = query(collection(null, 'messages'), where('senderId', '==', 'user_ted_ceo_support'));
-      const qAdminRecipient = query(collection(null, 'messages'), where('recipientId', '==', 'user_ted_ceo_support'));
-
-      const uAS = onSnapshot(qAdminSender, (snap) => {
-        snap.forEach(docSnap => {
-          const data = docSnap.data();
-          msgMapRef.current.set(docSnap.id, { ...data, id: docSnap.id || data.id } as Message);
-        });
-        updateCombined();
-      }, () => {});
-
-      const uAR = onSnapshot(qAdminRecipient, (snap) => {
-        snap.forEach(docSnap => {
-          const data = docSnap.data();
-          msgMapRef.current.set(docSnap.id, { ...data, id: docSnap.id || data.id } as Message);
-        });
-        updateCombined();
-      }, () => {});
-
-      unsubs.push(uAS, uAR);
+      return () => {
+        unsub();
+        clearInterval(interval);
+      };
     }
 
-    return () => {
-      console.log(`[Messages Sync] Tearing down real-time message listeners for user: ${currentUserId}`);
-      unsubs.forEach(unsub => unsub());
-    };
-  }, [currentUserId]);
-
-  // 5b. Dedicated Active Chat Room Real-time Listener & Short Backup Polling
-  useEffect(() => {
-    if (!activeChatId) return;
-
-    console.log(`[Active Chat Listener] Subscribing directly to messages in active chat: ${activeChatId}`);
-    const q = query(collection(null, 'messages'), where('chatId', '==', activeChatId));
-
-    const syncChatSnapshot = (snap: any) => {
-      let hasNewIncoming = false;
-      const currentSenderVariants = currentUser ? [
-        currentUser.id,
-        currentUser.id.replace(/^(user_|phone_)/, ''),
-        `user_${currentUser.id.replace(/^(user_|phone_)/, '')}`,
-        `phone_${currentUser.id.replace(/^(user_|phone_)/, '')}`
-      ] : [];
-
-      snap.forEach((docSnap: any) => {
-        const data = docSnap.data();
-        const mId = docSnap.id || data.id;
-        if (!msgMapRef.current.has(mId) && !currentSenderVariants.includes(data.senderId)) {
-          hasNewIncoming = true;
+    let active = true;
+    const load = async () => {
+      const result = await fetchMessagesFromApi(activeChatId) as Message[];
+      if (!active) return;
+      setMessages(prevMessages => {
+        if (result.length > prevMessages.length) {
+          const lastMsg = result[result.length - 1];
+          if (lastMsg && lastMsg.senderId !== currentUser?.id) {
+            playMessageChime();
+          }
         }
-        msgMapRef.current.set(mId, {
-          ...data,
-          id: mId
-        } as Message);
+        return result;
       });
-
-      const sorted = (Array.from(msgMapRef.current.values()) as Message[]).sort((a, b) => {
-        const dateA = typeof a?.createdAt === 'string' ? a.createdAt : '';
-        const dateB = typeof b?.createdAt === 'string' ? b.createdAt : '';
-        return dateA.localeCompare(dateB);
-      });
-      setMessages(sorted);
-
-      if (hasNewIncoming) {
-        playMessageChime();
-      }
     };
-
-    const unsub = onSnapshot(q, (snap) => {
-      syncChatSnapshot(snap);
-    }, (err) => {
-      console.warn('[Active Chat Listener] onSnapshot error:', err);
-    });
-
-    // Safety-net poll in case the realtime channel silently drops — the
-    // onSnapshot subscription above is the primary path, so this only needs
-    // to be a slow backstop, not a duplicate live feed re-fetching the whole
-    // conversation every few seconds.
-    const interval = setInterval(async () => {
-      try {
-        const snap = await getDocs(q);
-        syncChatSnapshot(snap);
-      } catch (_) {}
-    }, 30000);
+    load();
+    const interval = setInterval(load, 4000);
 
     return () => {
-      unsub();
+      active = false;
       clearInterval(interval);
     };
-  }, [activeChatId, currentUser]);
+  }, [activeChatId, chats, currentUser?.id]);
 
   // User Authentication Action APIs
   const registerUser = async (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => {
@@ -4135,10 +4026,18 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
   };
 
   // Chats Operations
+  // Starts (or reuses) a chat via the authenticated TedBuy API — the server
+  // derives buyerId from the verified Firebase token and sellerId from the
+  // actual product row, never from anything the client sends, and does its
+  // own reuse check against Supabase (so the client-side dedup this function
+  // used to do against local `chats` state is redundant — the server is now
+  // the source of truth for that). See mobile/src/firebase.ts's startChatApi
+  // for the identical mobile-side implementation.
   const startChat = async (productId: string, initialMessage?: string) => {
     if (!currentUser) return '';
 
-    // 1. Client-side Rate Limit check
+    // Client-side rate-limit pre-check for fast UX; the server enforces its
+    // own limit independently and is authoritative.
     const rLimit = checkClientRateLimit('create_chat', currentUser.id);
     if (!rLimit.allowed) {
       throw new Error(`Rate limit exceeded: You can only start 5 chats within 5 minutes. Please try again in ${rLimit.remainingSecs} seconds.`);
@@ -4146,75 +4045,34 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     const cleanInitialMessage = initialMessage ? sanitizeText(initialMessage) : undefined;
 
-    const product = products.find(p => p.id === productId);
-    if (!product) return '';
-
-    const existingChat = chats.find(c =>
-      c.productId === productId &&
-      c.buyerId === currentUser.id &&
-      c.sellerId === product.sellerId &&
-      isChatEligibleForReuse(c, currentUser.id, deletedChatIds)
-    );
-
-    if (existingChat) {
-      setCurrentView('chats');
-      setActiveChatId(existingChat.id);
-      setViewingChatOnMobile(true);
-      if (cleanInitialMessage) {
-        await sendMessage(existingChat.id, cleanInitialMessage);
-      }
-      return existingChat.id;
-    }
-
-    const chatId = `chat_${currentUser.id}_${product.sellerId}_${product.id}_${Date.now()}`;
-    const initialAdType: 'image' | 'video' = (product.videos && product.videos.length > 0) ? 'video' : 'image';
-    const initialProductImage = product.images?.[0] || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-
-    const newChat: Chat = {
-      id: chatId,
-      productId: product.id,
-      productTitle: product.title,
-      productPrice: product.price,
-      productImage: initialAdType === 'video' ? (product.videos?.[0] || '') : initialProductImage,
-      buyerId: currentUser.id,
-      sellerId: product.sellerId,
-      buyerName: currentUser.username,
-      sellerName: product.sellerName,
-      lastMessageText: cleanInitialMessage || 'Chat started',
-      lastMessageTime: new Date().toISOString(),
-      deliveredBySeller: false,
-      pickedUpByBuyer: false,
-      tradeStatus: 'pending',
-      adId: product.id,
-      adTitle: product.title,
-      adImage: initialProductImage,
-      adThumbnail: initialAdType === 'video' ? (product.videos?.[0] || '') : initialProductImage,
-      adType: initialAdType,
-      videoPoster: initialAdType === 'video' ? (product.videos?.[0] || '') : ''
-    };
-
-    setChats(prev => {
-      const next = [newChat, ...prev.filter(c => c.id !== chatId)];
-      try {
-        safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(next));
-        safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUser.id}`, JSON.stringify(next));
-      } catch (_) {}
-      return next;
-    });
-
-    setCurrentView('chats');
-    setActiveChatId(chatId);
-    setViewingChatOnMobile(true);
-
     try {
-      await setDoc(doc('chats', chatId), cleanObject(newChat));
+      const chatId = await startChatViaApi(productId, cleanInitialMessage);
 
-      if (initialMessage) {
-        await sendMessage(chatId, initialMessage);
-      }
+      setCurrentView('chats');
+      setActiveChatId(chatId);
+      setViewingChatOnMobile(true);
+
+      // Refresh the inbox immediately rather than waiting for the next poll
+      // tick so the new/reused chat appears right away.
+      const apiChats = (await fetchChatsFromApi()).map((c: any) => normalizeChat(c)) as Chat[];
+      setChats(prev => {
+        const map = new Map(prev.map(c => [c.id, c]));
+        apiChats.forEach(c => map.set(c.id, c));
+        const merged = Array.from(map.values()).sort((a, b) => {
+          const timeA = typeof a?.lastMessageTime === 'string' ? a.lastMessageTime : '';
+          const timeB = typeof b?.lastMessageTime === 'string' ? b.lastMessageTime : '';
+          return timeB.localeCompare(timeA);
+        });
+        try {
+          safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(merged));
+          safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUser.id}`, JSON.stringify(merged));
+        } catch (_) {}
+        return merged;
+      });
+
       return chatId;
     } catch (err) {
-      handleBackendError(err, OperationType.CREATE, `chats/${chatId}`);
+      handleBackendError(err, OperationType.CREATE, 'chats');
       return '';
     }
   };
@@ -4242,13 +4100,19 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
       for (const msg of queue) {
         try {
-          // Attempt sending to backend
-          await setDoc(doc('messages', msg.id), cleanObject(msg));
-          
-          await updateDoc(doc('chats', msg.chatId), cleanObject({
-            lastMessageText: msg.text,
-            lastMessageTime: msg.createdAt
-          }));
+          if (msg.senderId === 'user_ted_ceo_support') {
+            // Admin-as-support-desk send — see sendMessage()'s comment for
+            // why this identity can't go through the authenticated API.
+            await setDoc(doc('messages', msg.id), cleanObject(msg));
+            await updateDoc(doc('chats', msg.chatId), cleanObject({
+              lastMessageText: msg.text,
+              lastMessageTime: msg.createdAt
+            }));
+          } else {
+            // Regular retry — goes through the same authenticated API as a
+            // live send, not a direct write.
+            await sendMessageViaApi(msg.chatId, msg.text);
+          }
 
           // Trigger chat notification
           const notifId = `notif_chat_${Date.now()}_${msg.recipientId}_${Math.random().toString(36).substring(2, 6)}`;
@@ -4388,17 +4252,30 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     }
   };
 
-  const sendMessage = async (chatId: string, text: string, optionalSenderId?: string) => {
-    const sender = optionalSenderId ? users.find(u => u.id === optionalSenderId) : currentUser;
-    if (!sender) return;
+  // Sends a message via the authenticated TedBuy API — the server derives
+  // senderId from the verified Firebase token and recipientId from the
+  // actual chat row; this function only ever supplies chatId + text (the
+  // `optionalSenderId` override that used to exist here had zero real
+  // callers anywhere in the app — traced before removal, not assumed).
+  //
+  // The one narrow exception is the TedBuy Support pseudo-account thread,
+  // where an admin genuinely needs to reply *as* 'user_ted_ceo_support'
+  // rather than their own uid. The authenticated API correctly has no way to
+  // allow that (it would be exactly the sender-spoofing this migration
+  // exists to close), so that one case keeps the pre-existing direct write,
+  // unchanged. A regular user messaging their OWN support chat (e.g. via
+  // "report listing") is unaffected — they're already the genuine buyer
+  // participant, so the new API handles that correctly.
+  const sendMessage = async (chatId: string, text: string) => {
+    if (!currentUser) return;
 
-    // 1. Client-side Rate Limit check
-    const rLimit = checkClientRateLimit('send_message', sender.id);
+    // Client-side rate-limit pre-check for fast UX; the server enforces its
+    // own limit independently and is authoritative.
+    const rLimit = checkClientRateLimit('send_message', currentUser.id);
     if (!rLimit.allowed) {
       throw new Error(`Rate limit exceeded: You are sending messages too fast. Please wait ${rLimit.remainingSecs} seconds.`);
     }
 
-    // 2. Text Sanitization and size limits
     const cleanText = sanitizeText(text);
     if (!cleanText) {
       throw new Error('Message text cannot be empty.');
@@ -4411,60 +4288,25 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     if (!chat) return;
 
     const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
-    
-    let senderId = sender.id;
-    let recId = chat.buyerId === sender.id ? chat.sellerId : chat.buyerId;
+    const isAdminReplyingAsSupport = isAdminUser && chat.sellerId === 'user_ted_ceo_support';
 
-    if (isAdminUser && chat.sellerId === 'user_ted_ceo_support') {
-      senderId = 'user_ted_ceo_support';
-      recId = chat.buyerId;
-    }
+    const senderId = isAdminReplyingAsSupport ? 'user_ted_ceo_support' : currentUser.id;
+    const recId = chat.buyerId === senderId ? chat.sellerId : chat.buyerId;
 
     const msgId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-
     const newMsg: Message = {
       id: msgId,
       chatId,
-      senderId: senderId,
+      senderId,
       recipientId: recId,
       text: cleanText,
       createdAt: new Date().toISOString(),
       read: false
     };
 
-    // Snappy Optimistic UI: update local messages state and ref memory immediately
-    msgMapRef.current.set(msgId, newMsg);
-    setMessages(prev => {
-      const updated = [...prev, newMsg];
-      try {
-        safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(updated));
-        if (currentUser) {
-          safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(updated));
-        }
-      } catch (_) {}
-      return updated;
-    });
-
-    // Snappy Optimistic UI: update chats status list immediately
-    setChats(prevChats => {
-      const updatedChats = prevChats.map(c => {
-        if (c.id === chatId) {
-          return {
-            ...c,
-            lastMessageText: text,
-            lastMessageTime: newMsg.createdAt
-          };
-        }
-        return c;
-      });
-      try {
-        safeLocalStorage.setItem('tedbuy_local_chats_backup', JSON.stringify(updatedChats));
-        if (currentUser) {
-          safeLocalStorage.setItem(`tedbuy_local_chats_backup_${currentUser.id}`, JSON.stringify(updatedChats));
-        }
-      } catch (_) {}
-      return updatedChats;
-    });
+    // Snappy optimistic UI: `messages` currently represents this open thread.
+    setMessages(prev => [...prev, newMsg]);
+    setChats(prevChats => prevChats.map(c => c.id === chatId ? { ...c, lastMessageText: text, lastMessageTime: newMsg.createdAt } : c));
 
     const queueMessageOffline = (msg: Message) => {
       try {
@@ -4479,31 +4321,19 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       }
     };
 
-    if (!navigator.onLine) {
-      console.log('[Offline Queue] Offline detected during send. Queueing message locally.');
-      queueMessageOffline(newMsg);
-      triggerBackgroundSync();
-      return;
-    }
-
-    try {
-      await setDoc(doc('messages', msgId), cleanObject(newMsg));
-      await updateDoc(doc('chats', chatId), cleanObject({
-        lastMessageText: text,
-        lastMessageTime: newMsg.createdAt
-      }));
-
-      // In-app & Activity stream push notification trigger
+    // In-app & Activity stream push notification trigger — unchanged,
+    // pre-existing behavior, not part of this migration's scope.
+    const sendNotification = async () => {
       const notifId = `notif_chat_${Date.now()}_${recId}_${Math.random().toString(36).substring(2, 6)}`;
       const chatNotification: AppNotification = {
         id: notifId,
         userId: recId,
-        type: 'new_message', // Map to standard interface type
-        title: senderId === 'user_ted_ceo_support' ? 'Message from Tedbuy Support' : `Message from ${sender.username || 'User'}`,
+        type: 'new_message',
+        title: senderId === 'user_ted_ceo_support' ? 'Message from Tedbuy Support' : `Message from ${currentUser.username || 'User'}`,
         message: text.length > 50 ? `${text.substring(0, 50)}...` : text,
         triggerUserId: senderId,
-        triggerUsername: senderId === 'user_ted_ceo_support' ? 'Tedbuy Support' : (sender.username || 'User'),
-        triggerUserPhoto: senderId === 'user_ted_ceo_support' ? '' : (sender.photoUrl || ''),
+        triggerUsername: senderId === 'user_ted_ceo_support' ? 'Tedbuy Support' : (currentUser.username || 'User'),
+        triggerUserPhoto: senderId === 'user_ted_ceo_support' ? '' : (currentUser.photoUrl || ''),
         productId: chat.productId || '',
         productTitle: chat.productTitle || 'Shared Listing Chat',
         productPrice: chat.productPrice || 'Inquire',
@@ -4512,7 +4342,6 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         read: false,
         chatId: chatId
       };
-
       try {
         const key = `tedbuy_notifications_backup_${recId}`;
         const currentListStr = safeLocalStorage.getItem(key);
@@ -4520,14 +4349,36 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         currentList.unshift(chatNotification);
         safeLocalStorage.setItem(key, JSON.stringify(currentList));
       } catch (_) {}
-
       try {
         await setDoc(doc('notifications', notifId), cleanObject(chatNotification));
       } catch (dbErr) {
         console.warn('[sendMessage] Skip server notification log in sandbox context:', dbErr);
       }
+    };
+
+    if (isAdminReplyingAsSupport) {
+      try {
+        await setDoc(doc('messages', msgId), cleanObject(newMsg));
+        await updateDoc(doc('chats', chatId), cleanObject({ lastMessageText: text, lastMessageTime: newMsg.createdAt }));
+        await sendNotification();
+      } catch (err) {
+        console.warn('[sendMessage] Support-desk send failed:', err);
+      }
+      return;
+    }
+
+    if (!navigator.onLine) {
+      console.log('[Offline Queue] Offline detected during send. Queueing message locally.');
+      queueMessageOffline(newMsg);
+      triggerBackgroundSync();
+      return;
+    }
+
+    try {
+      await sendMessageViaApi(chatId, cleanText);
+      await sendNotification();
     } catch (err) {
-      console.warn('[sendMessage] Backend transaction failed. Moving message to offline queue for background sync retry.', err);
+      console.warn('[sendMessage] API send failed. Moving message to offline queue for background sync retry.', err);
       queueMessageOffline(newMsg);
       triggerBackgroundSync();
     }
@@ -4544,45 +4395,38 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     }
   }, [currentUser]);
 
+  // Marks the caller's unread messages in a chat as read via the
+  // authenticated API — the server verifies participation and only ever
+  // touches the caller's own unread rows (never another user's). Same
+  // admin-support carve-out as sendMessage/the chat-list sync above: that
+  // one pseudo-account thread isn't representable by the buyer/seller
+  // authorization rule, so it stays on the pre-existing direct write.
   const markChatAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
-    const rawUid = currentUser.id.replace(/^(user_|phone_)/, '');
-    const userVariants = Array.from(new Set([currentUser.id, rawUid, `user_${rawUid}`, `phone_${rawUid}`])).filter(Boolean);
 
-    const unreadMsgs = messages.filter(
-      m => m.chatId === chatId && userVariants.includes(m.recipientId) && !m.read
-    );
+    const chat = chats.find(c => c.id === chatId);
+    const isSupportChat = chat?.sellerId === 'user_ted_ceo_support' || chat?.buyerId === 'user_ted_ceo_support';
+
+    const unreadMsgs = messages.filter(m => m.chatId === chatId && m.recipientId === currentUser.id && !m.read);
     if (unreadMsgs.length === 0) return;
 
-    // Snappy optimistic local state update
-    const updated = messages.map(m => {
-      if (m.chatId === chatId && userVariants.includes(m.recipientId) && !m.read) {
-        // Synchronously update msgMapRef so any subsequent background snapshot doesn't revert it
-        msgMapRef.current.set(m.id, { ...m, read: true });
-        return { ...m, read: true };
-      }
-      return m;
-    });
+    // Snappy optimistic local update — messages state represents this open thread.
+    setMessages(prev => prev.map(m => (m.chatId === chatId && m.recipientId === currentUser.id && !m.read) ? { ...m, read: true } : m));
 
-    setMessages(updated);
-    try {
-      safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(updated));
-      if (currentUser) {
-        safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(updated));
+    if (isSupportChat) {
+      try {
+        await Promise.all(unreadMsgs.map(msg => updateDoc(doc('messages', msg.id), { read: true })));
+      } catch (err) {
+        console.error('Error marking support messages as read:', err);
       }
-    } catch (err) {
-      console.warn('Could not save messages backup:', err);
+      return;
     }
 
-    try {
-      const promises = unreadMsgs.map(msg =>
-        updateDoc(doc('messages', msg.id), { read: true })
-      );
-      await Promise.all(promises);
-    } catch (err) {
-      console.error('Error marking messages as read in the backend:', err);
-    }
-  }, [currentUser, messages]);
+    await markChatReadViaApi(chatId);
+    // Reflect the read state in the chat list's unreadCount immediately
+    // rather than waiting for the next 15s poll tick.
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, unreadCount: 0 } : c));
+  }, [currentUser, chats, messages]);
 
   const toggleMessageReadStatus = async (messageId: string, read: boolean = true) => {
     setMessages(prev => {

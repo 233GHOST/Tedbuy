@@ -61,6 +61,7 @@ export interface User {
   location?: string;
   rating?: number;
   reviewCount?: number;
+  followingSellers?: string[];
 }
 
 export type UserProfile = User;

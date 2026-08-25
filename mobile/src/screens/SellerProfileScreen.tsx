@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, watchProducts, watchUsers, startChat, toggleFollowSeller } from '../firebase';
+import { auth, watchProducts, fetchUserById, startChatApi, toggleFollowSeller } from '../firebase';
 import { ProductCard } from '../components/ProductCard';
 import { Product, isUserAdmin, isUserVerified } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
@@ -59,21 +59,22 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
 
   useEffect(() => {
     let isMounted = true;
-    
-    const unsubUsers = watchUsers((usersList) => {
-      if (!isMounted) return;
-      const found = usersList.find((u: any) => 
-        u.id === sellerId || 
-        u.uid === sellerId || 
-        (u.username && sellerId && u.username.toLowerCase() === sellerId.toLowerCase())
-      );
-      if (found) {
-        setSeller(found);
-        if (currentUser && Array.isArray(currentUser.followingSellers)) {
-          setIsFollowing(currentUser.followingSellers.includes(sellerId) || currentUser.followingSellers.includes(found.id));
-        }
-      }
+
+    // Seller profile and (if signed in) the caller's own profile — both come
+    // from the authenticated /api/users/get endpoint, not Firestore.
+    // followingSellers lives on the user's profile row, not the Firebase Auth
+    // object, so the caller's own profile has to be fetched separately.
+    fetchUserById(sellerId).then((found) => {
+      if (!isMounted || !found) return;
+      setSeller(found);
     });
+
+    if (currentUser) {
+      fetchUserById(currentUser.uid).then((myProfile: any) => {
+        if (!isMounted || !myProfile || !Array.isArray(myProfile.followingSellers)) return;
+        setIsFollowing(myProfile.followingSellers.includes(sellerId));
+      });
+    }
 
     const unsubProducts = watchProducts((allProducts) => {
       if (!isMounted) return;
@@ -95,7 +96,6 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
 
     return () => {
       isMounted = false;
-      unsubUsers();
       unsubProducts();
     };
   }, [sellerId, seller?.id, seller?.username, seller?.email]);
@@ -130,15 +130,14 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
       Alert.alert('Notice', 'This is your own seller storefront.');
       return;
     }
+    if (!products[0]) {
+      Alert.alert('No Listings Yet', 'This merchant has no active listings to inquire about right now.');
+      return;
+    }
+
     try {
       setStartingChat(true);
-      const dummyProduct: any = products[0] || {
-        id: 'general_' + sellerId,
-        title: 'Inquiry for ' + (seller?.username || 'Seller'),
-        price: 'Negotiable',
-        image: seller?.photoUrl || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
-      };
-      const chatId = await startChat(dummyProduct, currentUser.uid, sellerId);
+      const chatId = await startChatApi(products[0].id);
       setStartingChat(false);
       navigation.navigate('Chats', { activeChatId: chatId });
     } catch (err: any) {

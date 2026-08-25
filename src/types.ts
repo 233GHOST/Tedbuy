@@ -272,6 +272,9 @@ export interface Chat {
   adThumbnail?: string;
   adType?: 'image' | 'video';
   videoPoster?: string;
+  // Server-computed (via GET /api/chats) — the caller's unread message count
+  // for this chat. Authoritative; do not recompute from a local messages list.
+  unreadCount?: number;
 }
 
 export interface Message {

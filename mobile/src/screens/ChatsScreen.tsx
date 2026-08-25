@@ -1,8 +1,11 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, watchChats, watchMessages, sendMessage, watchUsers } from '../firebase';
+import { auth, fetchChatsApi, fetchMessagesApi, sendMessageApi, markChatReadApi } from '../firebase';
 import { useNavigation, useRoute } from '@react-navigation/native';
+
+const CHAT_LIST_POLL_MS = 15000;
+const ACTIVE_CHAT_POLL_MS = 4000;
 
 const { width, height } = Dimensions.get('window');
 
@@ -32,7 +35,6 @@ export function ChatsScreen() {
 
   const [chats, setChats] = useState<any[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Search & Filter state
@@ -66,7 +68,10 @@ export function ChatsScreen() {
     }
   }, [activeChatId, chats]);
 
-  // Subscribe to real-time chats, messages and user information
+  // Load and poll the current user's chat list via the authenticated API.
+  // Realtime here is authenticated short-interval polling — the same
+  // verifyUser()-gated endpoint on every tick, not a persistent client-side
+  // connection to Supabase. See mobile chat migration notes in firebase.ts.
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) {
@@ -75,37 +80,47 @@ export function ChatsScreen() {
       return;
     }
 
-    const unsubChats = watchChats(user.uid, (result) => {
-      setChats(result);
-      setLoading(false);
-    });
-
-    const unsubUsers = watchUsers((result) => {
-      setUsers(result);
-    });
+    let active = true;
+    const load = async () => {
+      const result = await fetchChatsApi();
+      if (active) {
+        setChats(result);
+        setLoading(false);
+      }
+    };
+    load();
+    const interval = setInterval(load, CHAT_LIST_POLL_MS);
 
     return () => {
-      unsubChats();
-      unsubUsers();
+      active = false;
+      clearInterval(interval);
     };
   }, []);
 
-  // Listen to messages in real-time when a chat is selected
+  // Poll messages for the open chat thread, and mark it read once opened.
   useEffect(() => {
     if (!activeChatId) {
       setMessages([]);
       return;
     }
 
-    const unsubMessages = watchMessages(activeChatId, (result) => {
+    let active = true;
+    const load = async () => {
+      const result = await fetchMessagesApi(activeChatId);
+      if (!active) return;
       setMessages(result);
-      // Auto-scroll to bottom of list
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 150);
-    });
+    };
+    load();
+    markChatReadApi(activeChatId);
+    const interval = setInterval(load, ACTIVE_CHAT_POLL_MS);
 
-    return unsubMessages;
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [activeChatId]);
 
   const handleSendMessage = async (customText?: string) => {
@@ -116,7 +131,12 @@ export function ChatsScreen() {
     try {
       setSending(true);
       if (!customText) setMessageText('');
-      await sendMessage(activeChatId, trimmed);
+      await sendMessageApi(activeChatId, trimmed);
+      const result = await fetchMessagesApi(activeChatId);
+      setMessages(result);
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 150);
     } catch (err: any) {
       Alert.alert('Message Failed', err.message || 'Could not dispatch message.');
     } finally {
@@ -175,9 +195,7 @@ export function ChatsScreen() {
   // Active Chat Room View
   if (activeChatId && activeChat) {
     const isPeerSeller = activeChat.buyerId === currentUser.uid;
-    const peerId = isPeerSeller ? activeChat.sellerId : activeChat.buyerId;
-    const peerUser = users.find((u) => u.id === peerId);
-    const displayPeerName = peerUser?.username || (isPeerSeller ? activeChat.sellerName : activeChat.buyerName) || 'User';
+    const displayPeerName = (isPeerSeller ? activeChat.sellerName : activeChat.buyerName) || 'User';
 
     const quickReplies = isPeerSeller
       ? ['Is this still available?', 'What is your last price?', 'Where is your pickup location?', 'Can we meet today?']
@@ -416,9 +434,7 @@ export function ChatsScreen() {
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => {
               const isPeerSeller = item.buyerId === currentUser.uid;
-              const peerId = isPeerSeller ? item.sellerId : item.buyerId;
-              const peerUser = users.find((u) => u.id === peerId);
-              const displayPeerName = peerUser?.username || (isPeerSeller ? item.sellerName : item.buyerName) || 'User';
+              const displayPeerName = (isPeerSeller ? item.sellerName : item.buyerName) || 'User';
 
               return (
                 <Pressable
@@ -440,9 +456,16 @@ export function ChatsScreen() {
                     <Text style={styles.productSnippet} numberOfLines={1}>
                       {item.productTitle || 'Marketplace Item'}
                     </Text>
-                    <Text style={styles.message} numberOfLines={1}>
-                      {item.lastMessageText || 'No messages yet'}
-                    </Text>
+                    <View style={styles.rowBetween}>
+                      <Text style={[styles.message, { flex: 1 }]} numberOfLines={1}>
+                        {item.lastMessageText || 'No messages yet'}
+                      </Text>
+                      {item.unreadCount > 0 && (
+                        <View style={styles.unreadBadge}>
+                          <Text style={styles.unreadBadgeText}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </Pressable>
               );
@@ -499,6 +522,8 @@ const styles = StyleSheet.create({
   time: { color: '#94a3b8', fontSize: 11, fontWeight: '600', maxWidth: 80, textAlign: 'right' },
   productSnippet: { color: '#ea580c', fontSize: 11, fontWeight: '700', marginTop: 1 },
   message: { color: '#64748b', marginTop: 3, fontSize: 12.5 },
+  unreadBadge: { backgroundColor: '#ea580c', borderRadius: 10, minWidth: 20, height: 20, paddingHorizontal: 5, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
+  unreadBadgeText: { color: '#ffffff', fontSize: 10.5, fontWeight: '800' },
 
   /* Chat Room Styling */
   chatRoomHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#020617', justifyContent: 'space-between' },

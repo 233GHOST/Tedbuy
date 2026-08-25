@@ -6,7 +6,7 @@ import { SearchSuggestions } from './SearchSuggestions';
 import { validateImageFile } from '../utils/fileValidation';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
 import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, validatePhoneSecure } from '../utils/registrationValidation';
-import { getUnreadMessageCount } from '../utils/chatStateUtils';
+import { getUnreadChatCount } from '../utils/chatStateUtils';
 import { formatTedbuyTenure } from '../utils/dateParser';
 
 export const Navbar: React.FC = () => {
@@ -23,7 +23,6 @@ export const Navbar: React.FC = () => {
     switchUserSimulated,
     resetChats,
     chats,
-    messages,
     recentSearches,
     addRecentQuery,
     removeRecentQuery,
@@ -323,8 +322,8 @@ export const Navbar: React.FC = () => {
   // Calculate unread chat badges with an optimized single-pass memoized filter
   const unreadCount = useMemo(() => {
     if (!currentUser) return 0;
-    return getUnreadMessageCount(messages, chats, currentUser.id, deletedChatIds, deletedMessageIds);
-  }, [messages, chats, currentUser, deletedChatIds, deletedMessageIds]);
+    return getUnreadChatCount(chats, deletedChatIds);
+  }, [chats, currentUser, deletedChatIds]);
 
   return (
     <>

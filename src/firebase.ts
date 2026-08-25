@@ -60,6 +60,97 @@ export const getAuthHeader = async (): Promise<Record<string, string>> => {
   return headers;
 };
 
+// ---------------------------------------------------------------------------
+// Chats & Messages — authenticated API (canonical path, same as mobile)
+// ---------------------------------------------------------------------------
+// Chats/messages are canonically stored in Supabase and are only ever reached
+// through the TedBuy server, which verifies the Firebase ID token and enforces
+// that a caller may only see or act on chats where they are the buyer or
+// seller. This mirrors mobile/src/firebase.ts exactly — same endpoints, same
+// auth mechanism (getAuthHeader), no second implementation.
+async function chatApiFetch(path: string, options: { method?: string; body?: any } = {}): Promise<any> {
+  const authHeaders = await getAuthHeader();
+  const res = await fetch(path, {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  return res.json();
+}
+
+export async function fetchChatsFromApi(): Promise<any[]> {
+  try {
+    const data = await chatApiFetch('/api/chats');
+    if (data.success && Array.isArray(data.chats)) return data.chats;
+  } catch (err) {
+    console.warn('[fetchChatsFromApi Error]', err);
+  }
+  return [];
+}
+
+export async function fetchMessagesFromApi(chatId: string, before?: string, limit?: number): Promise<any[]> {
+  if (!chatId) return [];
+  try {
+    const params = new URLSearchParams();
+    if (before) params.set('before', before);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const data = await chatApiFetch(`/api/messages/${encodeURIComponent(chatId)}${qs}`);
+    if (data.success && Array.isArray(data.messages)) return data.messages;
+  } catch (err) {
+    console.warn('[fetchMessagesFromApi Error]', err);
+  }
+  return [];
+}
+
+// Fetches a chat's FULL message history by walking the `before` cursor until
+// exhausted. Only meant for low-frequency, deliberate operations (e.g. the
+// personal-data export) — not the live chat UI, which should stay on the
+// single-page fetchMessagesFromApi to keep polling cheap.
+const EXPORT_PAGE_SIZE = 100;
+export async function fetchAllMessagesFromApi(chatId: string): Promise<any[]> {
+  const all: any[] = [];
+  let before: string | undefined = undefined;
+  for (let i = 0; i < 100; i++) {
+    const page = await fetchMessagesFromApi(chatId, before, EXPORT_PAGE_SIZE);
+    if (page.length === 0) break;
+    all.unshift(...page);
+    before = page[0].createdAt;
+    if (page.length < EXPORT_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+export async function startChatViaApi(productId: string, initialMessage?: string): Promise<string> {
+  const data = await chatApiFetch('/api/chats/start', {
+    method: 'POST',
+    body: { productId, initialMessage }
+  });
+  if (!data.success) {
+    throw new Error(data.error || 'Could not start chat');
+  }
+  return data.chatId;
+}
+
+export async function sendMessageViaApi(chatId: string, text: string): Promise<any> {
+  const data = await chatApiFetch('/api/messages/send', {
+    method: 'POST',
+    body: { chatId, text }
+  });
+  if (!data.success) {
+    throw new Error(data.error || 'Could not send message');
+  }
+  return data.message;
+}
+
+export async function markChatReadViaApi(chatId: string): Promise<void> {
+  try {
+    await chatApiFetch('/api/messages/mark-read', { method: 'POST', body: { chatId } });
+  } catch (err) {
+    console.warn('[markChatReadViaApi Error]', err);
+  }
+}
+
 // --- Firebase Cloud Messaging (FCM) Support ---
 export const getFcmMessaging = async () => {
   try {

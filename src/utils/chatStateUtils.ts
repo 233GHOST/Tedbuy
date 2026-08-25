@@ -22,6 +22,23 @@ export function getVisibleChats(
   });
 }
 
+// Server-authoritative equivalent of getUnreadMessageCount, using each chat's
+// unreadCount (from GET /api/chats) instead of a locally-held messages array.
+// Prefer this wherever the caller only has the chat list, not full message
+// history — it needs one fewer bulk read and can't drift from what the
+// server considers unread.
+export function getUnreadChatCount(
+  chats: Chat[],
+  deletedChatIds: Iterable<string>
+): number {
+  const deleted = new Set(deletedChatIds);
+  return chats.reduce((total, chat) => {
+    if (deleted.has(chat.id)) return total;
+    if (chat.tradeStatus === 'completed') return total;
+    return total + (chat.unreadCount || 0);
+  }, 0);
+}
+
 export function getUnreadMessageCount(
   messages: Message[],
   chats: Chat[],

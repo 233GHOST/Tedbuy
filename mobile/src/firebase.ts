@@ -25,9 +25,30 @@ export async function getAuthHeaderMobile(): Promise<Record<string, string>> {
   return {};
 }
 
+function apiOrigin(): string {
+  return typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : 'https://www.tedbuy.store';
+}
+
+// Shared authenticated JSON request helper for the TedBuy API. Chats, messages,
+// and user-profile writes are canonically stored in Supabase and are only ever
+// reached through this server — the app never talks to Supabase directly, so
+// no Supabase credential of any kind (privileged or anon) is ever needed here.
+async function apiFetch(path: string, options: { method?: string; body?: any } = {}): Promise<any> {
+  const authHeaders = await getAuthHeaderMobile();
+  const res = await fetch(`${apiOrigin()}${path}`, {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  return res.json();
+}
+
 export async function uploadMediaToCloudinaryMobile(
   fileUriOrBase64: string,
-  resourceType: 'image' | 'video' = 'image'
+  resourceType: 'image' | 'video' = 'image',
+  onProgress?: (percent: number) => void
 ): Promise<string> {
   if (!fileUriOrBase64) return '';
   if (fileUriOrBase64.startsWith('https://res.cloudinary.com')) return fileUriOrBase64;
@@ -37,23 +58,37 @@ export async function uploadMediaToCloudinaryMobile(
     : 'https://www.tedbuy.store/api/cloudinary/upload';
 
   try {
-    const response = await fetch(serverUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        file: fileUriOrBase64,
-        resource_type: resourceType
-      })
+    const result = await new Promise<{ success: boolean; result?: any; error?: string }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', serverUrl, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            onProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (e) {
+          reject(new Error('Invalid JSON response from upload server.'));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload.'));
+      xhr.send(JSON.stringify({ file: fileUriOrBase64, resource_type: resourceType }));
     });
 
-    const data = await response.json();
-    if (data.success && data.result?.secure_url) {
-      return data.result.secure_url;
+    if (result.success && result.result?.secure_url) {
+      return result.result.secure_url;
     }
-    if (data.success && data.result?.url) {
-      return data.result.url;
+    if (result.success && result.result?.url) {
+      return result.result.url;
     }
-    throw new Error(data.error || 'Cloudinary mobile upload failed');
+    throw new Error(result.error || 'Cloudinary mobile upload failed');
   } catch (err: any) {
     console.warn('[uploadMediaToCloudinaryMobile Warning]:', err?.message || err);
     if (fileUriOrBase64.startsWith('http')) return fileUriOrBase64;
@@ -161,7 +196,10 @@ export async function signUp(email: string, password: string, username: string) 
   }
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   await updateProfile(credential.user, { displayName: username });
-  // Store user details inside the "users" collection
+
+  // User profiles are canonical in Supabase, written only through the
+  // authenticated server API — /api/users/sync verifies the Firebase ID
+  // token and only allows a user to write their own profile (id === uid).
   const newUser = {
     id: credential.user.uid,
     username: username.trim(),
@@ -172,7 +210,14 @@ export async function signUp(email: string, password: string, username: string) 
     savedProductIds: [],
     emailVerified: false,
   };
-  await setDoc(doc(db, 'users', credential.user.uid), newUser);
+  try {
+    const data = await apiFetch('/api/users/sync', { method: 'POST', body: { user: newUser } });
+    if (!data.success) {
+      console.warn('[signUp] Profile sync failed:', data.error);
+    }
+  } catch (err) {
+    console.warn('[signUp] Profile sync exception:', err);
+  }
   return credential;
 }
 
@@ -238,8 +283,14 @@ export async function fetchProductById(productId: string) {
 }
 
 export async function fetchUserById(userId: string) {
-  const snapshot = await getDoc(doc(db, 'users', userId));
-  return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+  if (!userId) return null;
+  try {
+    const data = await apiFetch(`/api/users/get?id=${encodeURIComponent(userId)}`);
+    if (data.success && data.user) return data.user;
+  } catch (err) {
+    console.warn('[fetchUserById Error]', err);
+  }
+  return null;
 }
 
 export function watchProducts(callback: (products: any[]) => void) {
@@ -258,6 +309,14 @@ export function watchUsers(callback: (users: any[]) => void) {
   return onSnapshot(collection(db, 'users'), (snapshot) => callback(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))));
 }
 
+// ---------------------------------------------------------------------------
+// LEGACY (Firestore direct access) — superseded by the authenticated API
+// functions below (fetchChatsApi, fetchMessagesApi, startChatApi,
+// sendMessageApi, markChatReadApi). No screen calls these anymore; kept
+// temporarily, unused, as a rollback reference until the API path has been
+// validated on real devices. Firestore chat/message/user data itself is left
+// untouched — nothing here deletes it.
+// ---------------------------------------------------------------------------
 export function watchChats(userId: string, callback: (chats: any[]) => void) {
   const qBuyer = query(collection(db, 'chats'), where('buyerId', '==', userId));
   const qSeller = query(collection(db, 'chats'), where('sellerId', '==', userId));
@@ -326,14 +385,39 @@ export async function toggleLikeProduct(id: string, userId: string) {
         ? `${window.location.origin}/api/products/sync`
         : 'https://www.tedbuy.store/api/products/sync';
 
+      const authHeaders = await getAuthHeaderMobile();
       await fetch(syncUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ product: updated })
       });
     } catch (err) {
       console.warn('[toggleLikeProduct Sync Error]', err);
     }
+  }
+}
+
+export async function toggleFollowSeller(sellerId: string, currentUserId: string) {
+  if (!sellerId || !currentUserId) return;
+
+  // Own profile is fetched then re-synced via the authenticated API — never a
+  // direct Supabase write. /api/users/sync enforces that a caller may only
+  // write their own profile (targetUid === verified.uid).
+  const myProfile = await fetchUserById(currentUserId);
+  if (!myProfile) return;
+
+  const following: string[] = Array.isArray(myProfile.followingSellers) ? myProfile.followingSellers : [];
+  const isFollowing = following.includes(sellerId);
+  const updatedFollowing = isFollowing
+    ? following.filter((id) => id !== sellerId)
+    : [...following, sellerId];
+
+  const data = await apiFetch('/api/users/sync', {
+    method: 'POST',
+    body: { user: { ...myProfile, id: currentUserId, followingSellers: updatedFollowing } }
+  });
+  if (!data.success) {
+    throw new Error(data.error || 'Could not update follow status');
   }
 }
 
@@ -414,7 +498,89 @@ export async function sendMessage(chatId: string, text: string) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Chats & Messages — authenticated API (canonical path)
+// ---------------------------------------------------------------------------
+// All chat/message reads and writes go through the TedBuy server, which
+// verifies the Firebase ID token and enforces that a user may only see or
+// act on chats where they are the buyer or seller. Sender identity is always
+// derived server-side from the verified token — this file never sends a
+// senderId/buyerId and expects it to be trusted.
+
+export async function fetchChatsApi(): Promise<any[]> {
+  try {
+    const data = await apiFetch('/api/chats');
+    if (data.success && Array.isArray(data.chats)) return data.chats;
+  } catch (err) {
+    console.warn('[fetchChatsApi Error]', err);
+  }
+  return [];
+}
+
+export async function fetchMessagesApi(chatId: string, before?: string): Promise<any[]> {
+  if (!chatId) return [];
+  try {
+    const qs = before ? `?before=${encodeURIComponent(before)}` : '';
+    const data = await apiFetch(`/api/messages/${encodeURIComponent(chatId)}${qs}`);
+    if (data.success && Array.isArray(data.messages)) return data.messages;
+  } catch (err) {
+    console.warn('[fetchMessagesApi Error]', err);
+  }
+  return [];
+}
+
+export async function startChatApi(productId: string, initialMessage?: string): Promise<string> {
+  const data = await apiFetch('/api/chats/start', {
+    method: 'POST',
+    body: { productId, initialMessage }
+  });
+  if (!data.success) {
+    throw new Error(data.error || 'Could not start chat');
+  }
+  return data.chatId;
+}
+
+export async function sendMessageApi(chatId: string, text: string): Promise<any> {
+  const data = await apiFetch('/api/messages/send', {
+    method: 'POST',
+    body: { chatId, text }
+  });
+  if (!data.success) {
+    throw new Error(data.error || 'Could not send message');
+  }
+  return data.message;
+}
+
+export async function markChatReadApi(chatId: string): Promise<void> {
+  try {
+    await apiFetch('/api/messages/mark-read', { method: 'POST', body: { chatId } });
+  } catch (err) {
+    console.warn('[markChatReadApi Error]', err);
+  }
+}
+
 export async function updateProduct(id: string, data: Partial<any>) {
-  const productRef = doc(db, 'products', id);
-  return updateDoc(productRef, data);
+  // Products are canonically stored in Supabase (synced via /api/products/sync),
+  // not Firestore — a raw Firestore write here would never reach the record
+  // fetchProducts/fetchProductById actually read.
+  const product = await fetchProductById(id);
+  if (!product) return;
+
+  const updated = { ...product, ...data };
+
+  const syncUrl = typeof window !== 'undefined' && window.location?.origin
+    ? `${window.location.origin}/api/products/sync`
+    : 'https://www.tedbuy.store/api/products/sync';
+
+  const authHeaders = await getAuthHeaderMobile();
+  const response = await fetch(syncUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({ product: updated })
+  });
+  const resData = await response.json();
+  if (!resData.success) {
+    throw new Error(resData.error || 'Failed to update product');
+  }
+  return resData.product;
 }
