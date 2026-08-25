@@ -2410,7 +2410,8 @@ export const ProductDetail: React.FC = () => {
                 {/* WhatsApp */}
                 <button
                   onClick={() => {
-                    const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
+                    const titleSlug = product.title ? slugify(product.title) : 'item';
+                    const cleanShareUrl = `${window.location.origin}/product/${product.id}-${titleSlug}`;
                     const isService = isServiceCategory || (product.category && (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')));
                     const hasPrice = !isService && formattedPrice && formattedPrice !== 'GH₵0' && formattedPrice !== 'GHS 0' && Number(product.price) > 0;
                     const priceText = hasPrice ? ` for *${formattedPrice}*` : '';
@@ -2428,7 +2429,8 @@ export const ProductDetail: React.FC = () => {
                 {/* Telegram */}
                 <button
                   onClick={() => {
-                    const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
+                    const titleSlug = product.title ? slugify(product.title) : 'item';
+                    const cleanShareUrl = `${window.location.origin}/product/${product.id}-${titleSlug}`;
                     const isService = isServiceCategory || (product.category && (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')));
                     const hasPrice = !isService && formattedPrice && formattedPrice !== 'GH₵0' && formattedPrice !== 'GHS 0' && Number(product.price) > 0;
                     const priceText = hasPrice ? ` for ${formattedPrice}` : '';
@@ -2448,7 +2450,8 @@ export const ProductDetail: React.FC = () => {
                   <button
                     onClick={async () => {
                       try {
-                        const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
+                        const titleSlug = product.title ? slugify(product.title) : 'item';
+                        const cleanShareUrl = `${window.location.origin}/product/${product.id}-${titleSlug}`;
                         const isService = isServiceCategory || (product.category && (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')));
                         const hasPrice = !isService && formattedPrice && formattedPrice !== 'GH₵0' && formattedPrice !== 'GHS 0' && Number(product.price) > 0;
                         const priceText = hasPrice ? ` for ${formattedPrice}` : '';
@@ -2476,7 +2479,8 @@ export const ProductDetail: React.FC = () => {
                 <button
                   onClick={async () => {
                     try {
-                      const cleanShareUrl = window.location.href.replace('/#/', '/').replace('/#', '/');
+                      const titleSlug = product.title ? slugify(product.title) : 'item';
+                      const cleanShareUrl = `${window.location.origin}/product/${product.id}-${titleSlug}`;
                       await navigator.clipboard.writeText(cleanShareUrl);
                       showToast("Link copied to clipboard! Paste it anywhere.", "success");
                       setIsShareModalOpen(false);

@@ -157,7 +157,12 @@ interface AppContextType {
     category: Category;
     location: string;
     images: string[];
+    imageUrls?: string[];
+    displayImage?: string;
+    primaryPicture?: string;
+    videoPoster?: string;
     videos?: string[];
+    videoUrls?: string[];
     brand?: string;
     condition?: string;
     negotiable?: boolean;
@@ -3426,7 +3431,12 @@ CEO, Tedbuy Inc`;
     category: Category;
     location: string;
     images: string[];
+    imageUrls?: string[];
+    displayImage?: string;
+    primaryPicture?: string;
+    videoPoster?: string;
     videos?: string[];
+    videoUrls?: string[];
     brand?: string;
     condition?: string;
     negotiable?: boolean;
@@ -3469,6 +3479,10 @@ CEO, Tedbuy Inc`;
 
     const prodId = `prod_${Date.now()}`;
     const cleanImgs = sanitizedProductData.images || [];
+    const videoPoster = (sanitizedProductData as any).videoPoster ||
+      (sanitizedProductData.videos?.[0] ? getCloudinaryVideoPoster(sanitizedProductData.videos[0]) : '');
+    const displayImg = cleanImgs[0] || videoPoster || '';
+
     const newProduct: Product = {
       id: prodId,
       sellerId: currentUser.id,
@@ -3479,8 +3493,9 @@ CEO, Tedbuy Inc`;
       ...sanitizedProductData,
       images: cleanImgs,
       imageUrls: cleanImgs,
-      displayImage: cleanImgs[0] || (sanitizedProductData.videos?.[0] ? getCloudinaryVideoPoster(sanitizedProductData.videos[0]) : '') || '',
-      primaryPicture: cleanImgs[0] || (sanitizedProductData.videos?.[0] ? getCloudinaryVideoPoster(sanitizedProductData.videos[0]) : '') || '',
+      videoPoster: videoPoster,
+      displayImage: displayImg,
+      primaryPicture: displayImg,
       category: normalizeCategory(productData.category),
       createdAt: new Date().toISOString(),
       viewsCount: 0,
@@ -3621,18 +3636,36 @@ CEO, Tedbuy Inc`;
       }
 
       const updatedData = { ...productData };
+      const currentVideos = (updatedData.videos && Array.isArray(updatedData.videos))
+        ? updatedData.videos
+        : (localProduct?.videos || []);
+      const fallbackPoster = (updatedData as any).videoPoster ||
+        (currentVideos[0] ? getCloudinaryVideoPoster(currentVideos[0]) : '');
+
       if (updatedData.images && Array.isArray(updatedData.images)) {
         updatedData.imageUrls = updatedData.images;
         if (updatedData.images.length > 0) {
           updatedData.displayImage = updatedData.images[0];
           (updatedData as any).primaryPicture = updatedData.images[0];
+        } else if (fallbackPoster) {
+          updatedData.displayImage = fallbackPoster;
+          (updatedData as any).primaryPicture = fallbackPoster;
+          (updatedData as any).videoPoster = fallbackPoster;
         }
       } else if (updatedData.imageUrls && Array.isArray(updatedData.imageUrls)) {
         updatedData.images = updatedData.imageUrls;
         if (updatedData.imageUrls.length > 0) {
           updatedData.displayImage = updatedData.imageUrls[0];
           (updatedData as any).primaryPicture = updatedData.imageUrls[0];
+        } else if (fallbackPoster) {
+          updatedData.displayImage = fallbackPoster;
+          (updatedData as any).primaryPicture = fallbackPoster;
+          (updatedData as any).videoPoster = fallbackPoster;
         }
+      } else if (fallbackPoster && !updatedData.displayImage && !localProduct?.images?.length) {
+        updatedData.displayImage = fallbackPoster;
+        (updatedData as any).primaryPicture = fallbackPoster;
+        (updatedData as any).videoPoster = fallbackPoster;
       }
 
       if (updatedData.title) updatedData.title = sanitizeText(updatedData.title);

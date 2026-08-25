@@ -265,14 +265,21 @@ export function normalizeProduct(rawProduct: any): Product {
   const cleanVideos = rawVideos.filter(vid => typeof vid === 'string' && vid.trim().length > 0 && !vid.includes('/api/products/'));
 
   const category = normalizeCategory(rawProduct.category);
-  const primaryImgUrl = cleanImages[0] || (rawProduct.displayImage && !rawProduct.displayImage.startsWith('data:image/svg+xml') ? rawProduct.displayImage : getCategoryPlaceholder(category));
-
-  // Generate thumbnail URLs
-  const thumbnailUrls = cleanImages.map(img => getCloudinaryThumbnail(img));
-  const primaryThumb = thumbnailUrls[0] || (rawProduct.thumbnailUrl && !rawProduct.thumbnailUrl.startsWith('data:image/svg+xml') ? rawProduct.thumbnailUrl : primaryImgUrl);
 
   // Video poster
   const videoPoster = rawProduct.videoPoster || (cleanVideos[0] ? getCloudinaryVideoPoster(cleanVideos[0]) : undefined);
+
+  const primaryImgUrl = cleanImages[0] ||
+    (rawProduct.displayImage && !rawProduct.displayImage.startsWith('data:image/svg+xml') ? rawProduct.displayImage : '') ||
+    (rawProduct.primaryPicture && !rawProduct.primaryPicture.startsWith('data:image/svg+xml') ? rawProduct.primaryPicture : '') ||
+    videoPoster ||
+    getCategoryPlaceholder(category);
+
+  // Generate thumbnail URLs
+  const thumbnailUrls = cleanImages.map(img => getCloudinaryThumbnail(img));
+  const primaryThumb = thumbnailUrls[0] ||
+    (rawProduct.thumbnailUrl && !rawProduct.thumbnailUrl.startsWith('data:image/svg+xml') ? rawProduct.thumbnailUrl : '') ||
+    (videoPoster ? getCloudinaryThumbnail(videoPoster) : primaryImgUrl);
 
   const views = Number(rawProduct.views || rawProduct.viewsCount || rawProduct.views_count) || 0;
   const likes = Number(rawProduct.likes || rawProduct.likesCount || rawProduct.likes_count) || 0;

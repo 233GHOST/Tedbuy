@@ -90,6 +90,10 @@ export async function createProduct(productData: any) {
     }
   }
 
+  const videoPoster = (cloudinaryVideos[0] && cloudinaryVideos[0].includes('res.cloudinary.com'))
+    ? cloudinaryVideos[0].replace(/\.[a-zA-Z0-9]+$/, '.jpg').replace('/upload/', '/upload/so_0,f_jpg,q_auto,w_800/')
+    : '';
+
   const finalProduct = {
     ...productData,
     id: prodId,
@@ -97,10 +101,13 @@ export async function createProduct(productData: any) {
     viewsCount: Number(productData.viewsCount) || 0,
     likesCount: Number(productData.likesCount) || 0,
     likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : [],
-    images: cloudinaryImages.length > 0
-      ? cloudinaryImages
-      : ['https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'],
-    videos: cloudinaryVideos
+    images: cloudinaryImages,
+    imageUrls: cloudinaryImages,
+    videos: cloudinaryVideos,
+    videoUrls: cloudinaryVideos,
+    videoPoster: videoPoster || productData.videoPoster || '',
+    displayImage: cloudinaryImages[0] || videoPoster || '',
+    primaryPicture: cloudinaryImages[0] || videoPoster || ''
   };
 
   // Sync to server API so Supabase is updated and server cache is invalidated instantly

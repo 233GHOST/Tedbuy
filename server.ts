@@ -938,6 +938,22 @@ function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+function getServerVideoPoster(videoUrl: string): string {
+  if (!videoUrl || typeof videoUrl !== 'string') return '';
+  const trimmed = videoUrl.trim();
+  if (trimmed.includes('res.cloudinary.com')) {
+    let posterUrl = trimmed.replace(/\.[a-zA-Z0-9]+$/, '.jpg');
+    if (posterUrl.includes('/video/upload/')) {
+      return posterUrl.replace('/video/upload/', '/video/upload/so_0,f_jpg,q_auto,w_1200,h_630,c_fill/');
+    }
+    if (posterUrl.includes('/upload/')) {
+      return posterUrl.replace('/upload/', '/upload/so_0,f_jpg,q_auto,w_1200,h_630,c_fill/');
+    }
+    return posterUrl;
+  }
+  return trimmed;
+}
+
 function injectMetaTags(html: string, product: any, shareUrl: string, host: string, protocol: string, productId: string): string {
   const isService = product.category ? (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')) : false;
   let title = `${product.title} | TedBuy Ghana`;
@@ -947,8 +963,35 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
   }
   const description = `${product.description.slice(0, 160)}${product.description.length > 160 ? '...' : ''} | Buy/Sell on TedBuy`;
   
-  const image = product.image || product.primaryImage || product.displayImage || (Array.isArray(product.images) && product.images[0]) || (Array.isArray(product.imageUrls) && product.imageUrls[0]) || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
-  
+  const cleanVids = Array.isArray(product.videos) ? product.videos.filter((v: any) => typeof v === 'string' && v.trim().length > 0) : (Array.isArray(product.videoUrls) ? product.videoUrls.filter((v: any) => typeof v === 'string' && v.trim().length > 0) : []);
+  const videoPoster = product.videoPoster || product.videoPosterUrl || (cleanVids[0] ? getServerVideoPoster(cleanVids[0]) : '');
+
+  const cleanImgs = Array.isArray(product.images) ? product.images.filter((i: any) => typeof i === 'string' && i.trim().length > 0) : (Array.isArray(product.imageUrls) ? product.imageUrls.filter((i: any) => typeof i === 'string' && i.trim().length > 0) : []);
+  const firstGenuineImg = cleanImgs.find((i: string) => !i.includes('unsplash.com') && !i.startsWith('data:image/svg'));
+
+  let image = firstGenuineImg ||
+    (product.displayImage && !product.displayImage.includes('unsplash.com') && !product.displayImage.startsWith('data:image/svg') ? product.displayImage : '') ||
+    (product.primaryPicture && !product.primaryPicture.includes('unsplash.com') && !product.primaryPicture.startsWith('data:image/svg') ? product.primaryPicture : '') ||
+    (product.image && !product.image.includes('unsplash.com') && !product.image.startsWith('data:image/svg') ? product.image : '') ||
+    (product.primaryImage && !product.primaryImage.includes('unsplash.com') && !product.primaryImage.startsWith('data:image/svg') ? product.primaryImage : '') ||
+    videoPoster ||
+    cleanImgs[0] ||
+    product.displayImage ||
+    product.image ||
+    'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+
+  if (typeof image === 'string' && (image.includes('/video/upload/') || image.endsWith('.mp4') || image.endsWith('.mov') || image.endsWith('.webm') || image.endsWith('.m4v'))) {
+    image = getServerVideoPoster(image);
+  }
+
+  // Ensure Cloudinary images have optimal dimensions for OpenGraph (1200x630)
+  let ogImageUrl = image;
+  if (typeof ogImageUrl === 'string' && ogImageUrl.includes('res.cloudinary.com') && !ogImageUrl.includes('w_1200') && !ogImageUrl.includes('so_0')) {
+    if (ogImageUrl.includes('/upload/')) {
+      ogImageUrl = ogImageUrl.replace('/upload/', '/upload/c_fill,w_1200,h_630,g_auto,f_auto,q_auto/');
+    }
+  }
+
   const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '';
   const priceSchema = cleanPrice && !isNaN(Number(cleanPrice)) ? cleanPrice : '0';
 
@@ -959,7 +1002,7 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
     "@context": "https://schema.org/",
     "@type": "Product",
     "name": product.title,
-    "image": [image],
+    "image": [ogImageUrl],
     "description": product.description,
     "sku": productId,
     "offers": {
@@ -982,14 +1025,18 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
     <meta property="og:title" content="${escapeHtml(title)}" />
     <meta property="og:description" content="${escapeHtml(description)}" />
-    <meta property="og:image" content="${escapeHtml(image)}" />
-    <meta property="og:image:secure_url" content="${escapeHtml(image)}" />
+    <meta property="og:image" content="${escapeHtml(ogImageUrl)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(ogImageUrl)}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="${escapeHtml(product.title || 'Product on TedBuy')}" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="${escapeHtml(canonicalUrl)}" />
     <meta name="twitter:title" content="${escapeHtml(title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />
-    <meta name="twitter:image" content="${escapeHtml(image)}" />
+    <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}" />
     ${schemaScript}
   `;
 
@@ -1114,10 +1161,19 @@ function normalizeServerProductRow(row: any): any {
   if (!row) return null;
   const imgs = parseMediaArray(row.images || row.imageUrls);
   const cleanImgs = imgs.filter(i => typeof i === 'string' && i.length > 0 && !i.includes('/api/products/') && !i.startsWith('data:'));
-  const primaryImg = cleanImgs[0] || (row.displayImage && typeof row.displayImage === 'string' && !row.displayImage.startsWith('data:') ? row.displayImage : '') || (row.primaryPicture && typeof row.primaryPicture === 'string' && !row.primaryPicture.startsWith('data:') ? row.primaryPicture : '') || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
   
   const vids = parseMediaArray(row.videos || row.videoUrls);
   const cleanVids = vids.filter(v => typeof v === 'string' && v.length > 0 && !v.includes('/api/products/') && !v.startsWith('data:'));
+
+  const videoPoster = (row.videoPoster && typeof row.videoPoster === 'string' && !row.videoPoster.startsWith('data:') ? row.videoPoster : '') ||
+    (row.videoPosterUrl && typeof row.videoPosterUrl === 'string' && !row.videoPosterUrl.startsWith('data:') ? row.videoPosterUrl : '') ||
+    (cleanVids[0] ? getServerVideoPoster(cleanVids[0]) : '');
+
+  const primaryImg = cleanImgs[0] ||
+    (row.displayImage && typeof row.displayImage === 'string' && !row.displayImage.startsWith('data:') ? row.displayImage : '') ||
+    (row.primaryPicture && typeof row.primaryPicture === 'string' && !row.primaryPicture.startsWith('data:') ? row.primaryPicture : '') ||
+    videoPoster ||
+    'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
 
   const rawBoostEndDate = row.boostEndDate || row.boost_end_date || row.boostExpiry || row.boost_expiry || undefined;
   const rawBoostStartDate = row.boostStartDate || row.boost_start_date || row.lastBoostedAt || row.last_boosted_at || undefined;
@@ -1126,8 +1182,10 @@ function normalizeServerProductRow(row: any): any {
   const computedBoostEndDate = getServerBoostEndDate({ ...row, boostEndDate: rawBoostEndDate, boostStartDate: rawBoostStartDate, boostPlan });
   const activeBoost = computedBoostEndDate ? computedBoostEndDate.getTime() > Date.now() : false;
 
-  const thumbnailUrl = cleanImgs[0] && cleanImgs[0].includes('res.cloudinary.com')
+  const thumbnailUrl = (cleanImgs[0] && cleanImgs[0].includes('res.cloudinary.com'))
     ? cleanImgs[0].replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/')
+    : (videoPoster && videoPoster.includes('res.cloudinary.com'))
+    ? videoPoster.replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/')
     : primaryImg;
 
   return {
@@ -1163,12 +1221,13 @@ function normalizeServerProductRow(row: any): any {
     boostStartDate: rawBoostStartDate,
     boostEndDate: computedBoostEndDate ? computedBoostEndDate.toISOString() : undefined,
     boostExpiry: computedBoostEndDate ? computedBoostEndDate.toISOString() : undefined,
-    images: cleanImgs.length > 0 ? cleanImgs : [primaryImg],
-    imageUrls: cleanImgs.length > 0 ? cleanImgs : [primaryImg],
+    images: cleanImgs.length > 0 ? cleanImgs : (videoPoster ? [videoPoster] : [primaryImg]),
+    imageUrls: cleanImgs.length > 0 ? cleanImgs : (videoPoster ? [videoPoster] : [primaryImg]),
     thumbnailUrls: [thumbnailUrl],
     thumbnailUrl,
     videos: cleanVids,
     videoUrls: cleanVids,
+    videoPoster: videoPoster,
     displayImage: primaryImg,
     primaryImage: primaryImg
   };
@@ -1179,7 +1238,7 @@ export function serializeProductSummary(row: any): any {
   const normalized = normalizeServerProductRow(row);
   if (!normalized) return null;
 
-  const displayImg = normalized.displayImage || normalized.primaryImage || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+  const displayImg = normalized.displayImage || normalized.primaryImage || normalized.videoPoster || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
   const thumbUrl = normalized.thumbnailUrl || (displayImg.includes('res.cloudinary.com') ? displayImg.replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/') : displayImg);
 
   const cleanVids = Array.isArray(normalized.videos) ? normalized.videos.filter(v => typeof v === 'string' && v.length > 0) : [];
@@ -1195,6 +1254,7 @@ export function serializeProductSummary(row: any): any {
     category: normalized.category,
     subcategory: normalized.subcategory,
     displayImage: displayImg,
+    videoPoster: normalized.videoPoster || '',
     thumbnailUrl: thumbUrl,
     videos: cleanVids,
     videoUrls: cleanVids,
@@ -1877,9 +1937,15 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     images: cleanImages.length > 0 ? cleanImages : (existingRow?.images || []),
     imageUrls: cleanImages.length > 0 ? cleanImages : (existingRow?.imageUrls || []),
     thumbnailUrls: cleanImages.map((u: string) => u.includes('res.cloudinary.com') ? u.replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/') : u),
-    thumbnailUrl: (cleanImages[0] && cleanImages[0].includes('res.cloudinary.com')) ? cleanImages[0].replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/') : (cleanImages[0] || existingRow?.thumbnailUrl || null),
+    thumbnailUrl: (cleanImages[0] && cleanImages[0].includes('res.cloudinary.com'))
+      ? cleanImages[0].replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/')
+      : (cleanImages[0] || (cleanVideos[0] ? getServerVideoPoster(cleanVideos[0]) : null) || existingRow?.thumbnailUrl || null),
     videos: cleanVideos,
     videoUrls: cleanVideos,
+    videoPoster: (productData.videoPoster && typeof productData.videoPoster === 'string' && !productData.videoPoster.startsWith('data:') ? productData.videoPoster : '') ||
+      (cleanVideos[0] ? getServerVideoPoster(cleanVideos[0]) : (existingRow?.videoPoster || '')),
+    displayImage: cleanImages[0] || (cleanVideos[0] ? getServerVideoPoster(cleanVideos[0]) : '') || existingRow?.displayImage || '',
+    primaryPicture: cleanImages[0] || (cleanVideos[0] ? getServerVideoPoster(cleanVideos[0]) : '') || existingRow?.primaryPicture || '',
     isApproved: productData.isApproved !== false,
     ...(actingUser && actingUser.isAdmin && actingUser.uid !== finalSellerId ? {
       modifiedBy: actingUser.uid,
