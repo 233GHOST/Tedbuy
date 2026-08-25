@@ -31,6 +31,15 @@
         {
           "photosPermission": "TedBuy needs access to your photos so you can add pictures to your listings."
         }
+      ],
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "TedBuy needs camera access so you can record a video for your listing.",
+          "microphonePermission": "TedBuy needs microphone access to record audio with your listing video.",
+          "recordAudioAndroid": true
+        }
       ]
     ]
   }

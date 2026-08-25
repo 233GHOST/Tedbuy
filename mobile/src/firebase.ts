@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile } from 'firebase/auth';
 import { getFirestore, collection, getDocs, query, orderBy, limit, where, onSnapshot, doc, getDoc, addDoc, setDoc, updateDoc } from 'firebase/firestore';
@@ -305,8 +306,35 @@ export function watchProducts(callback: (products: any[]) => void) {
   };
 }
 
+// Deliberately polled, NOT a realtime listener on the whole `users` collection:
+// that would re-download every user's record on any single user's presence
+// write, anywhere in the app — the same O(users^2) egress bug already fixed
+// on web (see AppContext.tsx). A periodic pull keeps names/photos/online
+// status fresh enough for a marketplace without that blowup.
 export function watchUsers(callback: (users: any[]) => void) {
-  return onSnapshot(collection(db, 'users'), (snapshot) => callback(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))));
+  let active = true;
+
+  const fetchOnce = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, 'users'));
+      if (!active) return;
+      callback(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
+    } catch (err) {
+      console.warn('[watchUsers] fetch error:', err);
+    }
+  };
+
+  fetchOnce();
+  const interval = setInterval(fetchOnce, 3 * 60 * 1000);
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (state === 'active') fetchOnce();
+  });
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+    subscription.remove();
+  };
 }
 
 // ---------------------------------------------------------------------------

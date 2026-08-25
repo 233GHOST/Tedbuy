@@ -2,11 +2,35 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Dimensions, Share, Linking, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { fetchProductById, fetchUserById, toggleLikeProduct, startChatApi, auth, watchProducts } from '../firebase';
 import { Product, isUserAdmin, isUserVerified } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
 
 const { width } = Dimensions.get('window');
+
+/** Real video playback for the product gallery (previously this screen had no
+ * video rendering at all — video-having listings only ever showed images).
+ * Its own component so useVideoPlayer is called unconditionally, per the
+ * rules of hooks, while still letting the gallery mix video and image items. */
+function GalleryVideoItem({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.carouselImage}
+      nativeControls
+      allowsFullscreen
+      allowsPictureInPicture
+      contentFit="cover"
+    />
+  );
+}
 
 interface ProductDetailScreenProps {
   productId: string;
@@ -167,8 +191,21 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     );
   }
 
-  const imagesArray = Array.isArray(product.images) && product.images.length ? product.images : [product.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'];
-  const hasMultipleImages = imagesArray.length > 1;
+  // Real video items in the gallery, videos first — matches web's ProductDetail
+  // media ordering. A video-only listing correctly shows just its video, no
+  // padded-out stock photo (same reasoning as the fix on web: a phantom image
+  // would otherwise appear alongside the video).
+  const realVideos: string[] = Array.isArray(product.videos) ? product.videos.filter(Boolean) : [];
+  const realImages: string[] = Array.isArray(product.images) && product.images.length ? product.images.filter(Boolean) : [];
+  const fallbackImages = realVideos.length === 0 && realImages.length === 0
+    ? [product.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80']
+    : [];
+  const mediaGallery: { type: 'video' | 'image'; url: string }[] = [
+    ...realVideos.map((url) => ({ type: 'video' as const, url })),
+    ...realImages.map((url) => ({ type: 'image' as const, url })),
+    ...fallbackImages.map((url) => ({ type: 'image' as const, url })),
+  ];
+  const hasMultipleImages = mediaGallery.length > 1;
   const user = auth.currentUser;
   const hasLiked = user && Array.isArray(product.likedUserIds) && product.likedUserIds.includes(user.uid);
 
@@ -198,13 +235,17 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
             }}
             scrollEventThrottle={16}
           >
-            {imagesArray.map((imgUri: string, idx: number) => (
-              <Image key={idx} source={{ uri: imgUri }} style={styles.carouselImage} />
-            ))}
+            {mediaGallery.map((item, idx) =>
+              item.type === 'video' ? (
+                <GalleryVideoItem key={idx} uri={item.url} />
+              ) : (
+                <Image key={idx} source={{ uri: item.url }} style={styles.carouselImage} />
+              )
+            )}
           </ScrollView>
           {hasMultipleImages && (
             <View style={styles.carouselIndicators}>
-              {imagesArray.map((_: any, idx: number) => (
+              {mediaGallery.map((_, idx: number) => (
                 <View
                   key={idx}
                   style={[

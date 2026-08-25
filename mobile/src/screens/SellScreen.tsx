@@ -1,16 +1,23 @@
-import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { categories } from '../data';
 import { auth, createProduct, uploadMediaToCloudinaryMobile } from '../firebase';
+import { uploadVideoDirectToCloudinaryMobile } from '../utils/cloudinary';
 
 interface SellScreenProps {
   navigation: any;
 }
 
 const MAX_IMAGES = 10;
+// Native camera recording is capped at the source — a cleaner constraint than
+// web's post-hoc "trim after recording" flow, since you simply can't record
+// past the limit in the first place. Kept in step with web's 30s trim cap.
+const MAX_VIDEO_DURATION_SECONDS = 30;
 
 interface PickedImage {
   id: string;
@@ -19,6 +26,28 @@ interface PickedImage {
   progress: number;
   remoteUrl?: string;
   error?: string;
+}
+
+interface PickedVideo {
+  localUri: string;
+  status: 'uploading' | 'done' | 'error';
+  progress: number;
+  remoteUrl?: string;
+  error?: string;
+}
+
+/** Small self-contained player for previewing a locally-picked/recorded video
+ * before it finishes uploading. Isolated in its own component because
+ * useVideoPlayer must be called unconditionally per the rules of hooks — this
+ * lets the whole preview mount/unmount instead of the hook itself. */
+function VideoPreviewThumbnail({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+
+  return <VideoView player={player} style={styles.photoThumb} nativeControls={false} contentFit="cover" />;
 }
 
 export function SellScreen({ navigation }: SellScreenProps) {
@@ -30,9 +59,24 @@ export function SellScreen({ navigation }: SellScreenProps) {
   const [isExchangeable, setIsExchangeable] = useState(false);
   const [location, setLocation] = useState('Accra Mall');
   const [images, setImages] = useState<PickedImage[]>([]);
+  const [video, setVideo] = useState<PickedVideo | null>(null);
   const [description, setDescription] = useState('');
   const [descHeight, setDescHeight] = useState(100);
   const [loading, setLoading] = useState(false);
+
+  // Camera recording state
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const cameraRef = useRef<CameraView>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    };
+  }, []);
 
   const formCategories = categories.filter((c) => c !== 'All');
   const conditions = ['Brand New', 'Refurbished', 'Used'];
@@ -130,6 +174,121 @@ export function SellScreen({ navigation }: SellScreenProps) {
     });
   };
 
+  const uploadPickedVideo = async (localUri: string) => {
+    setVideo({ localUri, status: 'uploading', progress: 0 });
+    try {
+      const result = await uploadVideoDirectToCloudinaryMobile(localUri, (percent) => {
+        setVideo((prev) => (prev ? { ...prev, progress: percent } : prev));
+      });
+      setVideo({ localUri, status: 'done', progress: 100, remoteUrl: result.secure_url });
+    } catch (err: any) {
+      setVideo({ localUri, status: 'error', progress: 0, error: err?.message || 'Video upload failed' });
+    }
+  };
+
+  const handleRemoveVideo = () => setVideo(null);
+
+  const handleRetryVideo = () => {
+    if (video) uploadPickedVideo(video.localUri);
+  };
+
+  const handlePickVideoFromLibrary = async () => {
+    if (video) {
+      Alert.alert('Video Already Added', 'Remove the current video first to pick a different one.');
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Photo Access Needed',
+        'TedBuy needs access to your photo library to add a video to your listing. Please enable access in your device Settings.'
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      videoMaxDuration: MAX_VIDEO_DURATION_SECONDS,
+      quality: 1,
+    });
+
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+    const asset = result.assets[0];
+    // duration is reported in milliseconds
+    if (asset.duration && asset.duration / 1000 > MAX_VIDEO_DURATION_SECONDS + 1) {
+      Alert.alert(
+        'Video Too Long',
+        `Please choose a video under ${MAX_VIDEO_DURATION_SECONDS} seconds, or use "Record Video" which stops automatically at the limit.`
+      );
+      return;
+    }
+
+    uploadPickedVideo(asset.uri);
+  };
+
+  const handleOpenCamera = async () => {
+    if (video) {
+      Alert.alert('Video Already Added', 'Remove the current video first to record a new one.');
+      return;
+    }
+    if (!cameraPermission?.granted) {
+      const res = await requestCameraPermission();
+      if (!res.granted) {
+        Alert.alert(
+          'Camera Access Needed',
+          'TedBuy needs camera access to record a video for your listing. Please enable it in your device Settings.'
+        );
+        return;
+      }
+    }
+    setShowCameraModal(true);
+  };
+
+  const handleStartRecording = async () => {
+    if (!cameraRef.current || isRecording) return;
+    setIsRecording(true);
+    setRecordingSeconds(0);
+
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingSeconds((prev) => {
+        if (prev + 1 >= MAX_VIDEO_DURATION_SECONDS) {
+          handleStopRecording();
+        }
+        return prev + 1;
+      });
+    }, 1000);
+
+    try {
+      const video = await cameraRef.current.recordAsync({ maxDuration: MAX_VIDEO_DURATION_SECONDS });
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      setIsRecording(false);
+      setShowCameraModal(false);
+      if (video?.uri) {
+        uploadPickedVideo(video.uri);
+      }
+    } catch (err: any) {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      setIsRecording(false);
+      Alert.alert('Recording Error', err?.message || 'Could not record video.');
+    }
+  };
+
+  const handleStopRecording = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    cameraRef.current?.stopRecording();
+  };
+
   const handlePublish = async () => {
     if (!auth.currentUser) {
       Alert.alert('Authentication Required', 'Please sign in or create an account from the Profile tab to publish listings.', [
@@ -159,6 +318,14 @@ export function SellScreen({ navigation }: SellScreenProps) {
       Alert.alert('Photo Upload Failed', 'One or more photos failed to upload. Remove them or retry before publishing.');
       return;
     }
+    if (video?.status === 'uploading') {
+      Alert.alert('Please Wait', 'Your video is still uploading. Please wait for it to finish.');
+      return;
+    }
+    if (video?.status === 'error') {
+      Alert.alert('Video Upload Failed', 'Your video failed to upload. Remove it or retry before publishing.');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -170,10 +337,18 @@ export function SellScreen({ navigation }: SellScreenProps) {
       }
 
       const uploadedImageUrls = images.map((img) => img.remoteUrl!).filter(Boolean);
+      const uploadedVideoUrl = video?.status === 'done' ? video.remoteUrl : undefined;
       const defaultImage = selectedCategory === 'Jobs & Employment'
         ? 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80'
         : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
-      const finalImages = uploadedImageUrls.length > 0 ? uploadedImageUrls : [defaultImage];
+      // Only fall back to a generic stock photo when there's truly no media —
+      // a video-only listing correctly has an empty images array, matching
+      // web's behavior. Padding it with a stock photo here would reintroduce
+      // the exact "phantom image next to the video" bug just fixed on web,
+      // via a different code path.
+      const finalImages = uploadedImageUrls.length > 0
+        ? uploadedImageUrls
+        : (uploadedVideoUrl ? [] : [defaultImage]);
       const prodId = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       const productData = {
@@ -187,8 +362,9 @@ export function SellScreen({ navigation }: SellScreenProps) {
         exchangePossible: selectedCategory === 'Jobs & Employment' ? false : isExchangeable,
         location: location.trim() || 'Accra, Ghana',
         description: description.trim(),
-        image: finalImages[0],
+        image: finalImages[0] || '',
         images: finalImages,
+        videos: uploadedVideoUrl ? [uploadedVideoUrl] : [],
         sellerId: auth.currentUser.uid,
         sellerName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
         sellerPhoto: auth.currentUser.photoURL || '',
@@ -208,6 +384,7 @@ export function SellScreen({ navigation }: SellScreenProps) {
             setPrice('');
             setDescription('');
             setImages([]);
+            setVideo(null);
             setIsExchangeable(false);
             navigation.navigate('Home');
           },
@@ -429,11 +606,57 @@ export function SellScreen({ navigation }: SellScreenProps) {
                 </View>
               </View>
 
+              {/* Video */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Product Video (Optional, Max 1)</Text>
+                <Text style={styles.photoHint}>
+                  Record a quick video demo right in the app, or choose one from your library. Max {MAX_VIDEO_DURATION_SECONDS} seconds.
+                </Text>
+                {video ? (
+                  <View style={styles.photoGrid}>
+                    <View style={styles.photoThumbWrapper}>
+                      <VideoPreviewThumbnail uri={video.localUri} />
+                      {video.status === 'uploading' && (
+                        <View style={styles.photoOverlay}>
+                          <ActivityIndicator size="small" color="#ffffff" />
+                          <Text style={styles.photoOverlayText}>{video.progress}%</Text>
+                        </View>
+                      )}
+                      {video.status === 'error' && (
+                        <View style={[styles.photoOverlay, styles.photoOverlayError]}>
+                          <Text style={styles.photoOverlayText}>Failed</Text>
+                          <Pressable onPress={handleRetryVideo} style={styles.retryBtn}>
+                            <Text style={styles.retryBtnText}>Retry</Text>
+                          </Pressable>
+                        </View>
+                      )}
+                      <Pressable onPress={handleRemoveVideo} style={styles.removePhotoBtn} hitSlop={6}>
+                        <Text style={styles.removePhotoBtnText}>✕</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.videoActionRow}>
+                    <Pressable onPress={handleOpenCamera} style={styles.videoActionBtn}>
+                      <Text style={styles.videoActionBtnIcon}>🎥</Text>
+                      <Text style={styles.videoActionBtnText}>Record Video</Text>
+                    </Pressable>
+                    <Pressable onPress={handlePickVideoFromLibrary} style={styles.videoActionBtn}>
+                      <Text style={styles.videoActionBtnIcon}>📁</Text>
+                      <Text style={styles.videoActionBtnText}>Choose from Library</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+
               {/* Publish Button */}
               <Pressable
                 onPress={handlePublish}
-                disabled={loading || images.some((img) => img.status === 'uploading')}
-                style={[styles.publishButton, (loading || images.some((img) => img.status === 'uploading')) && styles.publishButtonDisabled]}
+                disabled={loading || images.some((img) => img.status === 'uploading') || video?.status === 'uploading'}
+                style={[
+                  styles.publishButton,
+                  (loading || images.some((img) => img.status === 'uploading') || video?.status === 'uploading') && styles.publishButtonDisabled,
+                ]}
               >
                 {loading ? (
                   <ActivityIndicator size="small" color="#ffffff" />
@@ -441,6 +664,8 @@ export function SellScreen({ navigation }: SellScreenProps) {
                   <Text style={styles.publishButtonText}>
                     {images.some((img) => img.status === 'uploading')
                       ? 'UPLOADING PHOTOS...'
+                      : video?.status === 'uploading'
+                      ? 'UPLOADING VIDEO...'
                       : selectedCategory === 'Jobs & Employment' ? 'POST JOB VACANCY' : 'PUBLISH CLASSIFIED AD'}
                   </Text>
                 )}
@@ -449,6 +674,43 @@ export function SellScreen({ navigation }: SellScreenProps) {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Camera Recording Modal */}
+      <Modal visible={showCameraModal} animationType="slide" onRequestClose={() => !isRecording && setShowCameraModal(false)}>
+        <View style={styles.cameraModalContainer}>
+          {cameraPermission?.granted && (
+            <CameraView ref={cameraRef} style={styles.cameraView} facing="back" mode="video" />
+          )}
+          <View style={styles.cameraTopBar}>
+            <Pressable
+              onPress={() => !isRecording && setShowCameraModal(false)}
+              style={styles.cameraCloseBtn}
+              disabled={isRecording}
+            >
+              <Text style={styles.cameraCloseBtnText}>✕</Text>
+            </Pressable>
+            {isRecording && (
+              <View style={styles.recordingTimerBadge}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingTimerText}>
+                  {recordingSeconds}s / {MAX_VIDEO_DURATION_SECONDS}s
+                </Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.cameraBottomBar}>
+            <Pressable
+              onPress={isRecording ? handleStopRecording : handleStartRecording}
+              style={[styles.recordButton, isRecording && styles.recordButtonActive]}
+            >
+              {isRecording && <View style={styles.recordButtonStopIcon} />}
+            </Pressable>
+            <Text style={styles.cameraHintText}>
+              {isRecording ? 'Tap to stop' : 'Tap to start recording'}
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -646,4 +908,74 @@ const styles = StyleSheet.create({
   },
   addPhotoBtnIcon: { fontSize: 22, color: '#64748b', fontWeight: '300' },
   addPhotoBtnText: { fontSize: 9.5, color: '#64748b', fontWeight: '700', marginTop: 2 },
+
+  videoActionRow: { flexDirection: 'row', gap: 10 },
+  videoActionBtn: {
+    flex: 1,
+    height: 84,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  videoActionBtnIcon: { fontSize: 22 },
+  videoActionBtnText: { fontSize: 10.5, color: '#64748b', fontWeight: '700', marginTop: 4, textAlign: 'center', paddingHorizontal: 6 },
+
+  cameraModalContainer: { flex: 1, backgroundColor: '#000000' },
+  cameraView: { flex: 1 },
+  cameraTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 56,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cameraCloseBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraCloseBtnText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
+  recordingTimerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
+  recordingTimerText: { color: '#ffffff', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  cameraBottomBar: {
+    position: 'absolute',
+    bottom: 48,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    gap: 10,
+  },
+  recordButton: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#ffffff',
+    borderWidth: 5,
+    borderColor: 'rgba(255,255,255,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordButtonActive: { backgroundColor: '#ef4444' },
+  recordButtonStopIcon: { width: 22, height: 22, borderRadius: 4, backgroundColor: '#ffffff' },
+  cameraHintText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
 });

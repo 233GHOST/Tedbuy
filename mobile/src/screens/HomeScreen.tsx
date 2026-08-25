@@ -1,9 +1,42 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { categories } from '../data';
 import { Product } from '../types';
 import { auth, fetchProducts, watchProducts, watchUsers } from '../firebase';
+
+/** Real video playback for the "Watch Video Ads" feed — this previously
+ * rendered a blurred product image with a static play-button icon, no actual
+ * video at all. Only the currently-visible item actually plays; others stay
+ * paused, matching the same active-only pattern already used elsewhere. */
+function VideoFeedPlayer({ uri, isActive, isMuted }: { uri: string; isActive: boolean; isMuted: boolean }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = isMuted;
+  });
+
+  useEffect(() => {
+    player.muted = isMuted;
+  }, [isMuted, player]);
+
+  useEffect(() => {
+    if (isActive) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [isActive, player]);
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.videoPlaceholderImage}
+      nativeControls={false}
+      contentFit="cover"
+    />
+  );
+}
 import { ProductCard } from '../components/ProductCard';
 import { getForYouProducts } from '../utils/recommendationScore';
 
@@ -40,6 +73,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchText, setSearchText] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'video'>('grid');
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+  const [isVideoFeedMuted, setIsVideoFeedMuted] = useState(true);
+  const videoViewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
+  const onVideoViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0 && viewableItems[0].index != null) {
+      setActiveVideoIndex(viewableItems[0].index);
+    }
+  }).current;
   const [products, setProducts] = useState<Product[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -308,6 +349,13 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       })
       .slice(0, 12);
   }, [users, products, selectedCategory]);
+
+  // Only listings with a real video belong in the video ads feed — the
+  // previous implementation showed every product's photo with a fake play
+  // icon overlay, regardless of whether it actually had a video.
+  const videoAdsProducts = useMemo(() => {
+    return products.filter((p) => Array.isArray((p as any).videos) && (p as any).videos.length > 0 && (p as any).videos[0]);
+  }, [products]);
 
   const handleToggleSave = (productId: string) => {
     setSavedProducts((prev) => {
@@ -831,37 +879,48 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               ) : null
             }
           />
+        ) : videoAdsProducts.length === 0 ? (
+          <View style={styles.videoFeedEmptyState}>
+            <Text style={styles.videoFeedEmptyEmoji}>🎥</Text>
+            <Text style={styles.videoFeedEmptyTitle}>No video ads yet</Text>
+            <Text style={styles.videoFeedEmptyText}>
+              Sellers haven't posted any video listings yet. Check back soon, or record your own from the Sell tab!
+            </Text>
+          </View>
         ) : (
-          /* IMERSIVE VIDEO ADS FEED (Swiper/Reels style) */
+          /* IMMERSIVE VIDEO ADS FEED (Swiper/Reels style) — real playback, only
+             for listings that actually have a video. */
           <View style={styles.videoFeedContainer}>
             <FlatList
-              data={products}
+              data={videoAdsProducts}
               pagingEnabled
               keyExtractor={(item) => `video-${item.id}`}
               showsVerticalScrollIndicator={false}
+              viewabilityConfig={videoViewabilityConfig}
+              onViewableItemsChanged={onVideoViewableItemsChanged}
               renderItem={({ item, index }) => {
                 const isSaved = !!savedProducts[item.id];
+                const videoUri = Array.isArray((item as any).videos) ? (item as any).videos[0] : undefined;
                 return (
                   <View style={styles.videoPlayerFrame}>
-                    {/* Simulated video cover frame using product image with subtle overlay */}
-                    <Image
-                      source={{ uri: Array.isArray(item.images) && item.images.length ? item.images[0] : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80' }}
-                      style={styles.videoPlaceholderImage}
-                      blurRadius={1}
-                    />
-                    <View style={styles.videoOverlay} />
+                    {videoUri ? (
+                      <VideoFeedPlayer uri={videoUri} isActive={index === activeVideoIndex} isMuted={isVideoFeedMuted} />
+                    ) : (
+                      <Image
+                        source={{ uri: Array.isArray(item.images) && item.images.length ? item.images[0] : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80' }}
+                        style={styles.videoPlaceholderImage}
+                      />
+                    )}
+                    <View style={styles.videoOverlay} pointerEvents="none" />
 
-                    {/* Scrolling/progress bar at the top */}
-                    <View style={styles.videoProgressBarContainer}>
-                      <View style={styles.videoProgressBarActive} />
-                    </View>
-
-                    {/* Central Play Indicator Badge */}
-                    <View style={styles.playBadgeContainer}>
-                      <View style={styles.playBadge}>
-                        <Text style={styles.playArrow}>▶</Text>
-                      </View>
-                    </View>
+                    {/* Mute toggle */}
+                    <Pressable
+                      style={styles.videoMuteBtn}
+                      onPress={() => setIsVideoFeedMuted((prev) => !prev)}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.videoMuteBtnIcon}>{isVideoFeedMuted ? '🔇' : '🔊'}</Text>
+                    </Pressable>
 
                     {/* Immersive bottom details row */}
                     <View style={styles.videoBottomDetails}>
@@ -1317,50 +1376,39 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   videoOverlay: {
+    // Lighter than before deliberately — this used to darken a blurred fake
+    // placeholder image; with real video playing underneath, a heavy scrim
+    // would just dim the actual content for no reason.
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(2, 6, 23, 0.45)',
+    backgroundColor: 'rgba(2, 6, 23, 0.15)',
   },
-  videoProgressBarContainer: {
+  videoMuteBtn: {
     position: 'absolute',
-    top: 10,
-    left: 12,
-    right: 12,
-    height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 999,
-    overflow: 'hidden',
+    top: 16,
+    right: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
     zIndex: 10,
   },
-  videoProgressBarActive: {
-    width: '38%',
-    height: '100%',
-    backgroundColor: '#ea580c',
-  },
-  playBadgeContainer: {
-    position: 'absolute',
+  videoMuteBtnIcon: { fontSize: 16 },
+  videoFeedEmptyState: {
+    flex: 1,
+    backgroundColor: '#020617',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 5,
+    paddingHorizontal: 40,
   },
-  playBadge: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  playArrow: {
-    color: '#ffffff',
-    fontSize: 18,
-    marginLeft: 3,
-  },
+  videoFeedEmptyEmoji: { fontSize: 44, marginBottom: 14 },
+  videoFeedEmptyTitle: { color: '#ffffff', fontSize: 17, fontWeight: '800', marginBottom: 8 },
+  videoFeedEmptyText: { color: '#94a3b8', fontSize: 13, textAlign: 'center', lineHeight: 19 },
   videoBottomDetails: {
     position: 'absolute',
     bottom: 12,
