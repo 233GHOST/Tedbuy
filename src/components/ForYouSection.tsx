@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { ProductCard } from './ProductCard';
 import { useApp } from '../context/AppContext';
 import { getForYouProducts } from '../utils/recommendationScore';
-import { Sparkles } from 'lucide-react';
 
 interface ForYouSectionProps {
   /** Optional Ghana location filter context, passed down the same way other
@@ -43,15 +42,12 @@ export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, se
   return (
     <section id="for-you-section" className="w-full mb-8 animate-fade-in">
       <div className="flex items-center gap-2 font-sans mb-1">
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 text-white flex items-center justify-center shadow-xs">
-          <Sparkles className="w-4 h-4" />
-        </div>
         <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
           {result.headline}
         </h3>
       </div>
 
-      <p className={`text-xs font-semibold text-slate-500 ml-10 ${result.subtitle ? 'mb-4' : 'mb-4 h-0 overflow-hidden'}`}>
+      <p className={`text-xs font-semibold text-slate-500 ${result.subtitle ? 'mb-4' : 'mb-4 h-0 overflow-hidden'}`}>
         {result.subtitle}
       </p>
 

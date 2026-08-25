@@ -958,11 +958,16 @@ export const VideoAdsFeed: React.FC = () => {
 
   const feedScrollContainerRef = useRef<HTMLDivElement>(null);
   const productRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  // Tracks the "scroll to watch ads" hint's visibility. A ref (not just state)
+  // is needed because the scroll handler below is set up once per mount and
+  // would otherwise read a stale value of hasScrolledOnce from its closure.
+  const hasScrolledOnceRef = useRef(false);
 
   const [feedItems, setFeedItems] = useState<VideoFeedItem[]>([]);
   const [isLoadingBatch, setIsLoadingBatch] = useState<boolean>(false);
   const [batchCount, setBatchCount] = useState<number>(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [hasScrolledOnce, setHasScrolledOnce] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [contactingProduct, setContactingProduct] = useState<Product | null>(null);
@@ -1175,6 +1180,11 @@ export const VideoAdsFeed: React.FC = () => {
     let ticking = false;
 
     const handleScroll = () => {
+      if (!hasScrolledOnceRef.current) {
+        hasScrolledOnceRef.current = true;
+        setHasScrolledOnce(true);
+      }
+
       if (!ticking) {
         window.requestAnimationFrame(() => {
           const currentScrollTop = container.scrollTop;
@@ -1293,18 +1303,22 @@ export const VideoAdsFeed: React.FC = () => {
  
       {/* 1. Immersive vertical center-aligned Reels viewport container */}
       <div className="flex-1 relative bg-slate-950 flex flex-col justify-start overflow-hidden">
-        {/* Modern "Scroll to watch ads" top overlay indicator */}
-        <div className="absolute top-4 left-4 z-30 flex items-center gap-2 bg-black/75 backdrop-blur-md border border-white/10 px-3.5 py-1.5 rounded-full shadow-2xl pointer-events-none select-none">
-          <div className="flex items-center justify-center bg-[#FFFC00] text-slate-950 rounded-full p-0.5 animate-bounce">
-            <ChevronDown className="w-3.5 h-3.5 stroke-[3]" />
+        {/* Modern "Scroll to watch ads" top overlay indicator — shown only until the
+            user's first scroll in this session of the video feed; reappears if they
+            leave and come back since the component remounts fresh each time. */}
+        {!hasScrolledOnce && (
+          <div className="absolute top-4 left-4 z-30 flex items-center gap-2 bg-black/75 backdrop-blur-md border border-white/10 px-3.5 py-1.5 rounded-full shadow-2xl pointer-events-none select-none">
+            <div className="flex items-center justify-center bg-[#FFFC00] text-slate-950 rounded-full p-0.5 animate-bounce">
+              <ChevronDown className="w-3.5 h-3.5 stroke-[3]" />
+            </div>
+            <span className="text-[10px] font-black tracking-widest text-[#FFFC00] font-sans uppercase">
+              Scroll to watch ads
+            </span>
+            {isLoadingBatch && (
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping ml-1" title="Fetching batch" />
+            )}
           </div>
-          <span className="text-[10px] font-black tracking-widest text-[#FFFC00] font-sans uppercase">
-            Scroll to watch ads
-          </span>
-          {isLoadingBatch && (
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping ml-1" title="Fetching batch" />
-          )}
-        </div>
+        )}
 
         {/* Scrollable scroll-snap container */}
         <div 
@@ -1327,7 +1341,14 @@ export const VideoAdsFeed: React.FC = () => {
                 <ReelItem
                   product={product}
                   isActive={activeIndex === idx}
-                  shouldLoad={activeIndex === idx || (activeIndex + 1) % feedItems.length === idx}
+                  // Keep a 3-item window (previous, current, next) mounted so scrolling
+                  // back up to a video you just watched doesn't force a full unmount/
+                  // remount — that re-buffering is exactly what read as "loading again".
+                  shouldLoad={
+                    activeIndex === idx ||
+                    (activeIndex + 1) % feedItems.length === idx ||
+                    (activeIndex - 1 + feedItems.length) % feedItems.length === idx
+                  }
                   isMuted={isMuted}
                   onMuteToggle={(e) => {
                     e.stopPropagation();

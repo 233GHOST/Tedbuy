@@ -1171,6 +1171,11 @@ const MarketplaceContent: React.FC = () => {
                 </div>
               )}
 
+              {/* Featured Boosted Listings Section - Hidden when user is searching */}
+              {!debouncedSearchQuery.trim() && !searchQuery.trim() && (
+                <FeaturedListings selectedCategory={selectedCategory} />
+              )}
+
               {/* Personalized "For You" discovery section - Hidden when user is searching */}
               {!debouncedSearchQuery.trim() && !searchQuery.trim() && (
                 <ForYouSection selectedRegion={selectedRegion} selectedCity={selectedCity} />
@@ -1179,11 +1184,6 @@ const MarketplaceContent: React.FC = () => {
               {/* Sellers to Discover Section (Active Ghanaian Merchants & Storefronts) - Hidden when user is searching */}
               {!debouncedSearchQuery.trim() && !searchQuery.trim() && (
                 <SellersToDiscover selectedCategory={selectedCategory} />
-              )}
-
-              {/* Featured Boosted Listings Section - Hidden when user is searching */}
-              {!debouncedSearchQuery.trim() && !searchQuery.trim() && (
-                <FeaturedListings selectedCategory={selectedCategory} />
               )}
 
               {/* Trending Ads Section (Top 10 Most Viewed Items) - Hidden when user is searching */}

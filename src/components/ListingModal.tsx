@@ -481,63 +481,21 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       return;
     }
     
-    // If the video is oversized (> 18MB), set the oversized file and prompt the user to compress it.
-    // 18MB is the real ceiling, not an arbitrary number: videos are base64-encoded before
-    // upload (~33% larger) and must fit under the server's 25MB JSON body limit — going higher
-    // here would let users past this check only to hit a hard server-side rejection on submit.
+    // Every newly selected video opens the trim/edit step below before being
+    // finalized — gives sellers a chance to trim to the best moment before
+    // posting, reusing the same editor previously shown only for oversized
+    // videos. Duration/trim-range setup happens generically in the effect
+    // keyed on oversizedVideoFile, so no separate metadata pre-check is
+    // needed here.
+    //
+    // 18MB is the real hard ceiling, not an arbitrary number: videos are
+    // base64-encoded before upload (~33% larger) and must fit under the
+    // server's 25MB JSON body limit — flagged clearly so sellers know
+    // trimming/compressing isn't optional for a file this size.
     if (file.size > 18 * 1024 * 1024) {
-      setOversizedVideoFile(file);
-      setErrorMsg(`"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Videos larger than 18MB must be optimized. Use our built-in high-quality compressor below.`);
-      return;
+      setErrorMsg(`"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)}MB. Videos larger than 18MB must be trimmed/optimized below before posting.`);
     }
-
-    // Preload video to validate its format/metadata dynamically before converting/uploading
-    const tempVideo = document.createElement('video');
-    tempVideo.preload = 'metadata';
-    
-    tempVideo.onloadedmetadata = () => {
-      window.URL.revokeObjectURL(tempVideo.src);
-      const duration = tempVideo.duration;
-      
-      if (isNaN(duration)) {
-        setErrorMsg(`Could not read duration of "${file.name}". Please try a standard MP4 or WebM format.`);
-        return;
-      }
-
-      // If validation succeeds, convert to base64
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setVideos([reader.result]);
-          setPendingVideoFile(file);
-          setOversizedVideoFile(null);
-          // Set immediate local preview URL using the uploaded file's blob URL
-          const blobUrl = URL.createObjectURL(file);
-          setVideoPreviewUrl(blobUrl);
-        }
-      };
-      reader.readAsDataURL(file);
-    };
-
-    tempVideo.onerror = () => {
-      window.URL.revokeObjectURL(tempVideo.src);
-      console.warn(`Could not read video metadata for "${file.name}". Attempting direct upload fallback.`);
-      
-      // Fallback: convert directly to base64 if it's within size limit
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setVideos([reader.result]);
-          setPendingVideoFile(file);
-          setOversizedVideoFile(null);
-          const blobUrl = URL.createObjectURL(file);
-          setVideoPreviewUrl(blobUrl);
-        }
-      };
-      reader.readAsDataURL(file);
-    };
-
-    tempVideo.src = URL.createObjectURL(file);
+    setOversizedVideoFile(file);
   };
 
   const compressVideoFile = async (file: File) => {
@@ -777,6 +735,36 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         video.parentNode.removeChild(video);
       }
     }
+  };
+
+  // Confirms the video editor step. Only runs the heavy trim+re-encode
+  // pipeline (which downscales to 540p) when there's an actual reason to —
+  // the file is genuinely oversized, or the seller actually narrowed the
+  // trim range. Otherwise the original file is kept untouched, so a normal
+  // video that the seller didn't edit doesn't lose quality for no reason.
+  const handleSaveVideoEdit = () => {
+    if (!oversizedVideoFile) return;
+
+    const isGenuinelyOversized = oversizedVideoFile.size > 18 * 1024 * 1024;
+    const EPSILON = 0.05;
+    const isTrimmed = trimStart > EPSILON || (videoDuration > 0 && trimEnd < videoDuration - EPSILON);
+
+    if (!isGenuinelyOversized && !isTrimmed) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setVideos([reader.result]);
+          setPendingVideoFile(oversizedVideoFile);
+          setOversizedVideoFile(null);
+          const blobUrl = URL.createObjectURL(oversizedVideoFile);
+          setVideoPreviewUrl(blobUrl);
+        }
+      };
+      reader.readAsDataURL(oversizedVideoFile);
+      return;
+    }
+
+    compressVideoFile(oversizedVideoFile);
   };
 
   const removeVideo = (indexToRemove: number) => {
@@ -1585,18 +1573,33 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   )}
                 </div>
 
-                {/* Oversized Video Compressor Prompt Card */}
+                {/* Video Edit/Compressor Prompt Card — shown for every newly selected
+                    video so sellers can trim before posting; wording adapts if the
+                    file is also genuinely over the 18MB limit and must be optimized. */}
                 {oversizedVideoFile && (
                   <div className="bg-amber-50/70 border border-amber-250 rounded-2xl p-4.5 space-y-4 mt-2 animate-fadeIn">
                     <div className="flex gap-3">
                       <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                       <div className="space-y-1">
-                        <h4 className="text-xs font-black text-amber-900 leading-snug font-sans">
-                          Video File is Too Large ({Math.round(oversizedVideoFile.size / 1024)}KB)
-                        </h4>
-                        <p className="text-[11px] text-amber-700 leading-relaxed">
-                          Edit video to required size
-                        </p>
+                        {oversizedVideoFile.size > 18 * 1024 * 1024 ? (
+                          <>
+                            <h4 className="text-xs font-black text-amber-900 leading-snug font-sans">
+                              Video File is Too Large ({Math.round(oversizedVideoFile.size / 1024)}KB)
+                            </h4>
+                            <p className="text-[11px] text-amber-700 leading-relaxed">
+                              Edit video to required size
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <h4 className="text-xs font-black text-amber-900 leading-snug font-sans">
+                              Edit Your Video
+                            </h4>
+                            <p className="text-[11px] text-amber-700 leading-relaxed">
+                              Trim to the best moment, or tap Save to post as-is
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1725,7 +1728,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                       <div className="flex items-center gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => compressVideoFile(oversizedVideoFile)}
+                          onClick={handleSaveVideoEdit}
                           className="px-4 py-2 bg-amber-600 hover:bg-amber-750 text-white text-xs font-black rounded-xl cursor-pointer shadow-sm flex items-center gap-1.5 transition"
                         >
                           <Scissors className="w-3.5 h-3.5" />
