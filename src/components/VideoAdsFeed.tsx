@@ -31,8 +31,7 @@ import {
   X
 } from 'lucide-react';
 import { 
-  getOrFetchCachedVideoUrl, 
-  getCachedVideoUrlSync, 
+  getProcessedVideoUrl, 
   preloadVideoBatch 
 } from '../utils/videoCache';
 
@@ -222,45 +221,19 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   const currentVideoUrl = product?.videos?.[0] || '';
 
-  // Instant preloading & decoding using offline CacheStorage and memory Blob cache to prevent freeze and enable buttery smooth TikTok swipe
+  // Instant preloading & decoding for base64 Data URLs and direct video URLs
   useEffect(() => {
-    let isMounted = true;
     setVideoError(false);
     setVideoErrorDetails('');
 
-    if (!shouldLoad) {
+    if (!shouldLoad || !currentVideoUrl) {
       setProcessedVideoUrl('');
       return;
     }
 
-    if (!currentVideoUrl) {
-      setProcessedVideoUrl('');
-      return;
-    }
-
-    // Check synchronous cache first for instant frame-1 rendering
-    const syncUrl = getCachedVideoUrlSync(currentVideoUrl);
-    if (syncUrl) {
-      setProcessedVideoUrl(syncUrl);
-    }
-
-    // Resolve or download asynchronously to CacheStorage & Blob store
-    getOrFetchCachedVideoUrl(currentVideoUrl)
-      .then(url => {
-        if (isMounted && url) {
-          setProcessedVideoUrl(url);
-        }
-      })
-      .catch(err => {
-        console.warn('[ReelItem] Error resolving video url:', err);
-        if (isMounted) {
-          setProcessedVideoUrl(currentVideoUrl);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
+    // Resolve immediately with no delay
+    const playableUrl = getProcessedVideoUrl(currentVideoUrl);
+    setProcessedVideoUrl(playableUrl);
   }, [currentVideoUrl, shouldLoad]);
 
   // Sync volume and mute changes dynamically without triggering video play re-initializations
@@ -528,7 +501,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
             disablePictureInPicture
             controlsList="nodownload nofullscreen noremoteplayback"
             preload="auto"
-            crossOrigin="anonymous"
             style={{ 
               transform: 'translate3d(0, 0, 0)', 
               backfaceVisibility: 'hidden',
