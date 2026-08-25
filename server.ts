@@ -201,46 +201,38 @@ async function verifyUser(authHeader?: string, impersonationSessionId?: string |
   const token = authHeader.split('Bearer ')[1]?.trim();
   if (!token) return null;
 
-  let baseUser: { uid: string; email: string; isAdmin?: boolean } | null = null;
+  if (getAdminApps().length === 0) {
+    console.error('[Auth] Firebase Admin SDK is not initialized; cannot verify any token. Rejecting request.');
+    return null;
+  }
 
-  // 1. Try Firebase Admin SDK verification
+  // The ONLY accepted authentication path: cryptographic verification of a real
+  // Firebase ID token via the Admin SDK. Any failure — forged, unsigned,
+  // malformed, expired, or wrong signature — must reject the request. There is
+  // deliberately no fallback that trusts a decoded-but-unverified token payload,
+  // a hardcoded bypass string, or any other client-supplied claim.
+  let baseUser: { uid: string; email: string; isAdmin?: boolean };
   try {
-    if (getAdminApps().length > 0) {
-      const decoded = await getAdminAuth().verifyIdToken(token);
-      baseUser = { 
-        uid: decoded.uid, 
-        email: (decoded.email || '').toLowerCase().trim(), 
-        isAdmin: !!decoded.admin || (decoded.email || '').toLowerCase().trim() === 'asumaduvincent7@gmail.com' 
-      };
-    }
-  } catch (e) {}
-
-  // 2. Safe JWT payload inspection fallback (for verified client sessions)
-  if (!baseUser) {
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-        if (payload && (payload.user_id || payload.sub || payload.uid || payload.email)) {
-          const uid = payload.user_id || payload.sub || payload.uid || '';
-          const email = (payload.email || '').toLowerCase().trim();
-          const isAdmin = payload.admin === true || email === 'asumaduvincent7@gmail.com';
-          baseUser = { uid, email, isAdmin };
-        }
-      }
-    } catch (_) {}
+    const decoded = await getAdminAuth().verifyIdToken(token);
+    const email = (decoded.email || '').toLowerCase().trim();
+    baseUser = {
+      uid: decoded.uid,
+      email,
+      // Authorization (is this verified identity an admin?), derived only from
+      // the app's existing admin model — a real Firebase custom claim if one is
+      // ever set, or the single verified owner email already used as the sole
+      // admin-granting condition everywhere else in this app (types.ts's
+      // isUserAdmin(), AppContext.tsx's isSuperAdmin checks). Never from
+      // anything inside the token that Firebase itself didn't verify.
+      isAdmin: !!decoded.admin || email === 'asumaduvincent7@gmail.com'
+    };
+  } catch (e) {
+    return null;
   }
-
-  // 3. Check for custom token string / super admin secret
-  if (!baseUser && (token === 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' || token.includes('asumaduvincent7@gmail.com'))) {
-    baseUser = { uid: 'admin_master', email: 'asumaduvincent7@gmail.com', isAdmin: true };
-  }
-
-  if (!baseUser) return null;
 
   // Check if admin is impersonating
   const sessId = Array.isArray(impersonationSessionId) ? impersonationSessionId[0] : impersonationSessionId;
-  if (sessId && (baseUser.isAdmin || baseUser.email === 'asumaduvincent7@gmail.com')) {
+  if (sessId && baseUser.isAdmin) {
     const session = activeImpersonationSessions.get(sessId);
     if (session && new Date(session.expiresAt).getTime() > Date.now()) {
       return {
@@ -257,10 +249,8 @@ async function verifyUser(authHeader?: string, impersonationSessionId?: string |
 }
 
 async function verifyAdmin(authHeader?: string, impersonationSessionId?: string | string[]): Promise<boolean> {
-  if (!authHeader) return false;
-  if (authHeader.includes('TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ')) return true;
   const user = await verifyUser(authHeader, impersonationSessionId);
-  return !!user?.isAdmin || user?.email?.toLowerCase()?.trim() === 'asumaduvincent7@gmail.com' || !!user?.originalAdmin;
+  return !!user?.isAdmin || !!user?.originalAdmin;
 }
 
 function cleanObject(obj: any): any {
