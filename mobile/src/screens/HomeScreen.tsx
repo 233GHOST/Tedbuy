@@ -565,6 +565,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselIcon}>✨</Text>
                         <Text style={styles.carouselTitle}>{forYouResult.headline}</Text>
                       </View>
+                      <Pressable
+                        onPress={() => {
+                          scrollViewRef.current?.scrollTo({ y: 750, animated: true });
+                        }}
+                        style={styles.carouselViewAllBtn}
+                      >
+                        <Text style={styles.carouselViewAllText}>View all ›</Text>
+                      </Pressable>
                     </View>
                     {forYouResult.subtitle && (
                       <Text style={styles.forYouSubtitle}>{forYouResult.subtitle}</Text>
