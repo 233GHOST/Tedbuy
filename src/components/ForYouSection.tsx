@@ -20,7 +20,7 @@ interface ForYouSectionProps {
  * "Discover on TedBuy" ranking when a user has no behavioral history yet).
  */
 export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, selectedCity }) => {
-  const { products, users, reviews, chats, currentUser, recentlyViewedIds } = useApp();
+  const { products, users, reviews, chats, currentUser, recentlyViewedIds, setCurrentView } = useApp();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const result = useMemo(() => {
@@ -52,10 +52,7 @@ export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, se
   };
 
   const handleViewAll = () => {
-    const el = document.getElementById('all-products-section') || document.getElementById('product-grid');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    setCurrentView('for-you-listings');
   };
 
   if (!result.items || result.items.length === 0) {

@@ -40,6 +40,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchText, setSearchText] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'video'>('grid');
+  const [activeSectionView, setActiveSectionView] = useState<'all' | 'featured' | 'trending' | 'for-you' | 'sellers'>('all');
   const [products, setProducts] = useState<Product[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -388,7 +389,125 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
 
       {/* Main body of the screen */}
       <View style={styles.body}>
-        {viewMode === 'grid' ? (
+        {activeSectionView !== 'all' ? (
+          <View style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+            <View style={{ paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' }}>
+              <Pressable
+                onPress={() => setActiveSectionView('all')}
+                style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#64748b' }}>‹ Back to Marketplace</Text>
+              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontSize: 20 }}>
+                  {activeSectionView === 'featured' ? '🔥' : activeSectionView === 'trending' ? '📈' : activeSectionView === 'for-you' ? '✨' : '🏪'}
+                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 18, fontWeight: '900', color: '#0f172a' }}>
+                    {activeSectionView === 'featured'
+                      ? 'Featured Listings'
+                      : activeSectionView === 'trending'
+                      ? 'Trending Ads'
+                      : activeSectionView === 'for-you'
+                      ? (forYouResult.headline || 'For You')
+                      : 'Discover on TedBuy'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+                    {activeSectionView === 'featured'
+                      ? 'Promoted and verified listings across Ghana'
+                      : activeSectionView === 'trending'
+                      ? 'The most viewed ads across Ghana right now'
+                      : activeSectionView === 'for-you'
+                      ? (forYouResult.subtitle || 'Personalized picks based on your browsing activity')
+                      : 'Explore active merchants and their storefronts'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {activeSectionView === 'sellers' ? (
+              <FlatList
+                data={discoverSellers}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={{ padding: 16 }}
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => navigation?.navigate('SellerProfile', { sellerId: item.id })}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      borderRadius: 16,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: '#e2e8f0',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                      <View style={styles.sellerAvatarBox}>
+                        {item.photo ? (
+                          <Image source={{ uri: item.photo }} style={styles.sellerAvatarImg} />
+                        ) : (
+                          <View style={styles.sellerAvatarFallback}>
+                            <Text style={styles.sellerAvatarInitial}>
+                              {item.name.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        {item.isVerified && (
+                          <View style={styles.sellerCardVerifiedBadge}>
+                            <Text style={styles.sellerCardVerifiedCheck}>✓</Text>
+                          </View>
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: '800', color: '#0f172a' }} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                          📍 {item.location} • {item.listingCount} {item.listingCount === 1 ? 'Ad' : 'Ads'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#2563eb', fontWeight: '700', marginTop: 2 }}>
+                          {item.primaryCategory}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#ea580c' }}>Visit ›</Text>
+                  </Pressable>
+                )}
+              />
+            ) : (
+              <FlatList
+                key="section-grid-2-cols"
+                numColumns={2}
+                columnWrapperStyle={styles.columnWrapper}
+                data={
+                  activeSectionView === 'featured'
+                    ? featuredProducts
+                    : activeSectionView === 'trending'
+                    ? trendingProducts
+                    : forYouResult.items
+                }
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={[styles.listContent, { paddingTop: 16 }]}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <ProductCard
+                    product={item}
+                    onPress={() => onOpenProduct(item)}
+                    onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+                    isSaved={!!savedProducts[item.id]}
+                    onToggleSave={handleToggleSave}
+                    isFeaturedVariant={activeSectionView === 'featured'}
+                    isTrendingVariant={activeSectionView === 'trending'}
+                  />
+                )}
+              />
+            )}
+          </View>
+        ) : viewMode === 'grid' ? (
           <FlatList
             key="grid-2-cols"
             numColumns={2}
@@ -566,9 +685,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselTitle}>{forYouResult.headline}</Text>
                       </View>
                       <Pressable
-                        onPress={() => {
-                          scrollViewRef.current?.scrollTo({ y: 750, animated: true });
-                        }}
+                        onPress={() => setActiveSectionView('for-you')}
                         style={styles.carouselViewAllBtn}
                       >
                         <Text style={styles.carouselViewAllText}>View all ›</Text>
@@ -612,11 +729,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         </View>
                       </View>
                       <Pressable
-                        onPress={() => {
-                          if (discoverSellers.length > 0) {
-                            navigation?.navigate('SellerProfile', { sellerId: discoverSellers[0].id });
-                          }
-                        }}
+                        onPress={() => setActiveSectionView('sellers')}
                         style={styles.carouselViewAllBtn}
                       >
                         <Text style={styles.carouselViewAllText}>View all ›</Text>
@@ -684,7 +797,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselTitle}>Featured Listings</Text>
                       </View>
                       <Pressable
-                        onPress={() => navigation?.navigate('FeaturedListings')}
+                        onPress={() => setActiveSectionView('featured')}
                         style={styles.carouselViewAllBtn}
                       >
                         <Text style={styles.carouselViewAllText}>View all ›</Text>
@@ -734,9 +847,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselTitle}>Trending Ads</Text>
                       </View>
                       <Pressable
-                        onPress={() => {
-                          // Scroll to main ads or view all
-                        }}
+                        onPress={() => setActiveSectionView('trending')}
                         style={styles.carouselViewAllBtn}
                       >
                         <Text style={styles.carouselViewAllText}>View all ›</Text>

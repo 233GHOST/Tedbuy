@@ -195,8 +195,8 @@ interface AppContextType {
   setSearchQuery: (q: string) => void;
   selectedCategory: Category | null;
   setSelectedCategory: (cat: Category | null) => void;
-  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings';
-  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings') => void;
+  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery';
+  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery') => void;
   homeViewMode: 'grid' | 'video-feed';
   setHomeViewMode: (mode: 'grid' | 'video-feed') => void;
   updateUserProfile: (profileData: {
@@ -625,6 +625,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { view: 'featured-listings' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
+    // /trending
+    if (pathname === '/trending' || pathname === '/trending-listings') {
+      return { view: 'trending-listings' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
+    // /for-you
+    if (pathname === '/for-you' || pathname === '/discover') {
+      return { view: 'for-you-listings' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
+    // /sellers
+    if (pathname === '/sellers' || pathname === '/merchants' || pathname === '/discover-sellers') {
+      return { view: 'sellers-discovery' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
     // /chats
     if (pathname === '/chats') {
       return { view: 'chats' as const, selectedProductId: null, selectedSellerId: null, category: null };
@@ -692,7 +707,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return parseUrlState().category;
   });
 
-  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings'>(() => {
+  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery'>(() => {
     return parseUrlState().view;
   });
   const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');

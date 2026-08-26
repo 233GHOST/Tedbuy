@@ -10,7 +10,7 @@ interface TrendingListingsProps {
 }
 
 export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProducts, selectedCategory: propCategory }) => {
-  const { products, selectedCategory: contextCategory, registerProduct } = useApp();
+  const { products, selectedCategory: contextCategory, registerProduct, setCurrentView } = useApp();
   const activeCategory = propCategory !== undefined ? propCategory : contextCategory;
 
   const [serverTrending, setServerTrending] = useState<Product[]>([]);
@@ -187,12 +187,7 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
           </div>
 
           <button
-            onClick={() => {
-              const el = document.getElementById('all-products-section') || document.getElementById('product-grid');
-              if (el) {
-                el.scrollIntoView({ behavior: 'smooth' });
-              }
-            }}
+            onClick={() => setCurrentView('trending-listings')}
             className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1 whitespace-nowrap"
           >
             View all

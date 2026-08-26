@@ -45,6 +45,9 @@ import { TrendingListings } from './components/TrendingListings';
 import { SellersToDiscover } from './components/SellersToDiscover';
 import { ForYouSection } from './components/ForYouSection';
 import { FeaturedListingsView } from './components/FeaturedListingsView';
+import { TrendingListingsView } from './components/TrendingListingsView';
+import { ForYouListingsView } from './components/ForYouListingsView';
+import { SellersDiscoveryView } from './components/SellersDiscoveryView';
 import { getRegionForLocation } from './regions';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
 import { createProductSelector } from './utils/productSelector';
@@ -1424,6 +1427,9 @@ const MarketplaceContent: React.FC = () => {
         }>
           {currentView === 'product-detail' && <ProductDetail />}
           {currentView === 'featured-listings' && <FeaturedListingsView />}
+          {currentView === 'trending-listings' && <TrendingListingsView />}
+          {currentView === 'for-you-listings' && <ForYouListingsView />}
+          {currentView === 'sellers-discovery' && <SellersDiscoveryView />}
           {currentView === 'chats' && <ChatInterface />}
           {currentView === 'my-dashboard' && <SellerDashboard />}
           {currentView === 'seller-profile' && <SellerProfilePage />}
