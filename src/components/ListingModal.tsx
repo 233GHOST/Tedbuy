@@ -1596,164 +1596,19 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 {/* Video Edit/Compressor Prompt Card — styled in Tedbuy's signature dark aesthetic, edge-to-edge on mobile for maximum editing workspace */}
                 {oversizedVideoFile && (
                   <div className="-mx-4 sm:mx-0 bg-slate-900 border-y sm:border sm:border-slate-800 text-white rounded-none sm:rounded-2xl p-4 sm:p-5 space-y-4 mt-2 shadow-2xl animate-fadeIn">
-                    <div className="flex gap-3 px-1 sm:px-0">
-                      <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        {oversizedVideoFile.size > 18 * 1024 * 1024 ? (
-                          <>
-                            <h4 className="text-xs sm:text-sm font-black text-white leading-snug font-sans">
-                              Video File is Too Large ({Math.round(oversizedVideoFile.size / 1024)}KB)
-                            </h4>
-                            <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
-                              Edit video to required size
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <h4 className="text-xs sm:text-sm font-black text-white leading-snug font-sans">
-                              Edit Your Video
-                            </h4>
-                            <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
-                              Trim to the best moment, or click Next below to process video
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Interactive Video Snippet Editor Console */}
-                    {!isCompressing && oversizedVideoUrl && (
-                      <div className="w-full bg-slate-950 text-white rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-3 shadow-inner border border-slate-800">
-                        <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                          <div className="flex items-center gap-1.5">
-                            <Scissors className="w-4 h-4 text-emerald-400 animate-pulse" />
-                            <span className="text-[11px] sm:text-xs font-black tracking-wider uppercase text-slate-200">Video Snippet Trimmer</span>
-                          </div>
-                          <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50">
-                            Max 30s Limit
-                          </span>
-                        </div>
-
-                        {/* Player Preview */}
-                        <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-slate-800 flex items-center justify-center">
-                          <video
-                            id="oversized-video-player"
-                            src={oversizedVideoUrl}
-                            controls
-                            playsInline
-                            webkit-playsinline="true"
-                            preload="metadata"
-                            disablePictureInPicture
-                            controlsList="nodownload nofullscreen noremoteplayback"
-                            className="w-full h-full object-contain"
-                            onLoadedMetadata={(e) => {
-                              // Authoritative duration source: this visible, on-screen
-                              // player reliably fires loadedmetadata across browsers,
-                              // unlike a detached probe element. Fixes the trim range
-                              // silently staying capped at its 10s initial default when
-                              // the probe never fired on some mobile browsers.
-                              const dur = e.currentTarget.duration;
-                              if (!isNaN(dur) && dur > 0) {
-                                setVideoDuration(dur);
-                                setTrimEnd(Math.min(30, dur));
-                              }
-                            }}
-                            onDurationChange={(e) => {
-                              // Redundant signal alongside onLoadedMetadata — some mobile
-                              // browsers fire this reliably even when loadedmetadata is
-                              // delayed or skipped, so duration never stays stuck at 0.
-                              const dur = e.currentTarget.duration;
-                              if (!isNaN(dur) && dur > 0 && videoDuration === 0) {
-                                setVideoDuration(dur);
-                                setTrimEnd(Math.min(30, dur));
-                              }
-                            }}
-                          />
-                        </div>
-
-                        {/* Range Selectors */}
-                        <div className="space-y-3 pt-1">
-                          <div>
-                            <div className="flex justify-between text-[11px] mb-1.5 text-slate-300 font-mono">
-                              <span className="font-semibold text-slate-400">Start Time:</span>
-                              <span className="font-mono text-emerald-400 font-bold">{trimStart.toFixed(1)}s</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max={videoDuration || 30}
-                              step="0.1"
-                              value={trimStart}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                setTrimStart(val);
-                                // Ensure trimEnd is at least trimStart and at most trimStart + 30
-                                if (trimEnd < val) {
-                                  setTrimEnd(Math.min(videoDuration || 30, val + 5));
-                                } else if (trimEnd - val > 30) {
-                                  setTrimEnd(val + 30);
-                                }
-                                // Seek player to preview start frame
-                                const playerCurrent = document.getElementById('oversized-video-player') as HTMLVideoElement;
-                                if (playerCurrent) {
-                                  playerCurrent.currentTime = val;
-                                }
-                              }}
-                              className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                            />
-                          </div>
-
-                          <div>
-                            <div className="flex justify-between text-[11px] mb-1.5 text-slate-300 font-mono">
-                              <span className="font-semibold text-slate-400">End Time:</span>
-                              <span className="font-mono text-emerald-400 font-bold">{trimEnd.toFixed(1)}s</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max={videoDuration || 30}
-                              step="0.1"
-                              value={trimEnd}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                if (val < trimStart) {
-                                  setTrimStart(Math.max(0, val - 5));
-                                  setTrimEnd(val);
-                                } else if (val - trimStart > 30) {
-                                  setTrimStart(val - 30);
-                                  setTrimEnd(val);
-                                } else {
-                                  setTrimEnd(val);
-                                }
-                                // Seek player to preview end frame
-                                const playerCurrent = document.getElementById('oversized-video-player') as HTMLVideoElement;
-                                if (playerCurrent) {
-                                  playerCurrent.currentTime = val;
-                                }
-                              }}
-                              className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                            />
-                          </div>
-
-                          {/* Interval Information */}
-                          <div className="flex items-center justify-between text-xs bg-slate-900 px-3 py-2 rounded-lg border border-slate-800 font-sans">
-                            <span className="text-slate-400 font-medium">Selected Duration:</span>
-                            <span className="text-emerald-400 font-black font-mono text-xs">
-                              {(trimEnd - trimStart).toFixed(1)} seconds
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     {isCompressing ? (
-                      <div className="space-y-2.5 pt-1 px-1 sm:px-0">
-                        <div className="flex items-center justify-between text-xs font-bold text-white font-sans">
-                          <span className="flex items-center gap-1.5">
-                            <Video className="w-4 h-4 animate-spin text-emerald-400" />
-                            Trim-encoding & exporting clip...
+                      /* Clean, simplified encoding progress */
+                      <div className="space-y-3 py-1 px-1 sm:px-0">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                            <h4 className="text-xs sm:text-sm font-bold text-white">
+                              Encoding, please wait...
+                            </h4>
+                          </div>
+                          <span className="font-mono text-emerald-400 font-bold text-xs sm:text-sm">
+                            {compressionProgress ?? 0}%
                           </span>
-                          <span className="font-mono text-emerald-400 font-bold">{compressionProgress ?? 0}%</span>
                         </div>
                         <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden border border-slate-700/60">
                           <div 
@@ -1761,27 +1616,155 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                             style={{ width: `${compressionProgress ?? 0}%` }}
                           />
                         </div>
-                        <p className="text-[10px] text-slate-400 italic font-mono">
-                          Re-encoding to light efficiency. Do not close this modal...
+                        <p className="text-[11px] text-slate-400">
+                          Optimizing video for high quality and fast playback...
                         </p>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between pt-1 px-1 sm:px-0">
-                        <span className="text-[11px] text-slate-300">
-                          Set trim if desired, then click <strong className="text-emerald-400 font-bold">Next</strong> below.
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOversizedVideoFile(null);
-                            setErrorMsg('');
-                          }}
-                          className="px-3 py-1.5 border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition cursor-pointer active:scale-95 flex items-center gap-1"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          Cancel Video
-                        </button>
-                      </div>
+                      <>
+                        <div className="flex gap-3 px-1 sm:px-0">
+                          <Scissors className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <h4 className="text-xs sm:text-sm font-bold text-white leading-snug">
+                              Trim Your Video
+                            </h4>
+                            <p className="text-[11px] sm:text-xs text-slate-300">
+                              Adjust the clip duration or click <strong className="text-emerald-400">Next</strong> below.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Interactive Video Snippet Editor Console */}
+                        {oversizedVideoUrl && (
+                          <div className="w-full bg-slate-950 text-white rounded-xl sm:rounded-2xl p-3 sm:p-4 space-y-3 shadow-inner border border-slate-800">
+                            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <Scissors className="w-4 h-4 text-emerald-400" />
+                                <span className="text-[11px] sm:text-xs font-bold tracking-wider uppercase text-slate-200">Video Snippet Trimmer</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50">
+                                Max 30s Limit
+                              </span>
+                            </div>
+
+                            {/* Player Preview */}
+                            <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-slate-800 flex items-center justify-center">
+                              <video
+                                id="oversized-video-player"
+                                src={oversizedVideoUrl}
+                                controls
+                                playsInline
+                                webkit-playsinline="true"
+                                preload="metadata"
+                                disablePictureInPicture
+                                controlsList="nodownload nofullscreen noremoteplayback"
+                                className="w-full h-full object-contain"
+                                onLoadedMetadata={(e) => {
+                                  const dur = e.currentTarget.duration;
+                                  if (!isNaN(dur) && dur > 0) {
+                                    setVideoDuration(dur);
+                                    setTrimEnd(Math.min(30, dur));
+                                  }
+                                }}
+                                onDurationChange={(e) => {
+                                  const dur = e.currentTarget.duration;
+                                  if (!isNaN(dur) && dur > 0 && videoDuration === 0) {
+                                    setVideoDuration(dur);
+                                    setTrimEnd(Math.min(30, dur));
+                                  }
+                                }}
+                              />
+                            </div>
+
+                            {/* Range Selectors */}
+                            <div className="space-y-3 pt-1">
+                              <div>
+                                <div className="flex justify-between text-[11px] mb-1.5 text-slate-300 font-mono">
+                                  <span className="font-semibold text-slate-400">Start Time:</span>
+                                  <span className="font-mono text-emerald-400 font-bold">{trimStart.toFixed(1)}s</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max={videoDuration || 30}
+                                  step="0.1"
+                                  value={trimStart}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    setTrimStart(val);
+                                    if (trimEnd < val) {
+                                      setTrimEnd(Math.min(videoDuration || 30, val + 5));
+                                    } else if (trimEnd - val > 30) {
+                                      setTrimEnd(val + 30);
+                                    }
+                                    const playerCurrent = document.getElementById('oversized-video-player') as HTMLVideoElement;
+                                    if (playerCurrent) {
+                                      playerCurrent.currentTime = val;
+                                    }
+                                  }}
+                                  className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                                />
+                              </div>
+
+                              <div>
+                                <div className="flex justify-between text-[11px] mb-1.5 text-slate-300 font-mono">
+                                  <span className="font-semibold text-slate-400">End Time:</span>
+                                  <span className="font-mono text-emerald-400 font-bold">{trimEnd.toFixed(1)}s</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max={videoDuration || 30}
+                                  step="0.1"
+                                  value={trimEnd}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (val < trimStart) {
+                                      setTrimStart(Math.max(0, val - 5));
+                                      setTrimEnd(val);
+                                    } else if (val - trimStart > 30) {
+                                      setTrimStart(val - 30);
+                                      setTrimEnd(val);
+                                    } else {
+                                      setTrimEnd(val);
+                                    }
+                                    const playerCurrent = document.getElementById('oversized-video-player') as HTMLVideoElement;
+                                    if (playerCurrent) {
+                                      playerCurrent.currentTime = val;
+                                    }
+                                  }}
+                                  className="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                                />
+                              </div>
+
+                              {/* Interval Information */}
+                              <div className="flex items-center justify-between text-xs bg-slate-900 px-3 py-2 rounded-lg border border-slate-800 font-sans">
+                                <span className="text-slate-400 font-medium">Selected Duration:</span>
+                                <span className="text-emerald-400 font-black font-mono text-xs">
+                                  {(trimEnd - trimStart).toFixed(1)} seconds
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-1 px-1 sm:px-0">
+                          <span className="text-[11px] text-slate-300">
+                            Click <strong className="text-emerald-400 font-bold">Next</strong> below to proceed.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOversizedVideoFile(null);
+                              setErrorMsg('');
+                            }}
+                            className="px-3 py-1.5 border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition cursor-pointer active:scale-95 flex items-center gap-1"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            Cancel Video
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
@@ -1834,7 +1817,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 {isCompressing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                    <span>Encoding Video ({compressionProgress ?? 0}%)...</span>
+                    <span>Encoding, please wait... ({compressionProgress ?? 0}%)</span>
                   </>
                 ) : isSubmitting ? (
                   <>
