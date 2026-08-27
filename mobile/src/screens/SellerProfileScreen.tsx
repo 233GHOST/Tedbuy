@@ -136,7 +136,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
         id: 'general_' + sellerId,
         title: 'Inquiry for ' + (seller?.username || 'Seller'),
         price: 'Negotiable',
-        image: seller?.photoUrl || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
+        image: seller?.photoUrl || '',
       };
       const chatId = await startChat(dummyProduct, currentUser.uid, sellerId);
       setStartingChat(false);

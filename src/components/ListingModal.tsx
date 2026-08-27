@@ -952,9 +952,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
       setUploadStatus('');
 
-      // If category is Jobs & Employment and no media was provided, attach professional placeholder banner
+      // If category is Jobs & Employment and no media was provided, let the category SVG placeholder handle it cleanly
       if (category === 'Jobs & Employment' && cloudinaryImages.length === 0 && cloudinaryVideos.length === 0) {
-        cloudinaryImages.push('https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80');
+        // Handled cleanly by category SVG placeholder
       }
 
       if (productToEdit) {

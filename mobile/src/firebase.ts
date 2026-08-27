@@ -371,7 +371,7 @@ export async function startChat(productId: string, initialMessage?: string) {
     productId: product.id,
     productTitle: product.title,
     productPrice: product.price,
-    productImage: product.images?.[0] || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
+    productImage: product.images?.[0] || product.image || product.displayImage || product.videoPoster || '',
     buyerId: currentUser.uid,
     sellerId: product.sellerId,
     buyerName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Buyer',

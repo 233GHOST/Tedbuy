@@ -161,7 +161,7 @@ export function ProductCard({
 
   const coverImageUrl = (product as any).displayImage || (product as any).thumbnailUrl || (Array.isArray(product.images) && product.images.length > 0
     ? product.images[0]
-    : product.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80');
+    : product.image || (product as any).videoPoster || '');
 
   const dateFormatted = product.createdAt 
     ? new Date(product.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

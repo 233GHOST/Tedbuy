@@ -223,6 +223,7 @@ export const ProductDetail: React.FC = () => {
     ...productImages
       .filter(url => {
         if (!url || typeof url !== 'string' || url.trim().length === 0) return false;
+        if (url.includes('unsplash.com')) return false;
         if (product.videos && product.videos.includes(url)) return false;
         return true;
       })

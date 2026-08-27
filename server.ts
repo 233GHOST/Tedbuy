@@ -966,7 +966,7 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
   const cleanVids = Array.isArray(product.videos) ? product.videos.filter((v: any) => typeof v === 'string' && v.trim().length > 0) : (Array.isArray(product.videoUrls) ? product.videoUrls.filter((v: any) => typeof v === 'string' && v.trim().length > 0) : []);
   const videoPoster = product.videoPoster || product.videoPosterUrl || (cleanVids[0] ? getServerVideoPoster(cleanVids[0]) : '');
 
-  const cleanImgs = Array.isArray(product.images) ? product.images.filter((i: any) => typeof i === 'string' && i.trim().length > 0) : (Array.isArray(product.imageUrls) ? product.imageUrls.filter((i: any) => typeof i === 'string' && i.trim().length > 0) : []);
+  const cleanImgs = Array.isArray(product.images) ? product.images.filter((i: any) => typeof i === 'string' && i.trim().length > 0 && !i.includes('unsplash.com')) : (Array.isArray(product.imageUrls) ? product.imageUrls.filter((i: any) => typeof i === 'string' && i.trim().length > 0 && !i.includes('unsplash.com')) : []);
   const firstGenuineImg = cleanImgs.find((i: string) => !i.includes('unsplash.com') && !i.startsWith('data:image/svg'));
 
   let image = firstGenuineImg ||
@@ -976,9 +976,9 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
     (product.primaryImage && !product.primaryImage.includes('unsplash.com') && !product.primaryImage.startsWith('data:image/svg') ? product.primaryImage : '') ||
     videoPoster ||
     cleanImgs[0] ||
-    product.displayImage ||
-    product.image ||
-    'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+    (product.displayImage && !product.displayImage.includes('unsplash.com') ? product.displayImage : '') ||
+    (product.image && !product.image.includes('unsplash.com') ? product.image : '') ||
+    '';
 
   if (typeof image === 'string' && (image.includes('/video/upload/') || image.endsWith('.mp4') || image.endsWith('.mov') || image.endsWith('.webm') || image.endsWith('.m4v'))) {
     image = getServerVideoPoster(image);
@@ -1160,7 +1160,7 @@ function isServerBoostActive(product: any): boolean {
 function normalizeServerProductRow(row: any): any {
   if (!row) return null;
   const imgs = parseMediaArray(row.images || row.imageUrls);
-  const cleanImgs = imgs.filter(i => typeof i === 'string' && i.length > 0 && !i.includes('/api/products/') && !i.startsWith('data:'));
+  const cleanImgs = imgs.filter(i => typeof i === 'string' && i.length > 0 && !i.includes('/api/products/') && !i.includes('unsplash.com') && !i.startsWith('data:'));
   
   const vids = parseMediaArray(row.videos || row.videoUrls);
   const cleanVids = vids.filter(v => typeof v === 'string' && v.length > 0 && !v.includes('/api/products/') && !v.startsWith('data:'));
@@ -1170,10 +1170,10 @@ function normalizeServerProductRow(row: any): any {
     (cleanVids[0] ? getServerVideoPoster(cleanVids[0]) : '');
 
   const primaryImg = cleanImgs[0] ||
-    (row.displayImage && typeof row.displayImage === 'string' && !row.displayImage.startsWith('data:') ? row.displayImage : '') ||
-    (row.primaryPicture && typeof row.primaryPicture === 'string' && !row.primaryPicture.startsWith('data:') ? row.primaryPicture : '') ||
+    (row.displayImage && typeof row.displayImage === 'string' && !row.displayImage.startsWith('data:') && !row.displayImage.includes('unsplash.com') ? row.displayImage : '') ||
+    (row.primaryPicture && typeof row.primaryPicture === 'string' && !row.primaryPicture.startsWith('data:') && !row.primaryPicture.includes('unsplash.com') ? row.primaryPicture : '') ||
     videoPoster ||
-    'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+    '';
 
   const rawBoostEndDate = row.boostEndDate || row.boost_end_date || row.boostExpiry || row.boost_expiry || undefined;
   const rawBoostStartDate = row.boostStartDate || row.boost_start_date || row.lastBoostedAt || row.last_boosted_at || undefined;
@@ -1221,9 +1221,9 @@ function normalizeServerProductRow(row: any): any {
     boostStartDate: rawBoostStartDate,
     boostEndDate: computedBoostEndDate ? computedBoostEndDate.toISOString() : undefined,
     boostExpiry: computedBoostEndDate ? computedBoostEndDate.toISOString() : undefined,
-    images: cleanImgs.length > 0 ? cleanImgs : (videoPoster ? [videoPoster] : [primaryImg]),
-    imageUrls: cleanImgs.length > 0 ? cleanImgs : (videoPoster ? [videoPoster] : [primaryImg]),
-    thumbnailUrls: [thumbnailUrl],
+    images: cleanImgs.length > 0 ? cleanImgs : [],
+    imageUrls: cleanImgs.length > 0 ? cleanImgs : [],
+    thumbnailUrls: cleanImgs.length > 0 ? [thumbnailUrl] : (videoPoster ? [videoPoster] : []),
     thumbnailUrl,
     videos: cleanVids,
     videoUrls: cleanVids,
@@ -1238,7 +1238,9 @@ export function serializeProductSummary(row: any): any {
   const normalized = normalizeServerProductRow(row);
   if (!normalized) return null;
 
-  const displayImg = normalized.displayImage || normalized.primaryImage || normalized.videoPoster || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
+  const displayImg = (normalized.displayImage && !normalized.displayImage.includes('unsplash.com'))
+    ? normalized.displayImage
+    : (normalized.primaryImage && !normalized.primaryImage.includes('unsplash.com') ? normalized.primaryImage : (normalized.videoPoster || ''));
   const thumbUrl = normalized.thumbnailUrl || (displayImg.includes('res.cloudinary.com') ? displayImg.replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/') : displayImg);
 
   const cleanVids = Array.isArray(normalized.videos) ? normalized.videos.filter(v => typeof v === 'string' && v.length > 0) : [];
@@ -1281,11 +1283,11 @@ function normalizeServerProductSummaryRow(row: any): any {
     return null;
   }
   const imgs = parseMediaArray(row.images || row.imageUrls);
-  const cleanImgs = imgs.filter(i => typeof i === 'string' && i.length > 0 && !i.includes('/api/products/') && !i.startsWith('data:'));
-  const primaryImg = cleanImgs[0] || (row.displayImage && typeof row.displayImage === 'string' && !row.displayImage.startsWith('data:') ? row.displayImage : '') || (row.primaryPicture && typeof row.primaryPicture === 'string' && !row.primaryPicture.startsWith('data:') ? row.primaryPicture : '') || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
-
+  const cleanImgs = imgs.filter(i => typeof i === 'string' && i.length > 0 && !i.includes('/api/products/') && !i.includes('unsplash.com') && !i.startsWith('data:'));
   const vids = parseMediaArray(row.videos || row.videoUrls);
   const cleanVids = vids.filter(v => typeof v === 'string' && v.length > 0 && !v.includes('/api/products/') && !v.startsWith('data:'));
+  const videoPoster = row.videoPoster || row.videoPosterUrl || (cleanVids[0] ? getServerVideoPoster(cleanVids[0]) : '');
+  const primaryImg = cleanImgs[0] || (row.displayImage && typeof row.displayImage === 'string' && !row.displayImage.startsWith('data:') && !row.displayImage.includes('unsplash.com') ? row.displayImage : '') || (row.primaryPicture && typeof row.primaryPicture === 'string' && !row.primaryPicture.startsWith('data:') && !row.primaryPicture.includes('unsplash.com') ? row.primaryPicture : '') || videoPoster || '';
 
   const rawBoostEndDate = row.boostEndDate || row.boost_end_date || row.boostExpiry || row.boost_expiry || undefined;
   const rawBoostStartDate = row.boostStartDate || row.boost_start_date || row.lastBoostedAt || row.last_boosted_at || undefined;

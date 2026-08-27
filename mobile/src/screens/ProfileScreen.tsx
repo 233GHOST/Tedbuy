@@ -282,7 +282,7 @@ export function ProfileScreen() {
                       source={{
                         uri: Array.isArray(item.images) && item.images.length
                           ? item.images[0]
-                          : item.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
+                          : (item.displayImage || item.image || item.videoPoster || ''),
                       }}
                       style={styles.dashboardListingImg}
                     />
@@ -332,7 +332,7 @@ export function ProfileScreen() {
                       source={{
                         uri: Array.isArray(item.images) && item.images.length
                           ? item.images[0]
-                          : item.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
+                          : (item.displayImage || item.image || item.videoPoster || ''),
                       }}
                       style={styles.dashboardListingImg}
                     />

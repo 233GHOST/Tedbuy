@@ -54,9 +54,7 @@ export function SellScreen({ navigation }: SellScreenProps) {
           : `GHS ${Number(price.replace(/[^0-9]/g, '')).toLocaleString()}`;
       }
 
-      const defaultImage = imageUrl.trim() || (selectedCategory === 'Jobs & Employment' 
-        ? 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80' 
-        : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80');
+      const defaultImage = imageUrl.trim();
       const prodId = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
       const productData = {
@@ -71,7 +69,7 @@ export function SellScreen({ navigation }: SellScreenProps) {
         location: location.trim() || 'Accra, Ghana',
         description: description.trim(),
         image: defaultImage,
-        images: [defaultImage],
+        images: defaultImage ? [defaultImage] : [],
         sellerId: auth.currentUser.uid,
         sellerName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
         sellerPhoto: auth.currentUser.photoURL || '',
@@ -271,7 +269,7 @@ export function SellScreen({ navigation }: SellScreenProps) {
                 <TextInput
                   value={imageUrl}
                   onChangeText={setImageUrl}
-                  placeholder="https://images.unsplash.com/photo-..."
+                  placeholder="https://example.com/image.jpg"
                   style={styles.input}
                   placeholderTextColor="#94a3b8"
                   autoCapitalize="none"

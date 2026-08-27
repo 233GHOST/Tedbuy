@@ -941,7 +941,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   <View style={styles.videoPlayerFrame}>
                     {/* Simulated video cover frame using product image with subtle overlay */}
                     <Image
-                      source={{ uri: Array.isArray(item.images) && item.images.length ? item.images[0] : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80' }}
+                      source={{ uri: (Array.isArray(item.images) && item.images.length ? item.images[0] : (item.displayImage || item.image || item.videoPoster || '')) }}
                       style={styles.videoPlaceholderImage}
                       blurRadius={1}
                     />

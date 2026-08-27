@@ -167,7 +167,9 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     );
   }
 
-  const imagesArray = Array.isArray(product.images) && product.images.length ? product.images : [product.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'];
+  const imagesArray = Array.isArray(product.images) && product.images.length
+    ? product.images.filter((img: string) => typeof img === 'string' && img.length > 0 && !img.includes('unsplash.com'))
+    : ((product.image && !product.image.includes('unsplash.com')) ? [product.image] : (product.displayImage && !product.displayImage.includes('unsplash.com') ? [product.displayImage] : (product.videoPoster ? [product.videoPoster] : [])));
   const hasMultipleImages = imagesArray.length > 1;
   const user = auth.currentUser;
   const hasLiked = user && Array.isArray(product.likedUserIds) && product.likedUserIds.includes(user.uid);
@@ -505,7 +507,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                       source={{
                         uri: Array.isArray(otherItem.images) && otherItem.images.length
                           ? otherItem.images[0]
-                          : otherItem.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
+                          : (otherItem.displayImage || otherItem.image || otherItem.videoPoster || ''),
                       }}
                       style={styles.otherItemImg}
                     />

@@ -206,7 +206,7 @@ export const SellerProfilePage: React.FC = () => {
         id: `general_${seller.id}`,
         title: `Store inquiry for ${seller.username}`,
         price: 'Negotiable',
-        images: [seller.photoUrl || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80'],
+        images: seller.photoUrl ? [seller.photoUrl] : [],
         sellerId: seller.id,
         sellerName: seller.username
       };

@@ -116,6 +116,7 @@ export function resolveProductImages(product?: Partial<Product> | null, width?: 
         img.trim().length > 0 &&
         !img.includes('/api/products/') &&
         !img.startsWith('data:image/svg+xml') &&
+        !img.includes('unsplash.com') &&
         !isVideoPosterUrl(img)
     );
 
@@ -146,14 +147,14 @@ export function resolveProductImages(product?: Partial<Product> | null, width?: 
     ];
 
     for (const field of candidateSingleFields) {
-      if (typeof field === 'string' && field.trim().length > 0 && !field.includes('/api/products/') && !field.startsWith('data:image/svg+xml') && !isVideoPosterUrl(field)) {
+      if (typeof field === 'string' && field.trim().length > 0 && !field.includes('/api/products/') && !field.startsWith('data:image/svg+xml') && !field.includes('unsplash.com') && !isVideoPosterUrl(field)) {
         list = [field.trim()];
         break;
       }
     }
   }
 
-  const dedupedList = deduplicateImageUrls(list);
+  const dedupedList = deduplicateImageUrls(list).filter(img => !img.includes('unsplash.com'));
 
   // Same reasoning as above: a video-only listing genuinely has zero photos,
   // and that's correct — don't pad the gallery with a placeholder icon either.
@@ -237,15 +238,15 @@ export function normalizeProduct(rawProduct: any): Product {
     ];
 
     for (const field of candidateSingleFields) {
-      if (typeof field === 'string' && field.trim().length > 0 && !field.startsWith('data:image/svg+xml') && !field.includes('/api/products/')) {
+      if (typeof field === 'string' && field.trim().length > 0 && !field.startsWith('data:image/svg+xml') && !field.includes('/api/products/') && !field.includes('unsplash.com')) {
         rawImages = [field.trim()];
         break;
       }
     }
   }
 
-  // Filter out any stale proxy URLs or placeholder SVGs and deduplicate
-  const cleanImages = deduplicateImageUrls(rawImages);
+  // Filter out any stale proxy URLs, unsplash URLs, or placeholder SVGs and deduplicate
+  const cleanImages = deduplicateImageUrls(rawImages).filter(img => !img.includes('unsplash.com'));
 
   // Parse videos
   let rawVideos: string[] = [];
@@ -270,15 +271,15 @@ export function normalizeProduct(rawProduct: any): Product {
   const videoPoster = rawProduct.videoPoster || (cleanVideos[0] ? getCloudinaryVideoPoster(cleanVideos[0]) : undefined);
 
   const primaryImgUrl = cleanImages[0] ||
-    (rawProduct.displayImage && !rawProduct.displayImage.startsWith('data:image/svg+xml') ? rawProduct.displayImage : '') ||
-    (rawProduct.primaryPicture && !rawProduct.primaryPicture.startsWith('data:image/svg+xml') ? rawProduct.primaryPicture : '') ||
+    (rawProduct.displayImage && !rawProduct.displayImage.startsWith('data:image/svg+xml') && !rawProduct.displayImage.includes('unsplash.com') ? rawProduct.displayImage : '') ||
+    (rawProduct.primaryPicture && !rawProduct.primaryPicture.startsWith('data:image/svg+xml') && !rawProduct.primaryPicture.includes('unsplash.com') ? rawProduct.primaryPicture : '') ||
     videoPoster ||
     getCategoryPlaceholder(category);
 
   // Generate thumbnail URLs
   const thumbnailUrls = cleanImages.map(img => getCloudinaryThumbnail(img));
   const primaryThumb = thumbnailUrls[0] ||
-    (rawProduct.thumbnailUrl && !rawProduct.thumbnailUrl.startsWith('data:image/svg+xml') ? rawProduct.thumbnailUrl : '') ||
+    (rawProduct.thumbnailUrl && !rawProduct.thumbnailUrl.startsWith('data:image/svg+xml') && !rawProduct.thumbnailUrl.includes('unsplash.com') ? rawProduct.thumbnailUrl : '') ||
     (videoPoster ? getCloudinaryThumbnail(videoPoster) : primaryImgUrl);
 
   const views = Number(rawProduct.views || rawProduct.viewsCount || rawProduct.views_count) || 0;
@@ -324,9 +325,9 @@ export function normalizeProduct(rawProduct: any): Product {
     boostStartDate: rawBoostStartDate,
     boostEndDate: computedBoostEndDate ? computedBoostEndDate.toISOString() : undefined,
     boostExpiry: computedBoostEndDate ? computedBoostEndDate.toISOString() : undefined,
-    imageUrls: cleanImages.length > 0 ? cleanImages : [primaryImgUrl],
-    images: cleanImages.length > 0 ? cleanImages : [primaryImgUrl],
-    thumbnailUrls: thumbnailUrls.length > 0 ? thumbnailUrls : [primaryThumb],
+    imageUrls: cleanImages.length > 0 ? cleanImages : (cleanVideos.length > 0 ? [] : [primaryImgUrl]),
+    images: cleanImages.length > 0 ? cleanImages : (cleanVideos.length > 0 ? [] : [primaryImgUrl]),
+    thumbnailUrls: thumbnailUrls.length > 0 ? thumbnailUrls : (cleanVideos.length > 0 ? [] : [primaryThumb]),
     thumbnailUrl: primaryThumb,
     videoUrls: cleanVideos,
     videos: cleanVideos,

@@ -7,7 +7,7 @@ export const products: Product[] = [
     price: 'GHS 8,900',
     category: 'Phones',
     location: 'Accra Mall',
-    image: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
+    image: 'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=900&q=80',
     description: 'Unlocked iPhone 14 Pro Max with 256GB storage, excellent battery and original box.',
     seller: 'Nana K.',
     sellerRating: 4.9,
