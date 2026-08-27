@@ -934,38 +934,6 @@ CEO, Tedbuy Inc`;
               </div>
             )}
 
-            {/* Overall status and triggers */}
-            <div className="pt-3 border-t border-slate-200/60 flex flex-col items-center text-center gap-2">
-              {isUserAdmin(currentUser) ? (
-                <div className="w-full bg-blue-50 border border-blue-200 rounded-2xl p-3 flex flex-col items-center">
-                  <span className="text-xs font-black text-blue-900 flex items-center gap-1.5 justify-center">
-                    <img src="/admin-badge.svg" alt="Admin Verification Badge" className="w-4 h-4 inline-block shrink-0" />
-                    Official Admin Account
-                  </span>
-                  <p className="text-[10px] text-blue-700 mt-1 leading-snug">
-                    Your account is an Official TedBuy Administrator. The blue admin badge is active on your store and listings.
-                  </p>
-                </div>
-              ) : isUserVerified({ ...currentUser, username, phoneNumber }) ? (
-                <div className="w-full bg-emerald-50 border border-emerald-150 rounded-2xl p-3 flex flex-col items-center">
-                  <span className="text-xs font-black text-emerald-800 flex items-center gap-1 justify-center">
-                    🛡️ Verified Seller Status Active
-                  </span>
-                  <p className="text-[10px] text-emerald-600 mt-1 leading-snug">
-                    Amazing! Your account meets all verified guidelines. The trust badge resides on your ads!
-                  </p>
-                </div>
-              ) : (
-                <div className="w-full bg-amber-50 border border-amber-150 rounded-2xl p-3 flex flex-col items-center">
-                  <span className="text-xs font-black text-amber-800">
-                    ⚠️ Verification Pending
-                  </span>
-                  <p className="text-[10px] text-amber-600 mt-1 leading-snug">
-                    Complete your profile above to obtain automatic verification.
-                  </p>
-                </div>
-              )}
-            </div>
 
             {/* Tedbuy PWA Install Options */}
             <div className="w-full pt-4 mt-3 border-t border-slate-200/60 flex flex-col items-center text-center gap-3">
