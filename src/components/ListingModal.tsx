@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Category, Product, normalizeCategory, CATEGORY_ICONS } from '../types';
 import { BoostModal } from './BoostModal';
-import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Sparkles, Loader2 } from 'lucide-react';
+import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -748,6 +748,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     const isTrimmed = trimStart > EPSILON || (videoDuration > 0 && trimEnd < videoDuration - EPSILON);
 
     if (!isGenuinelyOversized && !isTrimmed) {
+      setIsCompressing(true);
+      setCompressionProgress(100);
       const reader = new FileReader();
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
@@ -756,7 +758,14 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           setOversizedVideoFile(null);
           const blobUrl = URL.createObjectURL(oversizedVideoFile);
           setVideoPreviewUrl(blobUrl);
+          setIsCompressing(false);
+          setCompressionProgress(null);
         }
+      };
+      reader.onerror = () => {
+        setIsCompressing(false);
+        setCompressionProgress(null);
+        setErrorMsg('Failed to process video file.');
       };
       reader.readAsDataURL(oversizedVideoFile);
       return;
@@ -775,6 +784,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     e.preventDefault();
     setErrorMsg('');
     setRateLimitWaitSeconds(null);
+
+    // If video is currently in the trimmer editor, clicking Next encodes the video first
+    if (oversizedVideoFile) {
+      if (isCompressing) return;
+      handleSaveVideoEdit();
+      return;
+    }
 
     if (category !== 'Services' && !title.trim()) {
       return setErrorMsg(category === 'Jobs & Employment' ? 'Job title is required.' : 'Product title is required.');
@@ -1598,7 +1614,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                               Edit Your Video
                             </h4>
                             <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
-                              Trim to the best moment, or tap Save to post as-is
+                              Trim to the best moment, or click Next below to process video
                             </p>
                           </>
                         )}
@@ -1750,24 +1766,20 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         </p>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 pt-1 px-1 sm:px-0">
-                        <button
-                          type="button"
-                          onClick={handleSaveVideoEdit}
-                          className="flex-1 sm:flex-initial px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-black rounded-xl cursor-pointer shadow-md flex items-center justify-center gap-1.5 transition active:scale-95"
-                        >
-                          <Scissors className="w-4 h-4" />
-                          Save
-                        </button>
+                      <div className="flex items-center justify-between pt-1 px-1 sm:px-0">
+                        <span className="text-[11px] text-slate-300">
+                          Set trim if desired, then click <strong className="text-emerald-400 font-bold">Next</strong> below.
+                        </span>
                         <button
                           type="button"
                           onClick={() => {
                             setOversizedVideoFile(null);
                             setErrorMsg('');
                           }}
-                          className="flex-1 sm:flex-initial px-5 py-2.5 border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer active:scale-95"
+                          className="px-3 py-1.5 border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-bold rounded-xl transition cursor-pointer active:scale-95 flex items-center gap-1"
                         >
-                          Cancel
+                          <X className="w-3.5 h-3.5" />
+                          Cancel Video
                         </button>
                       </div>
                     )}
@@ -1809,17 +1821,38 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
+                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 id="listing-submit-btn"
-                disabled={isSubmitting}
-                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-1.5 disabled:opacity-50"
+                disabled={isSubmitting || isCompressing}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
-                {isSubmitting ? 'Processing...' : productToEdit ? 'Save Changes' : (category === 'Jobs & Employment' ? 'Post Job Vacancy' : 'Post Ad Now')}
+                {isCompressing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>Encoding Video ({compressionProgress ?? 0}%)...</span>
+                  </>
+                ) : isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : oversizedVideoFile ? (
+                  <>
+                    <span>Next</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                ) : productToEdit ? (
+                  'Save Changes'
+                ) : category === 'Jobs & Employment' ? (
+                  'Post Job Vacancy'
+                ) : (
+                  'Post Ad Now'
+                )}
               </button>
             </div>
           </form>
