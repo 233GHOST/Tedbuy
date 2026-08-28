@@ -3896,6 +3896,13 @@ CEO, Tedbuy Inc`;
     // Optimistically update local memory state
     setProducts(prev => prev.filter(p => p.id !== id));
 
+    // If active user had bookmarked this item, immediately update saved list
+    if (currentUser?.savedProductIds?.includes(id)) {
+      const updatedSaved = currentUser.savedProductIds.filter(pid => pid !== id);
+      setCurrentUserState(prev => prev ? { ...prev, savedProductIds: updatedSaved } : null);
+      updateDoc(doc('users', currentUser.id), { savedProductIds: updatedSaved }).catch(() => {});
+    }
+
     // Trigger server deletion (Supabase, server memory & disk cache, and Cloudinary media destroy)
     try {
       if (localProduct) {
@@ -4810,6 +4817,24 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       handleBackendError(err, OperationType.UPDATE, `users/${currentUser.id}`);
     }
   };
+
+  // Automatically reconcile and prune stale/deleted product IDs from currentUser.savedProductIds
+  // This guarantees that the user's bookmarks list and bookmark badge counts never display ghost/stale counts
+  useEffect(() => {
+    if (!currentUser || !Array.isArray(currentUser.savedProductIds) || currentUser.savedProductIds.length === 0) {
+      return;
+    }
+    // Only prune when products are loaded to avoid premature false positives
+    if (products.length > 0) {
+      const productIdsSet = new Set(products.map(p => p.id));
+      const validSaved = currentUser.savedProductIds.filter(id => productIdsSet.has(id));
+      if (validSaved.length !== currentUser.savedProductIds.length) {
+        console.log(`[SavedSync] Pruned ${currentUser.savedProductIds.length - validSaved.length} stale/deleted product IDs from user saved list.`);
+        setCurrentUserState(prev => prev ? { ...prev, savedProductIds: validSaved } : null);
+        updateDoc(doc('users', currentUser.id), { savedProductIds: validSaved }).catch(() => {});
+      }
+    }
+  }, [products, currentUser?.id]);
 
   const toggleSaveProduct = async (productId: string) => {
     if (!currentUser) return;

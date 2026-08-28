@@ -84,6 +84,15 @@ export const Navbar: React.FC = () => {
   const [resendCooldown, setResendCooldown] = useState(60); // 60 seconds resend interval
   const [otpDebugCode, setOtpDebugCode] = useState('');
 
+  // Clean, verified saved products count that guarantees the badge matches actual active listings
+  const validSavedCount = useMemo(() => {
+    if (!currentUser?.savedProductIds || !Array.isArray(currentUser.savedProductIds) || currentUser.savedProductIds.length === 0) {
+      return 0;
+    }
+    const productIdsSet = new Set(products.map(p => p.id));
+    return currentUser.savedProductIds.filter(id => productIdsSet.has(id)).length;
+  }, [currentUser?.savedProductIds, products]);
+
   // Robust cleaning function for emails/usernames that strips hidden spaces, smart quotes, etc.
   const cleanEmailString = (val: string): string => {
     if (!val) return '';
@@ -488,11 +497,11 @@ export const Navbar: React.FC = () => {
                   : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
               }`}
             >
-              <Bookmark className={`w-4 h-4 ${currentUser?.savedProductIds?.length ? 'text-rose-400 fill-rose-900/30' : ''}`} />
+              <Bookmark className={`w-4 h-4 ${validSavedCount > 0 ? 'text-rose-400 fill-rose-900/30' : ''}`} />
               <span className="hidden sm:inline">Saved</span>
-              {currentUser?.savedProductIds && currentUser.savedProductIds.length > 0 && (
+              {validSavedCount > 0 && (
                 <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-slate-900">
-                  {currentUser.savedProductIds.length}
+                  {validSavedCount}
                 </span>
               )}
             </button>

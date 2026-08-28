@@ -100,6 +100,14 @@ Gratefully yours,
 Vincent Asumadu,
 CEO, Tedbuy Inc`;
 
+  const validSavedCount = React.useMemo(() => {
+    if (!currentUser?.savedProductIds || !Array.isArray(currentUser.savedProductIds) || currentUser.savedProductIds.length === 0) {
+      return 0;
+    }
+    const productIdsSet = new Set(products.map(p => p.id));
+    return currentUser.savedProductIds.filter(id => productIdsSet.has(id)).length;
+  }, [currentUser?.savedProductIds, products]);
+
   const [selectedRecipientId, setSelectedRecipientId] = useState<string>('');
   const [personalEmailSubject, setPersonalEmailSubject] = useState<string>('Welcome to TedBuy');
   const [personalEmailMessage, setPersonalEmailMessage] = useState<string>(DEFAULT_PERSONAL_EMAIL_TEMPLATE);
@@ -816,7 +824,7 @@ CEO, Tedbuy Inc`;
               >
                 <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-tight group-hover:text-slate-500 transition">Saved Ads</span>
                 <span className="text-xs font-sans font-extrabold text-slate-800 mt-0.5 block truncate">
-                  {currentUser.savedProductIds?.length || 0} bookmarks
+                  {validSavedCount} bookmark{validSavedCount === 1 ? '' : 's'}
                 </span>
               </div>
             </div>
