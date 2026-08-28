@@ -418,7 +418,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                       : activeSectionView === 'trending'
                       ? 'The most viewed ads across Ghana right now'
                       : activeSectionView === 'for-you'
-                      ? (forYouResult.subtitle || 'Personalized picks based on your browsing activity')
+                      ? 'Personalized picks based on your browsing activity'
                       : 'Explore active merchants and their storefronts'}
                   </Text>
                 </View>
@@ -691,9 +691,6 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselViewAllText}>View all ›</Text>
                       </Pressable>
                     </View>
-                    {forYouResult.subtitle && (
-                      <Text style={styles.forYouSubtitle}>{forYouResult.subtitle}</Text>
-                    )}
                     <ScrollView
                       horizontal
                       nestedScrollEnabled={true}
@@ -877,9 +874,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   </View>
                 )}
 
-                {/* Latest Marketplace Deals section */}
+                {/* Latest Deals section */}
                 <View style={styles.dealsHeaderRow}>
-                  <Text style={styles.dealsTitle}>Latest Marketplace Deals</Text>
+                  <Text style={styles.dealsTitle}>Latest Deals</Text>
                   <Pressable style={styles.refreshButton} onPress={handleRefresh}>
                     <Text style={styles.refreshIcon}>🔄</Text>
                   </Pressable>

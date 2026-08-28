@@ -71,11 +71,6 @@ export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, se
             <h3 className="text-base font-extrabold text-slate-900 tracking-tight leading-tight">
               {result.headline}
             </h3>
-            {result.subtitle && (
-              <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                {result.subtitle}
-              </p>
-            )}
           </div>
         </div>
 

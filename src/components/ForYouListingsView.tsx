@@ -39,11 +39,6 @@ export const ForYouListingsView: React.FC = () => {
               <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight font-sans">
                 {result.headline}
               </h1>
-              {result.subtitle && (
-                <p className="text-xs font-medium text-slate-500 mt-0.5">
-                  {result.subtitle}
-                </p>
-              )}
             </div>
           </div>
         </div>

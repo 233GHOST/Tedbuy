@@ -1205,7 +1205,7 @@ const MarketplaceContent: React.FC = () => {
                           ? `${selectedCategory} Deals`
                           : (selectedRegion !== 'All' || selectedCity !== 'All')
                           ? `${selectedRegion} Region ${selectedCity !== 'All' ? '- ' + selectedCity : ''} Deals`
-                          : 'Latest Marketplace Deals'}
+                          : 'Latest Deals'}
                       </h3>
                       <button
                         id="btn-manual-refresh"

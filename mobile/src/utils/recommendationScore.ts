@@ -246,13 +246,7 @@ export function getForYouProducts(params: {
   const items = finalIds.map(id => productById.get(id)!).filter(Boolean);
 
   const headline = affinity.hasHistory ? 'For You' : 'Discover on TedBuy';
-  let subtitle: string | null = null;
-  if (affinity.hasHistory) {
-    const parts: string[] = [];
-    if (affinity.topCategories[0]) parts.push(`Because you're into ${affinity.topCategories[0]}`);
-    if (affinity.followedSellerIds.size > 0) parts.push('More from sellers you follow');
-    subtitle = parts.length > 0 ? parts.join(' · ') : null;
-  }
+  const subtitle: string | null = null;
 
   return { items, isColdStart: !affinity.hasHistory, headline, subtitle };
 }
