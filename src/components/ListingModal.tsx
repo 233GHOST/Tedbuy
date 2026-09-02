@@ -18,7 +18,7 @@ interface ListingModalProps {
 
 const CATEGORIES: Category[] = [
   'Phones',
-  'Laptops',
+  'Laptops & Computers',
   'Fashion',
   'Home Appliances',
   'Vehicles',

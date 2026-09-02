@@ -34,7 +34,9 @@ const TRUST_WEIGHT = 0.08;
 const MEDIA_WEIGHT = 0.04;
 
 function normalizeCategory(cat: any): string {
-  return String(cat || 'Other').trim();
+  const clean = String(cat || 'Other').trim();
+  if (clean.toLowerCase() === 'laptops') return 'Laptops & Computers';
+  return clean;
 }
 
 export interface UserAffinity {

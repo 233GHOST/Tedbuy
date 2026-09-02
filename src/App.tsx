@@ -1487,7 +1487,7 @@ const MarketplaceContent: React.FC = () => {
                 <ul className="space-y-2.5 text-xs">
                   {[
                     { label: 'Mobile Phones & Tablets', cat: 'Phones' },
-                    { label: 'Laptops & Computers', cat: 'Laptops' },
+                    { label: 'Laptops & Computers', cat: 'Laptops & Computers' },
                     { label: 'Fashion & Clothing', cat: 'Fashion' },
                     { label: 'Vehicles & Auto Parts', cat: 'Vehicles' },
                     { label: 'Home Appliances', cat: 'Home Appliances' },

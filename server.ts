@@ -1131,7 +1131,7 @@ function normalizeServerCategory(cat: any): string {
     return 'beauty and care';
   }
   if (clean.includes('phone')) return 'phones';
-  if (clean.includes('laptop') || clean.includes('notebook')) return 'laptops';
+  if (clean.includes('laptop') || clean.includes('notebook') || clean.includes('computer')) return 'laptops & computers';
   if (clean.includes('fashion') || clean.includes('cloth') || clean.includes('wear') || clean.includes('shoe')) return 'fashion';
   if (clean.includes('appliance') || clean.includes('fridge') || clean.includes('microwave') || clean.includes('washing machine')) return 'home appliances';
   if (clean.includes('vehicle') || clean.includes('car')) return 'vehicles';

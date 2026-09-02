@@ -20,7 +20,7 @@ export const products: Product[] = [
     id: 'p2',
     title: 'MacBook Air M2',
     price: 'GHS 11,200',
-    category: 'Laptops',
+    category: 'Laptops & Computers',
     location: 'East Legon',
     image: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=900&q=80',
     description: 'Lightweight MacBook Air with M2 chip, 16GB RAM, 512GB SSD and charger included.',
@@ -66,7 +66,7 @@ export const products: Product[] = [
 export const categories = [
   'All',
   'Phones',
-  'Laptops',
+  'Laptops & Computers',
   'Fashion',
   'Home Appliances',
   'Vehicles',

@@ -585,8 +585,8 @@ export const ProductDetail: React.FC = () => {
       if (/\b(phone|phones|iphone|samsung|pixel|tecno|infinix|redmi|xiaomi|huawei|oppo|vivo|galaxy|nokia|oneplus|smartphone|ios|android)\b/.test(textToExamine)) {
         return 'Phones';
       }
-      if (/\b(laptop|laptops|macbook|dell|hp|lenovo|thinkpad|asus|acer|notebook|chromebook|computer)\b/.test(textToExamine)) {
-        return 'Laptops';
+      if (/\b(laptop|laptops|macbook|dell|hp|lenovo|thinkpad|asus|acer|notebook|chromebook|computer|pc)\b/.test(textToExamine)) {
+        return 'Laptops & Computers';
       }
       if (/\b(car|cars|toyota|hyundai|kia|benz|honda|nissan|vehicle|vehicles|elantra|corolla|motor|suv|truck|auto)\b/.test(textToExamine)) {
         return 'Vehicles';
