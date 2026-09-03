@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, isUserVerified, User, normalizeCategory } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Eye, Calendar, Bookmark, Video, Flame, Star, Heart, TrendingUp, Play, Pause } from 'lucide-react';
+import { MapPin, Eye, Calendar, Bookmark, Flame, Star, Heart, TrendingUp, Play, Pause } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 import { isBoostActive } from '../utils/dateParser';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
@@ -359,16 +359,6 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                 {product.condition}
               </span>
             )}
-          </div>
-        )}
-
-        {/* Bottom Video Available Indicator Badge */}
-        {hasVideoAd && !isTrendingVariant && (
-          <div className="absolute bottom-2.5 right-2.5 z-20">
-            <span className="px-2 py-0.5 bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-bold rounded-md flex items-center gap-1 shadow-xs border border-white/10">
-              <Video className="w-3 h-3 text-emerald-400" />
-              <span>Video</span>
-            </span>
           </div>
         )}
 
