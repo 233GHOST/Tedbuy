@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, fetchChatsApi, fetchMessagesApi, sendMessageApi, markChatReadApi, markAsDelivered, markAsPickedUp, fetchUserById, sendTypingStatus, watchTypingStatus, fetchReviewsForSeller, addReview, isRetryableApiError } from '../firebase';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
+import { DismissKeyboardView } from '../components/DismissKeyboardView';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { CheckCircle, ShoppingBag, Star, X } from 'lucide-react-native';
 import { fonts } from '../theme';
@@ -946,6 +947,7 @@ export function ChatsScreen() {
           ChatInterface.tsx, rather than sending the buyer away to a
           different screen to leave feedback on a just-completed trade. */}
       <Modal visible={showReviewModal} transparent animationType="fade" onRequestClose={() => setShowReviewModal(false)}>
+        <DismissKeyboardView>
         <View style={styles.reviewModalOverlay}>
           <View style={styles.reviewModalCard}>
             <View style={styles.reviewModalHeader}>
@@ -1000,6 +1002,7 @@ export function ChatsScreen() {
             </Pressable>
           </View>
         </View>
+        </DismissKeyboardView>
       </Modal>
     </SafeAreaView>
   );

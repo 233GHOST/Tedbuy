@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Modal } from 'react-native';
+import { ActivityIndicator, Alert, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronLeft, ShieldCheck, Mail, RefreshCw, KeyRound, LogOut } from 'lucide-react-native';
 import {
@@ -246,7 +246,7 @@ export function AccountSecuritySettingsScreen({ onBack }: Props) {
         onRequestClose={() => !isDeletingAccount && setIsDeleteModalVisible(false)}
       >
         <Pressable style={styles.deleteModalOverlay} onPress={() => !isDeletingAccount && setIsDeleteModalVisible(false)}>
-          <Pressable style={styles.deleteModalCard} onPress={() => {}}>
+          <Pressable style={styles.deleteModalCard} onPress={Keyboard.dismiss}>
             <Text style={styles.deleteModalTitle}>Delete Your Account</Text>
             <Text style={styles.deleteModalBody}>
               This closes your account and anonymizes your personal details. Your listings will be archived. This cannot be undone.

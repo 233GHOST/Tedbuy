@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Dimensions, Share, Linking, TextInput } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Dimensions, Share, Linking, TextInput, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -900,7 +900,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
           style={styles.reportModalOverlay}
           onPress={() => !isSubmittingReport && setIsReportModalVisible(false)}
         >
-          <Pressable style={styles.reportModalCard} onPress={() => {}}>
+          <Pressable style={styles.reportModalCard} onPress={Keyboard.dismiss}>
             <View style={styles.reportModalHeader}>
               <View style={styles.reportModalHeaderLeft}>
                 <ShieldAlert size={17} color="#e11d48" strokeWidth={2.3} />

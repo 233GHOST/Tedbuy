@@ -20,6 +20,7 @@ import { ProductCard } from '../components/ProductCard';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { isBoostActive } from '../utils/boost';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
+import { DismissKeyboardView } from '../components/DismissKeyboardView';
 import { formatTedbuyTenure } from '../utils/tenure';
 import { fonts } from '../theme';
 
@@ -564,6 +565,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
         visible={showReviewModal}
         onRequestClose={() => setShowReviewModal(false)}
       >
+        <DismissKeyboardView>
         <View style={styles.modalOverlay}>
           <View style={styles.reviewModalCard}>
             <View style={styles.reviewModalHeader}>
@@ -648,6 +650,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
             </Pressable>
           </View>
         </View>
+        </DismissKeyboardView>
       </Modal>
 
       <EmailVerificationModal

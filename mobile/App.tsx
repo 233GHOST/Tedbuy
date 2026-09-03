@@ -16,6 +16,7 @@ import { SuspensionGate } from './src/components/SuspensionGate';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { UnreadChatsProvider } from './src/context/UnreadChats';
 import { SavedProductsProvider } from './src/context/SavedProducts';
+import { DismissKeyboardView } from './src/components/DismissKeyboardView';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -44,7 +45,9 @@ export default function App() {
       <SuspensionGate>
         <UnreadChatsProvider>
           <SavedProductsProvider>
-            <AppNavigator />
+            <DismissKeyboardView>
+              <AppNavigator />
+            </DismissKeyboardView>
             <StatusBar style="auto" />
           </SavedProductsProvider>
         </UnreadChatsProvider>
