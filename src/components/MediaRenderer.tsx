@@ -60,12 +60,9 @@ export const MediaRenderer: React.FC<MediaRendererProps> = ({
   className = 'w-full h-full object-cover',
   videoClassName,
   poster,
-  autoPlay = true,
+  autoPlay = false,
   controls = false,
   loop = true,
-  // Defaults to true: browsers (especially mobile) silently block autoPlay
-  // on unmuted video with no error event — an autoplaying-by-default
-  // component must default to muted, or it'll appear broken out of the box.
   muted = true,
   playsInline = true,
   objectFit = 'cover',
