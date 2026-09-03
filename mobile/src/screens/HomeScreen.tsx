@@ -13,6 +13,7 @@ import { sortProductsByRanking } from '../utils/productSelector';
 import { isBoostActive } from '../utils/boost';
 import { formatProductPrice } from '../utils/formatPrice';
 import { resolveProductImageUri } from '../utils/productImage';
+import { getOptimizedVideoUrlMobile } from '../utils/cloudinary';
 import { CategoryImagePlaceholder } from '../components/CategoryImagePlaceholder';
 import { useSavedProducts } from '../context/SavedProducts';
 import { CATEGORY_FILTERS, getModelsForBrand } from '../utils/filterConfig';
@@ -21,15 +22,48 @@ import { auth, fetchProducts, fetchProductsWithStatus, fetchVideoAds, watchProdu
 import { EmailVerificationModal } from '../components/EmailVerificationModal';
 import { fonts } from '../theme';
 
-/** Real video playback for the "Watch Video Ads" feed — this previously
- * rendered a blurred product image with a static play-button icon, no actual
- * video at all. Only the currently-visible item actually plays; others stay
- * paused, matching the same active-only pattern already used elsewhere. */
-function VideoFeedPlayer({ uri, isActive, isMuted }: { uri: string; isActive: boolean; isMuted: boolean }) {
-  const player = useVideoPlayer(uri, (p) => {
+/** Real video playback for the "Watch Video Ads" feed.
+ *
+ * Two things previously made this feel nothing like TikTok, both fixed here:
+ *
+ * 1. Every video played back was the seller's raw as-uploaded file (often
+ *    1080p+ phone-camera footage, no compression target) — see
+ *    getOptimizedVideoUrlMobile, which caps delivery at 720p with Cloudinary's
+ *    automatic quality/codec selection. Same visual quality on a phone
+ *    screen, a fraction of the bytes, and Cloudinary caches the transform
+ *    at its CDN edge after the first request.
+ * 2. expo-video starts buffering a source the moment a VideoPlayer is given
+ *    one, even before play() is called (this is by design — it's how you
+ *    preload). With no explicit windowing, this screen's FlatList used its
+ *    React Native defaults (windowSize 21 ≈ 10 screens each side), which for
+ *    a one-video-per-screen feed meant up to ~20 videos silently buffering
+ *    at once — competing for bandwidth against the one actually on screen,
+ *    and burning egress on videos that may never be watched. `shouldLoad`
+ *    below (driven by a tight [active-1, active, active+1] window computed
+ *    at the FlatList) is the fix: only the current video and the very next
+ *    one ever have a real source and thus ever download anything; a video
+ *    two or more away sits idle with a null source (no network activity)
+ *    until it enters that window. A prior video is kept one slot behind so
+ *    swiping back up still plays instantly instead of re-buffering.
+ */
+function VideoFeedPlayer({ uri, posterUri, shouldLoad, isActive, isMuted }: { uri: string; posterUri?: string | null; shouldLoad: boolean; isActive: boolean; isMuted: boolean }) {
+  const optimizedUri = useMemo(() => getOptimizedVideoUrlMobile(uri), [uri]);
+  const player = useVideoPlayer(shouldLoad ? optimizedUri : null, (p) => {
     p.loop = true;
     p.muted = isMuted;
   });
+
+  // useVideoPlayer only reads its source at creation — a later shouldLoad
+  // flip (this item just entered the preload window) needs an explicit
+  // replace() to actually start loading.
+  const loadedUriRef = useRef<string | null>(shouldLoad ? optimizedUri : null);
+  useEffect(() => {
+    if (shouldLoad && loadedUriRef.current !== optimizedUri) {
+      player.replace(optimizedUri);
+      player.muted = isMuted;
+      loadedUriRef.current = optimizedUri;
+    }
+  }, [shouldLoad, optimizedUri, player]);
 
   useEffect(() => {
     player.muted = isMuted;
@@ -43,13 +77,35 @@ function VideoFeedPlayer({ uri, isActive, isMuted }: { uri: string; isActive: bo
     }
   }, [isActive, player]);
 
+  const [isBuffering, setIsBuffering] = useState(shouldLoad);
+  useEffect(() => {
+    const sub = player.addListener('statusChange', ({ status }: { status: string }) => {
+      setIsBuffering(status === 'loading');
+    });
+    return () => sub.remove();
+  }, [player]);
+
   return (
-    <VideoView
-      player={player}
-      style={styles.videoPlaceholderImage}
-      nativeControls={false}
-      contentFit="cover"
-    />
+    <View style={styles.videoPlaceholderImage}>
+      {/* Instant first paint (already a lightweight q_auto poster frame, see
+          resolveProductImageUri) so this shows a real frame from frame one
+          instead of a blank black rectangle while the video buffers — the
+          VideoView covers it completely once playback actually starts. */}
+      {!!posterUri && (
+        <Image source={{ uri: posterUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      )}
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        nativeControls={false}
+        contentFit="cover"
+      />
+      {isActive && isBuffering && (
+        <View style={styles.videoBufferingOverlay} pointerEvents="none">
+          <ActivityIndicator color="#ffffff" size="small" />
+        </View>
+      )}
+    </View>
   );
 }
 import { ProductCard } from '../components/ProductCard';
@@ -1526,6 +1582,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               disableIntervalMomentum
               onEndReached={loadMoreVideoAds}
               onEndReachedThreshold={1.5}
+              // Tight virtualization on purpose — see VideoFeedPlayer's
+              // comment above. Each mounted item is one full-screen video;
+              // there's no reason to keep RN's page-list defaults (which
+              // assume small, cheap list rows) around ~20 of them alive.
+              initialNumToRender={2}
+              maxToRenderPerBatch={2}
+              windowSize={3}
+              removeClippedSubviews
               renderItem={({ item, index }) => {
                 const currentUserId = auth.currentUser?.uid;
                 const isSaved = isSavedProduct(item.id);
@@ -1535,10 +1599,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                 const myProfile: any = currentUserId ? users.find((u: any) => u.id === currentUserId) : null;
                 const isFollowingSeller = Array.isArray(myProfile?.followingSellers) && myProfile.followingSellers.includes(item.sellerId);
                 const videoFallbackImageUri = resolveProductImageUri(item);
+                // Only the active video and the one right after it ever
+                // download anything; one slot behind stays loaded too so
+                // swiping back up doesn't re-buffer from scratch.
+                const shouldLoadVideo = index >= activeVideoIndex - 1 && index <= activeVideoIndex + 1;
                 return (
                   <View style={[styles.videoPlayerFrame, { height: videoFeedHeight }]}>
                     {videoUri ? (
-                      <VideoFeedPlayer uri={videoUri} isActive={index === activeVideoIndex} isMuted={isVideoFeedMuted} />
+                      <VideoFeedPlayer uri={videoUri} posterUri={videoFallbackImageUri} shouldLoad={shouldLoadVideo} isActive={index === activeVideoIndex} isMuted={isVideoFeedMuted} />
                     ) : videoFallbackImageUri ? (
                       <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} />
                     ) : (
@@ -2117,6 +2185,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  videoBufferingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   videoOverlay: {
     // Lighter than before deliberately — this used to darken a blurred fake

@@ -127,6 +127,25 @@ export function getCloudinaryVideoPosterMobile(url?: string): string {
   return posterUrl.replace('/upload/', '/upload/so_0,f_jpg,q_auto,w_800/');
 }
 
+/** Caps every video actually PLAYED back (feed scrolling, product gallery)
+ * to a feed-appropriate delivery, instead of the raw as-uploaded file —
+ * previously every play request pulled the seller's original phone-camera
+ * footage verbatim (often 1080p+/high-bitrate), which is both why the video
+ * feed didn't feel smooth (large file, no adaptive quality) and needlessly
+ * expensive in Cloudinary egress. w_720,c_limit only ever downscales (never
+ * upscales a smaller source), q_auto/f_auto let Cloudinary pick the
+ * best-fit compression and codec for the requesting device. Cloudinary
+ * computes each distinct transformation once and serves it from its CDN
+ * cache on every later request — this never mutates the stored/original
+ * URL, only the one used at the point of playback, matching the existing
+ * so_/eo_ trim and poster-frame transforms elsewhere in this file. */
+export function getOptimizedVideoUrlMobile(url?: string): string {
+  if (!url) return '';
+  if (!url.includes('res.cloudinary.com')) return url;
+  if (url.includes('/upload/q_auto')) return url; // already optimized (e.g. re-derived from an already-transformed URL)
+  return url.replace('/upload/', '/upload/q_auto,f_auto,w_720,c_limit/');
+}
+
 /** Bakes a start/end trim directly into the stored Cloudinary URL via its
  * so_/eo_ (start offset / end offset, in seconds) video transform params —
  * Cloudinary serves back only that slice on every playback, with no local

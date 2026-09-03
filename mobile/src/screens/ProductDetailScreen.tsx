@@ -11,6 +11,7 @@ import { ProductCard } from '../components/ProductCard';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
 import { formatProductPrice } from '../utils/formatPrice';
 import { resolveProductImageUri } from '../utils/productImage';
+import { getOptimizedVideoUrlMobile } from '../utils/cloudinary';
 import { CategoryImagePlaceholder } from '../components/CategoryImagePlaceholder';
 import { useSavedProducts } from '../context/SavedProducts';
 import ImageViewing from 'react-native-image-viewing';
@@ -27,7 +28,7 @@ const { width } = Dimensions.get('window');
  * Its own component so useVideoPlayer is called unconditionally, per the
  * rules of hooks, while still letting the gallery mix video and image items. */
 function GalleryVideoItem({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri, (p) => {
+  const player = useVideoPlayer(getOptimizedVideoUrlMobile(uri), (p) => {
     p.loop = true;
     p.muted = true;
     p.play();
