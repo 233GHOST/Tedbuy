@@ -31,7 +31,8 @@ import {
   X
 } from 'lucide-react';
 import { 
-  getProcessedVideoUrl, 
+  getInstantVideoUrl, 
+  cacheVideoInBackground, 
   preloadVideoBatch 
 } from '../utils/videoCache';
 
@@ -110,7 +111,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [processedVideoUrl, setProcessedVideoUrl] = useState<string>('');
+  const [processedVideoUrl, setProcessedVideoUrl] = useState<string>(() => getInstantVideoUrl(product?.videos?.[0] || ''));
   const [videoError, setVideoError] = useState(false);
   const [videoErrorDetails, setVideoErrorDetails] = useState('');
   const activeBlobUrlRef = useRef<string>('');
@@ -221,7 +222,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   const currentVideoUrl = product?.videos?.[0] || '';
 
-  // Instant preloading & decoding for base64 Data URLs and direct video URLs
+  // Instant preloading & decoding: sets playable stream URL immediately on frame 1
   useEffect(() => {
     setVideoError(false);
     setVideoErrorDetails('');
@@ -231,9 +232,12 @@ const ReelItem: React.FC<ReelItemProps> = ({
       return;
     }
 
-    // Resolve immediately with no delay
-    const playableUrl = getProcessedVideoUrl(currentVideoUrl);
-    setProcessedVideoUrl(playableUrl);
+    // Immediately set instant playable URL synchronously (converts base64 data: to blob: in <1ms or uses direct stream URL)
+    const instantUrl = getInstantVideoUrl(currentVideoUrl);
+    setProcessedVideoUrl(instantUrl);
+
+    // Silently cache in background for offline persistence
+    cacheVideoInBackground(currentVideoUrl);
   }, [currentVideoUrl, shouldLoad]);
 
   // Sync volume and mute changes dynamically without triggering video play re-initializations
@@ -493,6 +497,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
           <video
             ref={videoRef}
             src={processedVideoUrl}
+            poster={product.images?.[0] || ''}
             autoPlay={isActive}
             loop
             muted={isMuted}

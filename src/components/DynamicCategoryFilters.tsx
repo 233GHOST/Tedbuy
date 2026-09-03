@@ -71,7 +71,8 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
           { label: 'GH₵ 2 - 3.3 K', min: '2000', max: '3300' },
           { label: '> GH₵ 3.3 K', min: '3300', max: '' },
         ];
-      case 'Laptops':
+      case 'Laptops & Computers':
+      case 'Laptops' as any:
         return [
           { label: '< GH₵ 2.5 K', min: '', max: '2500' },
           { label: 'GH₵ 2.5 - 4.5 K', min: '2500', max: '4500' },
@@ -159,13 +160,14 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             }
           }
         ];
-      case 'Laptops':
+      case 'Laptops & Computers':
+      case 'Laptops' as any:
         return [
           { 
-            title: 'Value my laptop', 
+            title: 'Value my laptop/PC', 
             icon: '📊', 
             bgColor: 'bg-indigo-50 border-indigo-150 text-indigo-800',
-            action: () => showToast("💻 Laptop valuation active. Optimal trade pricing suggested!", "info")
+            action: () => showToast("💻 Laptop & PC valuation active. Optimal trade pricing suggested!", "info")
           },
           { 
             title: 'Budget-friendly', 

@@ -195,8 +195,8 @@ interface AppContextType {
   setSearchQuery: (q: string) => void;
   selectedCategory: Category | null;
   setSelectedCategory: (cat: Category | null) => void;
-  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings';
-  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings') => void;
+  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery';
+  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery') => void;
   homeViewMode: 'grid' | 'video-feed';
   setHomeViewMode: (mode: 'grid' | 'video-feed') => void;
   updateUserProfile: (profileData: {
@@ -625,6 +625,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { view: 'featured-listings' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
+    // /trending
+    if (pathname === '/trending' || pathname === '/trending-listings') {
+      return { view: 'trending-listings' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
+    // /for-you
+    if (pathname === '/for-you' || pathname === '/discover') {
+      return { view: 'for-you-listings' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
+    // /sellers
+    if (pathname === '/sellers' || pathname === '/merchants' || pathname === '/discover-sellers') {
+      return { view: 'sellers-discovery' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
     // /chats
     if (pathname === '/chats') {
       return { view: 'chats' as const, selectedProductId: null, selectedSellerId: null, category: null };
@@ -692,7 +707,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return parseUrlState().category;
   });
 
-  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings'>(() => {
+  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery'>(() => {
     return parseUrlState().view;
   });
   const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');
@@ -3772,6 +3787,13 @@ CEO, Tedbuy Inc`;
     // Optimistically update local memory state
     setProducts(prev => prev.filter(p => p.id !== id));
 
+    // If active user had bookmarked this item, immediately update saved list
+    if (currentUser?.savedProductIds?.includes(id)) {
+      const updatedSaved = currentUser.savedProductIds.filter(pid => pid !== id);
+      setCurrentUserState(prev => prev ? { ...prev, savedProductIds: updatedSaved } : null);
+      updateDoc(doc('users', currentUser.id), { savedProductIds: updatedSaved }).catch(() => {});
+    }
+
     // Trigger server deletion (Supabase, server memory & disk cache, and Cloudinary media destroy)
     try {
       if (localProduct) {
@@ -4639,6 +4661,24 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       handleBackendError(err, OperationType.UPDATE, `users/${currentUser.id}`);
     }
   };
+
+  // Automatically reconcile and prune stale/deleted product IDs from currentUser.savedProductIds
+  // This guarantees that the user's bookmarks list and bookmark badge counts never display ghost/stale counts
+  useEffect(() => {
+    if (!currentUser || !Array.isArray(currentUser.savedProductIds) || currentUser.savedProductIds.length === 0) {
+      return;
+    }
+    // Only prune when products are loaded to avoid premature false positives
+    if (products.length > 0) {
+      const productIdsSet = new Set(products.map(p => p.id));
+      const validSaved = currentUser.savedProductIds.filter(id => productIdsSet.has(id));
+      if (validSaved.length !== currentUser.savedProductIds.length) {
+        console.log(`[SavedSync] Pruned ${currentUser.savedProductIds.length - validSaved.length} stale/deleted product IDs from user saved list.`);
+        setCurrentUserState(prev => prev ? { ...prev, savedProductIds: validSaved } : null);
+        updateDoc(doc('users', currentUser.id), { savedProductIds: validSaved }).catch(() => {});
+      }
+    }
+  }, [products, currentUser?.id]);
 
   const toggleSaveProduct = async (productId: string) => {
     if (!currentUser) return;

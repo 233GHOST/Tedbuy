@@ -156,7 +156,7 @@ export const calculateTrustScore = (
 
 export type Category =
   | 'Phones'
-  | 'Laptops'
+  | 'Laptops & Computers'
   | 'Fashion'
   | 'Home Appliances'
   | 'Vehicles'
@@ -322,7 +322,19 @@ export function normalizeCategory(cat: any): Category {
   }
 
   if (clean === 'phone' || clean === 'phones' || clean.includes('phone')) return 'Phones';
-  if (clean === 'laptop' || clean === 'laptops' || clean.includes('laptop') || clean.includes('notebook')) return 'Laptops';
+  if (
+    clean === 'laptop' ||
+    clean === 'laptops' ||
+    clean.includes('laptop') ||
+    clean.includes('notebook') ||
+    clean.includes('computer') ||
+    clean.includes('desktop') ||
+    clean.includes('pc') ||
+    clean.includes('laptops & computers') ||
+    clean.includes('laptops and computers')
+  ) {
+    return 'Laptops & Computers';
+  }
   if (clean === 'fashion' || clean.includes('fashion') || clean.includes('cloth') || clean.includes('wear')) return 'Fashion';
   if (clean === 'home appliance' || clean === 'home appliances' || clean === 'appliances' || clean === 'appliance' || clean.includes('appliance') || clean.includes('fridge') || clean.includes('microwave') || clean.includes('washing machine')) return 'Home Appliances';
   if (clean === 'vehicle' || clean === 'vehicles' || clean === 'car' || clean === 'cars' || clean.includes('vehicle')) return 'Vehicles';
@@ -342,7 +354,7 @@ export function normalizeCategory(cat: any): Category {
 
   const knownCategories: Category[] = [
     'Phones',
-    'Laptops',
+    'Laptops & Computers',
     'Fashion',
     'Home Appliances',
     'Vehicles',
@@ -366,9 +378,9 @@ export function normalizeCategory(cat: any): Category {
   return found || 'Other';
 }
 
-export const CATEGORY_ICONS: Record<Category, string> = {
+export const CATEGORY_ICONS: Record<Category, string> & Record<string, string> = {
   Phones: '📱',
-  Laptops: '💻',
+  'Laptops & Computers': '💻',
   Fashion: '👟',
   'Home Appliances': '🔌',
   Vehicles: '🚗',
@@ -387,6 +399,14 @@ export const CATEGORY_ICONS: Record<Category, string> = {
   'Books & Hobbies': '📚',
   Other: '📦'
 };
+
+// Non-enumerable fallback for legacy records saved as 'Laptops'
+Object.defineProperty(CATEGORY_ICONS, 'Laptops', {
+  value: '💻',
+  enumerable: false,
+  writable: true,
+  configurable: true,
+});
 
 export interface AppNotification {
   id: string;

@@ -115,11 +115,7 @@ export function SellersToDiscover({ selectedCategory }: SellersToDiscoverProps) 
           </div>
 
           <button
-            onClick={() => {
-              if (scrollContainerRef.current) {
-                scrollContainerRef.current.scrollBy({ left: 400, behavior: 'smooth' });
-              }
-            }}
+            onClick={() => setCurrentView('sellers-discovery')}
             className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1 whitespace-nowrap"
           >
             View all

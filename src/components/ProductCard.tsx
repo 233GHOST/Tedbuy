@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, isUserVerified, User, normalizeCategory } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Bookmark, Video, Flame, Star, Heart, TrendingUp, Check } from 'lucide-react';
+import { MapPin, Bookmark, Flame, Star, Heart, TrendingUp, Check, Play, Pause } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 import { isBoostActive } from '../utils/dateParser';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
@@ -151,7 +151,9 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
   const [imgSrc, setImgSrc] = React.useState<string>(initialSrc);
   const [processedVideoUrl, setProcessedVideoUrl] = React.useState<string>('');
   const [videoError, setVideoError] = React.useState<boolean>(false);
+  const [isPlaying, setIsPlaying] = React.useState<boolean>(false);
   const imgRef = React.useRef<HTMLImageElement>(null);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
 
   React.useEffect(() => {
     const nextSrc = resolveProductImage(product, 400);
@@ -159,7 +161,18 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
   }, [product.id, product.displayImage, product.thumbnailUrl, product.primaryImage, product.images?.[0], (product as any).updatedAt]);
 
   React.useEffect(() => {
+    if (!isVisible && videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [isVisible]);
+
+  React.useEffect(() => {
     setVideoError(false);
+    setIsPlaying(false);
+    if (videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
     if (!isVisible) {
       setProcessedVideoUrl('');
       return;
@@ -215,6 +228,21 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
     };
   }, [product.videos, isVisible]);
 
+  const togglePlayVideo = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch((err) => {
+        console.warn("Video preview play error:", err);
+      });
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
   const formattedPrice = formatProductPrice(product.price);
   const isServiceCategory = normalizeCategory(product.category) === 'Services';
   const sellerName = seller?.username || (seller as any)?.displayName || product.sellerName || 'TedBuy Merchant';
@@ -234,13 +262,18 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
           <>
             {(processedVideoUrl && !videoError) ? (
               <video
+                ref={videoRef}
                 src={processedVideoUrl}
+                poster={imgSrc}
+                preload="metadata"
                 muted
                 loop
                 playsInline
                 webkit-playsinline="true"
                 disablePictureInPicture
-                autoPlay
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-all duration-500"
                 onError={(e) => {
                   const err = e.currentTarget.error;
@@ -256,6 +289,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                   }
                   console.error(`[ProductCard Error] Video failed to load for Product ID: ${product.id}. Title: "${product.title}". Video URL: "${product.videos?.[0]}". Processed URL: "${processedVideoUrl}". Error: ${errMsg}`, err);
                   setVideoError(true);
+                  setIsPlaying(false);
                 }}
               />
             ) : (
@@ -273,6 +307,24 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                   }
                 }}
               />
+            )}
+
+            {/* Non-autoplay Play/Pause trigger button */}
+            {(processedVideoUrl && !videoError) && (
+              <button
+                type="button"
+                aria-label={isPlaying ? "Pause video preview" : "Play video preview"}
+                onClick={togglePlayVideo}
+                className={`absolute inset-0 m-auto w-11 h-11 rounded-full bg-slate-950/75 hover:bg-slate-950/90 text-white flex items-center justify-center backdrop-blur-xs border border-white/20 shadow-lg transition-all duration-200 z-20 cursor-pointer ${
+                  isPlaying ? 'opacity-0 group-hover:opacity-100 scale-95 hover:scale-105' : 'opacity-90 hover:opacity-100 hover:scale-110'
+                }`}
+              >
+                {isPlaying ? (
+                  <Pause className="w-5 h-5 fill-white text-white" />
+                ) : (
+                  <Play className="w-5 h-5 fill-white text-white translate-x-0.5" />
+                )}
+              </button>
             )}
           </>
         ) : (
@@ -306,16 +358,6 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
                 {product.condition}
               </span>
             )}
-          </div>
-        )}
-
-        {/* Bottom Video Available Indicator Badge */}
-        {hasVideoAd && !isTrendingVariant && (
-          <div className="absolute bottom-2.5 right-2.5 z-20">
-            <span className="px-2 py-0.5 bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-bold rounded-md flex items-center gap-1 shadow-xs border border-white/10">
-              <Video className="w-3 h-3 text-emerald-400" />
-              <span>Video</span>
-            </span>
           </div>
         )}
 

@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
-import { ChevronRight } from 'lucide-react';
+import React, { useMemo, useRef } from 'react';
 import { ProductCard } from './ProductCard';
 import { useApp } from '../context/AppContext';
 import { getForYouProducts } from '../utils/recommendationScore';
+import { Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ForYouSectionProps {
   /** Optional Ghana location filter context, passed down the same way other
@@ -20,7 +20,8 @@ interface ForYouSectionProps {
  * "Discover on TedBuy" ranking when a user has no behavioral history yet).
  */
 export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, selectedCity }) => {
-  const { products, users, reviews, chats, currentUser, recentlyViewedIds } = useApp();
+  const { products, users, reviews, chats, currentUser, recentlyViewedIds, setCurrentView } = useApp();
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const result = useMemo(() => {
     return getForYouProducts({
@@ -36,34 +37,74 @@ export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, se
     });
   }, [products, users, reviews, chats, currentUser, recentlyViewedIds, selectedRegion, selectedCity]);
 
+  const handleScrollLeft = () => {
+    if (containerRef.current) {
+      const cardWidth = containerRef.current.firstElementChild?.clientWidth || 280;
+      containerRef.current.scrollBy({ left: -(cardWidth * 2 + 16), behavior: 'smooth' });
+    }
+  };
+
+  const handleScrollRight = () => {
+    if (containerRef.current) {
+      const cardWidth = containerRef.current.firstElementChild?.clientWidth || 280;
+      containerRef.current.scrollBy({ left: (cardWidth * 2 + 16), behavior: 'smooth' });
+    }
+  };
+
+  const handleViewAll = () => {
+    setCurrentView('for-you-listings');
+  };
+
   if (!result.items || result.items.length === 0) {
     return null;
   }
 
   return (
     <section id="for-you-section" className="w-full mb-8 animate-fade-in">
-      <div className="flex items-center justify-between gap-3 mb-1">
-        <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-          {result.headline}
-        </h3>
-        <button
-          type="button"
-          onClick={() => {
-            const el = document.getElementById('all-products-section') || document.getElementById('product-grid');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }}
-          className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer whitespace-nowrap"
-        >
-          View all
-          <ChevronRight className="w-4 h-4 stroke-[2.5]" />
-        </button>
+      {/* Header Bar */}
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2.5 font-sans">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-600 text-white flex items-center justify-center shadow-xs shrink-0">
+            <Sparkles className="w-4 h-4 fill-white text-white" />
+          </div>
+          <div>
+            <h3 className="text-base font-extrabold text-slate-900 tracking-tight leading-tight">
+              {result.headline}
+            </h3>
+          </div>
+        </div>
+
+        {/* Right side navigation: Desktop Controls & View All */}
+        <div className="flex items-center gap-2.5">
+          <div className="hidden sm:flex items-center gap-1.5">
+            <button
+              onClick={handleScrollLeft}
+              className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center shadow-2xs cursor-pointer"
+              aria-label="Previous Discovery Item"
+            >
+              <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+            </button>
+            <button
+              onClick={handleScrollRight}
+              className="w-8 h-8 rounded-full bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 active:scale-95 transition-all flex items-center justify-center shadow-2xs cursor-pointer"
+              aria-label="Next Discovery Item"
+            >
+              <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          </div>
+
+          <button
+            onClick={handleViewAll}
+            className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1 whitespace-nowrap"
+          >
+            View all
+            <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+          </button>
+        </div>
       </div>
 
-      <p className={`text-xs font-semibold text-slate-500 ${result.subtitle ? 'mb-4' : 'mb-4 h-0 overflow-hidden'}`}>
-        {result.subtitle}
-      </p>
-
       <div
+        ref={containerRef}
         className="flex gap-4 overflow-x-auto scrollbar-none snap-x snap-proximity py-1 px-0.5 touch-auto overscroll-x-contain"
         style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >

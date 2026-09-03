@@ -44,6 +44,7 @@ const POPULAR_KEYWORDS = [
 const categoryIcons: Record<string, string> = {
   All: '🌐',
   Phones: '📱',
+  'Laptops & Computers': '💻',
   Laptops: '💻',
   Fashion: '👟',
   'Home Appliances': '🔌',
@@ -67,7 +68,8 @@ const categoryIcons: Record<string, string> = {
 const categoryDescriptions: Record<string, string> = {
   All: 'Explore everything on TedBuy',
   Phones: 'iPhones, Android, accessories',
-  Laptops: 'MacBooks, Windows laptops, parts',
+  'Laptops & Computers': 'MacBooks, Windows laptops, desktop PCs, parts',
+  Laptops: 'MacBooks, Windows laptops, desktop PCs, parts',
   Fashion: 'Sneakers, apparel, watches, bags',
   'Home Appliances': 'Refrigerators, microwaves, ACs',
   Vehicles: 'Cars, motorcycles, vehicle parts',

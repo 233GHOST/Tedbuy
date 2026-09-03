@@ -27,6 +27,7 @@ const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 const CATEGORIES = [
   'phones',
   'laptops',
+  'laptops-computers',
   'electronics',
   'fashion',
   'games',

@@ -74,6 +74,7 @@ interface HomeScreenProps {
 const categoryIcons: Record<string, string> = {
   All: '🌐',
   Phones: '📱',
+  'Laptops & Computers': '💻',
   Laptops: '💻',
   Fashion: '👟',
   'Home Appliances': '🔌',
@@ -379,7 +380,10 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       const location = String(product.location || '').toLowerCase();
       const query = searchText.toLowerCase().trim();
 
-      const matchesCategory = selectedCategory === 'All' || category === selectedCategory;
+      const matchesCategory = selectedCategory === 'All' || 
+        category === selectedCategory ||
+        (category.toLowerCase().includes('laptop') && selectedCategory.toLowerCase().includes('laptop')) ||
+        (category.toLowerCase().includes('computer') && selectedCategory.toLowerCase().includes('computer'));
       const matchesSearch = !query ||
         title.includes(query) ||
         description.includes(query) ||
@@ -1305,9 +1309,6 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselViewAllText}>View all ›</Text>
                       </Pressable>
                     </View>
-                    {forYouResult.subtitle && (
-                      <Text style={styles.forYouSubtitle}>{forYouResult.subtitle}</Text>
-                    )}
                     <ScrollView
                       horizontal
                       nestedScrollEnabled={true}
@@ -1404,7 +1405,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   </View>
                 )}
 
-                {/* Latest Marketplace Deals section */}
+                {/* Latest Deals section */}
                 <View style={styles.dealsHeaderRow}>
                   <Text style={styles.dealsTitle}>Latest Deals</Text>
                   <Pressable style={styles.refreshButton} onPress={handleRefresh} disabled={isRefreshing}>

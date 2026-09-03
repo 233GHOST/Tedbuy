@@ -175,13 +175,6 @@ export function ProductCard({
           </View>
         )}
 
-        {/* Bottom-Right Video Ad Ribbon */}
-        {hasVideoAd && !isTrendingVariant && (
-          <View style={styles.videoRibbon}>
-            <Text style={styles.videoRibbonText}>📹 Video Ad</Text>
-          </View>
-        )}
-
         {/* Absolute Floating Save Button (Bookmark) */}
         <Pressable 
           style={[styles.bookmarkButton, localIsSaved && styles.bookmarkButtonActive]} 
@@ -415,24 +408,6 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   conditionTagText: {
-    color: '#ffffff',
-    fontSize: 9,
-    fontFamily: fonts.extrabold,
-    textTransform: 'uppercase',
-  },
-  videoRibbon: {
-    position: 'absolute',
-    bottom: 10,
-    right: 10,
-    backgroundColor: 'rgba(5, 150, 105, 0.9)',
-    borderWidth: 1,
-    borderColor: '#10b981',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    zIndex: 4,
-  },
-  videoRibbonText: {
     color: '#ffffff',
     fontSize: 9,
     fontFamily: fonts.extrabold,

@@ -146,7 +146,7 @@ export const CATEGORY_FILTERS: Record<Category, FilterField[]> = {
       options: ['Under Warranty', 'No Warranty / Expired']
     }
   ],
-  Laptops: [
+  'Laptops & Computers': [
     {
       id: 'brand',
       label: 'Brand',
@@ -407,6 +407,9 @@ export const CATEGORY_FILTERS: Record<Category, FilterField[]> = {
   ]
 };
 
+// Fallback alias for legacy database records
+(CATEGORY_FILTERS as any)['Laptops'] = CATEGORY_FILTERS['Laptops & Computers'];
+
 // Hierarchical Brand to Model mapping
 export const BRAND_MODELS_DATA: Record<string, string[]> = {
   // Phone Brands
@@ -629,7 +632,7 @@ export function getModelsForBrand(brand: string, category: Category): string[] {
   if (!brand) return [];
   const cleanBrand = brand.trim().toLowerCase();
   
-  if (category === 'Laptops') {
+  if (category === 'Laptops & Computers' || (category as string) === 'Laptops') {
     if (cleanBrand === 'apple') {
       return BRAND_MODELS_DATA['Apple (Laptops)'] || [];
     }

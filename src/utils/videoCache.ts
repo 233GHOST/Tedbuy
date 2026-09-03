@@ -1,25 +1,32 @@
 /**
- * TikTok-style Ultra-High-Performance Video Offline & Preload Cache Engine
+ * TikTok-style Ultra-High-Performance Video Playback & Offline Cache Engine
  * 
- * Features:
- * - Instant synchronous resolution of base64 Data URLs and direct video URLs
- * - Browser CacheStorage + Service Worker offline video retention
- * - Background preloading for forward and backward reels (up to 15 items)
- * - Safe CORS handling that never blocks direct media streaming
+ * Key Principles:
+ * 1. Zero Playback Delay: Always return a playable stream URL immediately (synchronously)
+ *    so browser native media hardware decoders start playing on frame 1.
+ * 2. Instant Base64 to Blob conversion with memoization so data: URIs play at native speed.
+ * 3. Background caching into CacheStorage and memory Blob store without ever blocking playback.
+ * 4. Offline resilience: Videos once viewed or preloaded remain in cache for offline scrolling.
  */
 
 const CACHE_NAME = 'tedbuy-video-cache-v2';
-const MAX_BLOB_MEMORY_ITEMS = 40;
+const MAX_BLOB_MEMORY_ITEMS = 50;
 
-// In-memory registry of URL -> object URL (blob:...)
-const memoryBlobMap = new Map<string, string>();
+// In-memory cache for base64 data URIs converted to Blob URLs
+const dataUriToBlobMap = new Map<string, string>();
+// In-memory cache for downloaded offline video blobs
+const offlineBlobMap = new Map<string, string>();
 
 /**
- * Base64 decoder converting Data URLs directly into native browser Blob URLs
+ * High-performance base64 to Blob URL converter with memoization
  */
 export const base64ToBlobUrl = (base64Str: string, defaultMime = 'video/mp4'): string => {
   if (!base64Str) return '';
   if (!base64Str.startsWith('data:')) return base64Str;
+
+  if (dataUriToBlobMap.has(base64Str)) {
+    return dataUriToBlobMap.get(base64Str)!;
+  }
 
   try {
     const parts = base64Str.split(',');
@@ -45,83 +52,86 @@ export const base64ToBlobUrl = (base64Str: string, defaultMime = 'video/mp4'): s
     }
 
     const blob = new Blob([bytes], { type: mime });
-    return URL.createObjectURL(blob);
+    const blobUrl = URL.createObjectURL(blob);
+
+    if (dataUriToBlobMap.size >= MAX_BLOB_MEMORY_ITEMS) {
+      const oldest = dataUriToBlobMap.keys().next().value;
+      if (oldest) {
+        try {
+          URL.revokeObjectURL(dataUriToBlobMap.get(oldest)!);
+        } catch (_) {}
+        dataUriToBlobMap.delete(oldest);
+      }
+    }
+
+    dataUriToBlobMap.set(base64Str, blobUrl);
+    return blobUrl;
   } catch (error) {
-    console.warn('[VideoCache] base64ToBlobUrl decode error:', error);
+    console.warn('[VideoCache] base64 decode fallback:', error);
     return base64Str;
   }
 };
 
 /**
- * Evict oldest Blob Object URLs if cache size exceeds limit
+ * Returns a playable URL IMMEDIATELY without any async delay or network blocking
  */
-function evictOldestIfNecessary() {
-  if (memoryBlobMap.size >= MAX_BLOB_MEMORY_ITEMS) {
-    const firstKey = memoryBlobMap.keys().next().value;
-    if (firstKey) {
-      const blobUrl = memoryBlobMap.get(firstKey);
-      if (blobUrl && blobUrl.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(blobUrl);
-        } catch (_) {}
-      }
-      memoryBlobMap.delete(firstKey);
-    }
-  }
-}
-
-/**
- * Returns playable URL immediately without blocking or waiting
- */
-export function getProcessedVideoUrl(rawUrl: string): string {
+export function getInstantVideoUrl(rawUrl: string): string {
   if (!rawUrl) return '';
-  if (!rawUrl.startsWith('data:')) return rawUrl;
-
-  if (memoryBlobMap.has(rawUrl)) {
-    return memoryBlobMap.get(rawUrl)!;
+  // If we already have an offline blob ready, use it
+  if (offlineBlobMap.has(rawUrl)) {
+    return offlineBlobMap.get(rawUrl)!;
   }
-
-  const blobUrl = base64ToBlobUrl(rawUrl, 'video/mp4');
-  evictOldestIfNecessary();
-  memoryBlobMap.set(rawUrl, blobUrl);
-  return blobUrl;
+  // If it's a data URI, convert synchronously to Blob URL
+  if (rawUrl.startsWith('data:')) {
+    return base64ToBlobUrl(rawUrl);
+  }
+  // Otherwise return raw URL directly for immediate native browser streaming
+  return rawUrl;
 }
 
-// Background prefetch cache via hidden video elements for native browser disk caching
-const preloadedUrls = new Set<string>();
+/**
+ * Non-blocking background caching for offline playback
+ */
+export async function cacheVideoInBackground(rawUrl: string): Promise<void> {
+  if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('blob:') || offlineBlobMap.has(rawUrl)) {
+    return;
+  }
+
+  try {
+    if ('caches' in window) {
+      const cache = await caches.open(CACHE_NAME);
+      const match = await cache.match(rawUrl);
+      if (match) {
+        const blob = await match.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        offlineBlobMap.set(rawUrl, blobUrl);
+        return;
+      }
+
+      // Fetch silently only when online
+      if (navigator.onLine && rawUrl.startsWith('http')) {
+        const response = await fetch(rawUrl, { mode: 'no-cors' });
+        if (response) {
+          await cache.put(rawUrl, response);
+        }
+      }
+    }
+  } catch (_) {
+    // Fail silently in background
+  }
+}
 
 /**
- * Preloads videos seamlessly in background using native HTML5 Video prefetch
- * so browser caches byte-ranges locally on disk / CacheStorage for instant offline/backward playback.
+ * Preload batch of videos silently in background
  */
 export function preloadVideoBatch(urls: string[]) {
-  if (typeof window === 'undefined' || !urls || urls.length === 0) return;
-
+  if (!urls || urls.length === 0) return;
   urls.forEach(url => {
-    if (!url || preloadedUrls.has(url)) return;
-    preloadedUrls.add(url);
-
-    // If it's a data URL, decode it into Blob URL immediately
+    if (!url) return;
     if (url.startsWith('data:')) {
-      getProcessedVideoUrl(url);
-      return;
+      base64ToBlobUrl(url);
+    } else {
+      cacheVideoInBackground(url);
     }
-
-    // For HTTP/HTTPS URLs, trigger browser background preload & CacheStorage
-    try {
-      if ('caches' in window && url.startsWith('http')) {
-        fetch(url, { mode: 'no-cors', cache: 'force-cache' }).catch(() => {});
-      }
-    } catch (_) {}
-
-    try {
-      const v = document.createElement('video');
-      v.preload = 'auto';
-      v.muted = true;
-      v.playsInline = true;
-      v.src = url;
-      v.load();
-    } catch (_) {}
   });
 }
-
