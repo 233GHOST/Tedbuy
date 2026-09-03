@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal, PanResponder } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, fetchChatsApi, fetchMessagesApi, sendMessageApi, markChatReadApi, markAsDelivered, markAsPickedUp, fetchUserById, sendTypingStatus, watchTypingStatus, fetchReviewsForSeller, addReview, isRetryableApiError } from '../firebase';
@@ -230,7 +230,7 @@ export function ChatsScreen() {
     }
     setIsSubmittingReview(true);
     try {
-      const newRev = await addReview(activeChat.sellerId, reviewRating, reviewComment.trim(), activeChat.productTitle);
+      const newRev = await addReview(activeChat.sellerId, reviewRating, reviewComment.trim(), activeChat.productTitle, activeChat.id);
       setSellerReviews((prev) => [newRev, ...prev]);
       setShowReviewModal(false);
       setReviewComment('');
@@ -479,6 +479,31 @@ export function ChatsScreen() {
     }
   };
 
+  const handleBackToInbox = () => {
+    setActiveChatId(null);
+    navigation.setParams({ activeChatId: undefined });
+  };
+
+  // Swipe-right-to-go-back on the open conversation, matching the standard
+  // messaging-app gesture (Telegram/iMessage). Only claims the gesture once
+  // the drag is clearly horizontal and rightward, so it doesn't fight the
+  // message list's vertical scroll or the quick-replies row's own
+  // horizontal ScrollView (which they win by moving with a much smaller
+  // horizontal-vs-vertical margin — a deliberate swipe needs to travel
+  // further right than that).
+  const chatRoomPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gestureState) => {
+        return gestureState.dx > 24 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2.5;
+      },
+      onPanResponderRelease: (_evt, gestureState) => {
+        if (gestureState.dx > 80 && Math.abs(gestureState.dy) < 60) {
+          handleBackToInbox();
+        }
+      },
+    })
+  ).current;
+
   // Filter chats by query and tab
   const filteredChats = useMemo(() => {
     if (!currentUser) return [];
@@ -537,7 +562,7 @@ export function ChatsScreen() {
       : ['Yes, it is still available!', 'Price is negotiable.', 'Where are you located?', 'When can we meet?'];
 
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']} {...chatRoomPanResponder.panHandlers}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardContainer}
@@ -546,10 +571,7 @@ export function ChatsScreen() {
           {/* Chat room header */}
           <View style={styles.chatRoomHeader}>
             <Pressable
-              onPress={() => {
-                setActiveChatId(null);
-                navigation.setParams({ activeChatId: undefined });
-              }}
+              onPress={handleBackToInbox}
               style={styles.chatRoomBackBtn}
             >
               <Text style={styles.chatRoomBackText}>← Inbox</Text>

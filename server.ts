@@ -2877,12 +2877,12 @@ app.get('/api/reviews', serverRateLimiter(60 * 1000, 120, "reviews-list"), async
   }
 });
 
-app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 3, "reviews-create"), async (req, res) => {
+app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-create"), async (req, res) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to submit reviews' });
   }
-  const { sellerId, rating, comment, productTitle } = req.body || {};
+  const { sellerId, rating, comment, productTitle, chatId } = req.body || {};
   if (!sellerId || typeof sellerId !== 'string') {
     return res.status(400).json({ success: false, error: 'Missing sellerId' });
   }
@@ -2916,6 +2916,24 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 3, "reviews-cre
   try {
     const { error } = await safeBackendSupabaseUpsert('reviews', newReview, { onConflict: 'id' });
     if (error) throw error;
+
+    // Drop a system message into the chat this review was left from, so the
+    // seller sees it without having to separately check their reviews list.
+    // Only trusts a chatId where the caller is actually the buyer on that
+    // chat — never lets a client point this at an arbitrary conversation.
+    if (chatId && typeof chatId === 'string') {
+      const chat = await getChatIfParticipant(chatId, verified.uid);
+      if (chat && chat.buyerId === verified.uid && chat.sellerId === sellerId) {
+        const tone = numericRating >= 4 ? 'positive' : numericRating === 3 ? 'neutral' : 'critical';
+        await createChatMessage(
+          chat,
+          chat.buyerId,
+          chat.sellerId,
+          `⭐ Buyer has left you ${tone} feedback with a ${numericRating}-star rating: "${cleanComment}"`
+        ).catch((err) => console.warn('[Reviews Create API] Could not post review chat message:', err));
+      }
+    }
+
     return res.json({ success: true, review: newReview });
   } catch (err: any) {
     console.error('[Reviews Create API Error]:', err);

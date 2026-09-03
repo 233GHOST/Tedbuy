@@ -834,10 +834,10 @@ export async function fetchReviewsForSeller(sellerId: string): Promise<any[]> {
  * rules, routed through the server (Supabase-backed 'reviews' table) so a
  * review left on mobile shows up on web immediately and counts toward the
  * same trust score. */
-export async function addReview(sellerId: string, rating: number, comment: string, productTitle?: string) {
+export async function addReview(sellerId: string, rating: number, comment: string, productTitle?: string, chatId?: string) {
   const data = await apiFetch('/api/reviews/create', {
     method: 'POST',
-    body: { sellerId, rating, comment, productTitle },
+    body: { sellerId, rating, comment, productTitle, chatId },
   });
   if (!data.success) throw new Error(data.error || 'Failed to submit review.');
   return data.review;
