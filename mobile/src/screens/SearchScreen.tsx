@@ -1,8 +1,24 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { categories, products as sampleProducts } from '../data';
-import { getPrefixAutocompleteSuggestions } from '../utils/searchAutocomplete';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MapPin, Building2, Sparkles, Search as SearchIcon } from 'lucide-react-native';
+import { categories } from '../data';
+import { watchProducts, fetchSearchSuggestions } from '../firebase';
+import { Product } from '../types';
+import { getPrefixAutocompleteSuggestions, AutocompleteSuggestion } from '../utils/searchAutocomplete';
+import { fonts } from '../theme';
+import { TAB_BAR_HEIGHT, useTabBarVisibility } from '../context/TabBarVisibility';
+
+const RECENT_SEARCHES_KEY = 'tedbuy_recent_searches';
+
+// Matches web's SearchSuggestions.tsx GHANA_CITIES exactly (same 14 cities,
+// same order) — was entirely absent on mobile, so typing "acc" never
+// surfaced an "in Location: Accra" quick filter the way web does.
+const GHANA_CITIES = [
+  'Accra', 'Kumasi', 'Takoradi', 'Tamale', 'Tema', 'Cape Coast', 'Sunyani',
+  'Koforidua', 'East Legon', 'Spintex', 'Madina', 'Osu', 'Airport Residential', 'Dansoman',
+];
 
 interface SearchScreenProps {
   navigation: any;
@@ -72,14 +88,78 @@ const categoryDescriptions: Record<string, string> = {
 };
 
 export function SearchScreen({ navigation }: SearchScreenProps) {
+  const insets = useSafeAreaInsets();
   const [searchText, setSearchText] = useState('');
-  const [recentSearches, setRecentSearches] = useState<string[]>([
-    'iPhone 14',
-    'MacBook',
-    'Sneakers',
-  ]);
+  // Was hardcoded fake data ('iPhone 14', 'MacBook', 'Sneakers') that reset
+  // to those same three terms on every app restart — never actually
+  // reflected what the user searched. Now backed by AsyncStorage, matching
+  // web's real recent-searches persistence (src/context/AppContext.tsx).
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  // Server-backed suggestions (150ms debounce, matches web) — queries the
+  // full server-side catalog via /api/search/suggestions, not just whatever
+  // bounded page of products is already loaded on-device.
+  const [serverSuggestions, setServerSuggestions] = useState<AutocompleteSuggestion[]>([]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against a race where an earlier, slower request resolves after a
+  // newer one and overwrites its fresher results — e.g. typing "h" then
+  // quickly "hyun", with the "h" response arriving late over a slow network.
+  const suggestionRequestIdRef = useRef(0);
+
+  // The bottom tab bar is a single shared Animated.Value across every tab
+  // (TabBarVisibility.tsx) — if it was hidden from another tab (e.g. an open
+  // chat conversation calls hideTabBar()) and the user then switches to
+  // Search, it stayed hidden forever since this screen never reset it,
+  // silently blocking all further tab navigation from here. Every tab screen
+  // must reset it on focus so switching tabs always guarantees a visible bar.
+  const { resetTabBar } = useTabBarVisibility();
+  useEffect(() => {
+    resetTabBar();
+    const unsub = navigation?.addListener?.('focus', resetTabBar);
+    return unsub;
+  }, [navigation, resetTabBar]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((saved) => {
+      if (saved) {
+        try {
+          setRecentSearches(JSON.parse(saved));
+        } catch {
+          // ignore corrupt storage
+        }
+      }
+    });
+    const unsub = watchProducts((result) => setProducts(result as Product[]));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(recentSearches)).catch(() => {});
+  }, [recentSearches]);
 
   const trimmedQuery = searchText.trim().toLowerCase();
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!trimmedQuery) {
+      // A newly-empty query always wins immediately — bump the request id so
+      // any suggestion request already in flight is discarded when it lands.
+      suggestionRequestIdRef.current += 1;
+      setServerSuggestions([]);
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      const requestId = ++suggestionRequestIdRef.current;
+      fetchSearchSuggestions(searchText, 8).then((results) => {
+        // A newer keystroke may have already started its own request — only
+        // apply this response if it's still the most recent one in flight.
+        if (requestId === suggestionRequestIdRef.current) setServerSuggestions(results);
+      });
+    }, 150);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [trimmedQuery, searchText]);
 
   const handleSearchSubmit = (queryToUse?: string) => {
     const finalQuery = (queryToUse !== undefined ? queryToUse : searchText).trim();
@@ -92,11 +172,15 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
     });
 
     // Navigate back to Home with the query applied
-    navigation.navigate('Home', { screen: 'HomeMain', params: { search: finalQuery } });
+    navigation.navigate('Home', { search: finalQuery });
   };
 
   const handleSelectCategory = (cat: string) => {
-    navigation.navigate('Home', { screen: 'HomeMain', params: { category: cat } });
+    navigation.navigate('Home', { category: cat });
+  };
+
+  const handleSelectLocation = (city: string) => {
+    navigation.navigate('Home', { location: city });
   };
 
   const handleSelectProduct = (productId: string) => {
@@ -120,27 +204,51 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
       .slice(0, 3);
   }, [trimmedQuery]);
 
-  // Filter matching prefix autocomplete suggestions
-  const matchingKeywords = useMemo(() => {
-    const rawSuggestions = getPrefixAutocompleteSuggestions(searchText, sampleProducts as any, {
-      limit: 6,
+  // Matches web's GHANA_CITIES quick-filter chips (SearchSuggestions.tsx) —
+  // ≥2 chars typed, prefix-then-contains, top 2.
+  const matchingLocations = useMemo(() => {
+    if (!trimmedQuery || trimmedQuery.length < 2) return [];
+    return GHANA_CITIES.filter(
+      (city) => city.toLowerCase().startsWith(trimmedQuery) || city.toLowerCase().includes(trimmedQuery)
+    ).slice(0, 2);
+  }, [trimmedQuery]);
+
+  // Filter matching prefix autocomplete suggestions — was matched against
+  // hardcoded fake sample products (fictional sellers, stock photos), so
+  // autocomplete could suggest terms for items that were never actually for
+  // sale, or miss real listings entirely. Now matched against live products,
+  // merged with server-backed suggestions covering the full catalog (not
+  // just this device's bounded product page), and keeps each suggestion's
+  // `type` (brand/trending/title/phrase) instead of discarding it — matches
+  // web's local-priority dedup-by-lowercased-text merge exactly.
+  const matchingKeywords = useMemo<AutocompleteSuggestion[]>(() => {
+    // "Trending Searches" (the popular-keyword chip list shown before the
+    // user has typed anything) was removed per explicit request — this now
+    // only ever surfaces live SEARCH SUGGESTIONS once the user has actually
+    // typed a query, never a default/idle-state chip list.
+    if (!searchText.trim()) return [];
+    const local = getPrefixAutocompleteSuggestions(searchText, products as any, {
+      limit: 8,
       popularKeywords: POPULAR_KEYWORDS
     });
-    return rawSuggestions.map(s => s.text);
-  }, [searchText, sampleProducts]);
-
-  // Filter matching sample/live products
-  const matchingProducts = useMemo(() => {
-    if (!trimmedQuery) return [];
-    return sampleProducts
-      .filter(
-        (p) =>
-          p.title.toLowerCase().includes(trimmedQuery) ||
-          p.category.toLowerCase().includes(trimmedQuery) ||
-          p.description.toLowerCase().includes(trimmedQuery)
-      )
-      .slice(0, 3);
-  }, [trimmedQuery]);
+    const seen = new Set<string>();
+    const merged: AutocompleteSuggestion[] = [];
+    for (const s of local) {
+      const key = s.text.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(s);
+      }
+    }
+    for (const s of serverSuggestions) {
+      const key = s.text.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(s);
+      }
+    }
+    return merged.slice(0, 8);
+  }, [searchText, products, serverSuggestions]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -150,7 +258,11 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
         <Text style={styles.subtitle}>Find verified deals across Ghana instantly</Text>
       </View>
 
-      <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT + insets.bottom }}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Search Input Container */}
         <View style={styles.searchBoxCard}>
           <Text style={styles.searchLabel}>WHAT ARE YOU LOOKING FOR?</Text>
@@ -176,10 +288,10 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
           </Pressable>
         </View>
 
-        {/* 1. Live Matching Categories Suggestion */}
-        {matchingCategories.length > 0 && (
+        {/* 1. Live Matching Categories + Locations Suggestion */}
+        {(matchingCategories.length > 0 || matchingLocations.length > 0) && (
           <View style={styles.suggestionBlock}>
-            <Text style={styles.subSectionTitle}>MATCHING CATEGORIES</Text>
+            <Text style={styles.subSectionTitle}>FILTER BY CATEGORY OR LOCATION</Text>
             <View style={styles.tagWrap}>
               {matchingCategories.map((cat) => (
                 <Pressable
@@ -192,6 +304,17 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
                   <Text style={styles.chipArrow}>➔</Text>
                 </Pressable>
               ))}
+              {matchingLocations.map((city) => (
+                <Pressable
+                  key={city}
+                  onPress={() => handleSelectLocation(city)}
+                  style={styles.locSuggestionChip}
+                >
+                  <MapPin size={13} color="#059669" />
+                  <Text style={styles.locSuggestionText}>Location: {city}</Text>
+                  <Text style={styles.chipArrowGreen}>➔</Text>
+                </Pressable>
+              ))}
             </View>
           </View>
         )}
@@ -200,19 +323,31 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
         {matchingKeywords.length > 0 && (
           <View style={styles.suggestionBlock}>
             <Text style={styles.subSectionTitle}>
-              {trimmedQuery ? 'SEARCH SUGGESTIONS' : 'TRENDING SEARCHES'}
+              SEARCH SUGGESTIONS
             </Text>
             <View style={styles.tagWrap}>
-              {matchingKeywords.map((kw) => (
+              {matchingKeywords.map((item, idx) => (
                 <Pressable
-                  key={kw}
+                  key={`${item.text}-${idx}`}
                   onPress={() => {
-                    setSearchText(kw);
-                    handleSearchSubmit(kw);
+                    setSearchText(item.text);
+                    handleSearchSubmit(item.text);
                   }}
                   style={styles.keywordChip}
                 >
-                  <Text style={styles.keywordChipText}>🔍 {kw}</Text>
+                  {item.type === 'brand' ? (
+                    <Building2 size={13} color="#334155" />
+                  ) : item.type === 'trending' ? (
+                    <Sparkles size={13} color="#d97706" />
+                  ) : (
+                    <SearchIcon size={13} color="#334155" />
+                  )}
+                  <Text style={styles.keywordChipText}>{item.text}</Text>
+                  {item.type === 'brand' && (
+                    <View style={styles.brandBadge}>
+                      <Text style={styles.brandBadgeText}>BRAND</Text>
+                    </View>
+                  )}
                 </Pressable>
               ))}
             </View>
@@ -293,8 +428,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#020617',
   },
-  title: { color: '#ffffff', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
-  subtitle: { color: '#94a3b8', marginTop: 4, fontSize: 13, lineHeight: 18, fontWeight: '500' },
+  title: { color: '#ffffff', fontSize: 24, fontFamily: fonts.extrabold, letterSpacing: -0.5 },
+  subtitle: { color: '#94a3b8', marginTop: 4, fontSize: 13, lineHeight: 18, fontFamily: fonts.medium },
   container: { flex: 1, backgroundColor: '#f8fafc', padding: 16 },
   searchBoxCard: {
     backgroundColor: '#ffffff',
@@ -311,7 +446,7 @@ const styles = StyleSheet.create({
   searchLabel: {
     color: '#64748b',
     fontSize: 10,
-    fontWeight: '800',
+    fontFamily: fonts.extrabold,
     letterSpacing: 1.2,
     marginBottom: 10,
   },
@@ -326,22 +461,22 @@ const styles = StyleSheet.create({
     height: 48,
   },
   searchEmoji: { fontSize: 16, marginRight: 8, color: '#64748b' },
-  input: { flex: 1, fontSize: 14, color: '#0f172a', fontWeight: '500' },
+  input: { flex: 1, fontSize: 14, color: '#0f172a', fontFamily: fonts.medium },
   clearBtn: { padding: 6 },
-  clearBtnText: { color: '#94a3b8', fontSize: 13, fontWeight: '800' },
+  clearBtnText: { color: '#94a3b8', fontSize: 13, fontFamily: fonts.extrabold },
   searchButton: {
     marginTop: 14,
-    backgroundColor: '#ea580c',
+    backgroundColor: '#0f172a',
     borderRadius: 12,
     height: 46,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#ea580c',
+    shadowColor: '#0f172a',
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
   },
-  searchButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 13, letterSpacing: 0.8 },
+  searchButtonText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13, letterSpacing: 0.8 },
   suggestionBlock: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
@@ -353,7 +488,7 @@ const styles = StyleSheet.create({
   subSectionTitle: {
     color: '#64748b',
     fontSize: 10,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
     letterSpacing: 1,
     marginBottom: 10,
   },
@@ -374,9 +509,25 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   chipEmoji: { fontSize: 14 },
-  catSuggestionText: { color: '#c2410c', fontSize: 12, fontWeight: '700' },
-  chipArrow: { color: '#c2410c', fontSize: 10, fontWeight: '900' },
+  catSuggestionText: { color: '#c2410c', fontSize: 12, fontFamily: fonts.bold },
+  chipArrow: { color: '#c2410c', fontSize: 10, fontFamily: fonts.extrabold },
+  locSuggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  locSuggestionText: { color: '#059669', fontSize: 12, fontFamily: fonts.bold },
+  chipArrowGreen: { color: '#059669', fontSize: 10, fontFamily: fonts.extrabold },
   keywordChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: '#ffffff',
     borderWidth: 1.5,
     borderColor: '#cbd5e1',
@@ -384,7 +535,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 8,
   },
-  keywordChipText: { color: '#0f172a', fontSize: 13, fontWeight: '800' },
+  keywordChipText: { color: '#0f172a', fontSize: 13, fontFamily: fonts.extrabold },
+  brandBadge: {
+    backgroundColor: '#e2e8f0',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 2,
+  },
+  brandBadgeText: { color: '#0f172a', fontSize: 8, fontFamily: fonts.extrabold, letterSpacing: 0.5 },
   recentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -393,7 +552,7 @@ const styles = StyleSheet.create({
   clearAllText: {
     color: '#e11d48',
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     marginBottom: 10,
   },
   recentChip: {
@@ -413,7 +572,7 @@ const styles = StyleSheet.create({
   recentChipText: {
     color: '#1e293b',
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   removeRecentBtn: {
     padding: 4,
@@ -421,7 +580,7 @@ const styles = StyleSheet.create({
   removeRecentText: {
     color: '#94a3b8',
     fontSize: 10,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
   },
   productList: {
     gap: 8,
@@ -449,7 +608,7 @@ const styles = StyleSheet.create({
   productTitle: {
     color: '#0f172a',
     fontSize: 13,
-    fontWeight: '800',
+    fontFamily: fonts.extrabold,
   },
   productMeta: {
     flexDirection: 'row',
@@ -460,23 +619,23 @@ const styles = StyleSheet.create({
   productPrice: {
     color: '#0f172a',
     fontSize: 11,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
   },
   productCategory: {
     color: '#64748b',
     fontSize: 10,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   productLocation: {
     color: '#64748b',
     fontSize: 10,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   viewBadge: {
-    color: '#ea580c',
+    color: '#0f172a',
     fontSize: 10,
-    fontWeight: '800',
-    backgroundColor: '#ffedd5',
+    fontFamily: fonts.extrabold,
+    backgroundColor: '#f1f5f9',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -484,7 +643,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: '#0f172a',
     fontSize: 16,
-    fontWeight: '800',
+    fontFamily: fonts.extrabold,
     letterSpacing: -0.3,
     marginBottom: 12,
     marginLeft: 4,
@@ -515,7 +674,7 @@ const styles = StyleSheet.create({
   },
   gridIcon: { fontSize: 20 },
   cardContent: { flex: 1, marginLeft: 12, marginRight: 8 },
-  categoryName: { color: '#1e293b', fontSize: 14, fontWeight: '800' },
-  categoryDesc: { color: '#64748b', fontSize: 11, marginTop: 2, fontWeight: '500' },
-  chevron: { color: '#cbd5e1', fontSize: 14, fontWeight: '900' },
+  categoryName: { color: '#1e293b', fontSize: 14, fontFamily: fonts.extrabold },
+  categoryDesc: { color: '#64748b', fontSize: 11, marginTop: 2, fontFamily: fonts.medium },
+  chevron: { color: '#cbd5e1', fontSize: 14, fontFamily: fonts.extrabold },
 });

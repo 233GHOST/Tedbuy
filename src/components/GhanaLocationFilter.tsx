@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { GHANA_REGIONS, getRegionForLocation } from '../regions';
 import { Product } from '../types';
 import { MapPin, X, Navigation, Locate, Check, ChevronDown, ChevronUp } from 'lucide-react';
-import { useApp } from '../context/AppContext';
 
 interface GhanaLocationFilterProps {
   selectedRegion: string;
@@ -20,8 +19,6 @@ export const GhanaLocationFilter: React.FC<GhanaLocationFilterProps> = ({
   products
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { currentUser } = useApp();
-  const isAdmin = currentUser?.isAdmin;
 
   // Count products per region
   const regionCounts = React.useMemo(() => {
@@ -121,15 +118,12 @@ export const GhanaLocationFilter: React.FC<GhanaLocationFilterProps> = ({
                   }}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-350 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 cursor-pointer transition appearance-none"
                 >
-                  <option value="All">🇬🇭 All Regions{isAdmin ? ` (${regionCounts['All'] || 0})` : ''}</option>
-                  {GHANA_REGIONS.map(reg => {
-                    const count = regionCounts[reg.name] || 0;
-                    return (
-                      <option key={reg.name} value={reg.name}>
-                        {reg.name} Region ({count})
-                      </option>
-                    );
-                  })}
+                  <option value="All">🇬🇭 All Regions</option>
+                  {GHANA_REGIONS.map(reg => (
+                    <option key={reg.name} value={reg.name}>
+                      {reg.name} Region
+                    </option>
+                  ))}
                 </select>
                 <div className="absolute inset-y-0 right-3.5 flex items-center pointer-events-none text-slate-500">
                   <Navigation className="w-3.5 h-3.5 rotate-45 animate-pulse" />
@@ -152,15 +146,12 @@ export const GhanaLocationFilter: React.FC<GhanaLocationFilterProps> = ({
                     }}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 hover:border-slate-350 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 cursor-pointer transition appearance-none"
                   >
-                    <option value="All">📍 All Cities ({regionCounts[selectedRegion] || 0})</option>
-                    {activeRegionObj.cities.map(city => {
-                      const count = cityCounts[city] || 0;
-                      return (
-                        <option key={city} value={city}>
-                          {city} ({count})
-                        </option>
-                      );
-                    })}
+                    <option value="All">📍 All Cities</option>
+                    {activeRegionObj.cities.map(city => (
+                      <option key={city} value={city}>
+                        {city}
+                      </option>
+                    ))}
                   </select>
                   <div className="absolute inset-y-0 right-3.5 flex items-center pointer-events-none text-slate-500">
                     <Navigation className="w-3.5 h-3.5 rotate-45" />

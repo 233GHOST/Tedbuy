@@ -2009,9 +2009,23 @@ app.post('/api/products/sync', async (req, res) => {
   const isExistingProduct = !!existingSellerId;
   const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
 
+  // Social-only bypass: liking/bookmarking and view-count tracking both work
+  // by fetching the product, changing only these fields, and posting the
+  // whole object back here — which previously tripped the ownership check
+  // below (any buyer bookmarking someone else's listing got a 403
+  // "Forbidden" error, since they aren't the seller). A real edit changes
+  // some OTHER field too, so this only ever bypasses ownership when nothing
+  // but the social fields actually differ from what's already saved.
+  const SOCIAL_ONLY_FIELDS = new Set(['likedUserIds', 'likesCount', 'viewsCount', 'id']);
+  const normalizeForCompare = (v: any) => (v === undefined || v === null ? '' : JSON.stringify(v));
+  const isSocialOnlyChange = isExistingProduct && existingRow
+    ? Object.keys(product).every((key) => SOCIAL_ONLY_FIELDS.has(key) || normalizeForCompare(product[key]) === normalizeForCompare(existingRow[key]))
+    : false;
+
   // Authorization Check:
   // If editing an existing product, caller must be owner OR an Admin
-  if (isExistingProduct) {
+  // (unless this is a social-only like/view update — see above).
+  if (isExistingProduct && !isSocialOnlyChange) {
     const isOwner = existingSellerId === user.uid;
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ success: false, error: 'Forbidden: You do not have permission to modify this listing' });
@@ -2057,6 +2071,44 @@ app.post('/api/products/sync', async (req, res) => {
   try {
     const saved = await upsertProductToSupabase(cleanProduct, user);
     clearSitemapCache();
+
+    // Notify followers of the seller when a genuinely NEW listing goes up
+    // (not an edit, and not a social-only like/view update) — this is the
+    // "get notified when a store I follow posts something new" feature.
+    // Fire-and-forget: a follower-notification failure must never block the
+    // seller's own publish response.
+    if (!isExistingProduct && backendSupabase) {
+      (async () => {
+        try {
+          const { data: allUsers } = await backendSupabase!.from('users').select('id, followingSellers').limit(5000);
+          const followerIds = (allUsers || [])
+            .filter((u: any) => Array.isArray(u.followingSellers) && u.followingSellers.includes(targetSellerId))
+            .map((u: any) => u.id);
+          for (const followerId of followerIds) {
+            if (!(await shouldNotifyUser(followerId, 'followedSellerNewListing'))) continue;
+            await createNotification({
+              id: `notif_newlisting_${Date.now()}_${followerId}_${Math.random().toString(36).substring(2, 6)}`,
+              userId: followerId,
+              type: 'followed_seller_new_listing',
+              title: `${targetSellerName || 'A store you follow'} posted a new listing`,
+              message: cleanProduct.title || 'New item just listed',
+              triggerUserId: targetSellerId,
+              triggerUsername: targetSellerName || 'Seller',
+              triggerUserPhoto: targetSellerPhoto || '',
+              productId: prodId,
+              productTitle: cleanProduct.title || '',
+              productPrice: cleanProduct.price ?? 'Inquire',
+              productImage: cleanProduct.image || (Array.isArray(cleanProduct.images) ? cleanProduct.images[0] : '') || '',
+              createdAt: new Date().toISOString(),
+              read: false
+            });
+          }
+        } catch (notifErr) {
+          console.warn('[Product Sync API] Follower notification dispatch failed:', notifErr);
+        }
+      })();
+    }
+
     return res.json({ success: true, product: saved });
   } catch (err: any) {
     console.error('[Product Sync API Error]:', err);
@@ -2274,6 +2326,46 @@ app.post('/api/users/sync', async (req: express.Request, res: express.Response) 
       createdAt: user.createdAt || new Date().toISOString()
     };
 
+    // Only set the column when the caller actually sent it — web doesn't
+    // know about this field yet, and an upsert only overwrites columns
+    // present in the row object, so omitting it here (rather than defaulting
+    // to something) leaves a mobile user's saved preference untouched if
+    // they edit their profile from web later.
+    if (user.notificationPreferences && typeof user.notificationPreferences === 'object') {
+      cleanUser.notificationPreferences = {
+        newFollower: user.notificationPreferences.newFollower !== false,
+        newMessage: user.notificationPreferences.newMessage !== false,
+        followedSellerNewListing: user.notificationPreferences.followedSellerNewListing !== false,
+      };
+    }
+
+    // Bio edits are rate-limited to once every 7 days. This must be enforced
+    // here (not just client-side) since it's the only authoritative check —
+    // fetch the existing value first so a no-op save (unchanged text) never
+    // trips the cooldown.
+    if (typeof user.bio === 'string' && backendSupabase) {
+      const trimmedBio = user.bio.trim().slice(0, 160);
+      const { data: existingRow } = await backendSupabase
+        .from('users')
+        .select('bio, "bioUpdatedAt"')
+        .eq('id', cleanUser.id)
+        .maybeSingle();
+      const existingBio = existingRow?.bio || '';
+      const existingBioUpdatedAt = existingRow?.bioUpdatedAt;
+      if (trimmedBio !== existingBio && existingBioUpdatedAt) {
+        const cooldownMs = 7 * 24 * 60 * 60 * 1000;
+        const nextAllowedAt = new Date(existingBioUpdatedAt).getTime() + cooldownMs;
+        if (Number.isFinite(nextAllowedAt) && Date.now() < nextAllowedAt) {
+          const daysLeft = Math.max(1, Math.ceil((nextAllowedAt - Date.now()) / (24 * 60 * 60 * 1000)));
+          return res.status(400).json({ success: false, error: `You can change your bio again in ${daysLeft} day${daysLeft === 1 ? '' : 's'}.` });
+        }
+      }
+      cleanUser.bio = trimmedBio;
+      if (trimmedBio !== existingBio) {
+        cleanUser.bioUpdatedAt = new Date().toISOString();
+      }
+    }
+
     if (backendSupabase) {
       const { error } = await safeBackendSupabaseUpsert('users', cleanUser, { onConflict: 'id' });
       if (error) {
@@ -2353,11 +2445,41 @@ async function getChatIfParticipant(chatId: string, uid: string): Promise<any | 
   return data;
 }
 
-async function createChatMessage(chatId: string, senderId: string, recipientId: string, text: string) {
+async function createNotification(notif: Record<string, any>) {
+  try {
+    await safeBackendSupabaseUpsert('notifications', notif, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('[createNotification] failed to write notification:', err);
+  }
+}
+
+// Opt-out model (matches the mobile Notification Settings screen): a
+// recipient gets a notification type unless they've explicitly turned it
+// off, so an unset/missing preferences object never silently suppresses
+// notifications for existing users who saved a profile before this field
+// existed.
+type NotificationPrefKey = 'newFollower' | 'newMessage' | 'followedSellerNewListing';
+
+async function shouldNotifyUser(userId: string, prefKey: NotificationPrefKey): Promise<boolean> {
+  if (!backendSupabase || !userId) return true;
+  try {
+    const { data } = await backendSupabase.from('users').select('notificationPreferences').eq('id', userId).maybeSingle();
+    const prefs = data?.notificationPreferences;
+    if (!prefs || typeof prefs !== 'object') return true;
+    return prefs[prefKey] !== false;
+  } catch (err) {
+    console.warn('[shouldNotifyUser] preference lookup failed, defaulting to notify:', err);
+    return true;
+  }
+}
+
+// Mirrors web's sendMessage in-app notification trigger (src/context/AppContext.tsx)
+// so a message sent from mobile also notifies the recipient, same as web.
+async function createChatMessage(chat: any, senderId: string, recipientId: string, text: string) {
   const msgId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
   const newMsg = {
     id: msgId,
-    chatId,
+    chatId: chat.id,
     senderId,
     recipientId,
     text,
@@ -2370,9 +2492,30 @@ async function createChatMessage(chatId: string, senderId: string, recipientId: 
 
   await safeBackendSupabaseUpsert(
     'chats',
-    { id: chatId, lastMessageText: text, lastMessageTime: newMsg.createdAt },
+    { id: chat.id, lastMessageText: text, lastMessageTime: newMsg.createdAt },
     { onConflict: 'id' }
   );
+
+  const senderName = senderId === chat.buyerId ? (chat.buyerName || 'Buyer') : (chat.sellerName || 'Seller');
+  if (await shouldNotifyUser(recipientId, 'newMessage')) {
+  await createNotification({
+    id: `notif_chat_${Date.now()}_${recipientId}_${Math.random().toString(36).substring(2, 6)}`,
+    userId: recipientId,
+    type: 'new_message',
+    title: `Message from ${senderName}`,
+    message: text.length > 50 ? `${text.substring(0, 50)}...` : text,
+    triggerUserId: senderId,
+    triggerUsername: senderName,
+    triggerUserPhoto: '',
+    productId: chat.productId || '',
+    productTitle: chat.productTitle || 'Shared Listing Chat',
+    productPrice: chat.productPrice ?? 'Inquire',
+    productImage: chat.productImage || '',
+    createdAt: new Date().toISOString(),
+    read: false,
+    chatId: chat.id
+  });
+  }
 
   return newMsg;
 }
@@ -2502,7 +2645,7 @@ app.post('/api/chats/start', serverRateLimiter(5 * 60 * 1000, 5, "chat-start"), 
     let message = null;
     const cleanInitial = typeof initialMessage === 'string' ? initialMessage.trim().slice(0, 5000) : '';
     if (cleanInitial) {
-      message = await createChatMessage(chat.id, buyerId, sellerId, cleanInitial);
+      message = await createChatMessage(chat, buyerId, sellerId, cleanInitial);
     }
 
     return res.json({ success: true, chatId: chat.id, chat, message });
@@ -2576,7 +2719,7 @@ app.post('/api/messages/send', serverRateLimiter(60 * 1000, 30, "message-send"),
 
   try {
     const recipientId = chat.buyerId === verified.uid ? chat.sellerId : chat.buyerId;
-    const message = await createChatMessage(chatId, verified.uid, recipientId, cleanText);
+    const message = await createChatMessage(chat, verified.uid, recipientId, cleanText);
     return res.json({ success: true, message });
   } catch (err: any) {
     console.error('[Message Send API Error]:', err);
@@ -2620,6 +2763,364 @@ app.post('/api/messages/mark-read', serverRateLimiter(60 * 1000, 120, "messages-
   }
 });
 
+// Trade-completion stepper (Confirm Delivered / Mark as Picked up). Mobile's
+// chat data lives in Supabase (via this API), not Firestore — these mirror
+// web's markAsDelivered/markAsPickedUp (src/context/AppContext.tsx) on the
+// correct backend instead of writing to a database mobile never reads from.
+app.post('/api/chats/mark-delivered', serverRateLimiter(60 * 1000, 30, "chats-mark-delivered"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  const { chatId } = req.body || {};
+  if (!chatId) {
+    return res.status(400).json({ success: false, error: 'Missing chatId' });
+  }
+  const chat = await getChatIfParticipant(chatId, verified.uid);
+  if (!chat) {
+    return res.status(404).json({ success: false, error: 'Chat not found' });
+  }
+  if (chat.sellerId !== verified.uid) {
+    return res.status(403).json({ success: false, error: 'Only the seller can confirm delivery.' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const updatedAt = new Date().toISOString();
+    const { error } = await backendSupabase
+      .from('chats')
+      .update({ deliveredBySeller: true, tradeStatus: 'delivered', lastMessageText: '📦 Seller marked item as delivered', lastMessageTime: updatedAt })
+      .eq('id', chatId);
+    if (error) throw error;
+
+    await createChatMessage(
+      chat,
+      chat.sellerId,
+      chat.buyerId,
+      '📦 Seller has marked this item as delivered. Please inspect it and tap "Mark as Picked up" once you have received it.'
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Chats Mark Delivered API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to confirm delivery' });
+  }
+});
+
+app.post('/api/chats/mark-picked-up', serverRateLimiter(60 * 1000, 30, "chats-mark-picked-up"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  const { chatId } = req.body || {};
+  if (!chatId) {
+    return res.status(400).json({ success: false, error: 'Missing chatId' });
+  }
+  const chat = await getChatIfParticipant(chatId, verified.uid);
+  if (!chat) {
+    return res.status(404).json({ success: false, error: 'Chat not found' });
+  }
+  if (chat.buyerId !== verified.uid) {
+    return res.status(403).json({ success: false, error: 'Only the buyer can confirm pickup.' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const updatedAt = new Date().toISOString();
+    const { error } = await backendSupabase
+      .from('chats')
+      .update({ pickedUpByBuyer: true, tradeStatus: 'completed', lastMessageText: '🤝 Buyer marked as picked up', lastMessageTime: updatedAt })
+      .eq('id', chatId);
+    if (error) throw error;
+
+    await createChatMessage(
+      chat,
+      chat.buyerId,
+      chat.sellerId,
+      '🤝 Buyer has marked this item as PICKED UP and confirmed purchase.'
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Chats Mark Picked Up API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to confirm pickup' });
+  }
+});
+
+// Reviews & Reports — same 'reviews'/'reports' Supabase tables web's own
+// dbAdapter routes to. Mobile has no direct-Supabase client (unlike web,
+// which can use the public anon key + RLS), so these go through the
+// verified server path instead, consistent with the rest of mobile's API.
+app.get('/api/reviews', serverRateLimiter(60 * 1000, 120, "reviews-list"), async (req, res) => {
+  const { sellerId } = req.query;
+  if (!sellerId || typeof sellerId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing sellerId' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+  try {
+    const { data, error } = await backendSupabase
+      .from('reviews')
+      .select('*')
+      .eq('sellerId', sellerId)
+      .order('createdAt', { ascending: false });
+    if (error) throw error;
+    return res.json({ success: true, reviews: data || [] });
+  } catch (err: any) {
+    console.error('[Reviews List API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch reviews' });
+  }
+});
+
+app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 3, "reviews-create"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to submit reviews' });
+  }
+  const { sellerId, rating, comment, productTitle } = req.body || {};
+  if (!sellerId || typeof sellerId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing sellerId' });
+  }
+  if (sellerId === verified.uid) {
+    return res.status(400).json({ success: false, error: 'You cannot review your own store.' });
+  }
+  const cleanComment = typeof comment === 'string' ? comment.trim() : '';
+  if (cleanComment.length < 5 || cleanComment.length > 1000) {
+    return res.status(400).json({ success: false, error: 'Comment must be between 5 and 1000 characters long.' });
+  }
+  const numericRating = Math.floor(Number(rating));
+  if (!numericRating || numericRating < 1 || numericRating > 5) {
+    return res.status(400).json({ success: false, error: 'Review rating must be between 1 and 5 stars.' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  const revId = `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const newReview: Record<string, any> = {
+    id: revId,
+    sellerId,
+    buyerId: verified.uid,
+    buyerName: verified.email?.split('@')[0] || 'User',
+    rating: numericRating,
+    comment: cleanComment,
+    createdAt: new Date().toISOString(),
+  };
+  if (productTitle && typeof productTitle === 'string') newReview.productTitle = productTitle.trim();
+
+  try {
+    const { error } = await safeBackendSupabaseUpsert('reviews', newReview, { onConflict: 'id' });
+    if (error) throw error;
+    return res.json({ success: true, review: newReview });
+  } catch (err: any) {
+    console.error('[Reviews Create API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to submit review' });
+  }
+});
+
+app.post('/api/reports/create', serverRateLimiter(5 * 60 * 1000, 5, "reports-create"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to report a listing' });
+  }
+  const { productId, productTitle, reason, comment } = req.body || {};
+  if (!productId || typeof productId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing productId' });
+  }
+  if (!reason || typeof reason !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing reason' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  const reportId = `report_${verified.uid}_${productId}_${Date.now()}`;
+  const reportData: Record<string, any> = {
+    id: reportId,
+    productId,
+    productTitle: typeof productTitle === 'string' ? productTitle : '',
+    reporterId: verified.uid,
+    reporterName: verified.email?.split('@')[0] || 'User',
+    reason,
+    comment: typeof comment === 'string' ? comment.trim() : '',
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    const { error } = await safeBackendSupabaseUpsert('reports', reportData, { onConflict: 'id' });
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Reports Create API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to submit report' });
+  }
+});
+
+// Notifications feed — same 'notifications' Supabase table web reads
+// directly via its own anon-key client. Mobile has no direct Supabase
+// access, so it reads/manages notifications through this verified path.
+app.get('/api/notifications', serverRateLimiter(60 * 1000, 120, "notifications-list"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+  try {
+    const { data, error } = await backendSupabase
+      .from('notifications')
+      .select('*')
+      .eq('userId', verified.uid)
+      .order('createdAt', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    return res.json({ success: true, notifications: data || [] });
+  } catch (err: any) {
+    console.error('[Notifications List API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch notifications' });
+  }
+});
+
+app.post('/api/notifications/mark-read', serverRateLimiter(60 * 1000, 120, "notifications-mark-read"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  const { id } = req.body || {};
+  if (!id) {
+    return res.status(400).json({ success: false, error: 'Missing id' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+  try {
+    const { error } = await backendSupabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', id)
+      .eq('userId', verified.uid);
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Notifications Mark Read API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to mark notification as read' });
+  }
+});
+
+app.post('/api/notifications/mark-all-read', serverRateLimiter(60 * 1000, 30, "notifications-mark-all-read"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+  try {
+    const { error } = await backendSupabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('userId', verified.uid)
+      .eq('read', false);
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Notifications Mark All Read API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to mark notifications as read' });
+  }
+});
+
+app.post('/api/notifications/clear-all', serverRateLimiter(60 * 1000, 10, "notifications-clear-all"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+  try {
+    const { error } = await backendSupabase
+      .from('notifications')
+      .delete()
+      .eq('userId', verified.uid);
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Notifications Clear All API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to clear notifications' });
+  }
+});
+
+// Follow/unfollow a seller — updates the caller's own followingSellers list
+// (never another user's record) and, on a new follow, notifies the seller.
+// Mirrors web's followSeller/unfollowSeller (src/context/AppContext.tsx).
+app.post('/api/users/follow', serverRateLimiter(60 * 1000, 30, "users-follow"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  const { sellerId, follow } = req.body || {};
+  if (!sellerId || typeof sellerId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing sellerId' });
+  }
+  if (sellerId === verified.uid) {
+    return res.status(400).json({ success: false, error: 'You cannot follow your own shop.' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const { data: me, error: meErr } = await backendSupabase
+      .from('users')
+      .select('*')
+      .eq('id', verified.uid)
+      .maybeSingle();
+    if (meErr) throw meErr;
+    if (!me) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const following: string[] = Array.isArray(me.followingSellers) ? me.followingSellers : [];
+    const alreadyFollowing = following.includes(sellerId);
+    const shouldFollow = follow !== false;
+    const updatedFollowing = shouldFollow
+      ? (alreadyFollowing ? following : [...following, sellerId])
+      : following.filter((id) => id !== sellerId);
+
+    const { error: updateErr } = await backendSupabase
+      .from('users')
+      .update({ followingSellers: updatedFollowing })
+      .eq('id', verified.uid);
+    if (updateErr) throw updateErr;
+
+    if (shouldFollow && !alreadyFollowing && await shouldNotifyUser(sellerId, 'newFollower')) {
+      await createNotification({
+        id: `notif_follow_${Date.now()}_${sellerId}_${Math.random().toString(36).substring(2, 6)}`,
+        userId: sellerId,
+        type: 'new_follower',
+        title: 'New Follower!',
+        message: `${me.username || verified.email?.split('@')[0] || 'Someone'} started following your shop!`,
+        triggerUserId: verified.uid,
+        triggerUsername: me.username || verified.email?.split('@')[0] || 'Someone',
+        triggerUserPhoto: me.photoUrl || '',
+        productId: '',
+        productTitle: 'Shop Network',
+        productPrice: '0',
+        productImage: '',
+        createdAt: new Date().toISOString(),
+        read: false
+      });
+    }
+
+    return res.json({ success: true, followingSellers: updatedFollowing });
+  } catch (err: any) {
+    console.error('[Users Follow API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to update follow status' });
+  }
+});
+
 app.post('/api/cache/clear', (req, res) => {
   clearSitemapCache();
   res.json({ success: true, message: 'Cache cleared' });
@@ -2628,8 +3129,13 @@ app.post('/api/cache/clear', (req, res) => {
 // -------------------------------------------------------------
 // PAYMENT VERIFICATION & BOOST CONTROL ENDPOINTS
 // -------------------------------------------------------------
-app.post('/api/verify-payment', async (req: express.Request, res: express.Response) => {
-  const { paymentReference, productId, planId, paymentMethod, email, amountGHS } = req.body || {};
+app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment"), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to activate a boost' });
+  }
+
+  const { paymentReference, productId, planId, paymentMethod, amountGHS } = req.body || {};
 
   if (!productId) {
     return res.status(400).json({ success: false, error: 'Missing required parameter: productId' });
@@ -2653,6 +3159,14 @@ app.post('/api/verify-payment', async (req: express.Request, res: express.Respon
       } catch (e) {
         console.warn('[Verify Payment API] Could not fetch existing product from Supabase:', e);
       }
+    }
+
+    if (!existingProduct) {
+      return res.status(404).json({ success: false, error: 'Product not found' });
+    }
+    const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+    if (existingProduct.sellerId !== verified.uid && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'You can only boost your own listing.' });
     }
 
     let startTime = Date.now();

@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { View, Text, StyleSheet } from 'react-native';
+import { House, Search, PlusCircle, MessageSquare, User } from 'lucide-react-native';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ChatsScreen } from '../screens/ChatsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
@@ -10,8 +11,22 @@ import { SearchScreen } from '../screens/SearchScreen';
 import { SellScreen } from '../screens/SellScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { SellerProfileScreen } from '../screens/SellerProfileScreen';
+import { FollowersFollowingScreen } from '../screens/FollowersFollowingScreen';
+import { FeaturedListingsScreen } from '../screens/FeaturedListingsScreen';
+import { DiscoverSellersScreen } from '../screens/DiscoverSellersScreen';
+import { TrendingListingsScreen } from '../screens/TrendingListingsScreen';
+import { SavedProductsScreen } from '../screens/SavedProductsScreen';
+import { ForYouScreen } from '../screens/ForYouScreen';
+import { AccountSecuritySettingsScreen } from '../screens/AccountSecuritySettingsScreen';
+import { ProfileStoreSettingsScreen } from '../screens/ProfileStoreSettingsScreen';
+import { NotificationSettingsScreen } from '../screens/NotificationSettingsScreen';
+import { SellingBuyingSettingsScreen } from '../screens/SellingBuyingSettingsScreen';
+import { HelpSupportSettingsScreen } from '../screens/HelpSupportSettingsScreen';
 import { MainTabsParamList, RootStackParamList } from '../types';
 import { Product } from '../types';
+import { fonts } from '../theme';
+import { TabBarVisibilityProvider, useTabBarVisibility } from '../context/TabBarVisibility';
+import { useUnreadChatsCount } from '../context/UnreadChats';
 
 const Tab = createBottomTabNavigator<MainTabsParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -27,43 +42,65 @@ function HomeStackScreen({ route, navigation }: any) {
 }
 
 function MainTabs() {
+  const { translateY, isDarkTabBar } = useTabBarVisibility();
+  // Matches web's Navbar.tsx unreadCount badge — was entirely absent on
+  // mobile, so a user with unread messages had no indicator outside the
+  // Chats tab's own list.
+  const unreadChatsCount = useUnreadChatsCount();
+  // White for normal light-background browsing, dark only for the immersive
+  // Watch Video Ads feed — a dark bar reads heavy against the standard grid,
+  // but disappears nicely against the full-bleed video feed.
+  const activeIconColor = isDarkTabBar ? '#ffffff' : '#0f172a';
+  const inactiveIconColor = '#94a3b8';
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#0f172a',
-        tabBarInactiveTintColor: '#94a3b8',
+        tabBarActiveTintColor: activeIconColor,
+        tabBarInactiveTintColor: inactiveIconColor,
         tabBarStyle: {
-          backgroundColor: '#ffffff',
-          borderTopColor: '#e2e8f0',
+          backgroundColor: isDarkTabBar ? '#0f172a' : '#ffffff',
+          borderTopColor: isDarkTabBar ? '#020617' : '#e2e8f0',
           borderTopWidth: 1,
           height: 68,
           paddingBottom: 8,
           paddingTop: 6,
-          shadowColor: '#0f172a',
-          shadowOpacity: 0.08,
+          shadowColor: '#000000',
+          shadowOpacity: isDarkTabBar ? 0.2 : 0.06,
           shadowRadius: 12,
           shadowOffset: { width: 0, height: -4 },
           elevation: 8,
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          transform: [{ translateY }],
         },
       }}
     >
       <Tab.Screen
         name="Home"
         component={HomeStackScreen}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            // Tapping Home while already on Home should back out of the
+            // video ads feed to classifieds, not sit there doing nothing.
+            if (navigation.isFocused()) {
+              navigation.setParams({ resetToGrid: Date.now() });
+            }
+          },
+        })}
         options={{
           tabBarLabel: ({ focused }) => (
-            <Text style={[
-              styles.tabBarLabelText,
-              focused ? styles.tabBarLabelActive : styles.tabBarLabelInactive
-            ]}>
+            <Text style={[styles.tabBarLabelText, { color: focused ? activeIconColor : inactiveIconColor, fontFamily: fonts.extrabold }]}>
               HOME
             </Text>
           ),
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
-              <Text style={[styles.tabIconEmoji, focused && styles.tabIconEmojiActive]}>🏠</Text>
-              {focused && <View style={styles.activeIndicatorDot} />}
+              <House size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.2} fill={focused ? activeIconColor : 'none'} />
+              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
             </View>
           ),
         }}
@@ -73,17 +110,14 @@ function MainTabs() {
         component={SearchScreen}
         options={{
           tabBarLabel: ({ focused }) => (
-            <Text style={[
-              styles.tabBarLabelText,
-              focused ? styles.tabBarLabelActive : styles.tabBarLabelInactive
-            ]}>
+            <Text style={[styles.tabBarLabelText, { color: focused ? activeIconColor : inactiveIconColor, fontFamily: fonts.extrabold }]}>
               SEARCH
             </Text>
           ),
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
-              <Text style={[styles.tabIconEmoji, focused && styles.tabIconEmojiActive]}>🔍</Text>
-              {focused && <View style={styles.activeIndicatorDot} />}
+              <Search size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.4} />
+              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
             </View>
           ),
         }}
@@ -93,12 +127,12 @@ function MainTabs() {
         component={SellScreen}
         options={{
           tabBarLabel: () => (
-            <Text style={styles.sellLabelText}>SELL</Text>
+            <Text style={[styles.sellLabelText, { color: isDarkTabBar ? '#ffffff' : '#0f172a' }]}>SELL</Text>
           ),
           tabBarIcon: () => (
             <View style={styles.sellTabContainer}>
               <View style={styles.sellTabButton}>
-                <Text style={styles.sellTabButtonPlus}>+</Text>
+                <PlusCircle size={26} color="#ffffff" strokeWidth={2.4} />
               </View>
             </View>
           ),
@@ -108,18 +142,17 @@ function MainTabs() {
         name="Chats"
         component={ChatsScreen}
         options={{
+          tabBarBadge: unreadChatsCount > 0 ? unreadChatsCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#e11d48', fontFamily: fonts.extrabold, fontSize: 10 },
           tabBarLabel: ({ focused }) => (
-            <Text style={[
-              styles.tabBarLabelText,
-              focused ? styles.tabBarLabelActive : styles.tabBarLabelInactive
-            ]}>
+            <Text style={[styles.tabBarLabelText, { color: focused ? activeIconColor : inactiveIconColor, fontFamily: fonts.extrabold }]}>
               CHATS
             </Text>
           ),
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
-              <Text style={[styles.tabIconEmoji, focused && styles.tabIconEmojiActive]}>💬</Text>
-              {focused && <View style={styles.activeIndicatorDot} />}
+              <MessageSquare size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.2} fill={focused ? activeIconColor : 'none'} />
+              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
             </View>
           ),
         }}
@@ -129,17 +162,14 @@ function MainTabs() {
         component={ProfileScreen}
         options={{
           tabBarLabel: ({ focused }) => (
-            <Text style={[
-              styles.tabBarLabelText,
-              focused ? styles.tabBarLabelActive : styles.tabBarLabelInactive
-            ]}>
+            <Text style={[styles.tabBarLabelText, { color: focused ? activeIconColor : inactiveIconColor, fontFamily: fonts.extrabold }]}>
               PROFILE
             </Text>
           ),
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
-              <Text style={[styles.tabIconEmoji, focused && styles.tabIconEmojiActive]}>👤</Text>
-              {focused && <View style={styles.activeIndicatorDot} />}
+              <User size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.2} fill={focused ? activeIconColor : 'none'} />
+              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
             </View>
           ),
         }}
@@ -150,6 +180,7 @@ function MainTabs() {
 
 export function AppNavigator() {
   return (
+    <TabBarVisibilityProvider>
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="MainTabs" component={MainTabs} />
@@ -171,8 +202,88 @@ export function AppNavigator() {
             );
           }}
         </Stack.Screen>
+        <Stack.Screen name="FollowersFollowing" options={{ presentation: 'card' }}>
+          {({ route }) => {
+            const navigation = useNavigation<any>();
+            return (
+              <FollowersFollowingScreen
+                userId={route.params.userId}
+                initialTab={route.params.initialTab}
+                onBack={() => navigation.goBack()}
+                navigation={navigation}
+              />
+            );
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="FeaturedListings" options={{ presentation: 'card' }}>
+          {({ route }) => {
+            const navigation = useNavigation<any>();
+            return (
+              <FeaturedListingsScreen
+                category={route.params?.category}
+                onBack={() => navigation.goBack()}
+                navigation={navigation}
+              />
+            );
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="DiscoverSellers" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <DiscoverSellersScreen onBack={() => navigation.goBack()} navigation={navigation} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="TrendingListings" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <TrendingListingsScreen onBack={() => navigation.goBack()} navigation={navigation} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="SavedProducts" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <SavedProductsScreen onBack={() => navigation.goBack()} navigation={navigation} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="ForYou" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <ForYouScreen onBack={() => navigation.goBack()} navigation={navigation} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="AccountSecuritySettings" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <AccountSecuritySettingsScreen onBack={() => navigation.goBack()} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="ProfileStoreSettings" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <ProfileStoreSettingsScreen onBack={() => navigation.goBack()} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="NotificationSettings" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <NotificationSettingsScreen onBack={() => navigation.goBack()} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="SellingBuyingSettings" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <SellingBuyingSettingsScreen onBack={() => navigation.goBack()} />;
+          }}
+        </Stack.Screen>
+        <Stack.Screen name="HelpSupportSettings" options={{ presentation: 'card' }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <HelpSupportSettingsScreen onBack={() => navigation.goBack()} />;
+          }}
+        </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
+    </TabBarVisibilityProvider>
   );
 }
 
@@ -184,37 +295,20 @@ const styles = StyleSheet.create({
     width: 40,
     position: 'relative',
   },
-  tabIconEmoji: {
-    fontSize: 20,
-    opacity: 0.7,
-  },
-  tabIconEmojiActive: {
-    fontSize: 22,
-    opacity: 1,
-  },
   activeIndicatorDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#0f172a',
     position: 'absolute',
     bottom: -2,
   },
   tabBarLabelText: {
     fontSize: 9,
-    fontWeight: '800',
+    fontFamily: fonts.extrabold,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
     textAlign: 'center',
     marginTop: 2,
-  },
-  tabBarLabelActive: {
-    color: '#0f172a',
-    fontWeight: '950',
-  },
-  tabBarLabelInactive: {
-    color: '#94a3b8',
-    fontWeight: '600',
   },
   sellTabContainer: {
     alignItems: 'center',
@@ -238,16 +332,9 @@ const styles = StyleSheet.create({
     borderColor: '#ffffff',
     elevation: 6,
   },
-  sellTabButtonPlus: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontWeight: '900',
-    marginTop: -2,
-  },
   sellLabelText: {
     fontSize: 9,
-    fontWeight: '950',
-    color: '#0f172a',
+    fontFamily: fonts.extrabold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     textAlign: 'center',

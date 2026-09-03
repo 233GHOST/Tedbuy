@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, isUserVerified, User, normalizeCategory } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Eye, Calendar, Bookmark, Video, Flame, Star, Heart, TrendingUp } from 'lucide-react';
+import { MapPin, Bookmark, Video, Flame, Star, Heart, TrendingUp, Check } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 import { isBoostActive } from '../utils/dateParser';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
@@ -217,7 +217,6 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
 
   const formattedPrice = formatProductPrice(product.price);
   const isServiceCategory = normalizeCategory(product.category) === 'Services';
-  const dateFormatted = new Date(product.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const sellerName = seller?.username || (seller as any)?.displayName || product.sellerName || 'TedBuy Merchant';
   const sellerPhoto = seller?.photoUrl && !String(seller?.photoUrl).includes('1549399542-7e3f8b79c341') ? seller.photoUrl : null;
   const sellerId = seller?.id || product.sellerId;
@@ -333,20 +332,6 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
         >
           <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill={isSaved ? "currentColor" : "none"} />
         </button>
-        
-        {/* Dynamic bottom status bar on image hover for seller/admin */}
-        {isAdminOrSeller && (
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-slate-950/85 to-transparent p-2 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
-            <span className="text-[10px] flex items-center gap-1 font-sans">
-              <Eye className="w-3 h-3 text-slate-100" />
-              {product.viewsCount || 0} views
-            </span>
-            <span className="text-[10px] text-slate-300 flex items-center gap-1 font-sans font-medium">
-              <Calendar className="w-3 h-3" />
-              {dateFormatted}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Detail info section */}
@@ -436,21 +421,28 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
         {isAdminOrSeller && !isTrendingVariant && (
           <div className="pt-2 border-t border-dashed border-slate-200 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status</span>
-            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700">
-              <input
-                type="checkbox"
-                checked={!!product.isSold}
-                onChange={async (e) => {
-                  try {
-                    await onUpdateProduct(product.id, { isSold: e.target.checked });
-                  } catch (err) {
-                    console.error("Failed to update product isSold state", err);
-                  }
-                }}
-                className="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
-              />
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await onUpdateProduct(product.id, { isSold: !product.isSold });
+                } catch (err) {
+                  console.error("Failed to update product isSold state", err);
+                }
+              }}
+              className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700"
+            >
+              {/* Custom checkbox — a native <input type="checkbox"> here has no
+                  appearance override, so some mobile browsers/OS themes (e.g.
+                  Samsung Internet's forced dark theme) reskin it into an
+                  oversized switch instead of a small checkbox. */}
+              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                product.isSold ? 'bg-rose-600 border-rose-600' : 'bg-white border-slate-350'
+              }`}>
+                {product.isSold && <Check className="w-2.5 h-2.5 text-white stroke-[3.5]" />}
+              </span>
               <span>Mark Sold</span>
-            </label>
+            </button>
           </div>
         )}
       </div>

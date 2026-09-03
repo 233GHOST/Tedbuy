@@ -21,6 +21,7 @@
     "dompurify": "^3.4.12",
     "dotenv": "^17.2.3",
     "esbuild": "^0.25.0",
+    "expo": "^57.0.19",
     "express": "^4.21.2",
     "firebase": "^12.14.0",
     "firebase-admin": "^14.0.0",

@@ -1,7 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, Platform, Alert, ActivityIndicator, Switch } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Image, Pressable, StyleSheet, Platform, Alert, ActivityIndicator } from 'react-native';
+import { Heart, Check } from 'lucide-react-native';
 import { Product } from '../types';
-import { auth, toggleLikeProduct, updateProduct } from '../firebase';
+import { auth, updateProduct } from '../firebase';
+import { fonts } from '../theme';
+import { formatProductPrice } from '../utils/formatPrice';
+import { resolveProductImageUri } from '../utils/productImage';
+import { CategoryImagePlaceholder } from './CategoryImagePlaceholder';
+import { useSavedProducts } from '../context/SavedProducts';
 
 interface ProductCardProps {
   product: Product;
@@ -24,55 +30,17 @@ export function ProductCard({
 }: ProductCardProps) {
   const [loaded, setLoaded] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
-  const [localIsSaved, setLocalIsSaved] = useState(false);
   const [updatingSold, setUpdatingSold] = useState(false);
 
   const currentUser = auth.currentUser;
   const isAdminOrSeller = !!(currentUser && (product.sellerId === currentUser.uid));
 
-  // Sync saved/liked status
-  useEffect(() => {
-    if (propIsSaved !== undefined) {
-      setLocalIsSaved(propIsSaved);
-    } else if (currentUser && Array.isArray(product.likedUserIds)) {
-      setLocalIsSaved(product.likedUserIds.includes(currentUser.uid));
-    } else {
-      setLocalIsSaved(false);
-    }
-  }, [propIsSaved, product.likedUserIds, currentUser]);
-
-  // Robust price formatting matching the web app's Intl logic with graceful fallback
-  const formatProductPrice = (priceVal: string | number) => {
-    if (typeof priceVal === 'string') {
-      const lower = priceVal.trim().toLowerCase();
-      if (lower === 'contact for price' || lower === 'contact for price.' || lower.includes('contact for price')) {
-        return 'Inquire';
-      }
-    }
-    
-    const getGHFormatted = (num: number) => {
-      try {
-        return new Intl.NumberFormat('en-GH', {
-          style: 'currency',
-          currency: 'GHS',
-          maximumFractionDigits: 0
-        }).format(num);
-      } catch (e) {
-        return `GH₵ ${num.toLocaleString()}`;
-      }
-    };
-
-    if (typeof priceVal === 'number') {
-      return getGHFormatted(priceVal);
-    }
-    
-    const cleanStr = String(priceVal).replace(/GHS/gi, '').replace(/GH₵/gi, '').replace(/,/g, '').trim();
-    const num = Number(cleanStr);
-    if (!isNaN(num) && cleanStr !== '') {
-      return getGHFormatted(num);
-    }
-    return priceVal;
-  };
+  // Real bookmark status — reads the current user's own savedProductIds via
+  // the shared SavedProducts context (see context/SavedProducts.tsx and
+  // firebase.ts's toggleSaveProductRemote for why this replaced the
+  // likedUserIds-based bug that 403'd on any non-owned listing).
+  const { isSaved: isSavedInContext, toggleSaved } = useSavedProducts();
+  const localIsSaved = propIsSaved !== undefined ? propIsSaved : isSavedInContext(product.id);
 
   // Robust date format
   const parseDate = (dateVal: any): Date | null => {
@@ -130,8 +98,7 @@ export function ProductCard({
 
     try {
       setIsLiking(true);
-      await toggleLikeProduct(product.id, currentUser.uid);
-      setLocalIsSaved(!localIsSaved);
+      await toggleSaved(product.id);
     } catch (err: any) {
       Alert.alert('Bookmark Failed', err.message || 'Could not update favorites.');
     } finally {
@@ -159,30 +126,31 @@ export function ProductCard({
     }
   };
 
-  const coverImageUrl = (product as any).displayImage || (product as any).thumbnailUrl || (Array.isArray(product.images) && product.images.length > 0
-    ? product.images[0]
-    : product.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80');
-
-  const dateFormatted = product.createdAt 
-    ? new Date(product.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : '';
+  // Real photo or video-poster only — never an unrelated stock photo. See
+  // utils/productImage.ts.
+  const coverImageUrl = resolveProductImageUri(product);
 
   return (
     <Pressable style={styles.cardContainer} onPress={onPress}>
       {/* 1. Image cover section with 1:1 Aspect Ratio */}
       <View style={styles.imageContainer}>
-        {/* Main Product Image */}
-        <Image
-          source={{ uri: coverImageUrl }}
-          style={styles.coverImage}
-          onLoadStart={() => setLoaded(false)}
-          onLoadEnd={() => setLoaded(true)}
-        />
+        {/* Main Product Image — an honest category placeholder when there's
+            no real photo/video-poster, never a random stock photo. */}
+        {coverImageUrl ? (
+          <Image
+            source={{ uri: coverImageUrl }}
+            style={styles.coverImage}
+            onLoadStart={() => setLoaded(false)}
+            onLoadEnd={() => setLoaded(true)}
+          />
+        ) : (
+          <CategoryImagePlaceholder category={product.category} style={styles.coverImage} iconSize={30} />
+        )}
 
         {/* Loading Spinner Overlays */}
-        {!loaded && (
+        {coverImageUrl && !loaded && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="small" color="#ea580c" />
+            <ActivityIndicator size="small" color="#0f172a" />
           </View>
         )}
 
@@ -221,21 +189,16 @@ export function ProductCard({
           disabled={isLiking}
         >
           {isLiking ? (
-            <ActivityIndicator size="small" color={localIsSaved ? '#ffffff' : '#ea580c'} />
+            <ActivityIndicator size="small" color={localIsSaved ? '#ffffff' : '#94a3b8'} />
           ) : (
-            <Text style={[styles.bookmarkEmoji, localIsSaved && styles.bookmarkEmojiActive]}>
-              {localIsSaved ? '🔖' : '🤍'}
-            </Text>
+            <Heart
+              size={15}
+              color={localIsSaved ? '#ffffff' : '#94a3b8'}
+              fill={localIsSaved ? '#ffffff' : 'none'}
+              strokeWidth={2.3}
+            />
           )}
         </Pressable>
-
-        {/* Metadata overlay bar if seller/owner of the ad */}
-        {isAdminOrSeller && !isTrendingVariant && (
-          <View style={styles.ownerOverlayBar}>
-            <Text style={styles.ownerOverlayText}>👁️ {(product as any).viewsCount || 0} views</Text>
-            {dateFormatted ? <Text style={styles.ownerOverlayText}>📅 {dateFormatted}</Text> : null}
-          </View>
-        )}
       </View>
 
       {/* 2. Detail Info Section below Image */}
@@ -316,22 +279,27 @@ export function ProductCard({
           </View>
         )}
 
-        {/* 3. Mark as Sold Status Toggle (Exclusive to Sellers/Admins) */}
+        {/* 3. Mark as Sold Status (Exclusive to Sellers/Admins) — matches
+            web's ProductCard checkbox, not a toggle switch. */}
         {isAdminOrSeller && !isTrendingVariant && (
-          <View style={styles.soldToggleBar}>
-            <Text style={styles.soldToggleLabel}>Mark item as Sold</Text>
+          <Pressable
+            style={styles.soldToggleBar}
+            onPress={handleSoldToggle}
+            disabled={updatingSold}
+            hitSlop={6}
+          >
+            <Text style={styles.soldToggleLabel}>Status</Text>
             {updatingSold ? (
-              <ActivityIndicator size="small" color="#ea580c" />
+              <ActivityIndicator size="small" color="#e11d48" />
             ) : (
-              <Switch
-                value={!!(product as any).isSold}
-                onValueChange={handleSoldToggle}
-                trackColor={{ false: '#cbd5e1', true: '#fecaca' }}
-                thumbColor={!!(product as any).isSold ? '#ef4444' : '#f1f5f9'}
-                ios_backgroundColor="#cbd5e1"
-              />
+              <View style={styles.soldCheckboxRow}>
+                <View style={[styles.soldCheckbox, (product as any).isSold && styles.soldCheckboxChecked]}>
+                  {(product as any).isSold && <Check size={10} color="#ffffff" strokeWidth={3.5} />}
+                </View>
+                <Text style={styles.soldCheckboxLabel}>Mark Sold</Text>
+              </View>
             )}
-          </View>
+          </Pressable>
         )}
       </View>
     </Pressable>
@@ -407,13 +375,13 @@ const styles = StyleSheet.create({
   trendingTagText: {
     color: '#ffffff',
     fontSize: 9.5,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
     textTransform: 'uppercase',
   },
   prioTagText: {
     color: '#0f172a',
     fontSize: 9.5,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
     textTransform: 'uppercase',
   },
   soldTag: {
@@ -431,7 +399,7 @@ const styles = StyleSheet.create({
   soldTagText: {
     color: '#ffffff',
     fontSize: 9.5,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
     letterSpacing: 0.5,
   },
   conditionTag: {
@@ -449,7 +417,7 @@ const styles = StyleSheet.create({
   conditionTagText: {
     color: '#ffffff',
     fontSize: 9,
-    fontWeight: '800',
+    fontFamily: fonts.extrabold,
     textTransform: 'uppercase',
   },
   videoRibbon: {
@@ -467,7 +435,7 @@ const styles = StyleSheet.create({
   videoRibbonText: {
     color: '#ffffff',
     fontSize: 9,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
     textTransform: 'uppercase',
   },
   bookmarkButton: {
@@ -485,34 +453,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   bookmarkButtonActive: {
-    backgroundColor: '#ef4444',
-    borderColor: '#ef4444',
+    backgroundColor: '#f43f5e',
+    borderColor: '#f43f5e',
   },
-  bookmarkEmoji: {
-    fontSize: 14,
-    color: '#475569',
-  },
-  bookmarkEmojiActive: {
-    color: '#ffffff',
-  },
-  ownerOverlayBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(15, 23, 42, 0.75)',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    zIndex: 3,
-  },
-  ownerOverlayText: {
-    color: '#cbd5e1',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-
   infoSection: {
     padding: 12,
     backgroundColor: '#ffffff',
@@ -524,7 +467,7 @@ const styles = StyleSheet.create({
   },
   priceText: {
     fontSize: 16,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
     color: '#0f172a',
     letterSpacing: -0.3,
   },
@@ -539,7 +482,7 @@ const styles = StyleSheet.create({
   negotiableTagText: {
     color: '#047857',
     fontSize: 8.5,
-    fontWeight: '800',
+    fontFamily: fonts.extrabold,
     textTransform: 'uppercase',
   },
   brandContainer: {
@@ -553,13 +496,13 @@ const styles = StyleSheet.create({
   brandText: {
     color: '#475569',
     fontSize: 9,
-    fontWeight: '800',
+    fontFamily: fonts.extrabold,
     letterSpacing: 0.5,
   },
   titleText: {
     color: '#1e293b',
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: fonts.semibold,
     lineHeight: 18,
     marginTop: 6,
   },
@@ -575,7 +518,7 @@ const styles = StyleSheet.create({
   locationText: {
     color: '#64748b',
     fontSize: 11,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   sellerTouchpointRow: {
     marginTop: 8,
@@ -610,7 +553,7 @@ const styles = StyleSheet.create({
   sellerAvatarLetterSmall: {
     color: '#ffffff',
     fontSize: 10,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
   },
   sellerNameCol: {
     flex: 1,
@@ -623,7 +566,7 @@ const styles = StyleSheet.create({
   sellerNameText: {
     color: '#1e293b',
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     flexShrink: 1,
   },
   verifiedCheckSmall: {
@@ -637,7 +580,7 @@ const styles = StyleSheet.create({
   verifiedCheckText: {
     color: '#ffffff',
     fontSize: 8,
-    fontWeight: '900',
+    fontFamily: fonts.extrabold,
   },
   sellerLocationBadge: {
     flexDirection: 'row',
@@ -651,7 +594,7 @@ const styles = StyleSheet.create({
   locationTextSmall: {
     color: '#64748b',
     fontSize: 10,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   engagementRow: {
     flexDirection: 'row',
@@ -662,7 +605,7 @@ const styles = StyleSheet.create({
   likesCountText: {
     fontSize: 10,
     color: '#64748b',
-    fontWeight: '600',
+    fontFamily: fonts.semibold,
   },
 
   soldToggleBar: {
@@ -676,9 +619,34 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   soldToggleLabel: {
-    fontSize: 11,
-    color: '#dc2626',
-    fontWeight: '800',
+    fontSize: 10,
+    color: '#94a3b8',
+    fontFamily: fonts.extrabold,
     textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  soldCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  soldCheckbox: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  soldCheckboxChecked: {
+    backgroundColor: '#e11d48',
+    borderColor: '#e11d48',
+  },
+  soldCheckboxLabel: {
+    fontSize: 12,
+    color: '#e11d48',
+    fontFamily: fonts.extrabold,
   },
 });

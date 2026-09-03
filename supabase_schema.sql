@@ -37,6 +37,9 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "securityHoldSetAt" TEXT;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "securityHoldSetBy" TEXT;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "originalUsername" TEXT;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "notificationPreferences" JSONB DEFAULT '{"newFollower": true, "newMessage": true, "followedSellerNewListing": true}'::jsonb;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS bio TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS "bioUpdatedAt" TIMESTAMP WITH TIME ZONE;
 
 -- Repair products table
 CREATE TABLE IF NOT EXISTS public.products (id TEXT PRIMARY KEY, title TEXT NOT NULL);
@@ -127,6 +130,14 @@ ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS type TEXT;
 ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS read BOOLEAN DEFAULT false;
 ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
 ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "relatedId" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "triggerUserId" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "triggerUsername" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "triggerUserPhoto" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "productId" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "productTitle" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "productPrice" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "productImage" TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS "chatId" TEXT;
 
 -- Repair store_names table
 CREATE TABLE IF NOT EXISTS public.store_names (id TEXT PRIMARY KEY);

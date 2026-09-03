@@ -1,11 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View, Alert, Modal, Dimensions, Share, Linking, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { fetchProductById, fetchUserById, toggleLikeProduct, startChatApi, auth, watchProducts } from '../firebase';
-import { Product, isUserAdmin, isUserVerified } from '../types';
+import { Bookmark, Share2, ShieldAlert, X } from 'lucide-react-native';
+import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView } from '../firebase';
+import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
+import { ProductCard } from '../components/ProductCard';
+import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
+import { formatProductPrice } from '../utils/formatPrice';
+import { resolveProductImageUri } from '../utils/productImage';
+import { CategoryImagePlaceholder } from '../components/CategoryImagePlaceholder';
+import { useSavedProducts } from '../context/SavedProducts';
+import ImageViewing from 'react-native-image-viewing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fonts } from '../theme';
+
+export const RECENTLY_VIEWED_KEY = 'tedbuy_recently_viewed_ids';
+const MAX_RECENTLY_VIEWED = 5;
 
 const { width } = Dimensions.get('window');
 
@@ -41,42 +54,118 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   const navigation = useNavigation<any>();
   const [product, setProduct] = useState<any>(null);
   const [seller, setSeller] = useState<any>(null);
-  const [sellerListings, setSellerListings] = useState<any[]>([]);
+  const [allProducts, setAllProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // Distinguishes "the server told us this listing genuinely doesn't exist"
+  // from "the request itself failed" — both used to render the exact same
+  // "expired/sold/no longer available" message, misreporting a transient
+  // network blip as a deleted listing with no way to retry.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isLiking, setIsLiking] = useState(false);
+  const { isSaved: isSavedProduct, toggleSaved } = useSavedProducts();
   const [isSellerModalVisible, setIsSellerModalVisible] = useState(false);
   const [isStartingChat, setIsStartingChat] = useState(false);
   const [inlineMessage, setInlineMessage] = useState('');
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [reportReason, setReportReason] = useState('spam');
+  const [reportComment, setReportComment] = useState('');
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [isLightboxVisible, setIsLightboxVisible] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  // Matches web's currentUser.emailVerified gate on chat/WhatsApp/review
+  // (VerificationBlockModal) — previously entirely absent on mobile.
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const [blockedActionType, setBlockedActionType] = useState<BlockedActionType>(null);
+  // Real trust score — was previously a hardcoded "🛡️ High Trust Verified"
+  // label shown for every seller regardless of their actual score.
+  const [sellerReviews, setSellerReviews] = useState<any[]>([]);
+  const [isTogglingFollow, setIsTogglingFollow] = useState(false);
+  // Owner controls (Mark Sold / Delete) — matches web's inline owner card on
+  // the product page itself; previously the only way to manage a listing on
+  // mobile was to leave and go find it under Profile > My Listings.
+  const [isTogglingSold, setIsTogglingSold] = useState(false);
+  const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
+  const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    if (auth.currentUser) {
+      fetchUserById(auth.currentUser.uid).then((profile) => {
+        if (profile) setCurrentUserProfile(profile);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError(null);
+
     // Single-entry subscription and loader
     fetchProductById(productId).then((result) => {
+      if (!active) return;
       setProduct(result);
       if (result?.sellerId) {
         fetchUserById(result.sellerId).then((userResult) => {
-          if (userResult) {
-            setSeller(userResult);
-          }
-        });
+          if (active && userResult) setSeller(userResult);
+        }).catch(() => {});
+        fetchReviewsForSeller(result.sellerId).then((r) => { if (active) setSellerReviews(r); }).catch(() => {});
       }
+      setLoading(false);
+    }).catch((err: any) => {
+      if (!active) return;
+      // A thrown error here means the request itself failed (offline, timeout,
+      // malformed response) — a genuinely nonexistent/deleted listing instead
+      // resolves normally to `null`, handled by the `!product` branch below.
+      setLoadError(err?.message || 'Could not load this listing. Please try again.');
       setLoading(false);
     });
 
-    // Watch listings to filter seller's other items
-    const unsubProducts = watchProducts((allProducts) => {
-      if (product?.sellerId) {
-        const otherListings = allProducts.filter(
-          (p) => p.sellerId === product.sellerId && p.id !== product.id
-        );
-        setSellerListings(otherListings);
+    // Matches web's AppContext.tsx recentlyViewedIds tracking (move-to-front,
+    // dedupe, cap 5, persisted) — was entirely absent on mobile, so there was
+    // no "Recently Viewed" history to surface anywhere in the app.
+    AsyncStorage.getItem(RECENTLY_VIEWED_KEY).then((saved) => {
+      let ids: string[] = [];
+      if (saved) {
+        try { ids = JSON.parse(saved); } catch { ids = []; }
       }
+      const updated = [productId, ...ids.filter((id) => id !== productId)].slice(0, MAX_RECENTLY_VIEWED);
+      AsyncStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(updated)).catch(() => {});
+    });
+
+    // Real view tracking (10-min per-device cooldown) — feeds the Popular
+    // Stores ranking's "how often people view their products" signal.
+    trackProductView(productId);
+
+    // Watch the full product list — sellerListings and similarProducts both
+    // derive from this (see useMemo below), so it's only ever fetched once.
+    const unsubProducts = watchProducts((result) => {
+      setAllProducts(result);
     });
 
     return () => {
+      active = false;
       unsubProducts();
     };
-  }, [productId, product?.sellerId]);
+  }, [productId, reloadToken]);
+
+  const handleRetryLoad = () => setReloadToken((t) => t + 1);
+
+  const sellerListings = useMemo(() => {
+    if (!product?.sellerId) return [];
+    return allProducts.filter((p) => p.sellerId === product.sellerId && p.id !== product.id);
+  }, [allProducts, product?.sellerId, product?.id]);
+
+  // Matches web's similarProducts (src/components/ProductDetail.tsx) — same
+  // category, excluding self, capped at 4. Was entirely missing on mobile.
+  const similarProducts = useMemo(() => {
+    if (!product?.category) return [];
+    return allProducts
+      .filter((p) => p.id !== product.id && p.category && String(p.category).toLowerCase() === String(product.category).toLowerCase())
+      .slice(0, 4);
+  }, [allProducts, product?.id, product?.category]);
 
   const handleLike = async () => {
     const user = auth.currentUser;
@@ -88,15 +177,36 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
     try {
       setIsLiking(true);
-      await toggleLikeProduct(productId, user.uid);
-      const updatedProduct = await fetchProductById(productId);
-      if (updatedProduct) {
-        setProduct(updatedProduct);
-      }
+      await toggleSaved(productId);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Could not update favorites.');
     } finally {
       setIsLiking(false);
+    }
+  };
+
+  const handleOpenReportModal = () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Authentication Required', 'Please sign in to report a listing.');
+      return;
+    }
+    setReportReason('spam');
+    setReportComment('');
+    setIsReportModalVisible(true);
+  };
+
+  const handleSubmitReport = async () => {
+    if (isSubmittingReport) return;
+    try {
+      setIsSubmittingReport(true);
+      await reportProduct(productId, reportReason, reportComment);
+      setIsReportModalVisible(false);
+      Alert.alert('Report Submitted', 'Thank you — our moderators will review it shortly.');
+    } catch (err: any) {
+      Alert.alert('Report Failed', err?.message || 'Could not submit your report. Please try again.');
+    } finally {
+      setIsSubmittingReport(false);
     }
   };
 
@@ -107,6 +217,10 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
         'Authentication Required',
         'Please sign in or register to contact the seller on WhatsApp.'
       );
+      return;
+    }
+    if (!currentUserProfile?.emailVerified) {
+      setBlockedActionType('whatsApp');
       return;
     }
     const phoneOrWhatsApp = seller?.whatsAppNumber || seller?.phoneNumber || product.sellerWhatsApp || product.sellerPhone;
@@ -146,6 +260,11 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
       return;
     }
 
+    if (!currentUserProfile?.emailVerified) {
+      setBlockedActionType('chat');
+      return;
+    }
+
     try {
       setIsStartingChat(true);
       const chosenMsg = (customMessage && customMessage.trim()) 
@@ -170,7 +289,23 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#ea580c" />
+        <ActivityIndicator size="large" color="#0f172a" />
+      </View>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>{loadError}</Text>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <Pressable onPress={handleRetryLoad} style={[styles.backButton, { backgroundColor: '#0f172a', borderColor: '#0f172a' }]}>
+            <Text style={[styles.backText, { color: '#ffffff' }]}>Try Again</Text>
+          </Pressable>
+          <Pressable onPress={onBack} style={styles.backButton}>
+            <Text style={styles.backText}>Return to Marketplace</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -183,7 +318,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
           <Pressable onPress={onBack} style={styles.backButton}>
             <Text style={styles.backText}>Return to Marketplace</Text>
           </Pressable>
-          <Pressable onPress={onBack} style={[styles.backButton, { backgroundColor: '#f97316', borderColor: '#ea580c' }]}>
+          <Pressable onPress={onBack} style={[styles.backButton, { backgroundColor: '#0f172a', borderColor: '#0f172a' }]}>
             <Text style={[styles.backText, { color: '#ffffff' }]}>Browse Similar Listings</Text>
           </Pressable>
         </View>
@@ -197,17 +332,77 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   // would otherwise appear alongside the video).
   const realVideos: string[] = Array.isArray(product.videos) ? product.videos.filter(Boolean) : [];
   const realImages: string[] = Array.isArray(product.images) && product.images.length ? product.images.filter(Boolean) : [];
-  const fallbackImages = realVideos.length === 0 && realImages.length === 0
-    ? [product.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80']
-    : [];
+  // Only a real legacy `image` field counts here — never a random stock
+  // photo standing in for a genuinely medialess listing.
+  const legacyFallbackImage = realVideos.length === 0 && realImages.length === 0 ? resolveProductImageUri(product) : null;
+  const fallbackImages = legacyFallbackImage ? [legacyFallbackImage] : [];
   const mediaGallery: { type: 'video' | 'image'; url: string }[] = [
     ...realVideos.map((url) => ({ type: 'video' as const, url })),
     ...realImages.map((url) => ({ type: 'image' as const, url })),
     ...fallbackImages.map((url) => ({ type: 'image' as const, url })),
   ];
   const hasMultipleImages = mediaGallery.length > 1;
+  // Lightbox — was entirely missing on mobile; web has a full-screen
+  // pinch-zoom image viewer, mobile only had the bare gallery scroll.
+  const lightboxImages = mediaGallery.filter((item) => item.type === 'image').map((item) => ({ uri: item.url }));
   const user = auth.currentUser;
-  const hasLiked = user && Array.isArray(product.likedUserIds) && product.likedUserIds.includes(user.uid);
+  const hasLiked = !!user && isSavedProduct(product.id);
+  const isOwner = !!(user && product.sellerId === user.uid);
+  const trustResult = calculateTrustScore(seller, sellerReviews);
+  const isFollowingSeller = Array.isArray(currentUserProfile?.followingSellers) && product.sellerId
+    ? currentUserProfile.followingSellers.includes(product.sellerId)
+    : false;
+
+  const handleToggleFollow = async () => {
+    if (!user) {
+      Alert.alert('Authentication Required', 'Please sign in to follow this seller.');
+      return;
+    }
+    if (isTogglingFollow) return;
+    try {
+      setIsTogglingFollow(true);
+      await toggleFollowSeller(product.sellerId, user.uid);
+      setCurrentUserProfile((prev: any) => {
+        if (!prev) return prev;
+        const following: string[] = Array.isArray(prev.followingSellers) ? prev.followingSellers : [];
+        const nowFollowing = following.includes(product.sellerId)
+          ? following.filter((id) => id !== product.sellerId)
+          : [...following, product.sellerId];
+        return { ...prev, followingSellers: nowFollowing };
+      });
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not update follow status.');
+    } finally {
+      setIsTogglingFollow(false);
+    }
+  };
+
+  const handleToggleSold = async () => {
+    if (isTogglingSold) return;
+    try {
+      setIsTogglingSold(true);
+      const updated = await updateProduct(product.id, { isSold: !product.isSold });
+      setProduct((prev: any) => ({ ...prev, ...(updated || { isSold: !prev.isSold }) }));
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not update listing status.');
+    } finally {
+      setIsTogglingSold(false);
+    }
+  };
+
+  const handleDeleteListing = async () => {
+    if (!deleteConfirmChecked || isDeleting) return;
+    try {
+      setIsDeleting(true);
+      await deleteProductMobile(product.id);
+      setIsDeleteConfirmVisible(false);
+      Alert.alert('Listing Deleted', 'Your classified ad has been removed.', [{ text: 'OK', onPress: onBack }]);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not delete this listing.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -239,22 +434,38 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
               item.type === 'video' ? (
                 <GalleryVideoItem key={idx} uri={item.url} />
               ) : (
-                <Image key={idx} source={{ uri: item.url }} style={styles.carouselImage} />
+                <Pressable
+                  key={idx}
+                  onPress={() => {
+                    const imageIdx = mediaGallery.slice(0, idx + 1).filter((m) => m.type === 'image').length - 1;
+                    setLightboxIndex(Math.max(0, imageIdx));
+                    setIsLightboxVisible(true);
+                  }}
+                >
+                  <Image source={{ uri: item.url }} style={styles.carouselImage} />
+                </Pressable>
               )
             )}
           </ScrollView>
           {hasMultipleImages && (
-            <View style={styles.carouselIndicators}>
-              {mediaGallery.map((_, idx: number) => (
-                <View
-                  key={idx}
-                  style={[
-                    styles.indicatorDot,
-                    currentImageIndex === idx && styles.indicatorDotActive,
-                  ]}
-                />
-              ))}
-            </View>
+            <>
+              <View style={styles.carouselIndicators}>
+                {mediaGallery.map((_, idx: number) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.indicatorDot,
+                      currentImageIndex === idx && styles.indicatorDotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+              {/* Matches web's "Image X of Y" counter overlay
+                  (src/components/ProductDetail.tsx). */}
+              <View style={styles.imageCounterBadge}>
+                <Text style={styles.imageCounterText}>{currentImageIndex + 1} / {mediaGallery.length}</Text>
+              </View>
+            </>
           )}
         </View>
 
@@ -265,10 +476,19 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
           {/* Price with Negotiable badge right beside it */}
           <View style={styles.priceRowContainer}>
-            <Text style={styles.price}>{product.price}</Text>
-            {product.negotiable && (
+            <Text style={styles.price}>{formatProductPrice(product.price)}</Text>
+            {product.isSold && (
+              <View style={styles.soldLabel}>
+                <Text style={styles.soldLabelText}>Sold Product</Text>
+              </View>
+            )}
+            {product.negotiable !== false ? (
               <View style={styles.negotiableLabel}>
                 <Text style={styles.negotiableText}>Negotiable</Text>
+              </View>
+            ) : (
+              <View style={styles.fixedPriceLabel}>
+                <Text style={styles.fixedPriceText}>Fixed Price</Text>
               </View>
             )}
             {isUserAdmin(seller) ? (
@@ -282,6 +502,35 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
             ) : null}
           </View>
 
+          {/* Owner controls — matches web's inline owner card on the product
+              page itself (Mark Sold / Edit / Delete), only visible to the
+              listing's own owner. */}
+          {isOwner && (
+            <View style={styles.ownerControlsCard}>
+              <Pressable onPress={handleToggleSold} disabled={isTogglingSold} style={styles.ownerSoldRow}>
+                <Text style={styles.ownerSoldLabel}>Item Status</Text>
+                <View style={styles.ownerSoldRight}>
+                  {isTogglingSold ? (
+                    <ActivityIndicator size="small" color="#e11d48" />
+                  ) : (
+                    <View style={[styles.ownerCheckbox, product.isSold && styles.ownerCheckboxChecked]}>
+                      {product.isSold && <Text style={styles.ownerCheckboxMark}>✓</Text>}
+                    </View>
+                  )}
+                  <Text style={styles.ownerSoldRowText}>Mark as Sold</Text>
+                </View>
+              </Pressable>
+              <View style={styles.ownerActionsRow}>
+                <Pressable
+                  onPress={() => { setDeleteConfirmChecked(false); setIsDeleteConfirmVisible(true); }}
+                  style={styles.ownerDeleteBtn}
+                >
+                  <Text style={styles.ownerDeleteBtnText}>Delete Listing</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
           <Text style={styles.meta}>
             {product.category || 'Other'} • {product.location || 'Ghana'}
           </Text>
@@ -292,9 +541,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
               onPress={handleLike}
               style={[styles.likeButton, hasLiked && styles.likeButtonActive]}
             >
-              <Text style={styles.likeButtonText}>
-                {hasLiked ? '🔖 Saved' : '🤍 Bookmark Deal'}
-              </Text>
+              <Bookmark size={14} color={hasLiked ? '#dc2626' : '#0f172a'} fill={hasLiked ? '#dc2626' : 'none'} strokeWidth={2.2} />
+              <Text style={styles.likeButtonText}>{hasLiked ? 'Saved' : 'Bookmark Deal'}</Text>
             </Pressable>
             <Pressable
               onPress={async () => {
@@ -311,65 +559,72 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                     url: shareUrl,
                   });
                 } catch (err) {
-                  Alert.alert('Shared!', `Link for "${product.title}" copied.`);
+                  // user dismissed the share sheet — nothing to do
                 }
               }}
               style={styles.shareButton}
             >
-              <Text style={styles.shareButtonText}>✈️ Share</Text>
+              <Share2 size={14} color="#0f172a" strokeWidth={2.2} />
+              <Text style={styles.shareButtonText}>Share</Text>
             </Pressable>
           </View>
 
-          {/* Message Seller on WhatsApp Button */}
-          <Pressable
-            onPress={handleMessageWhatsApp}
-            style={styles.whatsappButton}
-          >
-            <Text style={styles.whatsappButtonText}>💬 Message Seller on WhatsApp</Text>
-          </Pressable>
-
-          {/* Inline Chat with Seller Card (Directly below WhatsApp) */}
-          <View style={styles.inlineChatCard}>
-            <Text style={styles.inlineChatTitle}>Chat with the seller</Text>
-            
-            {/* Quick reply suggestions */}
-            <View style={styles.quickRepliesRow}>
-              {['Is this still available?', 'What is the last price?'].map((quickText) => (
-                <Pressable
-                  key={quickText}
-                  onPress={() => handleStartChatWithText(quickText)}
-                  disabled={isStartingChat}
-                  style={styles.quickReplyPill}
-                >
-                  <Text style={styles.quickReplyPillText}>{quickText}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {/* Inline message input */}
-            <View style={styles.inlineInputRow}>
-              <TextInput
-                value={inlineMessage}
-                onChangeText={setInlineMessage}
-                placeholder="Type your message to seller..."
-                placeholderTextColor="#94a3b8"
-                style={styles.inlineInput}
-              />
+          {/* Message Seller on WhatsApp Button + Inline Chat — matches web:
+              hidden entirely for the listing's own owner, not just blocked
+              on submit. */}
+          {!isOwner && (
+            <>
               <Pressable
-                onPress={() => handleStartChatWithText()}
-                disabled={isStartingChat}
-                style={styles.inlineSendBtn}
+                onPress={handleMessageWhatsApp}
+                style={styles.whatsappButton}
               >
-                {isStartingChat ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Text style={styles.inlineSendBtnText}>Send</Text>
-                )}
+                <Text style={styles.whatsappButtonText}>💬 Message Seller on WhatsApp</Text>
               </Pressable>
-            </View>
-          </View>
+
+              <View style={styles.inlineChatCard}>
+                <Text style={styles.inlineChatTitle}>Chat with the seller</Text>
+
+                {/* Quick reply suggestions */}
+                <View style={styles.quickRepliesRow}>
+                  {['Is this still available?', 'What is the last price?'].map((quickText) => (
+                    <Pressable
+                      key={quickText}
+                      onPress={() => handleStartChatWithText(quickText)}
+                      disabled={isStartingChat}
+                      style={styles.quickReplyPill}
+                    >
+                      <Text style={styles.quickReplyPillText}>{quickText}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {/* Inline message input */}
+                <View style={styles.inlineInputRow}>
+                  <TextInput
+                    value={inlineMessage}
+                    onChangeText={setInlineMessage}
+                    placeholder="Type your message to seller..."
+                    placeholderTextColor="#94a3b8"
+                    style={styles.inlineInput}
+                  />
+                  <Pressable
+                    onPress={() => handleStartChatWithText()}
+                    disabled={isStartingChat}
+                    style={styles.inlineSendBtn}
+                  >
+                    {isStartingChat ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.inlineSendBtnText}>Send</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            </>
+          )}
 
           {/* Seller Profile & Trust Card */}
+          <View style={styles.sellerBox}>
           <Pressable
             onPress={() => {
               const sid = seller?.id || product.sellerId;
@@ -379,7 +634,6 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                 setIsSellerModalVisible(true);
               }
             }}
-            style={styles.sellerBox}
           >
             <View style={styles.sellerRow}>
               <View style={styles.sellerAvatar}>
@@ -405,8 +659,20 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                 <Text style={styles.sellerTenure}>
                   {formatTedbuyTenure(seller?.joinDate || product.sellerJoinDate)}
                 </Text>
-                <View style={styles.trustScorePill}>
-                  <Text style={styles.trustScorePillText}>🛡️ High Trust Verified</Text>
+                <View style={[
+                  styles.trustScorePill,
+                  trustResult.score >= 90 ? styles.trustPillEmerald
+                    : trustResult.score >= 75 ? styles.trustPillIndigo
+                    : trustResult.score >= 50 ? styles.trustPillAmber
+                    : styles.trustPillRose,
+                ]}>
+                  <Text style={[
+                    styles.trustScorePillText,
+                    trustResult.score >= 90 ? styles.trustTextEmerald
+                      : trustResult.score >= 75 ? styles.trustTextIndigo
+                      : trustResult.score >= 50 ? styles.trustTextAmber
+                      : styles.trustTextRose,
+                  ]}>🛡️ Trust Score: {trustResult.score}%</Text>
                 </View>
               </View>
               <View style={styles.viewStoreBtn}>
@@ -425,6 +691,31 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                 <Text style={styles.trustGuaranteeText}>In-person trade safety</Text>
               </View>
             </View>
+          </Pressable>
+
+          {/* Follow / Unfollow — matches web's follow toggle on the product
+              page's seller card, hidden for the listing's own owner. */}
+          {!isOwner && (
+            <Pressable
+              onPress={handleToggleFollow}
+              disabled={isTogglingFollow}
+              style={[styles.followBtn, isFollowingSeller && styles.followBtnActive]}
+            >
+              {isTogglingFollow ? (
+                <ActivityIndicator size="small" color={isFollowingSeller ? '#0f172a' : '#ffffff'} />
+              ) : (
+                <Text style={[styles.followBtnText, isFollowingSeller && styles.followBtnTextActive]}>
+                  {isFollowingSeller ? '✓ Following' : '+ Follow Seller'}
+                </Text>
+              )}
+            </Pressable>
+          )}
+          </View>
+
+          {/* Report this listing button */}
+          <Pressable onPress={handleOpenReportModal} style={styles.reportListingBtn}>
+            <ShieldAlert size={16} color="#be123c" strokeWidth={2.2} />
+            <Text style={styles.reportListingBtnText}>Report this Listing</Text>
           </Pressable>
 
           {/* Safety Tips Banner */}
@@ -466,6 +757,30 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
           <Text style={styles.sectionTitle}>Listing Description</Text>
           <Text style={styles.description}>{product.description}</Text>
+
+          <View style={styles.divider} />
+
+          {/* Similar Listings — was entirely missing on mobile. */}
+          <Text style={styles.sectionTitle}>Similar Listings</Text>
+          {similarProducts.length === 0 ? (
+            <View style={styles.similarEmptyState}>
+              <Text style={styles.similarEmptyText}>
+                No similar items found in <Text style={styles.similarEmptyCategoryTag}>{product.category}</Text> yet.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.similarGrid}>
+              {similarProducts.map((p) => (
+                <View key={p.id} style={styles.similarGridItem}>
+                  <ProductCard
+                    product={p}
+                    onPress={() => navigation.push('ProductDetail', { productId: p.id })}
+                    onSellerPress={(sellerId: string) => navigation.navigate('SellerProfile', { sellerId })}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -531,30 +846,37 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                     key={otherItem.id}
                     onPress={() => {
                       setIsSellerModalVisible(false);
-                      // Navigate to details
+                      // Navigate to details. Deliberately doesn't clear the
+                      // current product/show the full-screen error state on
+                      // failure — that state's retry action reloads the
+                      // `productId` prop, not this particular otherItem, so
+                      // failing here just keeps the current listing on screen
+                      // with a dismissible alert instead of a mismatched retry.
                       setLoading(true);
-                      setProduct(null);
-                      setCurrentImageIndex(0);
                       fetchProductById(otherItem.id).then((result) => {
                         setProduct(result);
+                        setCurrentImageIndex(0);
                         setLoading(false);
+                      }).catch((err: any) => {
+                        // Was previously missing a .catch — a thrown network
+                        // failure here left the screen stuck on the loading
+                        // spinner forever with no way out.
+                        setLoading(false);
+                        Alert.alert('Could Not Load Listing', err?.message || 'Please try again.');
                       });
                     }}
                     style={styles.otherItemCard}
                   >
-                    <Image
-                      source={{
-                        uri: Array.isArray(otherItem.images) && otherItem.images.length
-                          ? otherItem.images[0]
-                          : otherItem.image || 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80',
-                      }}
-                      style={styles.otherItemImg}
-                    />
+                    {resolveProductImageUri(otherItem) ? (
+                      <Image source={{ uri: resolveProductImageUri(otherItem)! }} style={styles.otherItemImg} />
+                    ) : (
+                      <CategoryImagePlaceholder category={otherItem.category} style={styles.otherItemImg} iconSize={18} />
+                    )}
                     <View style={styles.otherItemInfo}>
                       <Text style={styles.otherItemTitle} numberOfLines={1}>
                         {otherItem.title}
                       </Text>
-                      <Text style={styles.otherItemPrice}>{otherItem.price}</Text>
+                      <Text style={styles.otherItemPrice}>{formatProductPrice(otherItem.price)}</Text>
                       <Text style={styles.otherItemMeta}>
                         {otherItem.category} • {otherItem.location}
                       </Text>
@@ -566,6 +888,159 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
           </View>
         </View>
       </Modal>
+
+      {/* Report Listing Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isReportModalVisible}
+        onRequestClose={() => !isSubmittingReport && setIsReportModalVisible(false)}
+      >
+        <Pressable
+          style={styles.reportModalOverlay}
+          onPress={() => !isSubmittingReport && setIsReportModalVisible(false)}
+        >
+          <Pressable style={styles.reportModalCard} onPress={() => {}}>
+            <View style={styles.reportModalHeader}>
+              <View style={styles.reportModalHeaderLeft}>
+                <ShieldAlert size={17} color="#e11d48" strokeWidth={2.3} />
+                <Text style={styles.reportModalTitle}>Report Marketplace Ad</Text>
+              </View>
+              <Pressable
+                onPress={() => !isSubmittingReport && setIsReportModalVisible(false)}
+                style={styles.reportModalCloseBtn}
+              >
+                <X size={16} color="#94a3b8" strokeWidth={2.3} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.reportModalIntro}>
+              Help us keep TedBuy secure. Your report goes straight to our admin inbox for moderation.
+            </Text>
+
+            <Text style={styles.reportModalLabel}>REASON FOR REPORT</Text>
+            {[
+              { value: 'spam', label: 'Spam, duplicate or fake listing' },
+              { value: 'scam', label: 'Scam, fraudulent offer or suspicious activity' },
+              { value: 'inappropriate', label: 'Inappropriate, abusive or illegal contents' },
+              { value: 'wrong_category', label: 'Misleading info or wrong category' },
+              { value: 'other', label: 'Other issue (please specify below)' },
+            ].map((option) => {
+              const active = reportReason === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => setReportReason(option.value)}
+                  style={[styles.reportReasonOption, active && styles.reportReasonOptionActive]}
+                >
+                  <View style={[styles.reportRadioOuter, active && styles.reportRadioOuterActive]}>
+                    {active && <View style={styles.reportRadioInner} />}
+                  </View>
+                  <Text style={[styles.reportReasonLabel, active && styles.reportReasonLabelActive]}>{option.label}</Text>
+                </Pressable>
+              );
+            })}
+
+            <Text style={[styles.reportModalLabel, { marginTop: 14 }]}>ADDITIONAL CONTEXT (OPTIONAL)</Text>
+            <TextInput
+              value={reportComment}
+              onChangeText={setReportComment}
+              placeholder="Provide more details to help our moderation team..."
+              placeholderTextColor="#94a3b8"
+              multiline
+              maxLength={1000}
+              style={styles.reportCommentInput}
+            />
+
+            <View style={styles.reportModalActions}>
+              <Pressable
+                onPress={() => setIsReportModalVisible(false)}
+                disabled={isSubmittingReport}
+                style={styles.reportCancelBtn}
+              >
+                <Text style={styles.reportCancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleSubmitReport}
+                disabled={isSubmittingReport}
+                style={[styles.reportSubmitBtn, isSubmittingReport && { opacity: 0.6 }]}
+              >
+                {isSubmittingReport ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={styles.reportSubmitBtnText}>Submit Report</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Full-screen pinch-zoom image lightbox — was entirely missing on
+          mobile; web has one, mobile only had the bare gallery scroll. */}
+      <ImageViewing
+        images={lightboxImages}
+        imageIndex={lightboxIndex}
+        visible={isLightboxVisible}
+        onRequestClose={() => setIsLightboxVisible(false)}
+        onImageIndexChange={setLightboxIndex}
+        doubleTapToZoomEnabled
+        swipeToCloseEnabled
+      />
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={isDeleteConfirmVisible}
+        onRequestClose={() => !isDeleting && setIsDeleteConfirmVisible(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalCard}>
+            <Text style={styles.deleteModalTitle}>Delete This Listing?</Text>
+            <Text style={styles.deleteModalBody}>
+              Are you sure you want to delete this listing? This action cannot be undone.
+            </Text>
+            <Pressable
+              onPress={() => setDeleteConfirmChecked((prev) => !prev)}
+              style={styles.deleteModalCheckRow}
+            >
+              <View style={[styles.ownerCheckbox, deleteConfirmChecked && styles.ownerCheckboxChecked]}>
+                {deleteConfirmChecked && <Text style={styles.ownerCheckboxMark}>✓</Text>}
+              </View>
+              <Text style={styles.deleteModalCheckText}>
+                Yes, I want to permanently delete this listing and its photos/videos.
+              </Text>
+            </Pressable>
+            <View style={styles.deleteModalActions}>
+              <Pressable
+                onPress={() => setIsDeleteConfirmVisible(false)}
+                disabled={isDeleting}
+                style={styles.deleteModalCancelBtn}
+              >
+                <Text style={styles.deleteModalCancelBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleDeleteListing}
+                disabled={!deleteConfirmChecked || isDeleting}
+                style={[styles.deleteModalConfirmBtn, (!deleteConfirmChecked || isDeleting) && { opacity: 0.5 }]}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.deleteModalConfirmBtnText}>Delete Permanently</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <EmailVerificationModal
+        visible={blockedActionType !== null}
+        actionType={blockedActionType}
+        onClose={() => setBlockedActionType(null)}
+        onVerified={() => setCurrentUserProfile((prev: any) => (prev ? { ...prev, emailVerified: true } : prev))}
+      />
     </SafeAreaView>
   );
 }
@@ -574,11 +1049,11 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#0f172a' },
   content: { backgroundColor: '#f8fafc', paddingBottom: 32 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc', padding: 24 },
-  errorText: { color: '#64748b', fontSize: 14, fontWeight: '600', marginBottom: 16, textAlign: 'center' },
+  errorText: { color: '#64748b', fontSize: 14, fontFamily: fonts.semibold, marginBottom: 16, textAlign: 'center' },
   headerBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#020617' },
   backButton: { marginRight: 12, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#1e293b', borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
-  backText: { color: '#ffffff', fontWeight: '800', fontSize: 13 },
-  headerLabel: { color: '#ffffff', fontWeight: '800', fontSize: 15, flex: 1, letterSpacing: -0.3 },
+  backText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13 },
+  headerLabel: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 15, flex: 1, letterSpacing: -0.3 },
 
   /* Horizontal Carousel Styles */
   carouselContainer: { width: width, height: 320, backgroundColor: '#f1f5f9', position: 'relative' },
@@ -586,106 +1061,188 @@ const styles = StyleSheet.create({
   carouselIndicators: { position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 },
   indicatorDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.4)' },
   indicatorDotActive: { width: 14, backgroundColor: '#ffffff' },
+  imageCounterBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(15,23,42,0.65)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  imageCounterText: { color: '#ffffff', fontSize: 11, fontFamily: fonts.extrabold },
 
   card: { marginHorizontal: 10, marginTop: -20, backgroundColor: '#ffffff', borderRadius: 20, padding: 14, shadowColor: '#0f172a', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, borderWidth: 1, borderColor: '#e2e8f0', zIndex: 10 },
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   verifiedBadge: { backgroundColor: '#f0fdf4', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#bbf7d0' },
-  verifiedText: { color: '#166534', fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  verifiedText: { color: '#166534', fontSize: 10, fontFamily: fonts.extrabold, textTransform: 'uppercase', letterSpacing: 0.5 },
   priceRowContainer: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' },
   negotiableLabel: { backgroundColor: '#fff7ed', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#ffedd5' },
-  negotiableText: { color: '#c2410c', fontSize: 10, fontWeight: '800' },
-  price: { color: '#0f172a', fontSize: 18, fontWeight: '900', letterSpacing: -0.5 },
+  negotiableText: { color: '#c2410c', fontSize: 10, fontFamily: fonts.extrabold },
+  fixedPriceLabel: { backgroundColor: '#f1f5f9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' },
+  fixedPriceText: { color: '#475569', fontSize: 10, fontFamily: fonts.extrabold },
+  soldLabel: { backgroundColor: '#ffe4e6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#fecdd3' },
+  soldLabelText: { color: '#be123c', fontSize: 10, fontFamily: fonts.extrabold, textTransform: 'uppercase' },
+  price: { color: '#0f172a', fontSize: 18, fontFamily: fonts.extrabold, letterSpacing: -0.5 },
 
-  title: { color: '#0f172a', fontSize: 19, fontWeight: '800', marginTop: 4, letterSpacing: -0.5 },
-  meta: { color: '#64748b', marginTop: 6, fontSize: 12, fontWeight: '600' },
+  ownerControlsCard: { marginTop: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, padding: 12 },
+  ownerSoldRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  ownerSoldLabel: { fontSize: 10, color: '#94a3b8', fontFamily: fonts.extrabold, textTransform: 'uppercase', letterSpacing: 0.4 },
+  ownerSoldRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ownerSoldRowText: { fontSize: 12, color: '#e11d48', fontFamily: fonts.extrabold },
+  ownerCheckbox: { width: 16, height: 16, borderRadius: 4, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
+  ownerCheckboxChecked: { backgroundColor: '#e11d48', borderColor: '#e11d48' },
+  ownerCheckboxMark: { color: '#ffffff', fontSize: 10, fontFamily: fonts.extrabold },
+  ownerActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#e2e8f0', borderStyle: 'dashed' },
+  ownerDeleteBtn: { flex: 1, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 10, paddingVertical: 9, alignItems: 'center' },
+  ownerDeleteBtnText: { color: '#ef4444', fontSize: 12, fontFamily: fonts.extrabold },
+
+  deleteModalOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  deleteModalCard: { width: '100%', maxWidth: 340, backgroundColor: '#ffffff', borderRadius: 18, padding: 20 },
+  deleteModalTitle: { fontSize: 16, color: '#0f172a', fontFamily: fonts.extrabold },
+  deleteModalBody: { fontSize: 12, color: '#64748b', fontFamily: fonts.medium, marginTop: 6, lineHeight: 18 },
+  deleteModalCheckRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 16, backgroundColor: '#fff1f2', borderWidth: 1, borderColor: '#fecdd3', borderRadius: 10, padding: 10 },
+  deleteModalCheckText: { flex: 1, fontSize: 11, color: '#9f1239', fontFamily: fonts.semibold, lineHeight: 16 },
+  deleteModalActions: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  deleteModalCancelBtn: { flex: 1, borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  deleteModalCancelBtnText: { color: '#334155', fontSize: 12, fontFamily: fonts.bold },
+  deleteModalConfirmBtn: { flex: 1, backgroundColor: '#dc2626', borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  deleteModalConfirmBtnText: { color: '#ffffff', fontSize: 12, fontFamily: fonts.extrabold },
+
+  title: { color: '#0f172a', fontSize: 19, fontFamily: fonts.extrabold, marginTop: 4, letterSpacing: -0.5 },
+  meta: { color: '#64748b', marginTop: 6, fontSize: 12, fontFamily: fonts.semibold },
   divider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 14 },
-  sectionTitle: { color: '#0f172a', fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-  description: { color: '#334155', lineHeight: 22, fontSize: 13.5, fontWeight: '400' },
+  sectionTitle: { color: '#0f172a', fontSize: 13, fontFamily: fonts.extrabold, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  description: { color: '#334155', lineHeight: 22, fontSize: 13.5, fontFamily: fonts.regular },
+
+  similarEmptyState: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 20, padding: 24, alignItems: 'center' },
+  similarEmptyText: { color: '#64748b', fontSize: 12.5, textAlign: 'center', lineHeight: 19 },
+  similarEmptyCategoryTag: { fontFamily: fonts.extrabold, color: '#334155', backgroundColor: '#f1f5f9', textTransform: 'uppercase', fontSize: 11 },
+  similarGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  similarGridItem: { width: '48%', marginBottom: 14 },
 
   infoRow: { flexDirection: 'row', marginTop: 16, gap: 10 },
   infoBox: { flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' },
-  infoLabel: { color: '#64748b', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  infoValue: { color: '#0f172a', fontWeight: '800', marginTop: 4, fontSize: 13 },
+  infoLabel: { color: '#64748b', fontSize: 10, fontFamily: fonts.bold, textTransform: 'uppercase', letterSpacing: 0.5 },
+  infoValue: { color: '#0f172a', fontFamily: fonts.extrabold, marginTop: 4, fontSize: 13 },
 
   actionButtonRow: { flexDirection: 'row', marginTop: 14, gap: 10 },
-  likeButton: { flex: 1, backgroundColor: '#f1f5f9', borderRadius: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cbd5e1' },
+  likeButton: { flex: 1, flexDirection: 'row', gap: 6, backgroundColor: '#f1f5f9', borderRadius: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cbd5e1' },
   likeButtonActive: { backgroundColor: '#fee2e2', borderColor: '#fecaca' },
-  likeButtonText: { color: '#0f172a', fontWeight: '700', fontSize: 13 },
-  shareButton: { flex: 1, backgroundColor: '#f1f5f9', borderRadius: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cbd5e1' },
-  shareButtonText: { color: '#0f172a', fontWeight: '700', fontSize: 13 },
+  likeButtonText: { color: '#0f172a', fontFamily: fonts.bold, fontSize: 13 },
+  shareButton: { flex: 1, flexDirection: 'row', gap: 6, backgroundColor: '#f1f5f9', borderRadius: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cbd5e1' },
+  shareButtonText: { color: '#0f172a', fontFamily: fonts.bold, fontSize: 13 },
 
-  whatsappButton: { marginTop: 12, backgroundColor: '#15803d', borderRadius: 14, paddingVertical: 13, alignItems: 'center', shadowColor: '#15803d', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
-  whatsappButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 13.5, letterSpacing: 0.2 },
+  whatsappButton: { marginTop: 12, backgroundColor: '#059669', borderRadius: 14, paddingVertical: 13, alignItems: 'center', shadowColor: '#059669', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  whatsappButtonText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13.5, letterSpacing: 0.2 },
 
   /* Inline Chat Box */
   inlineChatCard: { marginTop: 14, backgroundColor: '#f8fafc', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' },
-  inlineChatTitle: { fontSize: 12, fontWeight: '800', color: '#0f172a', marginBottom: 8 },
+  inlineChatTitle: { fontSize: 12, fontFamily: fonts.extrabold, color: '#0f172a', marginBottom: 8 },
   quickRepliesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   quickReplyPill: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-  quickReplyPillText: { fontSize: 11, color: '#334155', fontWeight: '600' },
+  quickReplyPillText: { fontSize: 11, color: '#334155', fontFamily: fonts.semibold },
   inlineInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   inlineInput: { flex: 1, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, fontSize: 12.5, color: '#0f172a' },
   inlineSendBtn: { backgroundColor: '#0f172a', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9, justifyContent: 'center', alignItems: 'center' },
-  inlineSendBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '800' },
+  inlineSendBtnText: { color: '#ffffff', fontSize: 12, fontFamily: fonts.extrabold },
 
   /* Safety Tips Styling */
+  reportListingBtn: {
+    marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#fff1f2', borderWidth: 1, borderColor: '#fecdd3', borderRadius: 16, paddingVertical: 12,
+  },
+  reportListingBtnText: { color: '#be123c', fontFamily: fonts.extrabold, fontSize: 13 },
   safetyTipsCard: { marginTop: 14, backgroundColor: '#fef2f2', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#fee2e2' },
-  safetyTipsTitle: { color: '#991b1b', fontSize: 11.5, fontWeight: '800', marginBottom: 4 },
-  safetyTipsBody: { color: '#b91c1c', fontSize: 11, fontWeight: '500', lineHeight: 16 },
+  safetyTipsTitle: { color: '#991b1b', fontSize: 11.5, fontFamily: fonts.extrabold, marginBottom: 4 },
+  safetyTipsBody: { color: '#b91c1c', fontSize: 11, fontFamily: fonts.medium, lineHeight: 16 },
 
   /* Seller tease styling */
   sellerBox: { marginTop: 16, backgroundColor: '#f8fafc', borderRadius: 18, padding: 14, borderWidth: 1, borderColor: '#e2e8f0' },
   sellerRow: { flexDirection: 'row', alignItems: 'center' },
   sellerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: '#1e293b' },
-  sellerAvatarText: { color: '#ffffff', fontSize: 16, fontWeight: '900' },
+  sellerAvatarText: { color: '#ffffff', fontSize: 16, fontFamily: fonts.extrabold },
   sellerInfo: { flex: 1 },
   sellerHeaderBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  sellerName: { color: '#0f172a', fontSize: 14, fontWeight: '800' },
-  sellerTenure: { color: '#64748b', fontSize: 11, fontWeight: '500', marginTop: 1 },
+  sellerName: { color: '#0f172a', fontSize: 14, fontFamily: fonts.extrabold },
+  sellerTenure: { color: '#64748b', fontSize: 11, fontFamily: fonts.medium, marginTop: 1 },
   microBadge: { backgroundColor: '#f0fdf4', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#bbf7d0' },
-  microBadgeText: { color: '#166534', fontSize: 9.5, fontWeight: '800' },
-  trustScorePill: { marginTop: 4, alignSelf: 'flex-start', backgroundColor: '#ecfdf5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#a7f3d0' },
-  trustScorePillText: { color: '#065f46', fontSize: 9.5, fontWeight: '800' },
+  microBadgeText: { color: '#166534', fontSize: 9.5, fontFamily: fonts.extrabold },
+  trustScorePill: { marginTop: 4, alignSelf: 'flex-start', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1 },
+  trustScorePillText: { fontSize: 9.5, fontFamily: fonts.extrabold },
+  trustPillEmerald: { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' },
+  trustTextEmerald: { color: '#065f46' },
+  trustPillIndigo: { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' },
+  trustTextIndigo: { color: '#3730a3' },
+  trustPillAmber: { backgroundColor: '#fffbeb', borderColor: '#fde68a' },
+  trustTextAmber: { color: '#92400e' },
+  trustPillRose: { backgroundColor: '#fff1f2', borderColor: '#fecdd3' },
+  trustTextRose: { color: '#9f1239' },
+  followBtn: { marginTop: 10, alignSelf: 'flex-start', backgroundColor: '#0f172a', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999 },
+  followBtnActive: { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1' },
+  followBtnText: { color: '#ffffff', fontSize: 11, fontFamily: fonts.extrabold },
+  followBtnTextActive: { color: '#0f172a' },
   viewStoreBtn: { paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#ffffff', borderRadius: 10, borderWidth: 1, borderColor: '#cbd5e1' },
-  viewSellerBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 11 },
+  viewSellerBtnText: { color: '#0f172a', fontFamily: fonts.extrabold, fontSize: 11 },
   trustGuaranteesRow: { flexDirection: 'row', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#e2e8f0', justifyContent: 'space-between' },
   trustGuaranteeItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  trustGuaranteeCheck: { color: '#16a34a', fontWeight: '900', fontSize: 11 },
-  trustGuaranteeText: { color: '#475569', fontSize: 10.5, fontWeight: '600' },
+  trustGuaranteeCheck: { color: '#16a34a', fontFamily: fonts.extrabold, fontSize: 11 },
+  trustGuaranteeText: { color: '#475569', fontSize: 10.5, fontFamily: fonts.semibold },
 
   /* Modal styling */
   modalContainer: { flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.6)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#ffffff', borderTopLeftRadius: 32, borderTopRightRadius: 32, height: '80%', paddingHorizontal: 20, paddingTop: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 },
-  modalHeaderTitle: { fontSize: 18, fontWeight: '900', color: '#0f172a' },
+  modalHeaderTitle: { fontSize: 18, fontFamily: fonts.extrabold, color: '#0f172a' },
   modalCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
-  modalCloseBtnText: { color: '#64748b', fontWeight: '700', fontSize: 14 },
+  modalCloseBtnText: { color: '#64748b', fontFamily: fonts.bold, fontSize: 14 },
   modalScroll: { paddingTop: 16, paddingBottom: 32 },
 
   modalProfileCard: { alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 24, padding: 20, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 20 },
-  modalAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#ea580c', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  modalAvatarText: { color: '#ffffff', fontSize: 20, fontWeight: '900' },
-  modalSellerName: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
-  modalJoined: { fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '600' },
+  modalAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  modalAvatarText: { color: '#ffffff', fontSize: 20, fontFamily: fonts.extrabold },
+  modalSellerName: { fontSize: 18, fontFamily: fonts.extrabold, color: '#0f172a' },
+  modalJoined: { fontSize: 12, color: '#64748b', marginTop: 2, fontFamily: fonts.semibold },
   modalBio: { fontSize: 13, color: '#475569', marginTop: 8, textAlign: 'center', lineHeight: 18, paddingHorizontal: 12 },
 
   sellerStatsRow: { flexDirection: 'row', gap: 16, marginTop: 14, justifyContent: 'center' },
   sellerStatBox: { backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', width: 80, height: 54, justifyContent: 'center', alignItems: 'center' },
-  sellerStatValue: { fontSize: 16, fontWeight: '900', color: '#0f172a' },
-  sellerStatLabel: { fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginTop: 2 },
+  sellerStatValue: { fontSize: 16, fontFamily: fonts.extrabold, color: '#0f172a' },
+  sellerStatLabel: { fontSize: 10, fontFamily: fonts.bold, color: '#64748b', textTransform: 'uppercase', marginTop: 2 },
 
-  otherDealsTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
+  otherDealsTitle: { fontSize: 14, fontFamily: fonts.extrabold, color: '#0f172a', marginBottom: 12 },
   emptyOtherText: { color: '#94a3b8', fontSize: 13, textAlign: 'center', marginVertical: 16 },
 
-  otherItemCard: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 16, borderHeight: 1, borderColor: '#cbd5e1', padding: 10, borderWidth: 1, marginBottom: 10, alignItems: 'center' },
+  otherItemCard: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 16, borderColor: '#cbd5e1', padding: 10, borderWidth: 1, marginBottom: 10, alignItems: 'center' },
   otherItemImg: { width: 64, height: 64, borderRadius: 10, backgroundColor: '#cbd5e1' },
   otherItemInfo: { flex: 1, marginLeft: 12 },
-  otherItemTitle: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
-  otherItemPrice: { fontSize: 13, fontWeight: '800', color: '#ea580c', marginTop: 2 },
+  otherItemTitle: { fontSize: 13, fontFamily: fonts.extrabold, color: '#0f172a' },
+  otherItemPrice: { fontSize: 13, fontFamily: fonts.extrabold, color: '#020617', marginTop: 2 },
   otherItemMeta: { fontSize: 10, color: '#64748b', marginTop: 2 },
 
   specsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   specBox: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12, minWidth: '47%', flexGrow: 1 },
-  specLabel: { fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 },
-  specValue: { fontSize: 13, fontWeight: '700', color: '#0f172a', marginTop: 2 },
+  specLabel: { fontSize: 10, fontFamily: fonts.bold, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 },
+  specValue: { fontSize: 13, fontFamily: fonts.bold, color: '#0f172a', marginTop: 2 },
+
+  /* Report Listing Modal */
+  reportModalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.65)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+  reportModalCard: { width: '100%', maxWidth: 420, backgroundColor: '#ffffff', borderRadius: 24, padding: 20, maxHeight: '88%' },
+  reportModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12, marginBottom: 14 },
+  reportModalHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reportModalTitle: { fontSize: 13, fontFamily: fonts.extrabold, color: '#be123c', textTransform: 'uppercase', letterSpacing: 0.3 },
+  reportModalCloseBtn: { padding: 4 },
+  reportModalIntro: { fontSize: 12, color: '#64748b', lineHeight: 18, marginBottom: 16 },
+  reportModalLabel: { fontSize: 10.5, fontFamily: fonts.extrabold, color: '#334155', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  reportReasonOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14,
+    backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 8,
+  },
+  reportReasonOptionActive: { backgroundColor: '#fff1f2', borderColor: '#fecdd3' },
+  reportRadioOuter: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center' },
+  reportRadioOuterActive: { borderColor: '#e11d48' },
+  reportRadioInner: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#e11d48' },
+  reportReasonLabel: { fontSize: 12, color: '#475569', flexShrink: 1, fontFamily: fonts.semibold },
+  reportReasonLabelActive: { color: '#9f1239', fontFamily: fonts.extrabold },
+  reportCommentInput: {
+    backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14,
+    padding: 12, fontSize: 12, color: '#1e293b', minHeight: 70, textAlignVertical: 'top',
+  },
+  reportModalActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  reportCancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+  reportCancelBtnText: { fontSize: 12.5, fontFamily: fonts.extrabold, color: '#334155' },
+  reportSubmitBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, backgroundColor: '#e11d48', alignItems: 'center', justifyContent: 'center' },
+  reportSubmitBtnText: { fontSize: 12.5, fontFamily: fonts.extrabold, color: '#ffffff' },
 });
