@@ -640,7 +640,6 @@ export function ChatsScreen() {
                     onPress={() => setShowReviewModal(true)}
                     style={[styles.tradeActionBtn, styles.tradeActionBtnAmber]}
                   >
-                    <Star size={13} color="#0f172a" strokeWidth={2.3} fill="#0f172a" />
                     <Text style={[styles.tradeActionBtnText, { color: '#0f172a' }]}>Leave Review</Text>
                   </Pressable>
                 )}

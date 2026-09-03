@@ -93,6 +93,8 @@ ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "sellerName" TEXT;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "lastMessageText" TEXT;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "lastMessageTime" TEXT;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "tradeStatus" TEXT DEFAULT 'pending';
+ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "deliveredBySeller" BOOLEAN DEFAULT false;
+ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "pickedUpByBuyer" BOOLEAN DEFAULT false;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "isParticipantDeleted" BOOLEAN DEFAULT false;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "buyerDeleted" BOOLEAN DEFAULT false;
 ALTER TABLE public.chats ADD COLUMN IF NOT EXISTS "sellerDeleted" BOOLEAN DEFAULT false;
