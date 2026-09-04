@@ -8,7 +8,6 @@ import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { RefreshCw } from 'lucide-react-native';
 import * as MediaLibrary from 'expo-media-library';
-import * as VideoThumbnails from 'expo-video-thumbnails';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
 import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById } from '../firebase';
@@ -483,8 +482,8 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         return;
       }
       // On iOS, asset.uri is a ph://<id> Photos-framework reference — not a
-      // URL any RN component (Image, VideoThumbnails) can load directly
-      // ("No suitable URL request handler found for ph://..."). Resolving
+      // URL any RN component (e.g. Image) can load directly ("No suitable
+      // URL request handler found for ph://..."). Resolving
       // through getAssetInfoAsync() gives a real local file URI instead.
       // Android's asset.uri is already a usable file:// path, but resolving
       // it the same way is harmless and keeps one code path for both.
@@ -496,15 +495,15 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         console.warn('[loadRecentGalleryThumbnail] getAssetInfoAsync failed, using raw asset.uri:', err);
       }
       if (asset.mediaType === 'video') {
-        try {
-          const thumb = await VideoThumbnails.getThumbnailAsync(displayUri, { time: 0 });
-          setRecentGalleryThumb({ uri: thumb.uri, isVideo: true });
-        } catch {
-          // A poster frame couldn't be generated for this specific video
-          // (corrupt/unsupported file, etc.) — fall back to the static icon
-          // rather than showing a broken image.
-          setRecentGalleryThumb(null);
-        }
+        // expo-video-thumbnails was removed in SDK 56; its replacement
+        // (VideoPlayer.generateThumbnailsAsync) returns an expo-image
+        // SharedRef rather than a plain uri, which this component's plain
+        // <Image> (from react-native, not expo-image) can't consume as-is.
+        // Falls back to the existing static-icon path below rather than a
+        // rushed rewrite during the SDK 54->57 upgrade — a real video
+        // thumbnail preview here is a follow-up, not a regression from
+        // before (recent-gallery-thumb still works for photos).
+        setRecentGalleryThumb(null);
       } else {
         setRecentGalleryThumb({ uri: displayUri, isVideo: false });
       }
@@ -1659,7 +1658,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
               <View style={styles.wizardCameraContainer}>
                 <CameraView
                   ref={wizardCameraRef}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   facing={wizardCameraFacing}
                   mode={wizardCameraMode === 'photo' ? 'picture' : 'video'}
                 />

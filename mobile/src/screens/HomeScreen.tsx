@@ -2305,7 +2305,7 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   videoBufferingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

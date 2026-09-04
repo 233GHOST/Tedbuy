@@ -88,7 +88,7 @@ export function SuspensionGate({ children }: { children: React.ReactNode }) {
 }
 
 const styles = StyleSheet.create({
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,23,42,0.85)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg, zIndex: 9999 },
+  overlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(15,23,42,0.85)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg, zIndex: 9999 },
   card: { width: '100%', maxWidth: 360, backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.xl, borderWidth: 1, borderColor: '#fecdd3' },
   icon: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   title: { fontFamily: fonts.extrabold, fontSize: 18, color: colors.textStrong },

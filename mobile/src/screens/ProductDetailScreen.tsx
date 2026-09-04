@@ -39,7 +39,7 @@ function GalleryVideoItem({ uri }: { uri: string }) {
       player={player}
       style={styles.carouselImage}
       nativeControls
-      allowsFullscreen
+      fullscreenOptions={{ enable: true }}
       allowsPictureInPicture
       contentFit="cover"
     />
