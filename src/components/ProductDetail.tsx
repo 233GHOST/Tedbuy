@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus, Sparkles, Video, Loader2, Flame, FileText, Send } from 'lucide-react';
 import { ProductCard } from './ProductCard';
@@ -366,6 +366,63 @@ export const ProductDetail: React.FC = () => {
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('video') || target.closest('a')) return;
     setLightboxIndex(activeMediaIdx);
+  };
+
+  const lightboxTouchStartXRef = useRef<number | null>(null);
+  const lightboxTouchStartYRef = useRef<number | null>(null);
+
+  const handleLightboxTouchStart = (e: React.TouchEvent) => {
+    if (e.touches && e.touches.length > 0) {
+      lightboxTouchStartXRef.current = e.touches[0].clientX;
+      lightboxTouchStartYRef.current = e.touches[0].clientY;
+    }
+  };
+
+  const handleLightboxTouchEnd = (e: React.TouchEvent) => {
+    if (lightboxTouchStartXRef.current === null || lightboxTouchStartYRef.current === null) return;
+    if (!e.changedTouches || e.changedTouches.length === 0) return;
+
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+
+    const diffX = lightboxTouchStartXRef.current - touchEndX;
+    const diffY = lightboxTouchStartYRef.current - touchEndY;
+
+    // Minimum swipe threshold: 35px. Ensure horizontal swipe dominates vertical movement
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 35) {
+      if (diffX > 0) {
+        // Swiped left -> advance to next item
+        setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
+      } else {
+        // Swiped right -> go to previous item
+        setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
+      }
+    }
+
+    lightboxTouchStartXRef.current = null;
+    lightboxTouchStartYRef.current = null;
+  };
+
+  const handleLightboxMouseDown = (e: React.MouseEvent) => {
+    lightboxTouchStartXRef.current = e.clientX;
+    lightboxTouchStartYRef.current = e.clientY;
+  };
+
+  const handleLightboxMouseUp = (e: React.MouseEvent) => {
+    if (lightboxTouchStartXRef.current === null || lightboxTouchStartYRef.current === null) return;
+    const diffX = lightboxTouchStartXRef.current - e.clientX;
+    const diffY = lightboxTouchStartYRef.current - e.clientY;
+
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 35) {
+      if (diffX > 0) {
+        setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
+      } else {
+        setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
+      }
+    }
+
+    lightboxTouchStartXRef.current = null;
+    lightboxTouchStartYRef.current = null;
   };
 
   useEffect(() => {
@@ -2088,22 +2145,14 @@ export const ProductDetail: React.FC = () => {
             </button>
           </div>
 
-          {/* Primary View Area */}
-          <div className="flex-1 w-full max-w-5xl flex items-center justify-between relative my-4 min-h-0">
-            {/* Left navigation arrow button */}
-            {mediaGallery.length > 1 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
-                }}
-                className="absolute left-2 md:left-4 bg-slate-900/80 hover:bg-slate-900 border border-white/10 text-white p-3 rounded-full hover:scale-105 active:scale-95 transition cursor-pointer z-35 flex items-center justify-center shadow-2xl backdrop-blur-xs"
-                title="Previous Media"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-            )}
-
+          {/* Primary View Area with Touch & Drag Swiping */}
+          <div 
+            className="flex-1 w-full max-w-5xl flex items-center justify-center relative my-4 min-h-0 touch-pan-y select-none cursor-grab active:cursor-grabbing"
+            onTouchStart={handleLightboxTouchStart}
+            onTouchEnd={handleLightboxTouchEnd}
+            onMouseDown={handleLightboxMouseDown}
+            onMouseUp={handleLightboxMouseUp}
+          >
             {/* Central Media container */}
             <div 
               className="w-full h-full flex items-center justify-center bg-transparent max-h-[75vh]"
@@ -2164,7 +2213,8 @@ export const ProductDetail: React.FC = () => {
                     src={mediaGallery[lightboxIndex]?.url}
                     alt={product.title}
                     referrerPolicy="no-referrer"
-                    className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up"
+                    draggable={false}
+                    className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up select-none pointer-events-auto"
                   />
                   {/* Clean, feint Tedbuy Watermark Overlay in the middle of expanded image */}
                   <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
@@ -2180,20 +2230,6 @@ export const ProductDetail: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* Right navigation arrow button */}
-            {mediaGallery.length > 1 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
-                }}
-                className="absolute right-2 md:right-4 bg-slate-900/80 hover:bg-slate-900 border border-white/10 text-white p-3 rounded-full hover:scale-105 active:scale-95 transition cursor-pointer z-35 flex items-center justify-center shadow-2xl backdrop-blur-xs"
-                title="Next Media"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            )}
           </div>
 
           {/* Quick-jump Thumbnail dots/strip */}
