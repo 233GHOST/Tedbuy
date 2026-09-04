@@ -661,7 +661,7 @@ export function ProfileScreen() {
             <ScrollView contentContainerStyle={[styles.settingsContent, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom }]}>
               <Pressable onPress={() => setActiveTab('dashboard')} style={styles.backToDashboardRow} hitSlop={8}>
                 <ChevronRight size={16} color="#475569" style={{ transform: [{ rotate: '180deg' }] }} />
-                <Text style={styles.backToDashboardText}>Back to Dashboard</Text>
+                <Text style={styles.backToDashboardText}>Back</Text>
               </Pressable>
               <View style={styles.settingsMenuGroup}>
                 <Pressable onPress={() => navigation.navigate('AccountSecuritySettings')} style={[styles.settingsMenuRow, { borderBottomWidth: 0 }]}>

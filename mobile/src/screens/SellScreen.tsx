@@ -24,6 +24,13 @@ interface SellScreenProps {
 }
 
 const MAX_IMAGES = 10;
+// The description box's resting height (unfocused, or empty) vs. its height
+// the moment it's focused — jumps straight to the roomy size on tap rather
+// than only growing gradually as content is typed, so there's already space
+// to see everything from the first keystroke. Still grows further past this
+// if the actual content needs more.
+const DESC_MIN_HEIGHT = 120;
+const DESC_FOCUSED_MIN_HEIGHT = 220;
 // Native camera recording is capped at the source — a cleaner constraint than
 // web's post-hoc "trim after recording" flow, since you simply can't record
 // past the limit in the first place. Kept in step with web's 30s trim cap.
@@ -291,7 +298,11 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   }, [navigation, resetTabBar]);
 
   const [description, setDescription] = useState('');
-  const [descHeight, setDescHeight] = useState(100);
+  const [descHeight, setDescHeight] = useState(DESC_MIN_HEIGHT);
+  // Auto-grows as the user types (onContentSizeChange below) so nothing they
+  // type is ever hidden below the visible box — while focused, growth also
+  // scrolls the enclosing form down to keep the cursor above the keyboard.
+  const [isDescFocused, setIsDescFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   // Synchronous re-entrancy guard for handlePublish — a ref (not state)
   // because state updates aren't visible until the next render, leaving a
@@ -304,6 +315,10 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   // so this updates the same row instead of creating a duplicate listing.
   // Only cleared on a genuinely new draft (see resetForm below).
   const pendingProductIdRef = useRef<string | null>(null);
+  // Shared between edit-mode's single form and the wizard's details step —
+  // the two are never mounted at the same time, so one ref is enough. Used
+  // to keep the growing description field visible above the keyboard.
+  const commonFieldsScrollRef = useRef<ScrollView>(null);
   // Matches web's currentUser.emailVerified gate before posting an ad.
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [blockedActionType, setBlockedActionType] = useState<BlockedActionType>(null);
@@ -1248,7 +1263,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         return;
       }
 
-      Alert.alert('Success 🎉', 'Your listing was successfully published on TedBuy Ghana!', [
+      Alert.alert('Success', 'Your listing was successfully published on TedBuy Ghana!', [
         {
           text: 'View Feed',
           onPress: () => {
@@ -1272,7 +1287,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   // Shared listing-detail fields (category through description) — used by
   // both edit mode's classic single-form view and the new wizard's Screen 3,
   // so the two never drift out of sync with each other.
-  const renderCommonFields = () => (
+  const renderCommonFields = (scrollRef?: React.RefObject<ScrollView | null>) => (
     <>
       <View style={styles.inputGroup}>
         <Text style={styles.label}>Category</Text>
@@ -1454,9 +1469,24 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         <TextInput
           value={description}
           onChangeText={setDescription}
-          onContentSizeChange={(e) => setDescHeight(Math.max(100, e.nativeEvent.contentSize.height))}
+          onFocus={() => {
+            setIsDescFocused(true);
+            // Jump to the full focused height immediately, don't wait for
+            // content to grow into it — the whole point is that there's
+            // already room to see everything as they type, from the first
+            // keystroke.
+            requestAnimationFrame(() => scrollRef?.current?.scrollToEnd({ animated: true }));
+          }}
+          onBlur={() => setIsDescFocused(false)}
+          onContentSizeChange={(e) => {
+            const nextH = Math.max(DESC_FOCUSED_MIN_HEIGHT, e.nativeEvent.contentSize.height);
+            if (isDescFocused && nextH > descHeight && scrollRef?.current) {
+              requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+            }
+            setDescHeight(nextH);
+          }}
           placeholder={selectedCategory === 'Jobs & Employment' ? 'Describe job responsibilities, candidate requirements, work schedule, compensation, and how to apply...' : 'Describe your item condition, specifications, and if price is negotiable...'}
-          style={[styles.input, styles.textArea, { height: Math.max(100, descHeight) }]}
+          style={[styles.input, styles.textArea, { height: Math.max(isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT, descHeight) }]}
           multiline
           numberOfLines={4}
           scrollEnabled={false}
@@ -1500,6 +1530,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           </View>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             <ScrollView
+              ref={commonFieldsScrollRef}
               style={styles.container}
               contentContainerStyle={[styles.contentContainer, { paddingBottom: 32 + TAB_BAR_HEIGHT + insets.bottom }]}
               keyboardShouldPersistTaps="handled"
@@ -1509,7 +1540,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                   {selectedCategory === 'Jobs & Employment' ? 'JOB VACANCY DETAILS' : 'LISTING SPECIFICATIONS'}
                 </Text>
 
-                {renderCommonFields()}
+                {renderCommonFields(commonFieldsScrollRef)}
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>
@@ -1875,6 +1906,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
               </View>
 
               <ScrollView
+                ref={commonFieldsScrollRef}
                 contentContainerStyle={[styles.contentContainer, { paddingBottom: 32 + TAB_BAR_HEIGHT + insets.bottom }]}
                 keyboardShouldPersistTaps="handled"
               >
@@ -1884,19 +1916,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                   ))}
                   {video && <VideoPreviewThumbnail uri={video.localUri} />}
                 </View>
-                {anyMediaBusy && (
-                  <View style={styles.detailsUploadingBanner}>
-                    <ActivityIndicator size="small" color="#0f172a" />
-                    <Text style={styles.detailsUploadingText}>Finishing media upload in the background…</Text>
-                  </View>
-                )}
 
                 <View style={styles.formCard}>
                   <Text style={styles.formSectionTitle}>
                     {selectedCategory === 'Jobs & Employment' ? 'JOB VACANCY DETAILS' : 'LISTING SPECIFICATIONS'}
                   </Text>
 
-                  {renderCommonFields()}
+                  {renderCommonFields(commonFieldsScrollRef)}
 
                   {!isEditMode && (
                     <Pressable
@@ -1904,7 +1930,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                       style={[styles.boostOptionCard, postOption === 'boost' && styles.boostOptionCardActive]}
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={styles.boostOptionTitle}>✨ Boost Listing</Text>
+                        <Text style={styles.boostOptionTitle}>Boost Listing</Text>
                         <View style={[styles.negotiableCheckbox, postOption === 'boost' && styles.negotiableCheckboxChecked]}>
                           {postOption === 'boost' && <Text style={styles.negotiableCheckMark}>✓</Text>}
                         </View>
@@ -2114,7 +2140,7 @@ const styles = StyleSheet.create({
   },
   chipText: { color: '#475569', fontSize: 12, fontFamily: fonts.semibold },
   chipTextActive: { color: '#ffffff', fontFamily: fonts.bold },
-  textArea: { height: 100, paddingTop: 10, paddingBottom: 10 },
+  textArea: { height: 120, paddingTop: 10, paddingBottom: 10 },
   toggleRowContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2433,6 +2459,4 @@ const styles = StyleSheet.create({
   cropRatioBtnTextActive: { color: '#0f172a', fontFamily: fonts.extrabold },
 
   detailsThumb: { width: 60, height: 60, borderRadius: 10, backgroundColor: '#e2e8f0' },
-  detailsUploadingBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fde68a', borderRadius: 10, padding: 10, marginBottom: 16 },
-  detailsUploadingText: { color: '#92400e', fontSize: 11.5, fontFamily: fonts.bold },
 });

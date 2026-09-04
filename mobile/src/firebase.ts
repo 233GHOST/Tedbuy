@@ -631,7 +631,36 @@ export async function fetchUserById(userId: string) {
   if (!userId) return null;
   try {
     const data = await apiFetch(`/api/users/get?id=${encodeURIComponent(userId)}`);
-    if (data.success && data.user) return data.user;
+    if (data.success && data.user) {
+      let user = data.user;
+      // The cached emailVerified column only ever gets corrected when
+      // reloadEmailVerificationStatus() runs — previously that only
+      // happened if the user found and tapped "I Have Verified" inside the
+      // blocking modal. A user who verifies by clicking the link straight
+      // from their inbox (the normal path) leaves Firebase Auth correctly
+      // marked verified while this cached profile stays stuck false
+      // forever, keeping every emailVerified-gated action (posting,
+      // reviews, chat, WhatsApp) blocked with no way out. Self-heal it
+      // here, for every screen that loads the signed-in user's own
+      // profile, not just the one screen with a manual recheck button.
+      // Inlined (not calling reloadEmailVerificationStatus(), which itself
+      // calls fetchUserById) to avoid recursing back into this function.
+      if (!user.emailVerified && auth.currentUser?.uid === userId) {
+        try {
+          await auth.currentUser.reload();
+          if (auth.currentUser?.emailVerified) {
+            user = { ...user, emailVerified: true };
+            apiFetch('/api/users/sync', {
+              method: 'POST',
+              body: { user: { ...user, id: userId, emailVerified: true } },
+            }).catch((err) => console.warn('[fetchUserById] Could not persist reconciled emailVerified:', err));
+          }
+        } catch (err) {
+          console.warn('[fetchUserById] emailVerified reconcile failed:', err);
+        }
+      }
+      return user;
+    }
   } catch (err) {
     console.warn('[fetchUserById Error]', err);
   }

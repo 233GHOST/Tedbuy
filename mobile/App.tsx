@@ -48,7 +48,13 @@ export default function App() {
             <DismissKeyboardView>
               <AppNavigator />
             </DismissKeyboardView>
-            <StatusBar style="auto" />
+            {/* Every screen's top header in this app is dark navy (#0f172a) —
+                "auto" picks status bar icon color from the OS theme, not
+                what's actually behind it, so in light mode it was rendering
+                dark icons against that dark header (nearly invisible clock/
+                signal/battery). Forced light (white icons) since that's
+                correct everywhere in this app, not just conditionally. */}
+            <StatusBar style="light" />
           </SavedProductsProvider>
         </UnreadChatsProvider>
       </SuspensionGate>

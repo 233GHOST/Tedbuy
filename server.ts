@@ -2901,6 +2901,29 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
   }
 
+  const cleanProductTitle = productTitle && typeof productTitle === 'string' ? productTitle.trim() : null;
+
+  // Server-side is the only authoritative "once per trade" guard — the
+  // client hides its own Leave Review button once it has one, but that's
+  // just UI; nothing previously stopped a double-tap, a stale reopened
+  // modal, or a direct API call from creating a second review for the same
+  // buyer/seller/trade. Matches on buyerId+sellerId+productTitle exactly
+  // like the client's own existingReview lookup.
+  try {
+    let dupQuery = backendSupabase
+      .from('reviews')
+      .select('id')
+      .eq('buyerId', verified.uid)
+      .eq('sellerId', sellerId);
+    dupQuery = cleanProductTitle ? dupQuery.eq('productTitle', cleanProductTitle) : dupQuery.is('productTitle', null);
+    const { data: existing } = await dupQuery.maybeSingle();
+    if (existing) {
+      return res.status(400).json({ success: false, error: 'You have already reviewed this trade.' });
+    }
+  } catch (dupErr) {
+    console.warn('[Reviews Create API] Duplicate-review check failed, proceeding:', dupErr);
+  }
+
   const revId = `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const newReview: Record<string, any> = {
     id: revId,
@@ -2911,7 +2934,7 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
     comment: cleanComment,
     createdAt: new Date().toISOString(),
   };
-  if (productTitle && typeof productTitle === 'string') newReview.productTitle = productTitle.trim();
+  if (cleanProductTitle) newReview.productTitle = cleanProductTitle;
 
   try {
     const { error } = await safeBackendSupabaseUpsert('reviews', newReview, { onConflict: 'id' });
@@ -2921,16 +2944,24 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
     // seller sees it without having to separately check their reviews list.
     // Only trusts a chatId where the caller is actually the buyer on that
     // chat — never lets a client point this at an arbitrary conversation.
+    // The review itself is already saved by this point, so ANY failure here
+    // (a bad chatId, a transient DB error) must never turn into a 500 for a
+    // request that actually succeeded — wrapped in its own try/catch rather
+    // than letting it reach the outer one.
     if (chatId && typeof chatId === 'string') {
-      const chat = await getChatIfParticipant(chatId, verified.uid);
-      if (chat && chat.buyerId === verified.uid && chat.sellerId === sellerId) {
-        const tone = numericRating >= 4 ? 'positive' : numericRating === 3 ? 'neutral' : 'critical';
-        await createChatMessage(
-          chat,
-          chat.buyerId,
-          chat.sellerId,
-          `⭐ Buyer has left you ${tone} feedback with a ${numericRating}-star rating: "${cleanComment}"`
-        ).catch((err) => console.warn('[Reviews Create API] Could not post review chat message:', err));
+      try {
+        const chat = await getChatIfParticipant(chatId, verified.uid);
+        if (chat && chat.buyerId === verified.uid && chat.sellerId === sellerId) {
+          const tone = numericRating >= 4 ? 'positive' : numericRating === 3 ? 'neutral' : 'critical';
+          await createChatMessage(
+            chat,
+            chat.buyerId,
+            chat.sellerId,
+            `⭐ Buyer has left you ${tone} feedback with a ${numericRating}-star rating: "${cleanComment}"`
+          );
+        }
+      } catch (chatMsgErr) {
+        console.warn('[Reviews Create API] Could not post review chat message:', chatMsgErr);
       }
     }
 

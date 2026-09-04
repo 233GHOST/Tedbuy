@@ -24,29 +24,45 @@ import { fonts } from '../theme';
 
 /** Real video playback for the "Watch Video Ads" feed.
  *
- * Two things previously made this feel nothing like TikTok, both fixed here:
+ * Every video plays back the seller's raw as-uploaded file. A playback-time
+ * Cloudinary transform (q_auto,f_auto,w_720,c_limit, via
+ * getOptimizedVideoUrlMobile) was tried here to cut file size, but that
+ * transform is computed lazily — the first time ANYONE requests a given
+ * video at that exact transformation, Cloudinary fully re-encodes it
+ * server-side before sending back a single byte, which presented as a video
+ * that just never loads for whoever hit it first. Reverted (that function is
+ * now a pass-through) — see its comment in utils/cloudinary.ts for the
+ * right way to actually get this benefit (an eager transform at upload
+ * time, not a playback-time URL rewrite).
  *
- * 1. Every video played back was the seller's raw as-uploaded file (often
- *    1080p+ phone-camera footage, no compression target) — see
- *    getOptimizedVideoUrlMobile, which caps delivery at 720p with Cloudinary's
- *    automatic quality/codec selection. Same visual quality on a phone
- *    screen, a fraction of the bytes, and Cloudinary caches the transform
- *    at its CDN edge after the first request.
- * 2. expo-video starts buffering a source the moment a VideoPlayer is given
+ * What's still fixed here:
+ * 1. expo-video starts buffering a source the moment a VideoPlayer is given
  *    one, even before play() is called (this is by design — it's how you
- *    preload). With no explicit windowing, this screen's FlatList used its
- *    React Native defaults (windowSize 21 ≈ 10 screens each side), which for
- *    a one-video-per-screen feed meant up to ~20 videos silently buffering
- *    at once — competing for bandwidth against the one actually on screen,
- *    and burning egress on videos that may never be watched. `shouldLoad`
- *    below (driven by a tight [active-1, active, active+1] window computed
- *    at the FlatList) is the fix: only the current video and the very next
- *    one ever have a real source and thus ever download anything; a video
- *    two or more away sits idle with a null source (no network activity)
- *    until it enters that window. A prior video is kept one slot behind so
+ *    preload). Left unmanaged, every mounted item downloads its full video
+ *    regardless of whether it's actually about to be watched. `shouldLoad`
+ *    below (driven by a [active-1, active, active+1] window computed at the
+ *    FlatList) is the fix: only the current video and the very next one
+ *    ever have a real source and thus ever download anything; a video two
+ *    or more away sits idle with a null source (no network activity) until
+ *    it enters that window. A prior video is kept one slot behind so
  *    swiping back up still plays instantly instead of re-buffering.
+ *
+ *    shouldLoad ALSO gates whether a <VideoView> is even rendered (see
+ *    below) — a native video view is a genuinely expensive thing to have
+ *    mounted (its own decoder/compositor layer) even with nothing loaded
+ *    into it, and previously every scrolled-past cell got one anyway. Two
+ *    earlier attempts at fixing the resulting scroll jank both missed this:
+ *    pairing a tight FlatList windowSize with removeClippedSubviews caused
+ *    outright freezes (that combination fights native video decoders on
+ *    iOS during view recycling), and removing all windowing let RN's
+ *    default ~10-screens-each-way virtualization mount a heavy VideoView
+ *    per cell regardless. The actual fix is here: cap how many cells ever
+ *    get a real VideoView (shouldLoad, strictly 3 at most) independently of
+ *    how many cells FlatList keeps mounted for smooth paging (a moderate,
+ *    not extreme, windowSize) — everything outside the load window is just
+ *    the poster Image, which virtualizes fine on its own.
  */
-function VideoFeedPlayer({ uri, posterUri, shouldLoad, isActive, isMuted }: { uri: string; posterUri?: string | null; shouldLoad: boolean; isActive: boolean; isMuted: boolean }) {
+const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, posterUri, shouldLoad, isActive, isMuted }: { uri: string; posterUri?: string | null; shouldLoad: boolean; isActive: boolean; isMuted: boolean }) {
   const optimizedUri = useMemo(() => getOptimizedVideoUrlMobile(uri), [uri]);
   const player = useVideoPlayer(shouldLoad ? optimizedUri : null, (p) => {
     p.loop = true;
@@ -94,12 +110,25 @@ function VideoFeedPlayer({ uri, posterUri, shouldLoad, isActive, isMuted }: { ur
       {!!posterUri && (
         <Image source={{ uri: posterUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       )}
-      <VideoView
-        player={player}
-        style={StyleSheet.absoluteFill}
-        nativeControls={false}
-        contentFit="cover"
-      />
+      {/* A native VideoView is a genuinely heavy view to have mounted —
+          its own decoder/compositor layer — regardless of whether it has
+          anything to play. Previously every scrolled-past item still got
+          one (with a null source), so however many cells the FlatList kept
+          around for smooth scrolling was also how many of these expensive
+          native views were alive at once, fighting each other for the
+          GPU/compositor and making the scroll itself stutter. Only the
+          handful of items actually inside the load window get a real
+          VideoView now; everything else is just the poster Image above —
+          cheap, and exactly what a TikTok-style feed shows for a cell
+          you're not on anyway. */}
+      {shouldLoad && (
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFill}
+          nativeControls={false}
+          contentFit="cover"
+        />
+      )}
       {isActive && isBuffering && (
         <View style={styles.videoBufferingOverlay} pointerEvents="none">
           <ActivityIndicator color="#ffffff" size="small" />
@@ -107,7 +136,7 @@ function VideoFeedPlayer({ uri, posterUri, shouldLoad, isActive, isMuted }: { ur
       )}
     </View>
   );
-}
+});
 import { ProductCard } from '../components/ProductCard';
 import { SellerCard } from '../components/SellerCard';
 import { TedBuyLogo } from '../components/TedBuyLogo';
@@ -120,6 +149,185 @@ import { getForYouProducts } from '../utils/recommendationScore';
 // normally infers for data/renderItem — cast back to FlatList's own type so
 // TS keeps inferring `item` correctly; the runtime wrapping is unaffected.
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList) as unknown as typeof FlatList;
+
+/** One full-screen cell of the video feed — mute toggle, bottom details,
+ * right-hand action column. Extracted out of HomeScreen's renderItem (where
+ * it lived inline) and memoized for the same reason as VideoFeedPlayer
+ * above: HomeScreen is a huge screen with live product/user listeners and
+ * lots of state unrelated to this feed, so it re-renders often, and without
+ * memoization every one of those re-renders was recreating every mounted
+ * cell's entire element tree (several Pressables, badges, text) for no
+ * visible reason — real, if smaller, work piling up during scroll.
+ *
+ * The comparator below deliberately ignores the callback props (onToggleSave
+ * etc.) — they're plain closures redefined on every HomeScreen render, and
+ * chasing that down across this whole file wasn't worth the risk right now.
+ * It only compares what actually determines the rendered output; any real
+ * data change that should affect behavior (e.g. the seller's WhatsApp
+ * number) flows through `sellerProfile`, which IS compared, so that still
+ * forces a fresh render (and with it, fresh callbacks) when it matters. */
+const VideoFeedRow = React.memo(function VideoFeedRow({
+  item,
+  height,
+  isActive,
+  shouldLoad,
+  isMuted,
+  isSaved,
+  sellerProfile,
+  isOwnVideoItem,
+  isFollowingSeller,
+  isTogglingFollow,
+  onToggleMute,
+  onOpenSeller,
+  onToggleFollow,
+  onToggleSave,
+  onStartChat,
+  onShare,
+  onOpenProductPress,
+}: {
+  item: Product;
+  height: number;
+  isActive: boolean;
+  shouldLoad: boolean;
+  isMuted: boolean;
+  isSaved: boolean;
+  sellerProfile: any;
+  isOwnVideoItem: boolean;
+  isFollowingSeller: boolean;
+  isTogglingFollow: boolean;
+  onToggleMute: () => void;
+  onOpenSeller: (sellerId: string) => void;
+  onToggleFollow: (sellerId: string) => void;
+  onToggleSave: (item: Product) => void;
+  onStartChat: (item: Product) => void;
+  onShare: (item: Product) => void;
+  onOpenProductPress: (item: Product) => void;
+}) {
+  const videoUri = Array.isArray((item as any).videos) ? (item as any).videos[0] : undefined;
+  const videoFallbackImageUri = resolveProductImageUri(item);
+
+  return (
+    <View style={[styles.videoPlayerFrame, { height }]}>
+      {videoUri ? (
+        <VideoFeedPlayer uri={videoUri} posterUri={videoFallbackImageUri} shouldLoad={shouldLoad} isActive={isActive} isMuted={isMuted} />
+      ) : videoFallbackImageUri ? (
+        <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} />
+      ) : (
+        <CategoryImagePlaceholder category={item.category} style={styles.videoPlaceholderImage} iconSize={40} />
+      )}
+      <View style={styles.videoOverlay} pointerEvents="none" />
+
+      {/* Mute toggle */}
+      <Pressable style={styles.videoMuteBtn} onPress={onToggleMute} hitSlop={8}>
+        {isMuted ? (
+          <VolumeX size={16} color="#ffffff" strokeWidth={2.2} />
+        ) : (
+          <Volume2 size={16} color="#ffffff" strokeWidth={2.2} />
+        )}
+      </Pressable>
+
+      {/* Immersive bottom details row */}
+      <View style={styles.videoBottomDetails}>
+        <View style={styles.featuredTag}>
+          <Text style={styles.featuredTagText}>🔥 VIDEO SPOTLIGHT</Text>
+        </View>
+        <Text style={styles.videoProductTitle}>{item.title}</Text>
+        <View style={styles.videoPriceLocationRow}>
+          <Text style={styles.videoProductPrice}>{formatProductPrice(item.price)}</Text>
+          <View style={styles.videoLocationBadge}>
+            <MapPin size={10} color="#ffffff" strokeWidth={2.3} />
+            <Text style={styles.videoLocationText}>{item.location || 'Ghana'}</Text>
+          </View>
+        </View>
+        <Text style={styles.videoProductDesc} numberOfLines={2}>
+          {item.description || 'Verified listing with live video inspection score.'}
+        </Text>
+      </View>
+
+      {/* Snapchat-style Right hand column of action buttons */}
+      <View style={styles.videoRightActionsColumn}>
+        <Pressable
+          style={styles.videoAvatarContainer}
+          onPress={() => item.sellerId && onOpenSeller(item.sellerId)}
+        >
+          <View style={styles.videoAvatar}>
+            <Text style={styles.videoAvatarText}>
+              {String(item.sellerName || 'VS').substring(0, 2).toUpperCase()}
+            </Text>
+          </View>
+          {(isUserAdmin(sellerProfile) || isUserVerified(sellerProfile)) && (
+            <View style={styles.videoVerifiedBadge}>
+              <Check size={9} color="#ffffff" strokeWidth={3.5} />
+            </View>
+          )}
+          {!isOwnVideoItem && !isFollowingSeller && (
+            <Pressable
+              style={styles.subscribeBadge}
+              onPress={() => item.sellerId && onToggleFollow(item.sellerId)}
+              hitSlop={8}
+            >
+              {isTogglingFollow ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <Text style={styles.subscribeBadgeText}>+</Text>
+              )}
+            </Pressable>
+          )}
+        </Pressable>
+
+        {/* Bookmark button */}
+        <Pressable style={styles.actionBtn} onPress={() => onToggleSave(item)}>
+          <View style={[styles.actionBtnCircle, isSaved && styles.actionBtnCircleActive]}>
+            <Bookmark size={17} color="#ffffff" fill={isSaved ? '#ffffff' : 'none'} strokeWidth={2.2} />
+          </View>
+          <Text style={styles.actionBtnLabel}>{isSaved ? 'Saved' : 'Save'}</Text>
+        </Pressable>
+
+        {/* WhatsApp Chat */}
+        <Pressable style={styles.actionBtn} onPress={() => onStartChat(item)}>
+          <View style={[styles.actionBtnCircle, { backgroundColor: '#059669' }]}>
+            <MessageSquare size={17} color="#ffffff" strokeWidth={2.2} />
+          </View>
+          <Text style={styles.actionBtnLabel}>Chat</Text>
+        </Pressable>
+
+        {/* Share */}
+        <Pressable style={styles.actionBtn} onPress={() => onShare(item)}>
+          <View style={styles.actionBtnCircle}>
+            <Share2 size={17} color="#ffffff" strokeWidth={2.2} />
+          </View>
+          <Text style={styles.actionBtnLabel}>Share</Text>
+        </Pressable>
+
+        {/* Specs */}
+        <Pressable style={styles.actionBtn} onPress={() => onOpenProductPress(item)}>
+          <View style={[styles.actionBtnCircle, { backgroundColor: '#ffffff' }]}>
+            <Eye size={17} color="#0f172a" strokeWidth={2.2} />
+          </View>
+          <Text style={styles.actionBtnLabel}>Specs</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}, (prev, next) => (
+  prev.item.id === next.item.id &&
+  prev.item.title === next.item.title &&
+  prev.item.price === next.item.price &&
+  prev.item.location === next.item.location &&
+  prev.item.description === next.item.description &&
+  prev.item.sellerName === next.item.sellerName &&
+  prev.item.sellerId === next.item.sellerId &&
+  prev.item.category === next.item.category &&
+  prev.height === next.height &&
+  prev.isActive === next.isActive &&
+  prev.shouldLoad === next.shouldLoad &&
+  prev.isMuted === next.isMuted &&
+  prev.isSaved === next.isSaved &&
+  prev.sellerProfile === next.sellerProfile &&
+  prev.isOwnVideoItem === next.isOwnVideoItem &&
+  prev.isFollowingSeller === next.isFollowingSeller &&
+  prev.isTogglingFollow === next.isTogglingFollow
+));
 
 interface HomeScreenProps {
   onOpenProduct: (product: Product) => void;
@@ -1582,136 +1790,46 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               disableIntervalMomentum
               onEndReached={loadMoreVideoAds}
               onEndReachedThreshold={1.5}
-              // Tight virtualization on purpose — see VideoFeedPlayer's
-              // comment above. Each mounted item is one full-screen video;
-              // there's no reason to keep RN's page-list defaults (which
-              // assume small, cheap list rows) around ~20 of them alive.
-              initialNumToRender={2}
-              maxToRenderPerBatch={2}
-              windowSize={3}
-              removeClippedSubviews
+              // Moderate, not extreme — just enough to avoid keeping ~10
+              // screens' worth of cells mounted for a one-video-per-screen
+              // feed. Deliberately NOT paired with removeClippedSubviews,
+              // which is what actually broke scrolling last round (its
+              // view-recycling fights native video decoders on iOS); plain
+              // windowSize alone doesn't touch how views get attached, just
+              // how many the list bothers pre-rendering.
+              initialNumToRender={3}
+              maxToRenderPerBatch={3}
+              windowSize={5}
               renderItem={({ item, index }) => {
                 const currentUserId = auth.currentUser?.uid;
-                const isSaved = isSavedProduct(item.id);
-                const videoUri = Array.isArray((item as any).videos) ? (item as any).videos[0] : undefined;
                 const sellerProfile: any = users.find((u: any) => u.id === item.sellerId);
                 const isOwnVideoItem = !!currentUserId && item.sellerId === currentUserId;
                 const myProfile: any = currentUserId ? users.find((u: any) => u.id === currentUserId) : null;
                 const isFollowingSeller = Array.isArray(myProfile?.followingSellers) && myProfile.followingSellers.includes(item.sellerId);
-                const videoFallbackImageUri = resolveProductImageUri(item);
                 // Only the active video and the one right after it ever
                 // download anything; one slot behind stays loaded too so
                 // swiping back up doesn't re-buffer from scratch.
                 const shouldLoadVideo = index >= activeVideoIndex - 1 && index <= activeVideoIndex + 1;
                 return (
-                  <View style={[styles.videoPlayerFrame, { height: videoFeedHeight }]}>
-                    {videoUri ? (
-                      <VideoFeedPlayer uri={videoUri} posterUri={videoFallbackImageUri} shouldLoad={shouldLoadVideo} isActive={index === activeVideoIndex} isMuted={isVideoFeedMuted} />
-                    ) : videoFallbackImageUri ? (
-                      <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} />
-                    ) : (
-                      <CategoryImagePlaceholder category={item.category} style={styles.videoPlaceholderImage} iconSize={40} />
-                    )}
-                    <View style={styles.videoOverlay} pointerEvents="none" />
-
-                    {/* Mute toggle */}
-                    <Pressable
-                      style={styles.videoMuteBtn}
-                      onPress={() => setIsVideoFeedMuted((prev) => !prev)}
-                      hitSlop={8}
-                    >
-                      {isVideoFeedMuted ? (
-                        <VolumeX size={16} color="#ffffff" strokeWidth={2.2} />
-                      ) : (
-                        <Volume2 size={16} color="#ffffff" strokeWidth={2.2} />
-                      )}
-                    </Pressable>
-
-                    {/* Immersive bottom details row */}
-                    <View style={styles.videoBottomDetails}>
-                      <View style={styles.featuredTag}>
-                        <Text style={styles.featuredTagText}>🔥 VIDEO SPOTLIGHT</Text>
-                      </View>
-                      <Text style={styles.videoProductTitle}>{item.title}</Text>
-                      <View style={styles.videoPriceLocationRow}>
-                        <Text style={styles.videoProductPrice}>{formatProductPrice(item.price)}</Text>
-                        <View style={styles.videoLocationBadge}>
-                          <MapPin size={10} color="#ffffff" strokeWidth={2.3} />
-                          <Text style={styles.videoLocationText}>{item.location || 'Ghana'}</Text>
-                        </View>
-                      </View>
-                      <Text style={styles.videoProductDesc} numberOfLines={2}>
-                        {item.description || 'Verified listing with live video inspection score.'}
-                      </Text>
-                    </View>
-
-                    {/* Snapchat-style Right hand column of action buttons */}
-                    <View style={styles.videoRightActionsColumn}>
-                      {/* Seller avatar — previously dead UI (no Pressable at
-                          all, tapping did nothing; "+" badge was purely
-                          decorative and shown even on your own video). */}
-                      <Pressable
-                        style={styles.videoAvatarContainer}
-                        onPress={() => item.sellerId && navigation?.navigate('SellerProfile', { sellerId: item.sellerId })}
-                      >
-                        <View style={styles.videoAvatar}>
-                          <Text style={styles.videoAvatarText}>
-                            {String(item.sellerName || 'VS').substring(0, 2).toUpperCase()}
-                          </Text>
-                        </View>
-                        {(isUserAdmin(sellerProfile) || isUserVerified(sellerProfile)) && (
-                          <View style={styles.videoVerifiedBadge}>
-                            <Check size={9} color="#ffffff" strokeWidth={3.5} />
-                          </View>
-                        )}
-                        {!isOwnVideoItem && !isFollowingSeller && (
-                          <Pressable
-                            style={styles.subscribeBadge}
-                            onPress={() => item.sellerId && handleToggleFollowInVideoFeed(item.sellerId)}
-                            hitSlop={8}
-                          >
-                            {togglingFollowSellerId === item.sellerId ? (
-                              <ActivityIndicator size="small" color="#ffffff" />
-                            ) : (
-                              <Text style={styles.subscribeBadgeText}>+</Text>
-                            )}
-                          </Pressable>
-                        )}
-                      </Pressable>
-
-                      {/* Bookmark button */}
-                      <Pressable style={styles.actionBtn} onPress={() => handleToggleSave(item)}>
-                        <View style={[styles.actionBtnCircle, isSaved && styles.actionBtnCircleActive]}>
-                          <Bookmark size={17} color="#ffffff" fill={isSaved ? '#ffffff' : 'none'} strokeWidth={2.2} />
-                        </View>
-                        <Text style={styles.actionBtnLabel}>{isSaved ? 'Saved' : 'Save'}</Text>
-                      </Pressable>
-
-                      {/* WhatsApp Chat */}
-                      <Pressable style={styles.actionBtn} onPress={() => handleStartChat(item)}>
-                        <View style={[styles.actionBtnCircle, { backgroundColor: '#059669' }]}>
-                          <MessageSquare size={17} color="#ffffff" strokeWidth={2.2} />
-                        </View>
-                        <Text style={styles.actionBtnLabel}>Chat</Text>
-                      </Pressable>
-
-                      {/* Share */}
-                      <Pressable style={styles.actionBtn} onPress={() => handleShare(item)}>
-                        <View style={styles.actionBtnCircle}>
-                          <Share2 size={17} color="#ffffff" strokeWidth={2.2} />
-                        </View>
-                        <Text style={styles.actionBtnLabel}>Share</Text>
-                      </Pressable>
-
-                      {/* Specs */}
-                      <Pressable style={styles.actionBtn} onPress={() => onOpenProduct(item)}>
-                        <View style={[styles.actionBtnCircle, { backgroundColor: '#ffffff' }]}>
-                          <Eye size={17} color="#0f172a" strokeWidth={2.2} />
-                        </View>
-                        <Text style={styles.actionBtnLabel}>Specs</Text>
-                      </Pressable>
-                    </View>
-                  </View>
+                  <VideoFeedRow
+                    item={item}
+                    height={videoFeedHeight}
+                    isActive={index === activeVideoIndex}
+                    shouldLoad={shouldLoadVideo}
+                    isMuted={isVideoFeedMuted}
+                    isSaved={isSavedProduct(item.id)}
+                    sellerProfile={sellerProfile}
+                    isOwnVideoItem={isOwnVideoItem}
+                    isFollowingSeller={isFollowingSeller}
+                    isTogglingFollow={togglingFollowSellerId === item.sellerId}
+                    onToggleMute={() => setIsVideoFeedMuted((prev) => !prev)}
+                    onOpenSeller={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+                    onToggleFollow={handleToggleFollowInVideoFeed}
+                    onToggleSave={handleToggleSave}
+                    onStartChat={handleStartChat}
+                    onShare={handleShare}
+                    onOpenProductPress={onOpenProduct}
+                  />
                 );
               }}
             />

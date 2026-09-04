@@ -127,23 +127,23 @@ export function getCloudinaryVideoPosterMobile(url?: string): string {
   return posterUrl.replace('/upload/', '/upload/so_0,f_jpg,q_auto,w_800/');
 }
 
-/** Caps every video actually PLAYED back (feed scrolling, product gallery)
- * to a feed-appropriate delivery, instead of the raw as-uploaded file —
- * previously every play request pulled the seller's original phone-camera
- * footage verbatim (often 1080p+/high-bitrate), which is both why the video
- * feed didn't feel smooth (large file, no adaptive quality) and needlessly
- * expensive in Cloudinary egress. w_720,c_limit only ever downscales (never
- * upscales a smaller source), q_auto/f_auto let Cloudinary pick the
- * best-fit compression and codec for the requesting device. Cloudinary
- * computes each distinct transformation once and serves it from its CDN
- * cache on every later request — this never mutates the stored/original
- * URL, only the one used at the point of playback, matching the existing
- * so_/eo_ trim and poster-frame transforms elsewhere in this file. */
+/** REVERTED to a pass-through — this used to append q_auto,f_auto,w_720,
+ * c_limit to cap video playback quality/size. That transform is computed
+ * lazily: the FIRST time anyone ever requests a given video at that exact
+ * transformation, Cloudinary has to fully re-encode it server-side before
+ * sending back a single byte, which for a real video can take far longer
+ * than a normal buffering wait — it presented as a video that just never
+ * loads. Every video already viewed once got fast (Cloudinary caches the
+ * transform after that), but any video being watched for the first time
+ * anywhere hit this stall, which is strictly worse than the larger-file
+ * problem it was meant to solve. The right way to get this benefit is an
+ * EAGER transformation requested at upload time (so the optimized version
+ * is pre-generated before anyone ever plays it, not on their first request)
+ * — a server-side change to /api/cloudinary/sign-video-upload, not a
+ * playback-time URL rewrite. Left as a pass-through rather than deleted so
+ * that follow-up work has a clear landing spot. */
 export function getOptimizedVideoUrlMobile(url?: string): string {
-  if (!url) return '';
-  if (!url.includes('res.cloudinary.com')) return url;
-  if (url.includes('/upload/q_auto')) return url; // already optimized (e.g. re-derived from an already-transformed URL)
-  return url.replace('/upload/', '/upload/q_auto,f_auto,w_720,c_limit/');
+  return url || '';
 }
 
 /** Bakes a start/end trim directly into the stored Cloudinary URL via its
