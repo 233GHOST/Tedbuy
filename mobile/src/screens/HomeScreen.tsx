@@ -75,9 +75,19 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, posterUri, sh
   const loadedUriRef = useRef<string | null>(shouldLoad ? optimizedUri : null);
   useEffect(() => {
     if (shouldLoad && loadedUriRef.current !== optimizedUri) {
-      player.replace(optimizedUri);
-      player.muted = isMuted;
       loadedUriRef.current = optimizedUri;
+      // player.replace() loads the asset SYNCHRONOUSLY on iOS's main
+      // thread — expo-video's own warning says this "can lead to UI
+      // freezes." This ran every time a video entered the preload window
+      // (i.e. on every scroll transition), on the main thread, on iOS —
+      // which is exactly the platform and exactly the moment "can't
+      // scroll" was reported on. replaceAsync() does the same swap without
+      // blocking the thread the gesture/scroll system also depends on.
+      player.replaceAsync(optimizedUri).then(() => {
+        player.muted = isMuted;
+      }).catch((err) => {
+        console.warn('[VideoFeedPlayer] replaceAsync failed:', err);
+      });
     }
   }, [shouldLoad, optimizedUri, player]);
 
@@ -849,9 +859,22 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     setIsLoadingMoreVideos(true);
     try {
       const more = await fetchVideoAds(5, Array.from(seenVideoIdsRef.current));
-      if (more.length > 0) {
-        more.forEach((p: any) => seenVideoIdsRef.current.add(p.id));
-        setVideoFeedItems((prev) => [...prev, ...more]);
+      // The server intentionally recycles already-shown products once the
+      // real pool is exhausted (so an infinite-scroll feed doesn't just
+      // hard-stop) rather than honoring excludeIds forever — reasonable
+      // for the feed in general, but appending its response verbatim put
+      // the SAME product id into videoFeedItems twice, which gave the
+      // FlatList two cells with the identical key. That's not a cosmetic
+      // warning: React's reconciliation for a duplicate key is undefined
+      // behavior, and it was firing continuously (every recycled batch),
+      // which is a real, ongoing contributor to broken/stuck scrolling —
+      // not just console noise. Filtering here makes the client correct
+      // regardless of what the server does: once truly out of new videos,
+      // the feed simply stops growing instead of corrupting its own list.
+      const trulyNew = more.filter((p: any) => !seenVideoIdsRef.current.has(p.id));
+      if (trulyNew.length > 0) {
+        trulyNew.forEach((p: any) => seenVideoIdsRef.current.add(p.id));
+        setVideoFeedItems((prev) => [...prev, ...trulyNew]);
       }
     } finally {
       setIsLoadingMoreVideos(false);
