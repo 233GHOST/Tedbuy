@@ -7,7 +7,18 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { RefreshCw } from 'lucide-react-native';
-import * as MediaLibrary from 'expo-media-library';
+// SDK 57 made the bare 'expo-media-library' entrypoint default to a new
+// class-based API backed by a native module ('ExpoMediaLibraryNext') that
+// this Expo Go build doesn't have registered — crashed the whole app at
+// startup with "Cannot find native module 'ExpoMediaLibraryNext'" the
+// moment this file's imports were evaluated (SellScreen is imported
+// directly by the navigator, so this ran on every app launch, not just
+// when the Sell tab was opened). The /legacy entrypoint is the exact same
+// function-based API (getPermissionsAsync/getAssetsAsync/getAssetInfoAsync,
+// same signatures) this code already used, backed by the older native
+// module that's actually available — a drop-in import swap, no other
+// changes needed.
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
 import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById } from '../firebase';

@@ -721,17 +721,20 @@ function extractCloudinaryInfo(url: string): { publicId: string; resourceType: '
     
     const parts = url.split('/upload/');
     if (parts.length < 2) return null;
-    
-    let pathAfterUpload = parts[1];
-    if (/^v\d+\//.test(pathAfterUpload)) {
-      pathAfterUpload = pathAfterUpload.replace(/^v\d+\//, '');
-    } else {
-      const slashIdx = pathAfterUpload.indexOf('/');
-      if (slashIdx !== -1) {
-        pathAfterUpload = pathAfterUpload.substring(slashIdx + 1);
-      }
-    }
-    
+
+    // The version segment (v<digits>) always immediately precedes the real
+    // public_id path, and is a reliable anchor regardless of how many
+    // transformation segments (poster frame so_/f_jpg, a trim's so_/eo_,
+    // the eager quality/size variant, ...) are chained before it — unlike
+    // the old logic here, which only ever stripped ONE segment and so left
+    // the version marker glued onto the "public_id" for any transformed
+    // URL, silently breaking cleanup (Discard/Retake) for anything but a
+    // bare, untransformed secure_url.
+    const segments = parts[1].split('/');
+    const versionIdx = segments.findIndex((s) => /^v\d+$/.test(s));
+    const publicIdSegments = versionIdx !== -1 ? segments.slice(versionIdx + 1) : segments;
+    const pathAfterUpload = publicIdSegments.join('/');
+
     const lastDot = pathAfterUpload.lastIndexOf('.');
     const publicId = lastDot !== -1 ? pathAfterUpload.substring(0, lastDot) : pathAfterUpload;
     return { publicId, resourceType };
@@ -825,9 +828,18 @@ app.post(
 
       const cfg = cloudinary.config();
       const timestamp = Math.round(Date.now() / 1000);
+      // Generates a feed-appropriate (720p-capped, auto quality/codec)
+      // variant synchronously as part of THIS upload — the seller's own
+      // upload takes a little longer once, in exchange for every future
+      // viewer never triggering an on-demand transcode themselves (that
+      // used to present as a video that just never loads — see
+      // getOptimizedVideoUrlMobile's history in utils/cloudinary.ts for
+      // why playback-time transforms were reverted). The original file is
+      // still uploaded and kept as-is; this is an additional derived asset.
       // Folder is fixed server-side (not client-supplied) so it's protected by the
       // signature — a tampered folder value would fail Cloudinary's own signature check.
-      const paramsToSign = { folder: 'tedbuy_products', timestamp };
+      const eagerTransform = 'q_auto,f_auto,w_720,c_limit';
+      const paramsToSign = { folder: 'tedbuy_products', timestamp, eager: eagerTransform };
       const signature = cloudinary.utils.api_sign_request(paramsToSign, cfg.api_secret as string);
 
       return res.json({
@@ -836,7 +848,8 @@ app.post(
         timestamp,
         apiKey: cfg.api_key,
         cloudName: cfg.cloud_name,
-        folder: paramsToSign.folder
+        folder: paramsToSign.folder,
+        eager: eagerTransform
       });
     } catch (err: any) {
       console.error('[Cloudinary Sign Video Upload Error]:', err);

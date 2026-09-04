@@ -410,6 +410,20 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   }, [route?.params?.location]);
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
   const [videoFeedHeight, setVideoFeedHeight] = useState(0);
+  // The bottom tab navigator keeps Home mounted when you switch to another
+  // tab (e.g. Profile) — activeVideoIndex doesn't change, so without this
+  // the "active" video kept isActive=true and just went on playing (with
+  // sound) in the background behind whatever screen you switched to. Ties
+  // playback to actual screen focus, not just which item is scrolled to.
+  const [isHomeScreenFocused, setIsHomeScreenFocused] = useState(true);
+  useEffect(() => {
+    const unsubFocus = navigation?.addListener?.('focus', () => setIsHomeScreenFocused(true));
+    const unsubBlur = navigation?.addListener?.('blur', () => setIsHomeScreenFocused(false));
+    return () => {
+      unsubFocus?.();
+      unsubBlur?.();
+    };
+  }, [navigation]);
   // Matches web's VideoAdsFeed default (isMuted starts false — autoplay
   // attempts with sound on, same as TikTok/Reels-style feeds).
   const [isVideoFeedMuted, setIsVideoFeedMuted] = useState(false);
@@ -1814,7 +1828,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   <VideoFeedRow
                     item={item}
                     height={videoFeedHeight}
-                    isActive={index === activeVideoIndex}
+                    isActive={index === activeVideoIndex && isHomeScreenFocused}
                     shouldLoad={shouldLoadVideo}
                     isMuted={isVideoFeedMuted}
                     isSaved={isSavedProduct(item.id)}

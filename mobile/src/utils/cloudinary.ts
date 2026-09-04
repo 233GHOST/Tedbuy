@@ -57,7 +57,7 @@ export async function uploadVideoDirectToCloudinaryMobile(
     throw new Error(signData?.error || 'Failed to get upload authorization');
   }
 
-  const { signature, timestamp, apiKey, cloudName, folder } = signData;
+  const { signature, timestamp, apiKey, cloudName, folder, eager } = signData;
 
   const formData = new FormData();
   formData.append('file', {
@@ -69,6 +69,12 @@ export async function uploadVideoDirectToCloudinaryMobile(
   formData.append('timestamp', String(timestamp));
   formData.append('signature', signature);
   formData.append('folder', folder);
+  // Must exactly match what the server signed (paramsToSign in
+  // /api/cloudinary/sign-video-upload) or Cloudinary rejects the whole
+  // request as a signature mismatch. Generates the 720p/auto-quality feed
+  // variant synchronously as part of this same upload — see that
+  // endpoint's comment for why this replaced a playback-time transform.
+  if (eager) formData.append('eager', eager);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -76,12 +82,18 @@ export async function uploadVideoDirectToCloudinaryMobile(
     // Was previously unset — a stalled connection mid-upload left this
     // promise pending forever, leaving the video stuck at 'uploading' and
     // Publish disabled indefinitely. Videos are larger than photos, so this
-    // gets a longer ceiling than the image-upload path's 60s.
-    xhr.timeout = 120000;
+    // gets a longer ceiling than the image-upload path's 60s — raised
+    // further now that the request also waits for the eager transform
+    // (real video transcoding) to finish before Cloudinary responds.
+    xhr.timeout = 180000;
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {
-        onProgress(Math.round((event.loaded / event.total) * 100));
+        // Upload bytes are only the first part of this request now (eager
+        // transcoding happens server-side after the bytes finish landing,
+        // with no progress signal of its own) — capped at 92% so the UI
+        // doesn't sit at "100%" while Cloudinary is still transcoding.
+        onProgress(Math.min(92, Math.round((event.loaded / event.total) * 100)));
       }
     };
 
@@ -93,8 +105,16 @@ export async function uploadVideoDirectToCloudinaryMobile(
             reject(new Error('Cloudinary upload succeeded but returned no secure URL.'));
             return;
           }
+          onProgress?.(100);
+          // Prefer the pre-optimized eager variant when Cloudinary actually
+          // produced one; fall back to the original if eager processing
+          // failed for some reason (e.g. an unsupported source codec) —
+          // never block publishing on the optimization succeeding.
+          const optimizedUrl = Array.isArray(response.eager) && response.eager[0]?.secure_url
+            ? response.eager[0].secure_url
+            : response.secure_url;
           resolve({
-            secure_url: response.secure_url,
+            secure_url: optimizedUrl,
             public_id: response.public_id || '',
             bytes: response.bytes || 0,
             duration: response.duration,
