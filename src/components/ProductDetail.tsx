@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus, Sparkles, Video, Loader2, Flame, FileText, Send } from 'lucide-react';
 import { ProductCard } from './ProductCard';
@@ -368,6 +368,63 @@ export const ProductDetail: React.FC = () => {
     setLightboxIndex(activeMediaIdx);
   };
 
+  const lightboxTouchStartXRef = useRef<number | null>(null);
+  const lightboxTouchStartYRef = useRef<number | null>(null);
+
+  const handleLightboxTouchStart = (e: React.TouchEvent) => {
+    if (e.touches && e.touches.length > 0) {
+      lightboxTouchStartXRef.current = e.touches[0].clientX;
+      lightboxTouchStartYRef.current = e.touches[0].clientY;
+    }
+  };
+
+  const handleLightboxTouchEnd = (e: React.TouchEvent) => {
+    if (lightboxTouchStartXRef.current === null || lightboxTouchStartYRef.current === null) return;
+    if (!e.changedTouches || e.changedTouches.length === 0) return;
+
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+
+    const diffX = lightboxTouchStartXRef.current - touchEndX;
+    const diffY = lightboxTouchStartYRef.current - touchEndY;
+
+    // Minimum swipe threshold: 35px. Ensure horizontal swipe dominates vertical movement
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 35) {
+      if (diffX > 0) {
+        // Swiped left -> advance to next item
+        setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
+      } else {
+        // Swiped right -> go to previous item
+        setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
+      }
+    }
+
+    lightboxTouchStartXRef.current = null;
+    lightboxTouchStartYRef.current = null;
+  };
+
+  const handleLightboxMouseDown = (e: React.MouseEvent) => {
+    lightboxTouchStartXRef.current = e.clientX;
+    lightboxTouchStartYRef.current = e.clientY;
+  };
+
+  const handleLightboxMouseUp = (e: React.MouseEvent) => {
+    if (lightboxTouchStartXRef.current === null || lightboxTouchStartYRef.current === null) return;
+    const diffX = lightboxTouchStartXRef.current - e.clientX;
+    const diffY = lightboxTouchStartYRef.current - e.clientY;
+
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 35) {
+      if (diffX > 0) {
+        setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
+      } else {
+        setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
+      }
+    }
+
+    lightboxTouchStartXRef.current = null;
+    lightboxTouchStartYRef.current = null;
+  };
+
   useEffect(() => {
     if (!selectedProductId) return;
 
@@ -696,6 +753,14 @@ export const ProductDetail: React.FC = () => {
   const isOwner = currentUser?.id === product.sellerId;
   const isFollowing = currentUser?.followingSellers?.includes(product.sellerId) || false;
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
+
+  const watermarkSellerName = (
+    sellerUser?.username ||
+    (sellerUser as any)?.displayName ||
+    product?.sellerName ||
+    (product as any)?.sellerUsername ||
+    'TEDBUY SELLER'
+  ).trim().toUpperCase();
 
   const handleToggleSave = () => {
     if (!currentUser) {
@@ -1341,11 +1406,16 @@ export const ProductDetail: React.FC = () => {
                     e.currentTarget.src = getCategoryPlaceholder(product.category);
                   }}
                 />
-                {/* Clean, centered Tedbuy Watermark Overlay */}
+                {/* Clean, feint Tedbuy Watermark Overlay */}
                 <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
-                  <span className="text-xl md:text-3xl font-black text-white/35 tracking-[0.22em] font-sans uppercase rotate-[-20deg] drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
-                    TEDBUY
-                  </span>
+                  <div className="flex flex-col items-center justify-center text-center rotate-[-15deg] px-4 pointer-events-none">
+                    <span className="text-sm sm:text-base md:text-xl lg:text-2xl font-black text-white/20 tracking-[0.22em] font-sans uppercase drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)] leading-tight">
+                      POSTED ON TEDBUY
+                    </span>
+                    <span className="text-[10px] sm:text-xs md:text-sm font-extrabold text-white/20 tracking-[0.18em] font-sans uppercase drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)] mt-0.5 sm:mt-1 max-w-[260px] md:max-w-sm truncate">
+                      {watermarkSellerName}
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
@@ -2075,22 +2145,14 @@ export const ProductDetail: React.FC = () => {
             </button>
           </div>
 
-          {/* Primary View Area */}
-          <div className="flex-1 w-full max-w-5xl flex items-center justify-between relative my-4 min-h-0">
-            {/* Left navigation arrow button */}
-            {mediaGallery.length > 1 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : mediaGallery.length - 1));
-                }}
-                className="absolute left-2 md:left-4 bg-slate-900/80 hover:bg-slate-900 border border-white/10 text-white p-3 rounded-full hover:scale-105 active:scale-95 transition cursor-pointer z-35 flex items-center justify-center shadow-2xl backdrop-blur-xs"
-                title="Previous Media"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-            )}
-
+          {/* Primary View Area with Touch & Drag Swiping */}
+          <div 
+            className="flex-1 w-full max-w-5xl flex items-center justify-center relative my-4 min-h-0 touch-pan-y select-none cursor-grab active:cursor-grabbing"
+            onTouchStart={handleLightboxTouchStart}
+            onTouchEnd={handleLightboxTouchEnd}
+            onMouseDown={handleLightboxMouseDown}
+            onMouseUp={handleLightboxMouseUp}
+          >
             {/* Central Media container */}
             <div 
               className="w-full h-full flex items-center justify-center bg-transparent max-h-[75vh]"
@@ -2151,31 +2213,23 @@ export const ProductDetail: React.FC = () => {
                     src={mediaGallery[lightboxIndex]?.url}
                     alt={product.title}
                     referrerPolicy="no-referrer"
-                    className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up"
+                    draggable={false}
+                    className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up select-none pointer-events-auto"
                   />
-                  {/* Clean, centered Tedbuy Watermark Overlay in the middle of expanded image */}
+                  {/* Clean, feint Tedbuy Watermark Overlay in the middle of expanded image */}
                   <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
-                    <span className="text-4xl sm:text-6xl md:text-8xl font-black text-white/45 tracking-[0.25em] font-sans uppercase rotate-[-25deg] drop-shadow-[0_4px_16px_rgba(0,0,0,0.6)]">
-                      TEDBUY
-                    </span>
+                    <div className="flex flex-col items-center justify-center text-center rotate-[-16deg] px-6 pointer-events-none">
+                      <span className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white/20 tracking-[0.25em] font-sans uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)] leading-tight">
+                        POSTED ON TEDBUY
+                      </span>
+                      <span className="text-sm sm:text-xl md:text-2xl lg:text-3xl font-extrabold text-white/20 tracking-[0.2em] font-sans uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)] mt-1.5 sm:mt-2.5 max-w-xl truncate">
+                        {watermarkSellerName}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
             </div>
-
-            {/* Right navigation arrow button */}
-            {mediaGallery.length > 1 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxIndex((prev) => (prev !== null && prev < mediaGallery.length - 1 ? prev + 1 : 0));
-                }}
-                className="absolute right-2 md:right-4 bg-slate-900/80 hover:bg-slate-900 border border-white/10 text-white p-3 rounded-full hover:scale-105 active:scale-95 transition cursor-pointer z-35 flex items-center justify-center shadow-2xl backdrop-blur-xs"
-                title="Next Media"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            )}
           </div>
 
           {/* Quick-jump Thumbnail dots/strip */}

@@ -405,6 +405,14 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     }
   };
 
+  const mobileWatermarkSellerName = (
+    seller?.username ||
+    (seller as any)?.displayName ||
+    product?.sellerName ||
+    (product as any)?.sellerUsername ||
+    'TEDBUY SELLER'
+  ).trim().toUpperCase();
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       {/* Header bar */}
@@ -437,6 +445,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
               ) : (
                 <Pressable
                   key={idx}
+                  style={styles.carouselSlide}
                   onPress={() => {
                     const imageIdx = mediaGallery.slice(0, idx + 1).filter((m) => m.type === 'image').length - 1;
                     setLightboxIndex(Math.max(0, imageIdx));
@@ -444,6 +453,13 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                   }}
                 >
                   <Image source={{ uri: item.url }} style={styles.carouselImage} />
+                  {/* Clean, feint Tedbuy Watermark Overlay */}
+                  <View style={styles.watermarkOverlay} pointerEvents="none">
+                    <View style={styles.watermarkContent}>
+                      <Text style={styles.watermarkBrand}>POSTED ON TEDBUY</Text>
+                      <Text style={styles.watermarkUser} numberOfLines={1}>{mobileWatermarkSellerName}</Text>
+                    </View>
+                  </View>
                 </Pressable>
               )
             )}
@@ -1058,7 +1074,44 @@ const styles = StyleSheet.create({
 
   /* Horizontal Carousel Styles */
   carouselContainer: { width: width, height: 320, backgroundColor: '#f1f5f9', position: 'relative' },
+  carouselSlide: { width: width, height: 320, position: 'relative', overflow: 'hidden' },
   carouselImage: { width: width, height: 320, resizeMode: 'cover' },
+  watermarkOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  watermarkContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '-15deg' }],
+    paddingHorizontal: 20,
+  },
+  watermarkBrand: {
+    fontSize: 16,
+    fontFamily: fonts.extrabold,
+    color: 'rgba(255, 255, 255, 0.20)',
+    letterSpacing: 2.2,
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0, 0, 0, 0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  watermarkUser: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: 'rgba(255, 255, 255, 0.20)',
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    marginTop: 3,
+    textShadowColor: 'rgba(0, 0, 0, 0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   carouselIndicators: { position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 },
   indicatorDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.4)' },
   indicatorDotActive: { width: 14, backgroundColor: '#ffffff' },
