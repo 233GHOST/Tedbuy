@@ -697,6 +697,14 @@ export const ProductDetail: React.FC = () => {
   const isFollowing = currentUser?.followingSellers?.includes(product.sellerId) || false;
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
 
+  const watermarkSellerName = (
+    sellerUser?.username ||
+    (sellerUser as any)?.displayName ||
+    product?.sellerName ||
+    (product as any)?.sellerUsername ||
+    'TEDBUY SELLER'
+  ).trim().toUpperCase();
+
   const handleToggleSave = () => {
     if (!currentUser) {
       setAuthMode('login');
@@ -1341,11 +1349,16 @@ export const ProductDetail: React.FC = () => {
                     e.currentTarget.src = getCategoryPlaceholder(product.category);
                   }}
                 />
-                {/* Clean, centered Tedbuy Watermark Overlay */}
+                {/* Clean, feint Tedbuy Watermark Overlay */}
                 <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
-                  <span className="text-xl md:text-3xl font-black text-white/35 tracking-[0.22em] font-sans uppercase rotate-[-20deg] drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
-                    TEDBUY
-                  </span>
+                  <div className="flex flex-col items-center justify-center text-center rotate-[-15deg] px-4 pointer-events-none">
+                    <span className="text-sm sm:text-base md:text-xl lg:text-2xl font-black text-white/20 tracking-[0.22em] font-sans uppercase drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)] leading-tight">
+                      POSTED ON TEDBUY
+                    </span>
+                    <span className="text-[10px] sm:text-xs md:text-sm font-extrabold text-white/20 tracking-[0.18em] font-sans uppercase drop-shadow-[0_1px_3px_rgba(0,0,0,0.35)] mt-0.5 sm:mt-1 max-w-[260px] md:max-w-sm truncate">
+                      {watermarkSellerName}
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
@@ -2153,11 +2166,16 @@ export const ProductDetail: React.FC = () => {
                     referrerPolicy="no-referrer"
                     className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10 shadow-2xl animate-scale-up"
                   />
-                  {/* Clean, centered Tedbuy Watermark Overlay in the middle of expanded image */}
+                  {/* Clean, feint Tedbuy Watermark Overlay in the middle of expanded image */}
                   <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
-                    <span className="text-4xl sm:text-6xl md:text-8xl font-black text-white/45 tracking-[0.25em] font-sans uppercase rotate-[-25deg] drop-shadow-[0_4px_16px_rgba(0,0,0,0.6)]">
-                      TEDBUY
-                    </span>
+                    <div className="flex flex-col items-center justify-center text-center rotate-[-16deg] px-6 pointer-events-none">
+                      <span className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white/20 tracking-[0.25em] font-sans uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)] leading-tight">
+                        POSTED ON TEDBUY
+                      </span>
+                      <span className="text-sm sm:text-xl md:text-2xl lg:text-3xl font-extrabold text-white/20 tracking-[0.2em] font-sans uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)] mt-1.5 sm:mt-2.5 max-w-xl truncate">
+                        {watermarkSellerName}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
