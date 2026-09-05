@@ -102,6 +102,12 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
   // full server-side catalog via /api/search/suggestions, not just whatever
   // bounded page of products is already loaded on-device.
   const [serverSuggestions, setServerSuggestions] = useState<AutocompleteSuggestion[]>([]);
+  // Same fix as HomeScreen's inline search box: TextInput's own hit box
+  // only covers its intrinsic content height, not the full visual bar
+  // around it (alignItems:'center' just centers it there) — tapping
+  // anywhere in the row now reliably focuses the input instead of needing
+  // a precisely-placed tap.
+  const searchInputRef = useRef<TextInput | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guards against a race where an earlier, slower request resolves after a
   // newer one and overwrites its fresher results — e.g. typing "h" then
@@ -268,9 +274,10 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
         {/* Search Input Container */}
         <View style={styles.searchBoxCard}>
           <Text style={styles.searchLabel}>WHAT ARE YOU LOOKING FOR?</Text>
-          <View style={styles.searchRow}>
+          <Pressable style={styles.searchRow} onPress={() => searchInputRef.current?.focus()}>
             <Text style={styles.searchEmoji}>🔍</Text>
             <TextInput
+              ref={searchInputRef}
               value={searchText}
               onChangeText={setSearchText}
               onSubmitEditing={() => handleSearchSubmit()}
@@ -284,7 +291,7 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
                 <Text style={styles.clearBtnText}>✕</Text>
               </Pressable>
             )}
-          </View>
+          </Pressable>
           <Pressable onPress={() => handleSearchSubmit()} style={styles.searchButton}>
             <Text style={styles.searchButtonText}>SEARCH NOW</Text>
           </Pressable>

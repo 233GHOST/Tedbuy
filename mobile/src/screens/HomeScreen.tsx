@@ -703,6 +703,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     AsyncStorage.removeItem(RECENTLY_VIEWED_KEY).catch(() => {});
   };
 
+  // TextInput's own hit box only covers its intrinsic (font-height) content
+  // box, not the full visual height of searchRow around it — with
+  // alignItems:'center' on that row, there was a real dead zone above/below
+  // the text where a tap landed on the row's own background instead of the
+  // input, needing a precisely-placed tap to actually focus it. Wrapping
+  // the whole row in a Pressable that explicitly focuses this ref makes the
+  // entire visual bar responsive, not just the input's own narrow box.
+  const homeSearchInputRef = useRef<TextInput | null>(null);
   // Auto-swipe state for Featured Listings carousel (1.5s interval)
   const featuredScrollRef = useRef<ScrollView | null>(null);
   const mainGridRef = useRef<FlatList | null>(null);
@@ -1321,9 +1329,10 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                 {/* Search Container matching Web App "LOOKING FOR SOMETHING?" card */}
                 <View style={styles.searchBoxCard}>
                   <Text style={styles.searchLabel}>LOOKING FOR SOMETHING?</Text>
-                  <View style={styles.searchRow}>
+                  <Pressable style={styles.searchRow} onPress={() => homeSearchInputRef.current?.focus()}>
                     <Text style={styles.searchEmoji}>🔍</Text>
                     <TextInput
+                      ref={homeSearchInputRef}
                       value={searchText}
                       onChangeText={setSearchText}
                       placeholder="Search phones, laptops, sneakers..."
@@ -1336,10 +1345,10 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         clear typed search text except deleting it manually. */}
                     {searchText.length > 0 && (
                       <Pressable onPress={() => setSearchText('')} hitSlop={8} style={styles.searchClearBtn}>
-                        <X size={18} color="#2563eb" strokeWidth={2.6} />
+                        <X size={14} color="#94a3b8" strokeWidth={2.4} />
                       </Pressable>
                     )}
-                  </View>
+                  </Pressable>
                 </View>
 
                 {/* Pill Toggle Switcher for Standard Grid / Watch Video Ads —
