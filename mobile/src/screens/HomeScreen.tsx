@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, FlatList, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTabBarVisibility, TAB_BAR_HEIGHT } from '../context/TabBarVisibility';
-import { Bookmark, MessageSquare, Share2, Eye, VolumeX, Volume2, TrendingUp, Store, MapPin, Check, Flame, RefreshCw, ChevronDown, ChevronUp, X, History, LayoutDashboard, LayoutGrid, Video } from 'lucide-react-native';
+import { Bookmark, MessageSquare, Share2, Eye, VolumeX, Volume2, TrendingUp, Store, MapPin, Check, Flame, RefreshCw, ChevronDown, ChevronUp, X, History, LayoutDashboard, LayoutGrid, Video, Play } from 'lucide-react-native';
 import { categories } from '../data';
 import { GHANA_REGIONS, getRegionForLocation } from '../regions';
 import { computeDiscoverSellers } from '../utils/discoverSellers';
@@ -40,79 +41,120 @@ import { fonts } from '../theme';
  *    one, even before play() is called (this is by design — it's how you
  *    preload). Left unmanaged, every mounted item downloads its full video
  *    regardless of whether it's actually about to be watched. `shouldLoad`
- *    below (driven by a [active-1, active, active+1] window computed at the
- *    FlatList) is the fix: only the current video and the very next one
- *    ever have a real source and thus ever download anything; a video two
- *    or more away sits idle with a null source (no network activity) until
- *    it enters that window. A prior video is kept one slot behind so
- *    swiping back up still plays instantly instead of re-buffering.
+ *    (passed to VideoFeedRow below) is the fix: only items inside the load
+ *    window ever have a real source and thus ever download anything.
  *
- *    shouldLoad ALSO gates whether a <VideoView> is even rendered (see
- *    below) — a native video view is a genuinely expensive thing to have
- *    mounted (its own decoder/compositor layer) even with nothing loaded
- *    into it, and previously every scrolled-past cell got one anyway. Two
- *    earlier attempts at fixing the resulting scroll jank both missed this:
- *    pairing a tight FlatList windowSize with removeClippedSubviews caused
- *    outright freezes (that combination fights native video decoders on
- *    iOS during view recycling), and removing all windowing let RN's
- *    default ~10-screens-each-way virtualization mount a heavy VideoView
- *    per cell regardless. The actual fix is here: cap how many cells ever
- *    get a real VideoView (shouldLoad, strictly 3 at most) independently of
- *    how many cells FlatList keeps mounted for smooth paging (a moderate,
- *    not extreme, windowSize) — everything outside the load window is just
- *    the poster Image, which virtualizes fine on its own.
+ *    That window has gone through two measured iterations. Active-only
+ *    (briefly): live-instrumented timing (mount → statusChange →
+ *    readyToPlay) showed the active video's own readyToPlay drop from
+ *    5.48s to 2.75s once it stopped sharing bandwidth with a concurrent
+ *    next-item preload, with zero mid-playback rebuffering. But that traded
+ *    away two real product requirements — swipe-forward not always
+ *    cold-starting, and scrolling back not re-fetching a video just
+ *    watched. Current: preload the next 2 items ahead (accepting that same
+ *    bandwidth-sharing cost deliberately, since "swipe never waits" won out
+ *    against "the very first video is maximally fast"), and never tear
+ *    down a player for an index once it's been visited — see
+ *    `visitedVideoIndicesRef` and the `shouldLoadVideo` comment at the
+ *    renderItem call site.
+ *
+ *    shouldLoad gates whether VideoFeedPlayer — and with it useVideoPlayer,
+ *    which creates a real native player object the instant it's called,
+ *    even with a null source — is mounted AT ALL (see VideoFeedRow), not
+ *    just whether it has a source once mounted. A native video view/player
+ *    is a genuinely expensive thing to have alive (its own decoder/
+ *    compositor layer) regardless of whether anything is loaded into it,
+ *    and an earlier version of this gate only hid the <VideoView> while
+ *    still creating a player object for every cell the FlatList kept
+ *    mounted for smooth paging (windowSize), not just the ones actually in
+ *    the load window. Two even earlier attempts at fixing the resulting
+ *    scroll jank missed this entirely: pairing a tight FlatList windowSize
+ *    with removeClippedSubviews caused outright freezes (that combination
+ *    fights native video decoders on iOS during view recycling), and
+ *    removing all windowing let RN's default ~10-screens-each-way
+ *    virtualization mount a heavy VideoView per cell regardless. The actual
+ *    fix is here: cap how many cells ever get a real player+VideoView
+ *    (shouldLoad) independently of how many cells FlatList keeps mounted
+ *    for smooth paging (windowSize) — everything outside the load window is
+ *    just the poster Image, which virtualizes fine on its own.
  */
-const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, posterUri, shouldLoad, isActive, isMuted }: { uri: string; posterUri?: string | null; shouldLoad: boolean; isActive: boolean; isMuted: boolean }) {
+const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, posterUri, isActive, isMuted }: { uri: string; productId: string; posterUri?: string | null; isActive: boolean; isMuted: boolean }) {
   const optimizedUri = useMemo(() => getOptimizedVideoUrlMobile(uri), [uri]);
-  const player = useVideoPlayer(shouldLoad ? optimizedUri : null, (p) => {
+  useEffect(() => {
+    console.log('VIDEO_TIMING player_created', productId, Date.now());
+  }, []);
+  // This component is now only ever mounted (by VideoFeedRow, below) once
+  // shouldLoad is already true for this item — never earlier. Each row is
+  // permanently keyed to one product id (keyExtractor) and videoFeedItems
+  // is append-only (never updates an existing entry in place), so `uri`
+  // can never change during this component's lifetime: it mounts fresh,
+  // for this exact item, with its real source already known. That removes
+  // the need for the create-with-null-then-replaceAsync-later dance this
+  // used to do (and with it, the unmount-race that produced "NotFoundException:
+  // Unable to find the native shared object" under fast swiping) — the
+  // source is simply correct from the moment the native player exists.
+  const player = useVideoPlayer(optimizedUri, (p) => {
     p.loop = true;
     p.muted = isMuted;
+    // Android's default BufferOptions (preferredForwardBufferDuration: 20s,
+    // minBufferForPlayback: 2s) is tuned for long-form content, not ~14s
+    // vertical clips. Measured directly against this feed's actual
+    // Cloudinary delivery: the CDN edge itself responds in ~7ms (cache hit,
+    // confirmed via the `server-timing` response header), and this
+    // environment sustains ~514-630KB/s to it — against a video whose own
+    // real playback bitrate (computed from Cloudinary's own content-info:
+    // bytes/duration) is only ~256KB/s, i.e. the network delivers content
+    // ~2-2.5x faster than the video consumes it. minBufferForPlayback's 2s
+    // default was the single largest lever actually inside this app's
+    // control: at that ~2x margin it's paying for a safety cushion the
+    // network doesn't need. 0.75s keeps a real cushion (still ~2x over what
+    // a bare minimum would be) while cutting a meaningful chunk off
+    // mount-to-playing. preferredForwardBufferDuration's 20s default is
+    // longer than most of these clips ARE — for a ~14s video that's "keep
+    // trying to buffer the whole thing, indefinitely," which is what
+    // produced the repeated loading↔readyToPlay cycles observed during
+    // live testing whenever bandwidth was shared with preloading videos.
+    // 8s is comfortably more than minBufferForPlayback while no longer
+    // fighting every other in-flight request for the rest of the clip.
+    p.bufferOptions = { minBufferForPlayback: 0.75, preferredForwardBufferDuration: 8 };
   });
-
-  // useVideoPlayer only reads its source at creation — a later shouldLoad
-  // flip (this item just entered the preload window) needs an explicit
-  // replace() to actually start loading.
-  const loadedUriRef = useRef<string | null>(shouldLoad ? optimizedUri : null);
-  useEffect(() => {
-    if (shouldLoad && loadedUriRef.current !== optimizedUri) {
-      loadedUriRef.current = optimizedUri;
-      // player.replace() loads the asset SYNCHRONOUSLY on iOS's main
-      // thread — expo-video's own warning says this "can lead to UI
-      // freezes." This ran every time a video entered the preload window
-      // (i.e. on every scroll transition), on the main thread, on iOS —
-      // which is exactly the platform and exactly the moment "can't
-      // scroll" was reported on. replaceAsync() does the same swap without
-      // blocking the thread the gesture/scroll system also depends on.
-      player.replaceAsync(optimizedUri).then(() => {
-        player.muted = isMuted;
-      }).catch((err) => {
-        console.warn('[VideoFeedPlayer] replaceAsync failed:', err);
-      });
-    }
-  }, [shouldLoad, optimizedUri, player]);
 
   useEffect(() => {
     player.muted = isMuted;
   }, [isMuted, player]);
 
+  // A tap on the video toggles this; it's intentionally separate from
+  // `isActive` (which is scroll-driven) so a manual pause survives things
+  // like a mute toggle, and resets for free on the next video because this
+  // component only ever mounts fresh for whichever item is currently
+  // active (see the mount comment above) — there's no stale paused flag to
+  // carry across items.
+  const [isPaused, setIsPaused] = useState(false);
   useEffect(() => {
-    if (isActive) {
+    if (isActive && !isPaused) {
       player.play();
     } else {
       player.pause();
     }
-  }, [isActive, player]);
+  }, [isActive, isPaused, player]);
 
-  const [isBuffering, setIsBuffering] = useState(shouldLoad);
+  const [isBuffering, setIsBuffering] = useState(true);
   useEffect(() => {
     const sub = player.addListener('statusChange', ({ status }: { status: string }) => {
+      console.log('VIDEO_TIMING status_' + status, productId, Date.now());
       setIsBuffering(status === 'loading');
     });
-    return () => sub.remove();
-  }, [player]);
+    const sub2 = player.addListener('playingChange', ({ isPlaying }: { isPlaying: boolean }) => {
+      if (isPlaying) console.log('VIDEO_TIMING playing', productId, Date.now());
+    });
+    return () => { sub.remove(); sub2.remove(); };
+  }, [player, productId]);
 
   return (
-    <View style={styles.videoPlaceholderImage}>
+    <Pressable
+      style={styles.videoPlaceholderImage}
+      onPress={() => setIsPaused((prev) => !prev)}
+    >
       {/* Instant first paint (already a lightweight q_auto poster frame, see
           resolveProductImageUri) so this shows a real frame from frame one
           instead of a blank black rectangle while the video buffers — the
@@ -120,33 +162,71 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, posterUri, sh
       {!!posterUri && (
         <Image source={{ uri: posterUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       )}
-      {/* A native VideoView is a genuinely heavy view to have mounted —
-          its own decoder/compositor layer — regardless of whether it has
-          anything to play. Previously every scrolled-past item still got
-          one (with a null source), so however many cells the FlatList kept
-          around for smooth scrolling was also how many of these expensive
-          native views were alive at once, fighting each other for the
-          GPU/compositor and making the scroll itself stutter. Only the
-          handful of items actually inside the load window get a real
-          VideoView now; everything else is just the poster Image above —
-          cheap, and exactly what a TikTok-style feed shows for a cell
-          you're not on anyway. */}
-      {shouldLoad && (
-        <VideoView
-          player={player}
-          style={StyleSheet.absoluteFill}
-          nativeControls={false}
-          contentFit="cover"
-        />
-      )}
-      {isActive && isBuffering && (
+      {/* A native VideoView is a genuinely heavy view to have mounted — its
+          own decoder/compositor layer. VideoFeedPlayer (this whole
+          component, including its player) now only mounts at all for items
+          inside VideoFeedRow's load window, so unlike before there's no
+          "shouldLoad=false but still mounted" state left to gate here. */}
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        nativeControls={false}
+        contentFit="cover"
+        pointerEvents="none"
+      />
+      {isActive && isBuffering && !isPaused && (
         <View style={styles.videoBufferingOverlay} pointerEvents="none">
           <ActivityIndicator color="#ffffff" size="small" />
         </View>
       )}
-    </View>
+      {isPaused && (
+        <View style={styles.videoPauseOverlay} pointerEvents="none">
+          <Play size={30} color="#ffffff" fill="#ffffff" strokeWidth={0} />
+        </View>
+      )}
+    </Pressable>
   );
 });
+
+const HomePreloadVideo = React.memo(function HomePreloadVideo({ uri }: { uri: string }) {
+  const optimizedUri = useMemo(() => getOptimizedVideoUrlMobile(uri), [uri]);
+  // Same fact VideoFeedPlayer's own top comment relies on: a VideoPlayer
+  // starts buffering the moment it's given a source, before play() and
+  // with no VideoView at all. That's the entire mechanism here — no
+  // rendering, nothing ever shown, just warming the OS-level HTTP cache
+  // for this URL before the user has opened Watch Video Ads. Cloudinary
+  // serves these with `Cache-Control: public, immutable, max-age=2592000`
+  // (confirmed via a direct HEAD request against this feed's actual video
+  // URLs), which is about as cache-friendly as an HTTP response gets — the
+  // real VideoFeedPlayer's later fetch of the same URL should be served
+  // from that warm cache rather than going back to origin.
+  useVideoPlayer(optimizedUri, (p) => {
+    p.muted = true;
+  });
+  return null;
+});
+
+/** Silently preloads the first 2 video ads as soon as product data has
+ * loaded, regardless of whether the user has opened Watch Video Ads yet —
+ * rendered from HomeScreen below, gated on viewMode === 'grid' AND on the
+ * real feed not having been opened yet (see visitedVideoIndicesRef at the
+ * call site): once the user has actually entered the feed, the real
+ * VideoFeedPlayer instances take over via shouldLoad/visited persistence,
+ * and re-mounting this every time the user flips back to Classifieds would
+ * just be a redundant fetch for videos already cached. */
+function HomePreloadVideos({ items }: { items: Product[] }) {
+  const uris = useMemo(
+    () => items.slice(0, 2)
+      .map((p) => (Array.isArray((p as any).videos) ? (p as any).videos[0] : undefined))
+      .filter((uri): uri is string => !!uri),
+    [items]
+  );
+  return (
+    <View style={{ width: 0, height: 0, overflow: 'hidden' }} pointerEvents="none">
+      {uris.map((uri) => <HomePreloadVideo key={uri} uri={uri} />)}
+    </View>
+  );
+}
 import { ProductCard } from '../components/ProductCard';
 import { SellerCard } from '../components/SellerCard';
 import { TedBuyLogo } from '../components/TedBuyLogo';
@@ -218,8 +298,20 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
 
   return (
     <View style={[styles.videoPlayerFrame, { height }]}>
-      {videoUri ? (
-        <VideoFeedPlayer uri={videoUri} posterUri={videoFallbackImageUri} shouldLoad={shouldLoad} isActive={isActive} isMuted={isMuted} />
+      {videoUri && shouldLoad ? (
+        // VideoFeedPlayer unconditionally calls useVideoPlayer(), which
+        // creates a real native player object (decoder/audio-session shell)
+        // the moment it mounts — even with a null source. shouldLoad was
+        // only gating whether that player got a source/VideoView, not
+        // whether it existed at all, so every row the FlatList kept mounted
+        // for smooth virtualization (windowSize, wider than the 3-item load
+        // window) was quietly holding its own native player instance.
+        // Mounting VideoFeedPlayer itself only inside the load window means
+        // exactly the items that should have a player are the only ones
+        // that ever create one; everything else below just shows the same
+        // poster image VideoFeedPlayer would have shown anyway, so there's
+        // no visible change when a cell crosses into the load window.
+        <VideoFeedPlayer uri={videoUri} productId={item.id} posterUri={videoFallbackImageUri} isActive={isActive} isMuted={isMuted} />
       ) : videoFallbackImageUri ? (
         <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} />
       ) : (
@@ -419,6 +511,18 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     }
   }, [route?.params?.location]);
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+  // Every index that has ever been active this session — once a video has
+  // been watched, its player is never torn down again (see shouldLoadVideo
+  // at the renderItem call site), so scrolling back to it resumes instantly
+  // with no re-fetch, offline included, for as long as the app stays open.
+  // A plain mutable ref, not state: it only needs to affect what the next
+  // render's shouldLoadVideo computes, and that render is already happening
+  // because activeVideoIndex (state) just changed — a second state update
+  // here would just be a redundant extra render.
+  const visitedVideoIndicesRef = useRef<Set<number>>(new Set([0]));
+  useEffect(() => {
+    visitedVideoIndicesRef.current.add(activeVideoIndex);
+  }, [activeVideoIndex]);
   const [videoFeedHeight, setVideoFeedHeight] = useState(0);
   // The bottom tab navigator keeps Home mounted when you switch to another
   // tab (e.g. Profile) — activeVideoIndex doesn't change, so without this
@@ -440,6 +544,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const videoViewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
   const onVideoViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0 && viewableItems[0].index != null) {
+      console.log('VIDEO_TIMING item_selected', viewableItems[0].item?.id, viewableItems[0].index, Date.now());
       setActiveVideoIndex(viewableItems[0].index);
     }
   }).current;
@@ -786,9 +891,18 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     featuredScrollRef.current?.scrollTo({ x: index * FEATURED_CARD_STEP, animated: true });
   };
 
-  // Featured listings auto-swipe every 1.5s
+  // Featured listings auto-swipe every 1.5s — grid-only content, but this
+  // had no viewMode guard, so the timer kept ticking (and calling
+  // setFeaturedActiveIndex, a HomeScreen state update) every 1.5s even while
+  // deep in the Watch Video Ads feed with the carousel not even mounted.
+  // HomeScreen is a single huge component — that state update re-renders
+  // the whole tree, including recomputing the video feed's renderItem
+  // closure, on a timer competing with gesture handling and video state for
+  // the JS thread. A prior diagnostic pass (instrumented renderItem) had
+  // already shown the feed re-rendering every ~1-1.5s at total rest with no
+  // interaction at all — this timer is the direct match for that cadence.
   useEffect(() => {
-    if (featuredProducts.length <= 1 || isFeaturedPaused) return;
+    if (viewMode !== 'grid' || featuredProducts.length <= 1 || isFeaturedPaused) return;
 
     const interval = setInterval(() => {
       const nextIndex = (featuredIndexRef.current + 1) % featuredProducts.length;
@@ -796,7 +910,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [featuredProducts.length, isFeaturedPaused]);
+  }, [viewMode, featuredProducts.length, isFeaturedPaused]);
 
   // Reset to the first slide when the featured set changes (category/search change)
   useEffect(() => {
@@ -847,12 +961,19 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const [isLoadingMoreVideos, setIsLoadingMoreVideos] = useState(false);
   const seenVideoIdsRef = useRef<Set<string>>(new Set());
 
+  // No longer gated on viewMode === 'video': videoAdsProducts is already
+  // derived from `products`, which loads on Home mount regardless of which
+  // mode is showing, so there's no reason to wait for the user to actually
+  // open Watch Video Ads before this populates — doing it eagerly is what
+  // lets HomePreloadVideos (below) start buffering the first couple of
+  // videos while the user is still browsing Classifieds.
   useEffect(() => {
-    if (viewMode === 'video' && videoFeedItems.length === 0 && videoAdsProducts.length > 0) {
+    if (videoFeedItems.length === 0 && videoAdsProducts.length > 0) {
       videoAdsProducts.forEach((p) => seenVideoIdsRef.current.add(p.id));
+      console.log('VIDEO_TIMING url_resolved', videoAdsProducts[0]?.id, Date.now());
       setVideoFeedItems(videoAdsProducts);
     }
-  }, [viewMode, videoAdsProducts, videoFeedItems.length]);
+  }, [videoAdsProducts, videoFeedItems.length]);
 
   const loadMoreVideoAds = async () => {
     if (isLoadingMoreVideos) return;
@@ -1042,8 +1163,63 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     }
   };
 
+  // Horizontal discovery navigation (Classifieds ↔ Watch Video Ads ↔ Seller
+  // Store), layered on top of the vertical video-feed swipe without fighting
+  // it. activeOffsetX/failOffsetY is the standard react-native-gesture-handler
+  // technique for exactly this: the Pan only ACTIVATES once horizontal
+  // movement passes ±20px, and FAILS (handing the touch stream to whatever
+  // native scroll view is underneath — the vertical video FlatList, or the
+  // grid's own vertical FlatList) the moment vertical movement passes ±15px
+  // first. Vertical gets the tighter threshold deliberately, since a false
+  // activation here would compete with the vertical swipe that took this
+  // session multiple rounds to get reliable — biasing toward "let vertical
+  // win" is the safe direction to bias in. A plain tap (Save/Chat/mute/pause/
+  // etc.) never moves far enough to activate a Pan at all, so none of the
+  // existing Pressables are affected.
+  const HORIZONTAL_SWIPE_MIN_DISTANCE = 60;
+  const HORIZONTAL_SWIPE_MIN_VELOCITY = 400;
+
+  const gridToVideoGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-20, 20])
+        .failOffsetY([-15, 15])
+        .onEnd((e) => {
+          if (e.translationX < -HORIZONTAL_SWIPE_MIN_DISTANCE && e.velocityX < -HORIZONTAL_SWIPE_MIN_VELOCITY) {
+            setViewMode('video');
+          }
+        }),
+    []
+  );
+
+  const videoHorizontalGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-20, 20])
+        .failOffsetY([-15, 15])
+        .onEnd((e) => {
+          if (e.translationX < -HORIZONTAL_SWIPE_MIN_DISTANCE && e.velocityX < -HORIZONTAL_SWIPE_MIN_VELOCITY) {
+            const currentSellerId = videoFeedItems[activeVideoIndex]?.sellerId;
+            if (currentSellerId) {
+              navigation?.navigate('SellerProfile', { sellerId: currentSellerId });
+            }
+          } else if (e.translationX > HORIZONTAL_SWIPE_MIN_DISTANCE && e.velocityX > HORIZONTAL_SWIPE_MIN_VELOCITY) {
+            setViewMode('grid');
+          }
+        }),
+    [videoFeedItems, activeVideoIndex, navigation]
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      {/* Zero-size, invisible — see HomePreloadVideos above. Only needed
+          before the user has ever opened the real feed; once they have,
+          visitedVideoIndicesRef already covers keeping those two videos'
+          players alive, so re-running this on every trip back to
+          Classifieds would just be a redundant fetch. */}
+      {viewMode === 'grid' && !visitedVideoIndicesRef.current.has(0) && (
+        <HomePreloadVideos items={videoFeedItems} />
+      )}
       {/* Premium Web-aligned top header */}
       <View style={styles.headerContainer}>
         <View style={styles.topBar}>
@@ -1109,6 +1285,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       {/* Main body of the screen */}
       <View style={styles.body}>
         {viewMode === 'grid' ? (
+          <GestureDetector gesture={gridToVideoGesture}>
           <AnimatedFlatList
             ref={mainGridRef}
             key="grid-2-cols"
@@ -1161,7 +1338,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                     <Text style={[styles.toggleBtnText, viewMode === 'grid' && styles.toggleBtnTextActive]}>Standard Grid</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => setViewMode('video')}
+                    onPress={() => { console.log('VIDEO_TIMING feed_open', videoFeedItems[0]?.id, Date.now()); setViewMode('video'); }}
                     style={[styles.toggleBtn, viewMode === 'video' && styles.toggleBtnActive]}
                   >
                     <Video size={19} color="#10b981" fill="#10b981" strokeWidth={1.6} />
@@ -1792,6 +1969,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               ) : null
             }
           />
+          </GestureDetector>
         ) : loading ? (
           <View style={styles.videoFeedEmptyState}>
             <ActivityIndicator size="large" color="#ffffff" />
@@ -1807,6 +1985,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
         ) : (
           /* IMMERSIVE VIDEO ADS FEED (Swiper/Reels style) — real playback, only
              for listings that actually have a video. */
+          <GestureDetector gesture={videoHorizontalGesture}>
           <View
             style={styles.videoFeedContainer}
             onLayout={(e) => setVideoFeedHeight(e.nativeEvent.layout.height)}
@@ -1814,7 +1993,23 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
             {videoFeedHeight > 0 && (
             <AnimatedFlatList
               data={videoFeedItems}
-              pagingEnabled
+              // Standard Grid <-> Watch Video Ads is a conditional render,
+              // not a screen navigation — switching to Grid and back
+              // unmounts and remounts this exact FlatList, but
+              // activeVideoIndex (state on the parent) survives that
+              // remount untouched. Without this, the list always visually
+              // restarts at index 0 while isActive/shouldLoad logic below
+              // kept pointing at wherever you'd scrolled to, so the WRONG
+              // video (an off-screen one, by the stale index) would
+              // autoplay against what you could actually see, and the
+              // on-screen video sat outside the preload window until the
+              // next viewability tick corrected it — precisely the kind of
+              // glitch a returning user would read as "the feed is broken."
+              initialScrollIndex={Math.min(activeVideoIndex, Math.max(0, videoFeedItems.length - 1))}
+              // The FlatList had no explicit style, so it never had a
+              // guaranteed viewport bounded to exactly one page — needed for
+              // pagingEnabled below to page against the right size.
+              style={styles.videoFeedList}
               keyExtractor={(item) => `video-${item.id}`}
               showsVerticalScrollIndicator={false}
               viewabilityConfig={videoViewabilityConfig}
@@ -1822,31 +2017,75 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               onScroll={onTabBarScroll}
               scrollEventThrottle={16}
               getItemLayout={(_, index) => ({ length: videoFeedHeight, offset: videoFeedHeight * index, index })}
-              snapToInterval={videoFeedHeight}
+              // pagingEnabled (not snapToInterval) is the fix for swipes
+              // that don't register: measured live on-device, a fast, short
+              // drag (~1400px in 300ms — well past any real fling velocity)
+              // only moved the content ~33% of one page before letting go,
+              // and with snapToInterval that ALWAYS snaps back to the
+              // start — Android's snapToInterval decides purely from final
+              // release position relative to the interval, ignoring
+              // velocity. pagingEnabled hands paging to the native
+              // ScrollView, which does fling-aware paging (a fast flick
+              // advances a page even from a small drag) — the standard
+              // "feels effortless" TikTok/Reels behavior this needs.
+              pagingEnabled
               decelerationRate="fast"
-              disableIntervalMomentum
               onEndReached={loadMoreVideoAds}
               onEndReachedThreshold={1.5}
-              // Moderate, not extreme — just enough to avoid keeping ~10
-              // screens' worth of cells mounted for a one-video-per-screen
-              // feed. Deliberately NOT paired with removeClippedSubviews,
-              // which is what actually broke scrolling last round (its
-              // view-recycling fights native video decoders on iOS); plain
-              // windowSize alone doesn't touch how views get attached, just
-              // how many the list bothers pre-rendering.
+              // windowSize is the actual gate on "does scrolling back to an
+              // already-watched video avoid a re-fetch": shouldLoadVideo
+              // (below) keeps a visited item's player alive indefinitely,
+              // but that's moot if FlatList itself unmounts the cell first
+              // — windowSize, not shouldLoad, decides which cells stay
+              // mounted at all. Back at RN's own default (21) rather than
+              // the tighter 5 used before, now that doing so is cheap: a
+              // mounted-but-not-shouldLoad cell is just a poster Image
+              // (shouldLoad, not windowSize, is what gates ever creating a
+              // real native player — see the VideoFeedPlayer comment up
+              // top), so a wider window costs some extra lightweight Image
+              // views, not extra decoders. This still isn't literally
+              // "every video for the whole session" — scroll far enough
+              // past a video and its cell eventually leaves even this
+              // window and unmounts for real — but it comfortably covers
+              // scrolling back through everything recently watched, which
+              // is what "scroll back and it's already there" means in
+              // practice. Deliberately NOT paired with
+              // removeClippedSubviews, which is what actually broke
+              // scrolling in an earlier round (its view-recycling fights
+              // native video decoders on iOS).
               initialNumToRender={3}
               maxToRenderPerBatch={3}
-              windowSize={5}
+              windowSize={21}
               renderItem={({ item, index }) => {
                 const currentUserId = auth.currentUser?.uid;
                 const sellerProfile: any = users.find((u: any) => u.id === item.sellerId);
                 const isOwnVideoItem = !!currentUserId && item.sellerId === currentUserId;
                 const myProfile: any = currentUserId ? users.find((u: any) => u.id === currentUserId) : null;
                 const isFollowingSeller = Array.isArray(myProfile?.followingSellers) && myProfile.followingSellers.includes(item.sellerId);
-                // Only the active video and the one right after it ever
-                // download anything; one slot behind stays loaded too so
-                // swiping back up doesn't re-buffer from scratch.
-                const shouldLoadVideo = index >= activeVideoIndex - 1 && index <= activeVideoIndex + 1;
+                // Active-only loading (no preload at all) measurably fixed
+                // the active video's own load time — live-measured
+                // readyToPlay dropped from 5.48s (competing with a
+                // concurrent next-item download) to 2.75s. But that traded
+                // away the other half of the ask: every single swipe forward
+                // then cold-starts from zero, which reads as "the video
+                // always takes forever," and scrolling back re-fetches a
+                // video already watched moments ago. Both are real product
+                // requirements, not just a performance number, so this now
+                // preloads the next 2 items ahead (bearing the same
+                // bandwidth-sharing cost that measurement found — accepted
+                // deliberately here in exchange for "swipe forward never
+                // waits") AND never tears down a player for an index once
+                // it's been visited, so scrolling back finds it already
+                // loaded, muted-but-ready, replayable with zero network.
+                // "Visited" is permanent for the life of the screen, not
+                // just the current windowSize neighborhood — see
+                // visitedVideoIndicesRef above and the widened windowSize
+                // below, which is what actually keeps a visited item's cell
+                // (and thus its player) from being virtualized away as the
+                // user keeps scrolling forward past it.
+                const shouldLoadVideo =
+                  (index >= activeVideoIndex && index <= activeVideoIndex + 2) ||
+                  visitedVideoIndicesRef.current.has(index);
                 return (
                   <VideoFeedRow
                     item={item}
@@ -1872,6 +2111,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
             />
             )}
           </View>
+          </GestureDetector>
         )}
       </View>
 
@@ -2323,6 +2563,7 @@ const styles = StyleSheet.create({
 
   /* IMMERSIVE REELS SIMULATION COMPONENTS */
   videoFeedContainer: { flex: 1, backgroundColor: '#020617' },
+  videoFeedList: { flex: 1 },
   videoPlayerFrame: {
     width: '100%',
     backgroundColor: '#000000',
@@ -2345,6 +2586,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  videoPauseOverlay: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.15)',
   },
   videoOverlay: {
     // Lighter than before deliberately — this used to darken a blurred fake

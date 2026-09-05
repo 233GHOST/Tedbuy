@@ -190,7 +190,17 @@ export function AppNavigator() {
             return <ProductDetailScreen productId={route.params.productId} onBack={() => navigation.goBack()} />;
           }}
         </Stack.Screen>
-        <Stack.Screen name="SellerProfile" options={{ presentation: 'card' }}>
+        {/* gestureEnabled/fullScreenGestureEnabled made explicit (rather than
+            relying on native-stack's default) so swiping left-to-right
+            anywhere on this screen — not just an edge-swipe — returns to
+            wherever it was opened from, e.g. the Watch Video Ads feed.
+            fullScreenGestureEnabled is iOS-only; Android's equivalent is its
+            own system edge-swipe-back, which is the platform-native
+            convention there already. */}
+        <Stack.Screen
+          name="SellerProfile"
+          options={{ presentation: 'card', gestureEnabled: true, fullScreenGestureEnabled: true }}
+        >
           {({ route }) => {
             const navigation = useNavigation<any>();
             return (

@@ -828,17 +828,45 @@ app.post(
 
       const cfg = cloudinary.config();
       const timestamp = Math.round(Date.now() / 1000);
-      // Generates a feed-appropriate (720p-capped, auto quality/codec)
-      // variant synchronously as part of THIS upload — the seller's own
-      // upload takes a little longer once, in exchange for every future
-      // viewer never triggering an on-demand transcode themselves (that
-      // used to present as a video that just never loads — see
+      // Generates a feed-appropriate, auto quality/codec variant
+      // synchronously as part of THIS upload — the seller's own upload
+      // takes a little longer once, in exchange for every future viewer
+      // never triggering an on-demand transcode themselves (that used to
+      // present as a video that just never loads — see
       // getOptimizedVideoUrlMobile's history in utils/cloudinary.ts for
       // why playback-time transforms were reverted). The original file is
       // still uploaded and kept as-is; this is an additional derived asset.
+      //
+      // Width cap lowered from 720 to 480: a real-device screen recording
+      // (weak cellular signal, ~1 bar) showed a video still spinning on
+      // buffer well after the poster and product details had rendered.
+      // 720px width is more than this content is ever actually displayed
+      // at (a full-bleed phone-width vertical video), and video compression
+      // artifacts from downscaling are far less perceptible than the same
+      // reduction would be on a still image — so the fidelity cost here is
+      // close to free while cutting roughly 2.25x the pixels (and closely
+      // correlated bitrate) that has to arrive before playback can start.
+      // This directly targets the one thing every viewer needs regardless
+      // of connection quality: less data required for the same first
+      // frame. Only benefits new uploads going forward, same as the
+      // eager-transform approach itself — it can't retroactively shrink
+      // already-uploaded videos.
+      //
+      // Second eager transform (pipe-separated) pre-generates the poster
+      // frame getServerVideoPoster() computes a URL for — measured directly
+      // against a real listing's poster URL: the FIRST request for that
+      // exact so_0,f_jpg,... transform took 4.86s (Cloudinary generating it
+      // on demand), vs 0.69-0.92s on a warm cache. That's the same
+      // lazy-transform cold-stall already found and fixed for the video
+      // itself, just never applied to the poster — and the poster is
+      // specifically the thing meant to appear instantly while the video
+      // loads, so a viewer being the unlucky first-ever request for it
+      // defeats the entire point. The transform string here must match
+      // getServerVideoPoster()'s exactly, or this pre-generates a cache
+      // entry nothing ever requests.
       // Folder is fixed server-side (not client-supplied) so it's protected by the
       // signature — a tampered folder value would fail Cloudinary's own signature check.
-      const eagerTransform = 'q_auto,f_auto,w_720,c_limit';
+      const eagerTransform = 'q_auto,f_auto,w_480,c_limit|so_0,f_jpg,q_auto,w_1200,h_630,c_fill';
       const paramsToSign = { folder: 'tedbuy_products', timestamp, eager: eagerTransform };
       const signature = cloudinary.utils.api_sign_request(paramsToSign, cfg.api_secret as string);
 
@@ -854,6 +882,101 @@ app.post(
     } catch (err: any) {
       console.error('[Cloudinary Sign Video Upload Error]:', err);
       return res.status(500).json({ success: false, error: err?.message || 'Failed to generate upload signature' });
+    }
+  }
+);
+
+// One-time admin maintenance: existing video listings were uploaded before
+// the eager-transform pipeline existed (or before its width cap was
+// lowered from 720 to 480), so their stored `videos`/`videoPoster` URLs
+// point at assets Cloudinary has never pre-generated the fast variant for
+// — a real user's device would otherwise be the one to trigger that
+// transcode, which is exactly the multi-second cold-stall this whole
+// eager-transform approach exists to avoid (see the sign-video-upload
+// comment above). This re-runs the same eager transforms against each
+// existing video's original asset via Cloudinary's explicit() API, then
+// updates the stored URLs to the newly-generated (and now Cloudinary-
+// cached) variants, so the next real viewer never pays that cost. Bounded
+// to whatever's actually in the database (6 videos at the time this was
+// written) — safe to run synchronously in one request at that scale.
+app.post(
+  "/api/admin/backfill-video-eager",
+  serverRateLimiter(60 * 1000, 5, "admin-backfill-video"),
+  async (req: express.Request, res: express.Response) => {
+    const isAdmin = req.headers.authorization ? await verifyAdmin(req.headers.authorization) : false;
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Admin authentication required' });
+    }
+    if (!initCloudinaryConfig()) {
+      return res.status(503).json({ success: false, error: 'Cloudinary is not configured on this server.' });
+    }
+
+    const dryRun = req.body?.dryRun === true;
+    const results: any[] = [];
+
+    try {
+      const { data: rows, error } = await backendSupabase
+        .from('products')
+        .select('id, videos, videoPoster')
+        .not('videos', 'is', null);
+      if (error) throw error;
+
+      const withVideo = (rows || []).filter((r: any) => Array.isArray(r.videos) && r.videos.length > 0 && typeof r.videos[0] === 'string' && r.videos[0].length > 0);
+
+      for (const row of withVideo) {
+        const originalUrl = row.videos[0];
+        const info = extractCloudinaryInfo(originalUrl);
+        if (!info || info.resourceType !== 'video') {
+          results.push({ id: row.id, status: 'skipped', reason: 'Could not extract a Cloudinary public_id from stored video URL' });
+          continue;
+        }
+
+        if (dryRun) {
+          results.push({ id: row.id, status: 'would_process', publicId: info.publicId, originalUrl });
+          continue;
+        }
+
+        try {
+          const explicitResult: any = await cloudinary.uploader.explicit(info.publicId, {
+            type: 'upload',
+            resource_type: 'video',
+            eager: [
+              { quality: 'auto', fetch_format: 'auto', width: 480, crop: 'limit' },
+              { start_offset: '0', format: 'jpg', quality: 'auto', width: 1200, height: 630, crop: 'fill' },
+            ],
+            eager_async: false,
+          });
+
+          const newVideoUrl = explicitResult?.eager?.[0]?.secure_url;
+          const newPosterUrl = explicitResult?.eager?.[1]?.secure_url;
+          if (!newVideoUrl) {
+            results.push({ id: row.id, status: 'failed', reason: 'Cloudinary returned no eager video variant' });
+            continue;
+          }
+
+          const updatedVideos = [newVideoUrl, ...row.videos.slice(1)];
+          const { error: updateErr } = await backendSupabase
+            .from('products')
+            .update({ videos: updatedVideos, ...(newPosterUrl ? { videoPoster: newPosterUrl } : {}) })
+            .eq('id', row.id);
+          if (updateErr) throw updateErr;
+
+          results.push({ id: row.id, status: 'updated', newVideoUrl, newPosterUrl: newPosterUrl || null });
+        } catch (err: any) {
+          results.push({ id: row.id, status: 'failed', reason: err?.message || String(err) });
+        }
+      }
+
+      const summary = {
+        total: withVideo.length,
+        updated: results.filter((r) => r.status === 'updated').length,
+        failed: results.filter((r) => r.status === 'failed').length,
+        skipped: results.filter((r) => r.status === 'skipped').length,
+      };
+      return res.json({ success: true, dryRun, summary, results });
+    } catch (err: any) {
+      console.error('[Backfill Video Eager Error]:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Backfill failed' });
     }
   }
 );
