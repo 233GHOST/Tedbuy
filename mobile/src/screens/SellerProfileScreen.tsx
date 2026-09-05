@@ -12,15 +12,16 @@ import {
   Text,
   TextInput,
   View,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, watchProducts, watchUsers, fetchUserById, startChatApi, toggleFollowSeller, fetchReviewsForSeller, addReview } from '../firebase';
-import { Users as UsersIcon, UserPlus, UserMinus } from 'lucide-react-native';
+import { Users as UsersIcon, UserPlus, UserMinus, MessageCircle, MessageSquare, ShieldCheck, Flame, Shield } from 'lucide-react-native';
 import { ProductCard } from '../components/ProductCard';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { isBoostActive } from '../utils/boost';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
-import { DismissKeyboardView } from '../components/DismissKeyboardView';
 import { formatTedbuyTenure } from '../utils/tenure';
 import { fonts } from '../theme';
 
@@ -146,7 +147,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
       setIsFollowing(updatedState);
       await toggleFollowSeller(sellerId, currentUser.uid);
       Alert.alert(
-        updatedState ? 'Merchant Followed 🔔' : 'Unfollowed',
+        updatedState ? 'Merchant Followed' : 'Unfollowed',
         updatedState
           ? `You will now receive updates when ${seller?.username || 'this merchant'} posts new items.`
           : `Removed from your followed sellers.`
@@ -235,7 +236,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
       setReviewRating(5);
       setReviewProductTitle('');
       setShowReviewModal(false);
-      Alert.alert('Review Submitted ⭐', 'Thank you for building community trust on TedBuy!');
+      Alert.alert('Review Submitted', 'Thank you for building community trust on TedBuy!');
     } catch (err: any) {
       Alert.alert('Review Failed', err?.message || 'Could not submit your review. Please try again.');
     } finally {
@@ -318,8 +319,9 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
             <View style={styles.profileMeta}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                 {isUserAdmin(seller) ? (
-                  <View style={[styles.verifiedTag, { backgroundColor: '#dbeafe', borderColor: '#bfdbfe' }]}>
-                    <Text style={[styles.verifiedTagText, { color: '#1d4ed8' }]}>🔹 OFFICIAL ADMIN</Text>
+                  <View style={[styles.verifiedTag, styles.tagRow, { backgroundColor: '#dbeafe', borderColor: '#bfdbfe' }]}>
+                    <ShieldCheck size={11} color="#1d4ed8" strokeWidth={2.4} />
+                    <Text style={[styles.verifiedTagText, { color: '#1d4ed8' }]}>OFFICIAL ADMIN</Text>
                   </View>
                 ) : isUserVerified(seller) ? (
                   <View style={styles.verifiedTag}>
@@ -327,8 +329,9 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
                   </View>
                 ) : null}
                 {isActiveSeller && (
-                  <View style={styles.activeSellerTag}>
-                    <Text style={styles.activeSellerTagText}>🔥 ACTIVE SELLER</Text>
+                  <View style={[styles.activeSellerTag, styles.tagRow]}>
+                    <Flame size={11} color="#92400e" fill="#92400e" strokeWidth={0} />
+                    <Text style={styles.activeSellerTagText}>ACTIVE SELLER</Text>
                   </View>
                 )}
               </View>
@@ -395,7 +398,10 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
                 {startingChat ? (
                   <ActivityIndicator color="#ffffff" size="small" />
                 ) : (
-                  <Text style={styles.primaryActionBtnText}>💬 Chat on TedBuy</Text>
+                  <>
+                    <MessageCircle size={16} color="#34d399" strokeWidth={2.2} />
+                    <Text style={styles.primaryActionBtnText}>Chat on TedBuy</Text>
+                  </>
                 )}
               </Pressable>
 
@@ -403,7 +409,8 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
                 onPress={handleOpenWhatsApp}
                 style={[styles.whatsappActionBtn, { flex: 1 }]}
               >
-                <Text style={styles.whatsappActionBtnText}>💚 WhatsApp</Text>
+                <MessageSquare size={16} color="#ffffff" fill="rgba(255,255,255,0.2)" strokeWidth={2.2} />
+                <Text style={styles.whatsappActionBtnText}>WhatsApp</Text>
               </Pressable>
             </View>
           )}
@@ -540,7 +547,10 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
       >
         <View style={styles.modalOverlay}>
           <View style={styles.safetyModalCard}>
-            <Text style={styles.safetyModalTitle}>🛡️ Safe Meetup Guidance</Text>
+            <View style={[styles.tagRow, { marginBottom: 10 }]}>
+              <Shield size={17} color="#0f172a" strokeWidth={2.2} />
+              <Text style={[styles.safetyModalTitle, { marginBottom: 0 }]}>Safe Meetup Guidance</Text>
+            </View>
             <Text style={styles.safetyModalText}>
               • Always meet sellers in well-lit public places (malls, stations, bustling banks).{'\n'}
               • Inspect the item thoroughly before making payment.{'\n'}
@@ -565,8 +575,19 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
         visible={showReviewModal}
         onRequestClose={() => setShowReviewModal(false)}
       >
-        <DismissKeyboardView>
         <View style={styles.modalOverlay}>
+          {/* Absolutely-positioned background catcher for "tap outside to
+              dismiss keyboard" — a sibling behind the card, not a wrapper
+              around it. Wrapping the whole card (as this used to, via
+              DismissKeyboardView) put Submit Customer Feedback inside the
+              same TouchableWithoutFeedback as the dismiss handler: with the
+              keyboard focused on the comment field, the first tap on submit
+              was consumed by the dismiss-keyboard responder instead of
+              reaching the button underneath. See the identical fix in
+              ChatsScreen.tsx's review modal for the full explanation. */}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
           <View style={styles.reviewModalCard}>
             <View style={styles.reviewModalHeader}>
               <Text style={styles.reviewModalTitle}>Write Merchant Review</Text>
@@ -650,7 +671,6 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
             </Pressable>
           </View>
         </View>
-        </DismissKeyboardView>
       </Modal>
 
       <EmailVerificationModal
@@ -833,6 +853,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   verifiedTagText: { color: '#166534', fontSize: 9, fontFamily: fonts.extrabold },
+  tagRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   activeSellerTag: {
     backgroundColor: '#fffbeb',
     alignSelf: 'flex-start',
@@ -878,14 +899,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     paddingVertical: 12,
     borderRadius: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   primaryActionBtnText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13 },
   whatsappActionBtn: {
     backgroundColor: '#059669',
     paddingVertical: 12,
     borderRadius: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   whatsappActionBtnText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13 },
 

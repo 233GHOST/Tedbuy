@@ -3,7 +3,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { Bookmark, Share2, ShieldAlert, X } from 'lucide-react-native';
+import { Bookmark, Share2, ShieldAlert, X, MessageSquare, Shield } from 'lucide-react-native';
 import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView } from '../firebase';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
@@ -333,6 +333,12 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   // would otherwise appear alongside the video).
   const realVideos: string[] = Array.isArray(product.videos) ? product.videos.filter(Boolean) : [];
   const realImages: string[] = Array.isArray(product.images) && product.images.length ? product.images.filter(Boolean) : [];
+  // Matches ProductCard.tsx's isServiceCategory / HomeScreen.tsx's
+  // isServiceListing exactly — a service listing's stored "price" is
+  // frequently a leftover 0 (no fixed price makes sense for a service), so
+  // this page's own main price line was still showing a literal "GH₵0"
+  // even though the share-link logic further down already excluded it.
+  const isServiceListing = product.category ? (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')) : false;
   // Only a real legacy `image` field counts here — never a random stock
   // photo standing in for a genuinely medialess listing.
   const legacyFallbackImage = realVideos.length === 0 && realImages.length === 0 ? resolveProductImageUri(product) : null;
@@ -493,7 +499,9 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
           {/* Price with Negotiable badge right beside it */}
           <View style={styles.priceRowContainer}>
-            <Text style={styles.price}>{formatProductPrice(product.price)}</Text>
+            {!isServiceListing && (
+              <Text style={styles.price}>{formatProductPrice(product.price)}</Text>
+            )}
             {product.isSold && (
               <View style={styles.soldLabel}>
                 <Text style={styles.soldLabelText}>Sold Product</Text>
@@ -565,8 +573,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
               onPress={async () => {
                 if (!product) return;
                 const cleanSlug = (product.title || 'item').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-                const isService = product.category ? (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')) : false;
-                const hasPrice = !isService && product.price && Number(product.price) > 0;
+                const hasPrice = !isServiceListing && product.price && Number(product.price) > 0;
                 const priceText = hasPrice ? ` for GHS ${product.price}` : '';
                 const shareUrl = `https://www.tedbuy.store/product/${product.id}-${cleanSlug}?title=${encodeURIComponent(product.title || '')}&price=${hasPrice ? encodeURIComponent(product.price) : ''}`;
                 try {
@@ -595,7 +602,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                 onPress={handleMessageWhatsApp}
                 style={styles.whatsappButton}
               >
-                <Text style={styles.whatsappButtonText}>💬 Message Seller on WhatsApp</Text>
+                <MessageSquare size={18} color="#ffffff" fill="rgba(255,255,255,0.2)" strokeWidth={2.2} />
+                <Text style={styles.whatsappButtonText}>Message Seller on WhatsApp</Text>
               </Pressable>
 
               <View style={styles.inlineChatCard}>
@@ -678,18 +686,24 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                 </Text>
                 <View style={[
                   styles.trustScorePill,
+                  styles.tagRow,
                   trustResult.score >= 90 ? styles.trustPillEmerald
                     : trustResult.score >= 75 ? styles.trustPillIndigo
                     : trustResult.score >= 50 ? styles.trustPillAmber
                     : styles.trustPillRose,
                 ]}>
+                  <Shield
+                    size={10}
+                    color={trustResult.score >= 90 ? '#065f46' : trustResult.score >= 75 ? '#3730a3' : trustResult.score >= 50 ? '#92400e' : '#9f1239'}
+                    strokeWidth={2.4}
+                  />
                   <Text style={[
                     styles.trustScorePillText,
                     trustResult.score >= 90 ? styles.trustTextEmerald
                       : trustResult.score >= 75 ? styles.trustTextIndigo
                       : trustResult.score >= 50 ? styles.trustTextAmber
                       : styles.trustTextRose,
-                  ]}>🛡️ Trust Score: {trustResult.score}%</Text>
+                  ]}>Trust Score: {trustResult.score}%</Text>
                 </View>
               </View>
               <View style={styles.viewStoreBtn}>
@@ -893,7 +907,9 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                       <Text style={styles.otherItemTitle} numberOfLines={1}>
                         {otherItem.title}
                       </Text>
-                      <Text style={styles.otherItemPrice}>{formatProductPrice(otherItem.price)}</Text>
+                      {!(otherItem.category && String(otherItem.category).toLowerCase().includes('service')) && (
+                        <Text style={styles.otherItemPrice}>{formatProductPrice(otherItem.price)}</Text>
+                      )}
                       <Text style={styles.otherItemMeta}>
                         {otherItem.category} • {otherItem.location}
                       </Text>
@@ -1179,7 +1195,7 @@ const styles = StyleSheet.create({
   shareButton: { flex: 1, flexDirection: 'row', gap: 6, backgroundColor: '#f1f5f9', borderRadius: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#cbd5e1' },
   shareButtonText: { color: '#0f172a', fontFamily: fonts.bold, fontSize: 13 },
 
-  whatsappButton: { marginTop: 12, backgroundColor: '#059669', borderRadius: 14, paddingVertical: 13, alignItems: 'center', shadowColor: '#059669', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  whatsappButton: { marginTop: 12, backgroundColor: '#059669', borderRadius: 14, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, shadowColor: '#059669', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   whatsappButtonText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13.5, letterSpacing: 0.2 },
 
   /* Inline Chat Box */
@@ -1215,6 +1231,7 @@ const styles = StyleSheet.create({
   microBadge: { backgroundColor: '#f0fdf4', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#bbf7d0' },
   microBadgeText: { color: '#166534', fontSize: 9.5, fontFamily: fonts.extrabold },
   trustScorePill: { marginTop: 4, alignSelf: 'flex-start', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1 },
+  tagRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   trustScorePillText: { fontSize: 9.5, fontFamily: fonts.extrabold },
   trustPillEmerald: { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' },
   trustTextEmerald: { color: '#065f46' },

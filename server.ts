@@ -997,7 +997,7 @@ app.post(
   }
 );
 
-app.post("/api/cloudinary/delete", async (req: express.Request, res: express.Response) => {
+app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-delete"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to delete Cloudinary asset' });
@@ -1028,7 +1028,9 @@ app.post("/api/cloudinary/delete", async (req: express.Request, res: express.Res
   }
 });
 
-app.post("/api/cloudinary/cleanup-orphans", async (req: express.Request, res: express.Response) => {
+// A bulk scan/cleanup operation — genuinely expensive per call, not
+// something any legitimate client flow needs to hit often.
+app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5, "cloudinary-cleanup-orphans"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to cleanup Cloudinary assets' });
@@ -2133,7 +2135,7 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
   return cleanProduct;
 }
 
-app.post('/api/products/sync', async (req, res) => {
+app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync"), async (req, res) => {
   const { product } = req.body;
   if (!product) {
     return res.status(400).json({ success: false, error: 'Missing product payload' });
@@ -2270,7 +2272,8 @@ app.post('/api/products/sync', async (req, res) => {
   }
 });
 
-app.post('/api/products/create', async (req, res) => {
+// Prevents spam-posting listings.
+app.post('/api/products/create', serverRateLimiter(60 * 1000, 10, "products-create"), async (req, res) => {
   const { product } = req.body;
   if (!product) {
     return res.status(400).json({ success: false, error: 'Missing product payload' });
@@ -2354,7 +2357,7 @@ async function deleteProductFromBackend(productId: string) {
   invalidateProductCache(productId, sellerId, category);
 }
 
-app.post('/api/products/delete', async (req, res) => {
+app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-delete"), async (req, res) => {
   const productId = req.body?.productId || req.body?.id;
   if (!productId) {
     return res.status(400).json({ success: false, error: 'Missing productId' });
@@ -2390,7 +2393,7 @@ app.post('/api/products/delete', async (req, res) => {
   }
 });
 
-app.delete('/api/products/:productId', async (req, res) => {
+app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "products-delete-by-id"), async (req, res) => {
   const { productId } = req.params;
   if (!productId) {
     return res.status(400).json({ success: false, error: 'Missing productId' });
@@ -2426,7 +2429,7 @@ app.delete('/api/products/:productId', async (req, res) => {
   }
 });
 
-app.post('/api/sitemap/clear', (req, res) => {
+app.post('/api/sitemap/clear', serverRateLimiter(60 * 1000, 5, "sitemap-clear"), (req, res) => {
   clearSitemapCache();
   res.json({ success: true, message: 'Sitemap cache cleared' });
 });
@@ -2434,7 +2437,7 @@ app.post('/api/sitemap/clear', (req, res) => {
 // -------------------------------------------------------------
 // USER PERSISTENCE & RETRIEVAL ENDPOINTS
 // -------------------------------------------------------------
-app.post('/api/users/sync', async (req: express.Request, res: express.Response) => {
+app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), async (req: express.Request, res: express.Response) => {
   const { user } = req.body || {};
   if (!user || !user.id) {
     return res.status(400).json({ success: false, error: 'Missing user or user.id' });
@@ -2544,7 +2547,7 @@ app.post('/api/users/sync', async (req: express.Request, res: express.Response) 
   }
 });
 
-app.get('/api/users/get', async (req: express.Request, res: express.Response) => {
+app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (req: express.Request, res: express.Response) => {
   const userId = req.query.id as string;
   const email = req.query.email as string;
 
@@ -2577,6 +2580,62 @@ app.get('/api/users/get', async (req: express.Request, res: express.Response) =>
   } catch (err: any) {
     console.error('[Users Get API Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to fetch user' });
+  }
+});
+
+// Bulk, public-safe user directory — backs mobile's watchUsers(), which
+// used to read the Firestore `users` collection directly. That collection
+// is a mirror of this Supabase table and can drift out of sync with it (a
+// username change updates Supabase but the Firestore copy doesn't always
+// follow) — confirmed live: one real seller's Supabase username was
+// "Richie" while their Firestore mirror still said "Vince", so the Popular
+// Stores card (Firestore-sourced) showed one name while tapping into their
+// actual profile (this file's own /api/users/get, correctly Supabase-
+// sourced) showed the other. Routing watchUsers() through Supabase instead
+// closes that gap at the source rather than special-casing the symptom.
+// Deliberately NOT a raw `select('*')` like /api/users/get above: that
+// endpoint is fetched one specific user at a time, but this one returns
+// every user in one response, so shipping email/phoneNumber/whatsAppNumber
+// in bulk would hand any caller a scrapable directory of everyone's contact
+// info. isAdmin is computed server-side from the same rule as isUserAdmin
+// (mobile/src/types.ts) precisely so the client never needs the raw email
+// to answer "is this user an admin".
+app.get('/api/users/list', serverRateLimiter(60 * 1000, 30, "users-list"), async (req: express.Request, res: express.Response) => {
+  try {
+    if (!backendSupabase) {
+      return res.status(503).json({ success: false, error: 'Database service unavailable' });
+    }
+    const { data, error } = await backendSupabase
+      .from('users')
+      .select('id, username, displayName, photoUrl, location, isVerified, emailVerified, verified, idVerified, badge, role, rating, sellerRating, joinDate, followingSellers, savedProductIds, isAdmin, email, isDeleted, status');
+    if (error) throw error;
+
+    const users = (data || [])
+      .filter((u: any) => u.isDeleted !== true && u.status !== 'deleted')
+      .map((u: any) => ({
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName,
+        photoUrl: u.photoUrl,
+        location: u.location,
+        isVerified: u.isVerified,
+        emailVerified: u.emailVerified,
+        verified: u.verified,
+        idVerified: u.idVerified,
+        badge: u.badge,
+        role: u.role,
+        rating: u.rating,
+        sellerRating: u.sellerRating,
+        joinDate: u.joinDate,
+        followingSellers: u.followingSellers,
+        savedProductIds: u.savedProductIds,
+        isAdmin: u.isAdmin === true || (u.email ? String(u.email).trim().toLowerCase() === 'asumaduvincent7@gmail.com' : false),
+      }));
+
+    return res.json({ success: true, users });
+  } catch (err: any) {
+    console.error('[Users List API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch users' });
   }
 });
 
@@ -3324,7 +3383,7 @@ app.post('/api/users/follow', serverRateLimiter(60 * 1000, 30, "users-follow"), 
   }
 });
 
-app.post('/api/cache/clear', (req, res) => {
+app.post('/api/cache/clear', serverRateLimiter(60 * 1000, 5, "cache-clear"), (req, res) => {
   clearSitemapCache();
   res.json({ success: true, message: 'Cache cleared' });
 });
@@ -3428,7 +3487,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
   }
 });
 
-app.post('/api/admin/boost-control', async (req: express.Request, res: express.Response) => {
+app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boost-control"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyAdmin(req.headers.authorization);
   if (!verified) {
     return res.status(403).json({ success: false, error: 'Forbidden: Admin authorization required' });
@@ -3847,7 +3906,10 @@ app.post("/api/auth/send-registration-otp", serverRateLimiter(60 * 1000, 10, "re
 });
 
 // Endpoint 2: Verify 6-Digit Registration OTP Code
-app.post("/api/auth/verify-registration-otp", async (req: express.Request, res: express.Response) => {
+// This is the actual brute-force target for a 6-digit OTP (1M combinations)
+// — the sibling send-otp endpoint being rate-limited doesn't protect this
+// one at all, since an attacker only needs to call THIS endpoint directly.
+app.post("/api/auth/verify-registration-otp", serverRateLimiter(15 * 60 * 1000, 10, "verify-registration-otp"), async (req: express.Request, res: express.Response) => {
   try {
     const { email, otp } = req.body || {};
     if (!email || !otp || typeof email !== 'string' || typeof otp !== 'string') {
@@ -4171,7 +4233,9 @@ app.post("/api/auth/send-password-reset", serverRateLimiter(60 * 1000, 10, "pass
   }
 });
 
-app.post('/api/auth/verify-password-reset-code', async (req: express.Request, res: express.Response) => {
+// The actual brute-force target for a password-reset token, same reasoning
+// as verify-registration-otp above.
+app.post('/api/auth/verify-password-reset-code', serverRateLimiter(15 * 60 * 1000, 10, "verify-password-reset-code"), async (req: express.Request, res: express.Response) => {
   const { token } = req.body;
   if (!token || typeof token !== 'string') {
     return res.status(400).json({ success: false, error: 'Password reset code is required.' });
@@ -4212,7 +4276,9 @@ async function updateFirebaseAuthPassword(email: string, newPassword: string): P
   return false;
 }
 
-app.post("/api/auth/confirm-password-reset", async (req: express.Request, res: express.Response) => {
+// Also validates the reset token — same brute-force exposure as
+// verify-password-reset-code, worth limiting independently of it.
+app.post("/api/auth/confirm-password-reset", serverRateLimiter(15 * 60 * 1000, 10, "confirm-password-reset"), async (req: express.Request, res: express.Response) => {
   const { token, newPassword, email: directEmail, clientConfirmed } = req.body;
   if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
     return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
@@ -4317,7 +4383,12 @@ app.post("/api/auth/confirm-password-reset", async (req: express.Request, res: e
   }
 });
 
-app.post("/api/auth/verify-and-sync-password", async (req: express.Request, res: express.Response) => {
+// Directly checks a submitted password against the stored hash — this is a
+// login-equivalent endpoint and was completely unrated, a textbook
+// credential-stuffing/brute-force gap. Stricter than the token-verification
+// endpoints above since a real password (not a random server-issued code)
+// is the thing being guessed here.
+app.post("/api/auth/verify-and-sync-password", serverRateLimiter(15 * 60 * 1000, 8, "verify-and-sync-password"), async (req: express.Request, res: express.Response) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ success: false, error: 'Email and password are required.' });
@@ -4392,7 +4463,7 @@ app.post("/api/auth/verify-and-sync-password", async (req: express.Request, res:
   }
 });
 
-app.post("/api/send-welcome-email", async (req: express.Request, res: express.Response) => {
+app.post("/api/send-welcome-email", serverRateLimiter(60 * 1000, 10, "send-welcome-email"), async (req: express.Request, res: express.Response) => {
   try {
     const { email, username } = req.body;
     if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -4561,7 +4632,7 @@ app.post("/api/send-welcome-email", async (req: express.Request, res: express.Re
 });
 
 // Admin Personal Check-in Email via Brevo API Endpoint
-app.post("/api/admin/send-personal-email", async (req: express.Request, res: express.Response) => {
+app.post("/api/admin/send-personal-email", serverRateLimiter(60 * 1000, 20, "admin-send-personal-email"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyAdmin(req.headers.authorization);
   if (!verified) {
     return res.status(403).json({ success: false, error: 'Forbidden: Admin authorization required' });
@@ -4775,7 +4846,7 @@ async function logImpersonationEvent(params: {
 }
 
 // 1. ADMIN USER SEARCH ENDPOINT
-app.get('/api/admin/users/search', async (req: express.Request, res: express.Response) => {
+app.get('/api/admin/users/search', serverRateLimiter(60 * 1000, 60, "admin-users-search"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyAdmin(req.headers.authorization);
   if (!verified) {
     return res.status(403).json({ success: false, error: 'Unauthorized: Admin authorization required' });
@@ -4867,7 +4938,9 @@ app.get('/api/admin/users/search', async (req: express.Request, res: express.Res
 });
 
 // 2. IMPERSONATE START ENDPOINT
-app.post('/api/admin/impersonate/start', async (req: express.Request, res: express.Response) => {
+// Impersonation is about as sensitive as an endpoint gets — tightly limited
+// as defense-in-depth even though it's already gated by verifyAdmin.
+app.post('/api/admin/impersonate/start', serverRateLimiter(60 * 1000, 10, "admin-impersonate-start"), async (req: express.Request, res: express.Response) => {
   const verifiedUser = await verifyUser(req.headers.authorization);
   const isAdmin = await verifyAdmin(req.headers.authorization);
 
@@ -4978,7 +5051,7 @@ app.post('/api/admin/impersonate/start', async (req: express.Request, res: expre
 });
 
 // 3. IMPERSONATE VERIFY ENDPOINT
-app.post('/api/admin/impersonate/verify', (req: express.Request, res: express.Response) => {
+app.post('/api/admin/impersonate/verify', serverRateLimiter(60 * 1000, 20, "admin-impersonate-verify"), (req: express.Request, res: express.Response) => {
   const { sessionId } = req.body || {};
   if (!sessionId) {
     return res.status(400).json({ success: false, error: 'Session ID is required' });
@@ -5006,7 +5079,7 @@ app.post('/api/admin/impersonate/verify', (req: express.Request, res: express.Re
 });
 
 // 4. IMPERSONATE EXIT ENDPOINT
-app.post('/api/admin/impersonate/exit', async (req: express.Request, res: express.Response) => {
+app.post('/api/admin/impersonate/exit', serverRateLimiter(60 * 1000, 20, "admin-impersonate-exit"), async (req: express.Request, res: express.Response) => {
   const { sessionId } = req.body || {};
   const verifiedUser = await verifyUser(req.headers.authorization);
 
@@ -5032,7 +5105,7 @@ app.post('/api/admin/impersonate/exit', async (req: express.Request, res: expres
 });
 
 // 5. IMPERSONATE AUDIT LOGS ENDPOINT
-app.get('/api/admin/impersonate/logs', async (req: express.Request, res: express.Response) => {
+app.get('/api/admin/impersonate/logs', serverRateLimiter(60 * 1000, 30, "admin-impersonate-logs"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyAdmin(req.headers.authorization);
   if (!verified) {
     return res.status(403).json({ success: false, error: 'Unauthorized: Admin authorization required' });
@@ -5058,7 +5131,7 @@ app.get('/api/admin/impersonate/logs', async (req: express.Request, res: express
 });
 
 // Admin Dashboard User Count API Endpoint
-app.get('/api/admin/users-count', async (req, res) => {
+app.get('/api/admin/users-count', serverRateLimiter(60 * 1000, 30, "admin-users-count"), async (req, res) => {
   const verified = await verifyAdmin(req.headers.authorization);
   if (!verified) {
     return res.status(403).json({ success: false, error: 'Forbidden: Admin authorization required' });

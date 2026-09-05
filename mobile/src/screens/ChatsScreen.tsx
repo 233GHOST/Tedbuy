@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal, PanResponder } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal, PanResponder, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, fetchChatsApi, fetchMessagesApi, sendMessageApi, markChatReadApi, markAsDelivered, markAsPickedUp, fetchUserById, sendTypingStatus, watchTypingStatus, fetchReviewsForSeller, addReview, isRetryableApiError } from '../firebase';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
-import { DismissKeyboardView } from '../components/DismissKeyboardView';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { CheckCircle, ShoppingBag, Star, X } from 'lucide-react-native';
 import { fonts } from '../theme';
@@ -969,8 +968,24 @@ export function ChatsScreen() {
           ChatInterface.tsx, rather than sending the buyer away to a
           different screen to leave feedback on a just-completed trade. */}
       <Modal visible={showReviewModal} transparent animationType="fade" onRequestClose={() => setShowReviewModal(false)}>
-        <DismissKeyboardView>
         <View style={styles.reviewModalOverlay}>
+          {/* Absolutely-positioned background catcher for "tap outside to
+              dismiss keyboard" — deliberately a SIBLING behind the card, not
+              a wrapper around it. Wrapping the whole card (as this used to,
+              via DismissKeyboardView) put every button in this modal,
+              Submit Review included, inside the same TouchableWithoutFeedback
+              as the dismiss handler: with the keyboard focused on the
+              comment field, the first tap on Submit Review was consumed by
+              the dismiss-keyboard responder instead of reaching the button
+              underneath — a well-known mobile pattern (a tap outside a
+              focused text field closes the keyboard, not also whatever's
+              under it), made worse by explicitly wrapping the buttons in it
+              here. Since the card now physically occludes this background
+              view at every point a button sits, taps on the card's own
+              content never reach this catcher at all. */}
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
           <View style={styles.reviewModalCard}>
             <View style={styles.reviewModalHeader}>
               <Text style={styles.reviewModalTitle}>Leave a Review</Text>
@@ -1024,7 +1039,6 @@ export function ChatsScreen() {
             </Pressable>
           </View>
         </View>
-        </DismissKeyboardView>
       </Modal>
     </SafeAreaView>
   );

@@ -15,15 +15,20 @@ interface SellerCardProps {
   isTogglingFollow?: boolean;
 }
 
-/** Matches web's SellersToDiscover card exactly: left-aligned info, a
- * rounded-square (not circular) avatar, a category pill pinned top-right,
- * and a bottom stats/action row separated by a divider. */
+/** A more eye-catching take on web's SellersToDiscover card: a larger
+ * circular photo with a colored "story ring" (emerald for a verified
+ * seller, slate otherwise — instant visual signal before you even read the
+ * name), a proper elevated white card instead of a flat gray+border one so
+ * it actually pops off the page background, and a warm branded category
+ * pill instead of a plain gray one. seller.photo already flows straight
+ * from the real user record's photoUrl (see computeDiscoverSellers) — this
+ * only changes how it's presented, not whether it's there. */
 export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow, isTogglingFollow }: SellerCardProps) {
   return (
     <Pressable onPress={onPress} style={[styles.card, style]}>
       <View>
         <View style={styles.avatarRow}>
-          <View style={styles.avatarBox}>
+          <View style={[styles.avatarRing, seller.isVerified ? styles.avatarRingVerified : styles.avatarRingPlain]}>
             {seller.photo ? (
               <Image source={{ uri: seller.photo }} style={styles.avatarImg} />
             ) : (
@@ -33,7 +38,7 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
             )}
             {seller.isVerified && (
               <View style={styles.verifiedBadge}>
-                <CheckCircle2 size={14} color="#059669" fill="#d1fae5" strokeWidth={2.2} />
+                <CheckCircle2 size={15} color="#ffffff" fill="#059669" strokeWidth={0} />
               </View>
             )}
           </View>
@@ -88,25 +93,37 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
     padding: 14,
     justifyContent: 'space-between',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   avatarRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 },
-  avatarBox: { position: 'relative' },
-  avatarImg: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#e2e8f0', borderWidth: 1, borderColor: '#e2e8f0' },
-  avatarFallback: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#e2e8f0', borderWidth: 1, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center' },
-  avatarInitial: { color: '#334155', fontSize: 17, fontFamily: fonts.extrabold },
-  verifiedBadge: {
-    position: 'absolute', bottom: -3, right: -3, backgroundColor: '#ffffff',
-    borderRadius: 9, padding: 1, shadowColor: '#0f172a', shadowOpacity: 0.15, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+  // The "story ring" — a colored border around the photo itself is what
+  // reads as an intentional, branded design choice rather than a plain
+  // thumbnail; verified sellers get the brand emerald, everyone else a
+  // quiet slate so the ring never looks like an error state.
+  avatarRing: {
+    width: 60, height: 60, borderRadius: 30, borderWidth: 2.5,
+    justifyContent: 'center', alignItems: 'center', position: 'relative',
   },
-  categoryPill: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
-  categoryPillText: { fontSize: 9.5, color: '#475569', fontFamily: fonts.extrabold },
-  sellerName: { fontSize: 13.5, color: '#0f172a', fontFamily: fonts.bold, marginBottom: 4 },
+  avatarRingVerified: { borderColor: '#10b981' },
+  avatarRingPlain: { borderColor: '#e2e8f0' },
+  avatarImg: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#e2e8f0' },
+  avatarFallback: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
+  avatarInitial: { color: '#334155', fontSize: 18, fontFamily: fonts.extrabold },
+  verifiedBadge: {
+    position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
+    borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+  },
+  categoryPill: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
+  categoryPillText: { fontSize: 9.5, color: '#c2410c', fontFamily: fonts.extrabold },
+  sellerName: { fontSize: 14.5, color: '#0f172a', fontFamily: fonts.extrabold, marginBottom: 4 },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   sellerLocation: { fontSize: 10.5, color: '#64748b', fontFamily: fonts.semibold, flexShrink: 1 },
   statsRow: {

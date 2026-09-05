@@ -295,6 +295,10 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
 }) {
   const videoUri = Array.isArray((item as any).videos) ? (item as any).videos[0] : undefined;
   const videoFallbackImageUri = resolveProductImageUri(item);
+  // Matches ProductCard.tsx's isServiceCategory exactly — a service
+  // listing's "price" is frequently just a leftover 0 (no fixed price makes
+  // sense for a service), so showing it read as a literal "GH₵0" price tag.
+  const isServiceListing = item.category ? String(item.category).toLowerCase().includes('service') : false;
 
   return (
     <View style={[styles.videoPlayerFrame, { height }]}>
@@ -331,11 +335,14 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
       {/* Immersive bottom details row */}
       <View style={styles.videoBottomDetails}>
         <View style={styles.featuredTag}>
-          <Text style={styles.featuredTagText}>🔥 VIDEO SPOTLIGHT</Text>
+          <Flame size={11} color="#ffffff" fill="#ffffff" strokeWidth={0} />
+          <Text style={styles.featuredTagText}>VIDEO SPOTLIGHT</Text>
         </View>
         <Text style={styles.videoProductTitle}>{item.title}</Text>
         <View style={styles.videoPriceLocationRow}>
-          <Text style={styles.videoProductPrice}>{formatProductPrice(item.price)}</Text>
+          {!isServiceListing && (
+            <Text style={styles.videoProductPrice}>{formatProductPrice(item.price)}</Text>
+          )}
           <View style={styles.videoLocationBadge}>
             <MapPin size={10} color="#ffffff" strokeWidth={2.3} />
             <Text style={styles.videoLocationText}>{item.location || 'Ghana'}</Text>
@@ -1322,7 +1329,16 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                       placeholder="Search phones, laptops, sneakers..."
                       style={styles.input}
                       placeholderTextColor="#64748b"
+                      clearButtonMode="never"
                     />
+                    {/* Explicit, cross-platform clear button — TextInput's
+                        clearButtonMode is iOS-only, so Android had no way to
+                        clear typed search text except deleting it manually. */}
+                    {searchText.length > 0 && (
+                      <Pressable onPress={() => setSearchText('')} hitSlop={8} style={styles.searchClearBtn}>
+                        <X size={18} color="#2563eb" strokeWidth={2.6} />
+                      </Pressable>
+                    )}
                   </View>
                 </View>
 
@@ -1664,10 +1680,15 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   )}
                 </View>
 
-                {/* Recently Viewed Panel — matches web's App.tsx (src/App.tsx
-                    ~line 1107), placed near the top of the feed. */}
+                {/* Recently Viewed Panel — matches web's App.tsx (~line 1109)
+                    exactly: a distinct bordered card containing a WRAPPING
+                    grid of small compact rows (icon-sized thumbnail + title
+                    + price), not the big ProductCard carousel every other
+                    section here uses. Web deliberately renders this
+                    differently from Featured/Trending/etc — it's a quick
+                    history list, not another product-browsing carousel. */}
                 {recentlyViewedProducts.length > 0 && (
-                  <View style={styles.carouselSection}>
+                  <View style={styles.recentlyViewedPanel}>
                     <View style={styles.carouselHeaderRow}>
                       <View style={styles.carouselHeaderLeft}>
                         <History size={16} color="#475569" strokeWidth={2.2} />
@@ -1677,24 +1698,31 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         <Text style={styles.carouselViewAllText}>Clear</Text>
                       </Pressable>
                     </View>
-                    <ScrollView
-                      horizontal
-                      nestedScrollEnabled={true}
-                      directionalLockEnabled={true}
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.horizontalCarouselContainer}
-                    >
-                      {recentlyViewedProducts.map((item) => (
-                        <View key={`recent-${item.id}`} style={styles.carouselCardItem}>
-                          <ProductCard
-                            product={item}
+                    <View style={styles.recentlyViewedGrid}>
+                      {recentlyViewedProducts.map((item) => {
+                        const formattedPrice = Number(item.price) > 0
+                          ? `GH₵${Number(item.price).toLocaleString()}`
+                          : 'Contact Seller';
+                        const thumbUri = resolveProductImageUri(item);
+                        return (
+                          <Pressable
+                            key={`recent-${item.id}`}
+                            style={styles.recentlyViewedItem}
                             onPress={() => onOpenProduct(item)}
-                            onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
-                            isFeaturedVariant={true}
-                          />
-                        </View>
-                      ))}
-                    </ScrollView>
+                          >
+                            <View style={styles.recentlyViewedThumb}>
+                              {!!thumbUri && (
+                                <Image source={{ uri: thumbUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                              )}
+                            </View>
+                            <View style={styles.recentlyViewedTextWrap}>
+                              <Text style={styles.recentlyViewedItemTitle} numberOfLines={1}>{item.title}</Text>
+                              <Text style={styles.recentlyViewedItemPrice}>{formattedPrice}</Text>
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
                   </View>
                 )}
 
@@ -1773,42 +1801,10 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   </View>
                 )}
 
-                {/* Personalized "For You" discovery Carousel (Phase 4A) */}
-                {forYouResult.items.length > 0 && !searchText.trim() && (
-                  <View style={styles.carouselSection}>
-                    <View style={styles.carouselHeaderRow}>
-                      <View style={styles.carouselHeaderLeft}>
-                        <Text style={styles.carouselTitle}>{forYouResult.headline}</Text>
-                      </View>
-                      <Pressable
-                        onPress={() => navigation?.navigate('ForYou')}
-                        style={styles.carouselViewAllBtn}
-                      >
-                        <Text style={styles.carouselViewAllText}>View all ›</Text>
-                      </Pressable>
-                    </View>
-                    <ScrollView
-                      horizontal
-                      nestedScrollEnabled={true}
-                      directionalLockEnabled={true}
-                      scrollEventThrottle={16}
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.horizontalCarouselContainer}
-                    >
-                      {forYouResult.items.map((item) => (
-                        <View key={`for-you-${item.id}`} style={styles.carouselCardItem}>
-                          <ProductCard
-                            product={item}
-                            onPress={() => onOpenProduct(item)}
-                            onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
-                          />
-                        </View>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-
-                {/* Sellers to Discover Section (Active Ghanaian Merchants & Storefronts) */}
+                {/* Sellers to Discover Section (Active Ghanaian Merchants &
+                    Storefronts) — moved to right after Featured Listings
+                    per explicit product decision (previously sat after "For
+                    You", between it and Trending Ads). */}
                 {discoverSellers.length > 0 && !searchText.trim() && (
                   <View style={styles.carouselSection}>
                     <View style={styles.carouselHeaderRow}>
@@ -1841,6 +1837,41 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                           onPress={() => navigation?.navigate('SellerProfile', { sellerId: seller.id })}
                           style={styles.sellerDiscoverCard}
                         />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Personalized "For You" discovery Carousel (Phase 4A) */}
+                {forYouResult.items.length > 0 && !searchText.trim() && (
+                  <View style={styles.carouselSection}>
+                    <View style={styles.carouselHeaderRow}>
+                      <View style={styles.carouselHeaderLeft}>
+                        <Text style={styles.carouselTitle}>{forYouResult.headline}</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => navigation?.navigate('ForYou')}
+                        style={styles.carouselViewAllBtn}
+                      >
+                        <Text style={styles.carouselViewAllText}>View all ›</Text>
+                      </Pressable>
+                    </View>
+                    <ScrollView
+                      horizontal
+                      nestedScrollEnabled={true}
+                      directionalLockEnabled={true}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.horizontalCarouselContainer}
+                    >
+                      {forYouResult.items.map((item) => (
+                        <View key={`for-you-${item.id}`} style={styles.carouselCardItem}>
+                          <ProductCard
+                            product={item}
+                            onPress={() => onOpenProduct(item)}
+                            onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+                          />
+                        </View>
                       ))}
                     </ScrollView>
                   </View>
@@ -2214,6 +2245,7 @@ const styles = StyleSheet.create({
   },
   searchEmoji: { fontSize: 16, marginRight: 8, color: '#64748b' },
   input: { flex: 1, fontSize: 14, color: '#0f172a', fontFamily: fonts.medium },
+  searchClearBtn: { padding: 4, marginLeft: 4 },
 
   /* Capsule Switcher component styled like Web App */
   toggleCapsule: {
@@ -2634,6 +2666,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   featuredTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     alignSelf: 'flex-start',
     backgroundColor: '#f59e0b',
     paddingHorizontal: 8,
@@ -2773,6 +2808,54 @@ const styles = StyleSheet.create({
   },
   carouselSection: {
     marginBottom: 18,
+  },
+  // Matches web's Recently Viewed panel exactly (src/App.tsx ~line 1113):
+  // its own distinct white bordered card, not a plain section like the
+  // other carousels below.
+  recentlyViewedPanel: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 24,
+    padding: 14,
+    marginBottom: 18,
+  },
+  recentlyViewedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  recentlyViewedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    padding: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    width: '48%',
+  },
+  recentlyViewedThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    overflow: 'hidden',
+  },
+  recentlyViewedTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  recentlyViewedItemTitle: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: '#1e293b',
+  },
+  recentlyViewedItemPrice: {
+    fontSize: 10,
+    fontFamily: fonts.extrabold,
+    color: '#0f172a',
+    marginTop: 2,
   },
   carouselHeaderRow: {
     flexDirection: 'row',

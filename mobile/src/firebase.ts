@@ -689,14 +689,28 @@ export function watchProducts(callback: (products: any[], failed?: boolean) => v
 // write, anywhere in the app — the same O(users^2) egress bug already fixed
 // on web (see AppContext.tsx). A periodic pull keeps names/photos/online
 // status fresh enough for a marketplace without that blowup.
+//
+// Goes through /api/users/list (Supabase), NOT a direct Firestore read of
+// `users` like this used to do. That Firestore collection is only a mirror
+// of the real Supabase table and can drift out of sync with it — confirmed
+// live: a seller's Supabase username was "Richie" while their Firestore
+// mirror still said "Vince", so the Popular Stores card (this function's
+// data) showed one name while tapping into their actual profile (fetched
+// via /api/users/get, correctly Supabase-sourced) showed the other. This
+// closes that gap at the source instead of leaving a second, driftable copy
+// of user data in play.
 export function watchUsers(callback: (users: any[]) => void) {
   let active = true;
 
   const fetchOnce = async () => {
     try {
-      const snapshot = await getDocs(collection(db, 'users'));
+      const data = await apiFetch('/api/users/list');
       if (!active) return;
-      callback(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
+      if (data.success && Array.isArray(data.users)) {
+        callback(data.users);
+      } else {
+        console.warn('[watchUsers] Server returned an unsuccessful response:', data?.error);
+      }
     } catch (err) {
       console.warn('[watchUsers] fetch error:', err);
     }
