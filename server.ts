@@ -903,7 +903,15 @@ app.post(
   "/api/admin/backfill-video-eager",
   serverRateLimiter(60 * 1000, 5, "admin-backfill-video"),
   async (req: express.Request, res: express.Response) => {
-    const isAdmin = req.headers.authorization ? await verifyAdmin(req.headers.authorization) : false;
+    // Two ways in: a real admin's own auth token (normal path, everywhere
+    // else in this file), or this server's own CRON_SECRET (already
+    // provisioned in render.yaml, unused elsewhere) via a header — lets
+    // this one-time maintenance call be triggered with a value copied
+    // straight from the Render dashboard's Environment tab, no need to dig
+    // a live bearer token out of browser devtools for a single admin
+    // operation that isn't part of any normal user flow.
+    const hasCronSecret = !!process.env.CRON_SECRET && req.headers['x-admin-secret'] === process.env.CRON_SECRET;
+    const isAdmin = hasCronSecret || (req.headers.authorization ? await verifyAdmin(req.headers.authorization) : false);
     if (!isAdmin) {
       return res.status(403).json({ success: false, error: 'Admin authentication required' });
     }
