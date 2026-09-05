@@ -925,7 +925,7 @@ app.post(
     try {
       const { data: rows, error } = await backendSupabase
         .from('products')
-        .select('id, videos, videoPoster')
+        .select('id, videos, "videoPoster"')
         .not('videos', 'is', null);
       if (error) throw error;
 
