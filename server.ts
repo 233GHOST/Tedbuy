@@ -923,9 +923,17 @@ app.post(
     const results: any[] = [];
 
     try {
+      // videoPoster is NOT a real column — confirmed via safeBackendSupabaseUpsert's
+      // own auto-heal logic (upsertProductToSupabase's writes to it get silently
+      // pruned elsewhere in this file whenever the column doesn't exist). The
+      // poster is always computed on the fly from the video URL via
+      // getServerVideoPoster(), never stored — so once `videos[0]` is updated
+      // to the new eager variant below, every reader already re-derives the
+      // correct (now pre-warmed) poster path from it automatically. Nothing
+      // else needs to change.
       const { data: rows, error } = await backendSupabase
         .from('products')
-        .select('id, videos, "videoPoster"')
+        .select('id, videos')
         .not('videos', 'is', null);
       if (error) throw error;
 
@@ -965,7 +973,7 @@ app.post(
           const updatedVideos = [newVideoUrl, ...row.videos.slice(1)];
           const { error: updateErr } = await backendSupabase
             .from('products')
-            .update({ videos: updatedVideos, ...(newPosterUrl ? { videoPoster: newPosterUrl } : {}) })
+            .update({ videos: updatedVideos })
             .eq('id', row.id);
           if (updateErr) throw updateErr;
 
