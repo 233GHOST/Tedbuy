@@ -2605,9 +2605,18 @@ app.get('/api/users/list', serverRateLimiter(60 * 1000, 30, "users-list"), async
     if (!backendSupabase) {
       return res.status(503).json({ success: false, error: 'Database service unavailable' });
     }
+    // Only real columns (confirmed against an actual row returned by
+    // /api/users/get above) — the first version of this endpoint selected
+    // several fields (displayName, isVerified, verified, idVerified, badge,
+    // rating, sellerRating, location) that don't exist on this table at
+    // all, which fails the whole query rather than just omitting them.
+    // Client-side fallback chains (e.g. discoverSellers.ts's
+    // `user?.isVerified || user?.emailVerified || ...`) already treat a
+    // missing field as absent gracefully, so simply not selecting them here
+    // is behaviorally identical to them never having existed.
     const { data, error } = await backendSupabase
       .from('users')
-      .select('id, username, displayName, photoUrl, location, isVerified, emailVerified, verified, idVerified, badge, role, rating, sellerRating, joinDate, followingSellers, savedProductIds, isAdmin, email, isDeleted, status');
+      .select('id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin, email, isDeleted, status');
     if (error) throw error;
 
     const users = (data || [])
@@ -2615,20 +2624,12 @@ app.get('/api/users/list', serverRateLimiter(60 * 1000, 30, "users-list"), async
       .map((u: any) => ({
         id: u.id,
         username: u.username,
-        displayName: u.displayName,
         photoUrl: u.photoUrl,
-        location: u.location,
-        isVerified: u.isVerified,
-        emailVerified: u.emailVerified,
-        verified: u.verified,
-        idVerified: u.idVerified,
-        badge: u.badge,
         role: u.role,
-        rating: u.rating,
-        sellerRating: u.sellerRating,
         joinDate: u.joinDate,
         followingSellers: u.followingSellers,
         savedProductIds: u.savedProductIds,
+        emailVerified: u.emailVerified,
         isAdmin: u.isAdmin === true || (u.email ? String(u.email).trim().toLowerCase() === 'asumaduvincent7@gmail.com' : false),
       }));
 
