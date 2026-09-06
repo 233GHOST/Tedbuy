@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Image,
   Linking,
@@ -16,9 +17,10 @@ import {
   Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, watchProducts, watchUsers, fetchUserById, startChatApi, toggleFollowSeller, fetchReviewsForSeller, addReview } from '../firebase';
+import { auth, watchProducts, watchUsers, fetchUserById, startChatApi, toggleFollowSeller, fetchReviewsForSeller, fetchChatsApi, addReview } from '../firebase';
 import { Users as UsersIcon, UserPlus, UserMinus, MessageCircle, MessageSquare, ShieldCheck, Flame, Shield } from 'lucide-react-native';
 import { ProductCard } from '../components/ProductCard';
+import { BackButton } from '../components/BackButton';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { isBoostActive } from '../utils/boost';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
@@ -33,6 +35,12 @@ interface SellerProfileScreenProps {
 
 export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProfileScreenProps) {
   const [seller, setSeller] = useState<any>(null);
+  // Distinguishes "still fetching" from "the fetch resolved and there's
+  // genuinely no such seller" — fetchUserById returns null for both a
+  // network failure and a real not-found, so this only flips once that
+  // fetch has actually settled, not just whenever `seller` happens to be
+  // null (which is also true for the entire time the fetch is in flight).
+  const [sellerNotFound, setSellerNotFound] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'listings' | 'reviews'>('listings');
@@ -51,12 +59,21 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
-  // Matches web's SellerProfilePage.tsx "Purchased Item (Optional)" dropdown
-  // — was entirely absent on mobile, so a review left from the seller
-  // profile page could never be tagged to a specific product/deal.
-  const [reviewProductTitle, setReviewProductTitle] = useState('');
+  // Reviews are now tied to one specific completed trade chat, not a
+  // free-text/any-listing choice — see myCompletedChatsWithSeller below for
+  // why. Holds the chosen chat's id, never a typed-in product name.
+  const [selectedReviewChatId, setSelectedReviewChatId] = useState<string | null>(null);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewsList, setReviewsList] = useState<any[]>([]);
+  // The signed-in user's own chats with THIS seller — fetched so "Leave a
+  // Review" can be gated to an actual completed trade instead of being
+  // available to any visitor who taps into the store page. A trade is
+  // "reviewable" once its tradeStatus is 'completed' (buyer confirmed
+  // pickup after the seller marked it delivered — see markAsDelivered/
+  // markAsPickedUp), matching exactly what already gates the in-chat
+  // "Leave Review" button (ChatsScreen.tsx) — this just extends the same
+  // rule to the seller-profile entry point, which previously had none.
+  const [myChatsWithSeller, setMyChatsWithSeller] = useState<any[]>([]);
   // Matches web's currentUser.emailVerified gate on WhatsApp/review actions.
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [blockedActionType, setBlockedActionType] = useState<BlockedActionType>(null);
@@ -82,14 +99,35 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
     // followingSellers lives on the user's profile row, not the Firebase Auth
     // object, so the caller's own profile has to be fetched separately.
     fetchUserById(sellerId).then((found) => {
-      if (!isMounted || !found) return;
-      setSeller(found);
+      if (!isMounted) return;
+      if (found) {
+        setSeller(found);
+      } else {
+        // The header/profile card used to render immediately with
+        // placeholder fallbacks ("Verified Merchant", a generic bio, 0
+        // followers) for however long this fetch took, then visibly swap
+        // to the real data once it resolved — exactly the flash the user
+        // reported. Now the whole profile section waits for this to settle
+        // one way or the other (see the render below) instead of guessing.
+        setSellerNotFound(true);
+      }
     });
 
     fetchReviewsForSeller(sellerId).then((found) => {
       if (!isMounted) return;
       setReviewsList(found.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     });
+
+    if (currentUser) {
+      fetchChatsApi().then((allChats) => {
+        if (!isMounted) return;
+        setMyChatsWithSeller(allChats.filter((c: any) => c.buyerId === currentUser.uid && c.sellerId === sellerId));
+      }).catch(() => {
+        // Non-fatal — worst case, the review gate below just sees zero
+        // eligible trades and hides "Leave a Review" a beat longer than
+        // necessary; the profile itself must not break over this.
+      });
+    }
 
     if (currentUser) {
       fetchUserById(currentUser.uid).then((myProfile: any) => {
@@ -129,6 +167,21 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
       unsubUsers();
     };
   }, [sellerId, seller?.id, seller?.username, seller?.email]);
+
+  // Skeleton shimmer while the seller fetch is in flight — a plain static
+  // gray block reads as broken/unstyled; a slow opacity pulse is the
+  // cheapest signal that content is actually still loading, not empty.
+  const skeletonPulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(skeletonPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(skeletonPulse, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [skeletonPulse]);
 
   const handleToggleFollow = async () => {
     if (!currentUser) {
@@ -213,6 +266,21 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
     });
   };
 
+  // Only a completed trade the current user actually had with this seller
+  // is reviewable, and only once per trade — mirrors the server's own
+  // buyerId+sellerId+productTitle duplicate guard (server.ts
+  // /api/reviews/create) so a chat that's already been reviewed doesn't
+  // still show up as an option here only to be rejected on submit.
+  const eligibleReviewChats = myChatsWithSeller.filter((c: any) =>
+    c.tradeStatus === 'completed' &&
+    !reviewsList.some((r: any) => r.buyerId === currentUser?.uid && (r.productTitle || null) === (c.productTitle || null))
+  );
+
+  const openReviewModal = () => {
+    setSelectedReviewChatId(eligibleReviewChats[0]?.id || null);
+    setShowReviewModal(true);
+  };
+
   const handleAddReview = async () => {
     if (!currentUser) {
       Alert.alert('Authentication Required', 'Please sign in to submit a review.');
@@ -220,6 +288,11 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
     }
     if (!currentUserProfile?.emailVerified) {
       setBlockedActionType('review');
+      return;
+    }
+    const selectedChat = eligibleReviewChats.find((c: any) => c.id === selectedReviewChatId);
+    if (!selectedChat) {
+      Alert.alert('Select a Trade', 'Please choose which completed trade this review is for.');
       return;
     }
     if (reviewComment.trim().length < 5) {
@@ -230,11 +303,11 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
 
     try {
       setIsSubmittingReview(true);
-      const newRev = await addReview(sellerId, reviewRating, reviewComment.trim(), reviewProductTitle || undefined);
+      const newRev = await addReview(sellerId, reviewRating, reviewComment.trim(), selectedChat.productTitle || undefined, selectedChat.id);
       setReviewsList((prev) => [newRev, ...prev]);
       setReviewComment('');
       setReviewRating(5);
-      setReviewProductTitle('');
+      setSelectedReviewChatId(null);
       setShowReviewModal(false);
       Alert.alert('Review Submitted', 'Thank you for building community trust on TedBuy!');
     } catch (err: any) {
@@ -284,13 +357,69 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
     }
   };
 
+  // Neither loaded nor known-missing yet — the fetch is still in flight.
+  // The header bar itself still renders (Back button stays usable
+  // immediately) but everything that depends on real seller data is
+  // replaced by a skeleton instead of the old fallback-string placeholders.
+  if (!seller && !sellerNotFound) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.headerBar}>
+          <BackButton onPress={onBack} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.headerTitle} numberOfLines={1}>Loading Store…</Text>
+          <View style={{ width: 34 }} />
+        </View>
+        <ScrollView contentContainerStyle={styles.scrollContent} scrollEnabled={false}>
+          <View style={styles.profileCard}>
+            <View style={styles.avatarRow}>
+              <Animated.View style={[styles.skeletonAvatar, { opacity: skeletonPulse }]} />
+              <View style={styles.profileMeta}>
+                <Animated.View style={[styles.skeletonLine, { width: '55%', height: 18, opacity: skeletonPulse }]} />
+                <Animated.View style={[styles.skeletonLine, { width: '75%', marginTop: 8, opacity: skeletonPulse }]} />
+              </View>
+            </View>
+            <Animated.View style={[styles.skeletonLine, { width: '100%', height: 34, marginTop: 16, borderRadius: 10, opacity: skeletonPulse }]} />
+            <Animated.View style={[styles.skeletonLine, { width: '100%', height: 56, marginTop: 14, borderRadius: 12, opacity: skeletonPulse }]} />
+          </View>
+          <Animated.View style={[styles.skeletonLine, { width: '100%', height: 44, marginTop: 16, borderRadius: 12, opacity: skeletonPulse }]} />
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+            <Animated.View style={[styles.skeletonLine, { flex: 1, height: 160, borderRadius: 14, opacity: skeletonPulse }]} />
+            <Animated.View style={[styles.skeletonLine, { flex: 1, height: 160, borderRadius: 14, opacity: skeletonPulse }]} />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Fetch settled with no such seller — a dead/mistyped link, a deleted
+  // account, or a genuine network failure (fetchUserById can't tell these
+  // apart, so this reads the same either way rather than guessing).
+  if (!seller && sellerNotFound) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <View style={styles.headerBar}>
+          <BackButton onPress={onBack} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.headerTitle} numberOfLines={1}>Store</Text>
+          <View style={{ width: 34 }} />
+        </View>
+        <View style={styles.notFoundContainer}>
+          <Text style={styles.notFoundTitle}>Merchant Not Found</Text>
+          <Text style={styles.notFoundText}>
+            This store may have been removed, or there was a problem loading it. Please check your connection and try again.
+          </Text>
+          <Pressable onPress={onBack} style={styles.notFoundBackBtn}>
+            <Text style={styles.notFoundBackBtnText}>Go Back</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       {/* Top Header Bar */}
       <View style={styles.headerBar}>
-        <Pressable onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </Pressable>
+        <BackButton onPress={onBack} color="#ffffff" style={{ marginRight: 8 }} />
         <Text style={styles.headerTitle} numberOfLines={1}>
           {sellerName}'s Store
         </Text>
@@ -515,11 +644,16 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
           <View style={styles.reviewsContainer}>
             <View style={styles.reviewHeaderRow}>
               <Text style={styles.reviewHeaderTitle}>Merchant Ratings</Text>
-              {!isOwner && (
-                <Pressable onPress={() => setShowReviewModal(true)} style={styles.addReviewBtn}>
+              {!isOwner && eligibleReviewChats.length > 0 ? (
+                <Pressable onPress={openReviewModal} style={styles.addReviewBtn}>
                   <Text style={styles.addReviewBtnText}>+ Write Review</Text>
                 </Pressable>
-              )}
+              ) : !isOwner && currentUser ? (
+                // Reviews are only authentic if tied to a real completed
+                // trade — no button here at all rather than one that would
+                // just reject on tap. See eligibleReviewChats above.
+                <Text style={styles.reviewGateHint}>Complete a trade to review</Text>
+              ) : null}
             </View>
 
             {reviewsList.map((rev) => (
@@ -618,32 +752,27 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
               {reviewRating === 1 && '❌ Terrible'}
             </Text>
 
-            {/* Matches web's "Purchased Item (Optional)" dropdown — lets a
-                reviewer tag their review to one of the seller's own listings,
-                or leave it as a general store review. */}
-            {products.length > 0 && (
+            {/* Which completed trade this review is for — REQUIRED, and
+                restricted to trades the reviewer actually completed with
+                this seller (eligibleReviewChats), not any listing in their
+                catalog. Replaces the old "Purchased Item (Optional)" free
+                pick, which let a review claim any product at all with
+                nothing to back it up. */}
+            {eligibleReviewChats.length > 1 && (
               <View style={{ marginBottom: 10 }}>
-                <Text style={styles.starRatingLabel}>Purchased Item (Optional):</Text>
+                <Text style={styles.starRatingLabel}>Which trade is this review for?</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
-                  <Pressable
-                    onPress={() => setReviewProductTitle('')}
-                    style={[styles.reviewProductChip, !reviewProductTitle && styles.reviewProductChipActive]}
-                  >
-                    <Text style={[styles.reviewProductChipText, !reviewProductTitle && styles.reviewProductChipTextActive]}>
-                      General Store Review
-                    </Text>
-                  </Pressable>
-                  {products.slice(0, 20).map((p: any) => (
+                  {eligibleReviewChats.map((c: any) => (
                     <Pressable
-                      key={p.id}
-                      onPress={() => setReviewProductTitle(p.title)}
-                      style={[styles.reviewProductChip, reviewProductTitle === p.title && styles.reviewProductChipActive]}
+                      key={c.id}
+                      onPress={() => setSelectedReviewChatId(c.id)}
+                      style={[styles.reviewProductChip, selectedReviewChatId === c.id && styles.reviewProductChipActive]}
                     >
                       <Text
-                        style={[styles.reviewProductChipText, reviewProductTitle === p.title && styles.reviewProductChipTextActive]}
+                        style={[styles.reviewProductChipText, selectedReviewChatId === c.id && styles.reviewProductChipTextActive]}
                         numberOfLines={1}
                       >
-                        {p.title}
+                        {c.productTitle || 'Completed Trade'}
                       </Text>
                     </Pressable>
                   ))}
@@ -797,14 +926,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1e293b',
   },
-  backBtn: {
-    backgroundColor: '#1e293b',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginRight: 10,
-  },
-  backBtnText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 12 },
   headerTitle: { flex: 1, color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 15 },
   followTopBtn: {
     backgroundColor: '#ffffff',
@@ -950,6 +1071,31 @@ const styles = StyleSheet.create({
   emptyStateTitle: { fontSize: 16, fontFamily: fonts.extrabold, color: '#0f172a' },
   emptyStateSub: { fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4 },
 
+  skeletonAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#e2e8f0',
+    marginRight: 12,
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#e2e8f0',
+  },
+
+  notFoundContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  notFoundTitle: { fontSize: 18, fontFamily: fonts.extrabold, color: '#0f172a' },
+  notFoundText: { fontSize: 13, color: '#64748b', textAlign: 'center', marginTop: 8, lineHeight: 19 },
+  notFoundBackBtn: {
+    marginTop: 20,
+    backgroundColor: '#0f172a',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  notFoundBackBtnText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13 },
+
   reviewsContainer: { paddingHorizontal: 14, paddingTop: 14 },
   reviewHeaderRow: {
     flexDirection: 'row',
@@ -965,6 +1111,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   addReviewBtnText: { color: '#ffffff', fontSize: 11, fontFamily: fonts.extrabold },
+  reviewGateHint: { color: '#94a3b8', fontSize: 11, fontFamily: fonts.semibold, fontStyle: 'italic' },
 
   reviewCard: {
     backgroundColor: '#ffffff',

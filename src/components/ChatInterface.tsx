@@ -1446,14 +1446,23 @@ export const ChatInterface: React.FC = () => {
               sellerId={activeChat.sellerId}
               sellerName={activeChat.sellerName}
               productTitle={activeChat.productTitle}
-              onSubmit={(rating, comment) => {
+              onSubmit={async (rating, comment) => {
                 if (!currentUser?.emailVerified) {
                   setBlockedActionType('review');
                   setIsVerificationBlockOpen(true);
                   setIsReviewOpen(false);
                   return;
                 }
-                addReview(activeChat.sellerId, rating, comment, activeChat.productTitle);
+                // chatId (activeChat.id) is now required server-side — the
+                // server derives productTitle and verifies tradeStatus is
+                // 'completed' from this exact chat rather than trusting the
+                // client, so this can't be spoofed even though the UI here
+                // only ever shows "Leave Review" once that's already true.
+                try {
+                  await addReview(activeChat.sellerId, rating, comment, activeChat.productTitle, activeChat.id);
+                } catch (err: any) {
+                  showToast(err?.message || 'Could not submit your review. Please try again.', 'error');
+                }
               }}
             />
           )}

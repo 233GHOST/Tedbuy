@@ -866,7 +866,32 @@ app.post(
       // entry nothing ever requests.
       // Folder is fixed server-side (not client-supplied) so it's protected by the
       // signature — a tampered folder value would fail Cloudinary's own signature check.
-      const eagerTransform = 'q_auto,f_auto,w_480,c_limit|so_0,f_jpg,q_auto,w_1200,h_630,c_fill';
+      //
+      // Optional trim range (seconds), from the posting wizard's trim step.
+      // This used to be applied client-side as an so_/eo_ URL rewrite AFTER
+      // this eager transform already ran — which meant the seller's own
+      // trimmed URL was a transformation Cloudinary had never pre-generated
+      // (the eager array only ever covered the untrimmed w_480 variant), so
+      // the first-ever request for it — almost always the seller themselves,
+      // seconds after publishing — triggered exactly the same on-demand
+      // transcode stall this eager-transform pipeline exists to avoid. Fix:
+      // fold so_/eo_ into the SAME eager transform string so Cloudinary
+      // pre-generates the actual trimmed+optimized asset during upload, same
+      // as it already does for the untrimmed case. Values are user-supplied,
+      // so they're clamped/rounded to plain numbers here (never interpolated
+      // as raw strings) before touching the transform string that gets signed
+      // — an unvalidated value could otherwise inject extra transformation
+      // components into it.
+      let trimSegment = '';
+      const rawStart = Number(req.body?.trimStart);
+      const rawEnd = Number(req.body?.trimEnd);
+      if (Number.isFinite(rawStart) && Number.isFinite(rawEnd)) {
+        const start = Math.min(300, Math.max(0, Math.round(rawStart * 10) / 10));
+        const end = Math.min(300, Math.max(start + 1, Math.round(rawEnd * 10) / 10));
+        trimSegment = `so_${start},eo_${end},`;
+      }
+      const posterStart = trimSegment ? trimSegment.match(/so_([\d.]+)/)![1] : '0';
+      const eagerTransform = `${trimSegment}q_auto,f_auto,w_480,c_limit|so_${posterStart},f_jpg,q_auto,w_1200,h_630,c_fill`;
       const paramsToSign = { folder: 'tedbuy_products', timestamp, eager: eagerTransform };
       const signature = cloudinary.utils.api_sign_request(paramsToSign, cfg.api_secret as string);
 
@@ -2547,6 +2572,17 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
   }
 });
 
+// A raw `users` row (select('*')) carries the legacy password/password_hash
+// columns (see the password-reset endpoints below) alongside everything
+// else — every place that ever hands such a row back to a client, admin or
+// not, must strip those first. Centralized here rather than re-implemented
+// per endpoint so a future select('*') response can't forget it.
+function redactUserSecrets<T extends Record<string, any> | null | undefined>(user: T): T {
+  if (!user || typeof user !== 'object') return user;
+  const { password, password_hash, ...safe } = user;
+  return safe as T;
+}
+
 app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (req: express.Request, res: express.Response) => {
   const userId = req.query.id as string;
   const email = req.query.email as string;
@@ -2573,7 +2609,7 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
             return res.status(404).json({ success: false, error: 'User not found' });
           }
         }
-        return res.json({ success: true, user: data });
+        return res.json({ success: true, user: redactUserSecrets(data) });
       }
     }
     return res.status(404).json({ success: false, error: 'User not found' });
@@ -3113,7 +3149,28 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
   }
 
-  const cleanProductTitle = productTitle && typeof productTitle === 'string' ? productTitle.trim() : null;
+  // A review is only authentic if it's tied to a trade that actually
+  // completed — previously this endpoint took `productTitle` as arbitrary
+  // client-supplied text and had no concept of a trade at all, so anyone
+  // could open a seller's store page and post a review with no evidence
+  // they ever contacted or bought from them. chatId is now REQUIRED (it
+  // used to be optional, used only to drop a courtesy message into the
+  // chat) and must reference one of the reviewer's own chats with this
+  // exact seller, already marked tradeStatus:'completed' by the existing
+  // mark-delivered (seller) → mark-picked-up (buyer) flow. productTitle is
+  // derived from that chat, never trusted from the request body, so a
+  // review can't misrepresent which listing it's actually about.
+  if (!chatId || typeof chatId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Reviews can only be left from a completed trade chat.' });
+  }
+  const tradeChat = await getChatIfParticipant(chatId, verified.uid);
+  if (!tradeChat || tradeChat.buyerId !== verified.uid || tradeChat.sellerId !== sellerId) {
+    return res.status(403).json({ success: false, error: 'This chat does not match a trade between you and this merchant.' });
+  }
+  if (tradeChat.tradeStatus !== 'completed') {
+    return res.status(403).json({ success: false, error: 'You can only leave a review after this trade is marked completed.' });
+  }
+  const cleanProductTitle = tradeChat.productTitle && typeof tradeChat.productTitle === 'string' ? tradeChat.productTitle.trim() : null;
 
   // Server-side is the only authoritative "once per trade" guard — the
   // client hides its own Leave Review button once it has one, but that's
@@ -3154,27 +3211,22 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
 
     // Drop a system message into the chat this review was left from, so the
     // seller sees it without having to separately check their reviews list.
-    // Only trusts a chatId where the caller is actually the buyer on that
-    // chat — never lets a client point this at an arbitrary conversation.
-    // The review itself is already saved by this point, so ANY failure here
-    // (a bad chatId, a transient DB error) must never turn into a 500 for a
-    // request that actually succeeded — wrapped in its own try/catch rather
-    // than letting it reach the outer one.
-    if (chatId && typeof chatId === 'string') {
-      try {
-        const chat = await getChatIfParticipant(chatId, verified.uid);
-        if (chat && chat.buyerId === verified.uid && chat.sellerId === sellerId) {
-          const tone = numericRating >= 4 ? 'positive' : numericRating === 3 ? 'neutral' : 'critical';
-          await createChatMessage(
-            chat,
-            chat.buyerId,
-            chat.sellerId,
-            `⭐ Buyer has left you ${tone} feedback with a ${numericRating}-star rating: "${cleanComment}"`
-          );
-        }
-      } catch (chatMsgErr) {
-        console.warn('[Reviews Create API] Could not post review chat message:', chatMsgErr);
-      }
+    // tradeChat is already the verified buyer/seller-matched chat from the
+    // gate above — no need to re-fetch or re-check it here. The review
+    // itself is already saved by this point, so ANY failure in this part
+    // (a transient DB error) must never turn into a 500 for a request that
+    // actually succeeded — wrapped in its own try/catch rather than letting
+    // it reach the outer one.
+    try {
+      const tone = numericRating >= 4 ? 'positive' : numericRating === 3 ? 'neutral' : 'critical';
+      await createChatMessage(
+        tradeChat,
+        tradeChat.buyerId,
+        tradeChat.sellerId,
+        `⭐ Buyer has left you ${tone} feedback with a ${numericRating}-star rating: "${cleanComment}"`
+      );
+    } catch (chatMsgErr) {
+      console.warn('[Reviews Create API] Could not post review chat message:', chatMsgErr);
     }
 
     return res.json({ success: true, review: newReview });
@@ -4321,13 +4373,22 @@ app.post("/api/auth/confirm-password-reset", serverRateLimiter(15 * 60 * 1000, 1
   }
 
   try {
-    // Generate secure salt and PBKDF2 hash using sha512
+    // Generate secure salt and PBKDF2 hash using sha512. Iteration count
+    // raised from a previous 1000 — three orders of magnitude below any
+    // current guidance for PBKDF2-HMAC-SHA512 — to a real modern floor.
     const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.pbkdf2Sync(newPassword, salt, 1000, 64, 'sha512').toString('hex');
+    const hash = crypto.pbkdf2Sync(newPassword, salt, 100000, 64, 'sha512').toString('hex');
     const passwordHash = `${salt}:${hash}`;
     const nowIso = new Date().toISOString();
 
-    // 1. Update in Supabase users table if backendSupabase client is active
+    // 1. Update in Supabase users table if backendSupabase client is active.
+    // Only the hash is ever written — this used to also write `password:
+    // newPassword` (the raw value) into the same row, which meant Firebase
+    // Auth's own hashing (the actual authentication mechanism) was
+    // pointless: the plaintext sat right next to it in this table, and
+    // reached admin's browsers verbatim through every endpoint that ever
+    // read this row back (see redactUserSecrets above, added to close that
+    // second half of the same hole).
     if (backendSupabase) {
       try {
         const { data: existingUser } = await backendSupabase
@@ -4341,7 +4402,6 @@ app.post("/api/auth/confirm-password-reset", serverRateLimiter(15 * 60 * 1000, 1
             .from('users')
             .update({
               password_hash: passwordHash,
-              password: newPassword,
               updatedAt: nowIso
             })
             .eq('id', existingUser.id);
@@ -4357,7 +4417,6 @@ app.post("/api/auth/confirm-password-reset", serverRateLimiter(15 * 60 * 1000, 1
             .from('users')
             .update({
               password_hash: passwordHash,
-              password: newPassword,
               updatedAt: nowIso
             })
             .ilike('email', cleanEmail);
@@ -4414,8 +4473,15 @@ app.post("/api/auth/verify-and-sync-password", serverRateLimiter(15 * 60 * 1000,
         const parts = userRecord.password_hash.split(':');
         if (parts.length === 2) {
           const [salt, hash] = parts;
-          const calcHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-          if (calcHash === hash) {
+          // Hashes written before this fix used 1000 PBKDF2 iterations; new
+          // ones use 100000 (see the reset endpoint above). Try the current
+          // scheme first, then fall back to the legacy one so an
+          // already-stored hash still verifies — the rewrite below
+          // transparently upgrades it to the new scheme either way, so this
+          // fallback naturally disappears as users log in.
+          const calcHash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+          const legacyHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+          if (calcHash === hash || legacyHash === hash) {
             matches = true;
           }
         }
@@ -4424,11 +4490,15 @@ app.post("/api/auth/verify-and-sync-password", serverRateLimiter(15 * 60 * 1000,
       }
 
       if (matches) {
-        // Ensure both password_hash and password columns in Supabase remain in sync with validated credentials
+        // Rehash on every successful verification — re-salted, current
+        // iteration count — and never write the raw password back. The
+        // legacy `password` column (still checked for above, for any row
+        // that predates hashing entirely) is left untouched rather than
+        // cleared here: this endpoint's job is to verify and upgrade, not to
+        // silently mutate a row's schema mid-request.
         const salt = crypto.randomBytes(16).toString('hex');
-        const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+        const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
         const updateObj: Record<string, any> = {
-          password,
           password_hash: `${salt}:${hash}`
         };
 
@@ -4930,7 +5000,7 @@ app.get('/api/admin/users/search', serverRateLimiter(60 * 1000, 60, "admin-users
       }
     }
 
-    const matchedUsers = Array.from(resultsMap.values());
+    const matchedUsers = Array.from(resultsMap.values()).map(redactUserSecrets);
     return res.json({ success: true, users: matchedUsers });
   } catch (err: any) {
     console.error('[Admin User Search Error]:', err);
@@ -5043,7 +5113,7 @@ app.post('/api/admin/impersonate/start', serverRateLimiter(60 * 1000, 10, "admin
     return res.json({
       success: true,
       session: sessionRecord,
-      targetUser
+      targetUser: redactUserSecrets(targetUser)
     });
   } catch (err: any) {
     console.error('[Impersonate Start Error]:', err);
@@ -5729,7 +5799,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
 
       return res.json({
         success: true,
-        accounts: deletedAccounts,
+        accounts: deletedAccounts.map(redactUserSecrets),
         auditLogs
       });
     } catch (err: any) {

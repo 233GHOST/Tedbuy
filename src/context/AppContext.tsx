@@ -131,7 +131,7 @@ export function mergeAndPreserveFullProducts(prev: Product[], next: Product[]): 
 
 interface AppContextType {
   reviews: Review[];
-  addReview: (sellerId: string, rating: number, comment: string, productTitle?: string) => Promise<void>;
+  addReview: (sellerId: string, rating: number, comment: string, productTitle?: string, chatId?: string) => Promise<void>;
   currentUser: User | null;
   setCurrentUser: (user: User | null) => void;
   isAdminSessionVerified: boolean;
@@ -5329,18 +5329,20 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     showToast(hold ? `Security hold placed on "${targetUser.username}".` : `Security hold released for "${targetUser.username}".`, 'success');
   };
 
-  const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string) => {
+  const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string, chatId?: string) => {
     if (!currentUser) {
       throw new Error('Authentication Required: You must be logged in to submit reviews.');
     }
 
-    // 1. Client-side Rate Limit check
+    // 1. Client-side rate limit check — fast local feedback only; the
+    // server has its own rate limiter as the real enforcement.
     const rLimit = checkClientRateLimit('submit_review', currentUser.id);
     if (!rLimit.allowed) {
       throw new Error(`Rate limit exceeded: You can only submit 3 reviews within 5 minutes. Please try again in ${rLimit.remainingSecs} seconds.`);
     }
 
-    // 2. Input Sanitization and validation
+    // 2. Input sanitization and validation (same rules the server also
+    // enforces — this just gives the user a faster error than a round trip).
     const cleanComment = sanitizeText(comment);
     if (cleanComment.length < 5 || cleanComment.length > 1000) {
       throw new Error('Comment must be between 5 and 1000 characters long.');
@@ -5349,23 +5351,27 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       throw new Error('Review rating must be between 1 and 5 stars.');
     }
 
-    const revId = `rev_${Date.now()}`;
-    const newReview: Review = {
-      id: revId,
-      sellerId,
-      buyerId: currentUser.id,
-      buyerName: currentUser.username,
-      buyerPhoto: currentUser.photoUrl || '',
-      rating: Math.floor(rating),
-      comment: cleanComment,
-      createdAt: new Date().toISOString(),
-      productTitle: productTitle ? sanitizeText(productTitle) : undefined
-    };
-    try {
-      await setDoc(doc('reviews', revId), cleanObject(newReview));
-    } catch (err) {
-      handleBackendError(err, OperationType.CREATE, `reviews/${revId}`);
+    // 3. Routed through the server (POST /api/reviews/create), NOT a direct
+    // database write like this used to be. A review is only authentic if
+    // it's tied to a trade that actually completed — the server requires
+    // chatId, verifies it's a chat between this buyer and this seller with
+    // tradeStatus:'completed', and derives productTitle from that chat
+    // itself rather than trusting whatever string the client sends. A
+    // direct write here had no way to enforce any of that (Supabase RLS /
+    // Firestore rules only ever checked ownership and rating range), which
+    // was exactly how a visitor could tap into any seller's store page and
+    // post a review with zero evidence they ever traded with them.
+    const authHeaders = await getAuthHeader();
+    const res = await fetch('/api/reviews/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ sellerId, rating: Math.floor(rating), comment: cleanComment, productTitle, chatId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to submit review.');
     }
+    setReviews(prev => [data.review as Review, ...prev]);
   };
 
   const addRecentQuery = (queryText: string) => {
