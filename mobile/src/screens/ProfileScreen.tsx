@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { TedBuyLogo } from '../components/TedBuyLogo';
+import { BackButton } from '../components/BackButton';
 import { BoostModal } from '../components/BoostModal';
 import { auth, observeAuthState, signIn, signUp, signInWithGoogle, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage } from '../firebase';
 import { Users as UsersIcon, Bookmark, Eye, EyeOff, Flame, Clock, Edit2, Tag, MapPin, Trash2, ShieldCheck, UserCircle2, Bell, Store, HelpCircle, ChevronRight, Settings as SettingsIcon } from 'lucide-react-native';
@@ -140,6 +142,22 @@ export function ProfileScreen() {
   useEffect(() => {
     resetTabBar();
   }, [activeTab, resetTabBar]);
+
+  // Settings is an internal tab toggle, not a pushed navigation screen, so
+  // the app-wide swipe-to-go-back (navigation/index.tsx) doesn't reach it —
+  // there's no previous screen to pop to, just this same screen's other
+  // tab. Mirrors HomeScreen.tsx's grid/video swipe gesture exactly:
+  // activeOffsetX/failOffsetY lets a horizontal drag win only once it's
+  // unambiguously horizontal, so it never fights the settings list's own
+  // vertical scroll.
+  const settingsBackGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-15, 15])
+    .onEnd((e) => {
+      if (e.translationX > 60 && e.velocityX > 400) {
+        setActiveTab('dashboard');
+      }
+    });
 
   // Boost purchase — was entirely missing on mobile (only passive boost
   // badges existed, no way to actually buy one from a phone).
@@ -702,11 +720,9 @@ export function ProfileScreen() {
             /* Settings Tab — a clean navigation hub. Each category below
                owns a dedicated screen (see mobile/src/screens/*SettingsScreen.tsx);
                nothing settings-specific renders inline here anymore. */
+            <GestureDetector gesture={settingsBackGesture}>
             <ScrollView contentContainerStyle={[styles.settingsContent, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom }]}>
-              <Pressable onPress={() => setActiveTab('dashboard')} style={styles.backToDashboardRow} hitSlop={8}>
-                <ChevronRight size={16} color="#475569" style={{ transform: [{ rotate: '180deg' }] }} />
-                <Text style={styles.backToDashboardText}>Back</Text>
-              </Pressable>
+              <BackButton onPress={() => setActiveTab('dashboard')} color="#0f172a" style={{ marginBottom: 6 }} />
               <View style={styles.settingsMenuGroup}>
                 <Pressable onPress={() => navigation.navigate('AccountSecuritySettings')} style={[styles.settingsMenuRow, { borderBottomWidth: 0 }]}>
                   <View style={styles.settingsItemLeft}>
@@ -782,6 +798,7 @@ export function ProfileScreen() {
                 </Pressable>
               </View>
             </ScrollView>
+            </GestureDetector>
           )}
         </View>
       )}
@@ -845,8 +862,6 @@ const styles = StyleSheet.create({
   merchantBadge: { alignSelf: 'flex-start', backgroundColor: '#ea580c', color: '#ffffff', fontSize: 9, fontFamily: fonts.extrabold, textTransform: 'uppercase', letterSpacing: 0.5, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 6 },
   headerSettingsBtn: { alignSelf: 'flex-start', width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
 
-  backToDashboardRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 10, marginBottom: 6 },
-  backToDashboardText: { color: '#475569', fontSize: 13, fontFamily: fonts.bold },
 
   /* Dashboard Content */
   dashboardContent: { padding: 16 },

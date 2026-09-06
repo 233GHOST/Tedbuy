@@ -436,6 +436,16 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
           <ScrollView
             horizontal
             pagingEnabled
+            // Nested inside this screen's outer vertical ScrollView — without
+            // these two, a swipe with any vertical component (nearly every
+            // real thumb swipe) is ambiguous between the two ScrollViews and
+            // gets fought over mid-gesture, which is exactly what "unstable
+            // when I swipe" describes: paging that stutters, aborts, or
+            // occasionally scrolls the whole page instead of the gallery.
+            // Same fix already applied to every nested horizontal ScrollView
+            // in HomeScreen.tsx — this one was just missing it.
+            nestedScrollEnabled={true}
+            directionalLockEnabled={true}
             showsHorizontalScrollIndicator={false}
             onScroll={(e) => {
               const offsetX = e.nativeEvent.contentOffset.x;
