@@ -237,7 +237,7 @@ function sanitizePayload(data: any): any {
 const TABLE_COLUMNS: Record<string, Set<string>> = {
   users: new Set([
     'id', 'username', 'originalUsername', 'email', 'phoneNumber', 'whatsAppNumber', 'role', 
-    'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 
+    'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 'bio', 'bioUpdatedAt', 'notificationPreferences',
     'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'isSuspended', 
     'status', 'isDeleted', 'deletedAt', 'deletionRequestedAt', 'securityHold', 'securityHoldReason',
     'securityHoldSetAt', 'securityHoldSetBy', 'createdAt'
@@ -341,6 +341,9 @@ function transformForSupabaseClient(table: string, data: any, docId: string): an
       try { result.savedProductIds = JSON.parse(result.savedProductIds); } catch (_) { result.savedProductIds = []; }
     }
     if (!Array.isArray(result.savedProductIds)) result.savedProductIds = [];
+    if (result.notificationPreferences && typeof result.notificationPreferences === 'string') {
+      try { result.notificationPreferences = JSON.parse(result.notificationPreferences); } catch (_) { result.notificationPreferences = {}; }
+    }
   } else if (table === 'products') {
     result.currency = result.currency || 'GHS';
     result.status = result.status || 'active';
@@ -520,6 +523,10 @@ function transformFromSupabase(table: string, data: any): any {
       try { result.savedProductIds = JSON.parse(result.savedProductIds); } catch (_) { result.savedProductIds = []; }
     }
     if (!Array.isArray(result.savedProductIds)) result.savedProductIds = [];
+
+    if (result.notificationPreferences && typeof result.notificationPreferences === 'string') {
+      try { result.notificationPreferences = JSON.parse(result.notificationPreferences); } catch (_) { result.notificationPreferences = {}; }
+    }
 
     if (result.email && result.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
       result.isAdmin = true;

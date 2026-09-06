@@ -5,6 +5,12 @@ export type UserAccountStatus =
   | 'suspended'
   | 'under_investigation';
 
+export interface NotificationPreferences {
+  newFollower?: boolean;
+  newMessage?: boolean;
+  followedSellerNewListing?: boolean;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -17,6 +23,9 @@ export interface User {
   followingSellers?: string[]; // IDs of sellers this user follows
   savedProductIds?: string[]; // Bookmarked product IDs
   whatsAppNumber?: string;
+  bio?: string;
+  bioUpdatedAt?: string;
+  notificationPreferences?: NotificationPreferences;
   isAdmin?: boolean;
   welcomeSent?: boolean;
   emailVerified?: boolean;

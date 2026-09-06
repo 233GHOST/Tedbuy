@@ -200,11 +200,17 @@ interface AppContextType {
   homeViewMode: 'grid' | 'video-feed';
   setHomeViewMode: (mode: 'grid' | 'video-feed') => void;
   updateUserProfile: (profileData: {
-    username: string;
+    username?: string;
     phoneNumber?: string;
     photoUrl?: string;
-    role: 'buyer' | 'seller' | 'both';
+    role?: 'buyer' | 'seller' | 'both';
     whatsAppNumber?: string;
+    bio?: string;
+    notificationPreferences?: {
+      newFollower?: boolean;
+      newMessage?: boolean;
+      followedSellerNewListing?: boolean;
+    };
   }) => Promise<void>;
   refreshUserProfile: (targetUid?: string) => Promise<User | null>;
   deleteAccount: (password?: string) => Promise<void>;
@@ -4707,6 +4713,12 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     photoUrl?: string;
     role?: 'buyer' | 'seller' | 'both';
     whatsAppNumber?: string;
+    bio?: string;
+    notificationPreferences?: {
+      newFollower?: boolean;
+      newMessage?: boolean;
+      followedSellerNewListing?: boolean;
+    };
   }) => {
     if (!currentUser) return;
     
@@ -4716,6 +4728,32 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     const finalWhatsAppNumber = profileData.whatsAppNumber !== undefined ? (profileData.whatsAppNumber.trim() || undefined) : currentUser.whatsAppNumber;
     const finalPhotoUrl = profileData.photoUrl !== undefined ? (profileData.photoUrl || undefined) : currentUser.photoUrl;
     const finalRole = profileData.role !== undefined ? profileData.role : (currentUser.role || 'both');
+
+    // Handle bio with 160 char limit and 7-day cooldown
+    let finalBio = currentUser.bio;
+    let finalBioUpdatedAt = currentUser.bioUpdatedAt;
+    if (profileData.bio !== undefined) {
+      const trimmedBio = profileData.bio.trim().slice(0, 160);
+      if (trimmedBio !== (currentUser.bio || '')) {
+        const cooldownMs = 7 * 24 * 60 * 60 * 1000;
+        const lastUpdatedMs = currentUser.bioUpdatedAt ? new Date(currentUser.bioUpdatedAt).getTime() : 0;
+        const nextAllowedAt = lastUpdatedMs + cooldownMs;
+        if (lastUpdatedMs > 0 && Number.isFinite(nextAllowedAt) && Date.now() < nextAllowedAt) {
+          const daysLeft = Math.max(1, Math.ceil((nextAllowedAt - Date.now()) / (24 * 60 * 60 * 1000)));
+          throw new Error(`You can change your bio again in ${daysLeft} day${daysLeft === 1 ? '' : 's'}.`);
+        }
+        finalBio = trimmedBio;
+        finalBioUpdatedAt = new Date().toISOString();
+      }
+    }
+
+    // Handle notification preferences
+    const finalNotificationPreferences = profileData.notificationPreferences !== undefined
+      ? {
+          ...(currentUser.notificationPreferences || {}),
+          ...profileData.notificationPreferences,
+        }
+      : currentUser.notificationPreferences;
 
     const currentStoreNameLower = currentUser.username?.trim().toLowerCase();
     const newStoreNameLower = finalUsername.trim().toLowerCase();
@@ -4731,7 +4769,10 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       phoneNumber: finalPhoneNumber,
       whatsAppNumber: finalWhatsAppNumber,
       photoUrl: finalPhotoUrl,
-      role: finalRole
+      role: finalRole,
+      bio: finalBio,
+      bioUpdatedAt: finalBioUpdatedAt,
+      notificationPreferences: finalNotificationPreferences
     };
 
     // --- INSTANT OPTIMISTIC STATE UPDATE (Saves are now 100% instantaneous) ---
@@ -5583,6 +5624,9 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
             phoneNumber: currentUser.phoneNumber || cachedDoc.phoneNumber,
             whatsAppNumber: currentUser.whatsAppNumber || cachedDoc.whatsAppNumber,
             role: currentUser.role || cachedDoc.role,
+            bio: currentUser.bio !== undefined ? currentUser.bio : cachedDoc.bio,
+            bioUpdatedAt: currentUser.bioUpdatedAt !== undefined ? currentUser.bioUpdatedAt : cachedDoc.bioUpdatedAt,
+            notificationPreferences: currentUser.notificationPreferences !== undefined ? currentUser.notificationPreferences : cachedDoc.notificationPreferences,
             emailVerified: currentUser.emailVerified !== undefined ? currentUser.emailVerified : cachedDoc.emailVerified
           };
         }

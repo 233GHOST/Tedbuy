@@ -582,6 +582,11 @@ export const SellerProfilePage: React.FC = () => {
                 Avg Response: {avgResponseTime}
               </span>
             </div>
+
+            {/* Seller Bio / About */}
+            <p className="text-xs text-slate-300 bg-slate-800/80 border border-slate-700/80 rounded-xl px-3.5 py-2.5 mt-2.5 leading-relaxed max-w-2xl font-sans">
+              {seller.bio || 'Official verified merchant on TedBuy marketplace. Quality electronics, phones, and fashion items with fast delivery across major regions in Ghana.'}
+            </p>
           </div>
         </div>
 

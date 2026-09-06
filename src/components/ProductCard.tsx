@@ -309,6 +309,18 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
               />
             )}
 
+            {/* Very feint Tedbuy Watermark Overlay */}
+            <div className="absolute inset-0 pointer-events-none select-none flex items-center justify-center">
+              <div className="flex flex-col items-center justify-center text-center rotate-[-15deg] px-2 pointer-events-none select-none">
+                <span className="text-[10px] sm:text-xs font-black text-white/15 tracking-[0.2em] font-sans uppercase drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)] leading-tight">
+                  POSTED ON TEDBUY
+                </span>
+                <span className="text-[8px] sm:text-[9px] font-extrabold text-white/15 tracking-[0.16em] font-sans uppercase drop-shadow-[0_1px_2px_rgba(0,0,0,0.3)] mt-0.5 max-w-[150px] truncate">
+                  {sellerName.toUpperCase()}
+                </span>
+              </div>
+            </div>
+
             {/* Non-autoplay Play/Pause trigger button */}
             {(processedVideoUrl && !videoError) && (
               <button
