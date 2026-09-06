@@ -362,3 +362,71 @@ export function getForYouProducts(params: ForYouParams): ForYouResult {
 
   return { items, isColdStart: !affinity.hasHistory, headline, subtitle };
 }
+
+/**
+ * Orders the Video Feed's full candidate pool by the same affinity/scoring
+ * pipeline as getForYouProducts above — a user who's been browsing laptops
+ * (recently-viewed, saved, followed sellers) gets laptop videos ranked
+ * first, without a second, parallel ranking system to keep in sync. Unlike
+ * getForYouProducts this returns every eligible item's id, in ranked order,
+ * with no limit slice — VideoAdsFeed consumes this as a priority order to
+ * draw its own paginated batches from, not as a bounded list to render
+ * directly. With no real affinity signal yet (a new/cold-start account),
+ * scoring falls back to engagement + freshness + trust + location, i.e.
+ * today's unpersonalized ordering.
+ */
+export function rankVideoFeedProducts(params: {
+  products: Product[];
+  users: User[];
+  reviews: Review[];
+  chats: Chat[];
+  currentUser: User | null | undefined;
+  recentlyViewedIds: string[];
+  selectedRegion?: string | null;
+  selectedCity?: string | null;
+  explorationRatio?: number;
+}): string[] {
+  const {
+    products, users, reviews, chats, currentUser, recentlyViewedIds,
+    selectedRegion, selectedCity, explorationRatio = EXPLORATION_RATIO
+  } = params;
+
+  const eligible = products.filter(p => {
+    if (!p || p.status === 'hidden' || p.status === 'deleted' || p.status === 'archived' || p.isSold) return false;
+    const vids = Array.isArray(p.videos) ? p.videos : (Array.isArray((p as any).videoUrls) ? (p as any).videoUrls : []);
+    return vids.length > 0;
+  });
+  if (eligible.length === 0) return [];
+
+  const affinity = extractUserAffinity(currentUser, products, recentlyViewedIds, chats);
+
+  const userMap = new Map<string, User>();
+  users.forEach(u => { if (u?.id) userMap.set(u.id, u); });
+
+  const reviewsBySeller = new Map<string, Review[]>();
+  reviews.forEach(r => {
+    if (!r?.sellerId) return;
+    const arr = reviewsBySeller.get(r.sellerId) || [];
+    arr.push(r);
+    reviewsBySeller.set(r.sellerId, arr);
+  });
+
+  const saveCountByProduct = new Map<string, number>();
+  users.forEach(u => {
+    if (!Array.isArray(u.savedProductIds)) return;
+    u.savedProductIds.forEach(pid => {
+      saveCountByProduct.set(pid, (saveCountByProduct.get(pid) || 0) + 1);
+    });
+  });
+
+  const ctx: ScoringContext = { affinity, userMap, reviewsBySeller, saveCountByProduct, selectedRegion, selectedCity };
+
+  const productById = new Map<string, Product>();
+  eligible.forEach(p => productById.set(p.id, p));
+
+  const scored = eligible.map(p => ({ id: p.id, score: scoreProductForUser(p, ctx) }));
+  scored.sort((a, b) => b.score - a.score);
+
+  const rankedIds = scored.map(s => s.id);
+  return applyExploration(rankedIds, affinity, productById, explorationRatio);
+}

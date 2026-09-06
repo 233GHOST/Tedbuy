@@ -8,6 +8,16 @@ export interface CloudinaryVideoUploadResult {
   public_id: string;
   bytes: number;
   duration?: number;
+  // The poster-frame JPG Cloudinary ALSO pre-generated as part of this same
+  // eager request (see sign-video-upload's eager string: video variant then
+  // poster variant, pipe-separated). Callers should store this verbatim as
+  // the listing's videoPoster rather than deriving their own so_/f_jpg URL
+  // from secure_url — a differently-parameterized poster transform is one
+  // Cloudinary has never generated, so it falls back to the same on-demand
+  // cold-stall this eager pipeline exists to avoid (measured at 4.86s cold
+  // vs 0.7-0.9s warm for this exact transform — see the sign-video-upload
+  // comment in server.ts).
+  posterUrl?: string;
 }
 
 /**
@@ -20,7 +30,15 @@ export interface CloudinaryVideoUploadResult {
  */
 export async function uploadVideoDirectToCloudinaryMobile(
   fileUri: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  // Optional trim range (seconds) chosen on the trim step, BEFORE upload
+  // starts — passed straight through to the signing endpoint so it can fold
+  // so_/eo_ into the same eager transform it already generates synchronously
+  // during upload. Omit (or pass the full clip) for an untrimmed video. See
+  // that endpoint's comment for why this can't be a client-side URL rewrite
+  // applied after the fact.
+  trimStart?: number,
+  trimEnd?: number
 ): Promise<CloudinaryVideoUploadResult> {
   const authHeaders = await getAuthHeaderMobile();
   // Was previously unbounded — a stalled connection here (before any video
@@ -32,6 +50,9 @@ export async function uploadVideoDirectToCloudinaryMobile(
     signRes = await fetch(`${API_BASE}/api/cloudinary/sign-video-upload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(
+        trimStart != null && trimEnd != null ? { trimStart, trimEnd } : {}
+      ),
       signal: signController.signal,
     });
   } catch (err: any) {
@@ -118,6 +139,7 @@ export async function uploadVideoDirectToCloudinaryMobile(
             public_id: response.public_id || '',
             bytes: response.bytes || 0,
             duration: response.duration,
+            posterUrl: Array.isArray(response.eager) ? response.eager[1]?.secure_url : undefined,
           });
         } catch (e) {
           reject(new Error('Invalid JSON response from Cloudinary.'));
@@ -166,24 +188,17 @@ export function getOptimizedVideoUrlMobile(url?: string): string {
   return url || '';
 }
 
-/** Bakes a start/end trim directly into the stored Cloudinary URL via its
- * so_/eo_ (start offset / end offset, in seconds) video transform params —
- * Cloudinary serves back only that slice on every playback, with no local
- * re-encoding needed. This is the mobile-appropriate equivalent of web's
- * client-side canvas+MediaRecorder trim pipeline (a browser-only API with no
- * React Native equivalent, and real re-encoding on-device would require a
- * native module like ffmpeg-kit, which this Expo-Go-compatible project can't
- * add without a custom dev-client rebuild). The video is uploaded exactly
- * once either way — this only changes which URL gets stored as the
- * listing's video, so there's no double upload. No-ops (returns the URL
- * unchanged) if the range covers the whole clip or isn't a Cloudinary URL. */
-export function getTrimmedVideoUrlMobile(url: string, trimStart: number, trimEnd: number, durationSec: number): string {
-  if (!url || !url.includes('res.cloudinary.com')) return url;
+/** True when a chosen trim range is actually the whole clip (untouched
+ * handles) — used to skip sending trim params to the upload-signing
+ * endpoint entirely for the common case of "didn't trim," rather than
+ * asking Cloudinary to bake a no-op so_0,eo_duration into the eager
+ * transform for no visual benefit. Real trims are applied server-side, at
+ * upload time — see /api/cloudinary/sign-video-upload's comment for why
+ * this can no longer be a client-side URL rewrite applied after upload. */
+export function isFullVideoRange(trimStart: number, trimEnd: number, durationSec: number): boolean {
   const start = Math.max(0, Math.round(trimStart));
   const end = Math.max(start + 1, Math.round(trimEnd));
-  const isFullRange = start <= 0 && durationSec > 0 && end >= Math.floor(durationSec);
-  if (isFullRange) return url;
-  return url.replace('/upload/', `/upload/so_${start},eo_${end}/`);
+  return start <= 0 && durationSec > 0 && end >= Math.floor(durationSec);
 }
 
 /** Matches web's deleteFromCloudinary — used on Discard in the posting

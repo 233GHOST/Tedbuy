@@ -169,7 +169,7 @@ export interface Review {
 }
 
 export type MainTabsParamList = {
-  Home: { resetToGrid?: number; category?: string; search?: string; location?: string } | undefined;
+  Home: { resetToGrid?: number; category?: string; search?: string; location?: string; openVideoProductId?: string; openVideoProduct?: Product; openVideoNonce?: number } | undefined;
   Search: undefined;
   Sell: { editProduct?: Product } | undefined;
   Chats: { activeChatId?: string } | undefined;

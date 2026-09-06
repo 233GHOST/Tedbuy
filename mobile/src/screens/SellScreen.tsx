@@ -22,7 +22,7 @@ import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
 import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById } from '../firebase';
-import { uploadVideoDirectToCloudinaryMobile, getTrimmedVideoUrlMobile, deleteCloudinaryAssetMobile } from '../utils/cloudinary';
+import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
 import { BoostModal } from '../components/BoostModal';
@@ -67,6 +67,7 @@ interface PickedVideo {
   status: 'pending' | 'uploading' | 'done' | 'error';
   progress: number;
   remoteUrl?: string;
+  posterUrl?: string;
   error?: string;
 }
 
@@ -85,11 +86,12 @@ function VideoPreviewThumbnail({ uri }: { uri: string }) {
 }
 
 /** Screen 2's video trim step. No client-side re-encoding (see
- * utils/cloudinary.ts getTrimmedVideoUrlMobile for why) — this only lets the
- * seller mark IN/OUT points against real playback, which get baked into the
- * uploaded video's URL as a Cloudinary transform once Continue is tapped.
- * Duration is read from the player itself (authoritative) rather than
- * trusting picker/camera metadata, which isn't always present. */
+ * utils/cloudinary.ts's uploadVideoDirectToCloudinaryMobile for why) — this
+ * only lets the seller mark IN/OUT points against real playback, which get
+ * sent up as part of the same upload request and baked server-side into the
+ * eager Cloudinary transform once Continue is tapped. Duration is read from
+ * the player itself (authoritative) rather than trusting picker/camera
+ * metadata, which isn't always present. */
 function VideoTrimEditor({
   uri,
   trimStart,
@@ -665,15 +667,25 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   const uploadPickedVideo = async (localUri: string, durationSec: number, trimStart: number, trimEnd: number) => {
     setVideo({ localUri, durationSec, trimStart, trimEnd, status: 'uploading', progress: 0 });
     try {
-      const result = await uploadVideoDirectToCloudinaryMobile(localUri, (percent) => {
-        setVideo((prev) => (prev ? { ...prev, progress: percent } : prev));
-      });
-      // Bake the chosen trim range into the stored URL now (see
-      // getTrimmedVideoUrlMobile) — the raw upload always happens exactly
-      // once regardless of trim; only which URL gets saved differs.
+      // A real trim is sent to the sign endpoint so Cloudinary bakes so_/eo_
+      // into the SAME eager transform it generates during upload — the
+      // seller's own upload absorbs that one-time cost, exactly like the
+      // base optimization already does, instead of the trimmed+optimized
+      // combination being something nobody has ever requested before (which
+      // used to mean the seller's own first playback triggered an on-demand
+      // transcode). Skipped for an untouched trim (isFullVideoRange) since
+      // there's nothing to bake in.
+      const hasRealTrim = !isFullVideoRange(trimStart, trimEnd, durationSec);
+      const result = await uploadVideoDirectToCloudinaryMobile(
+        localUri,
+        (percent) => {
+          setVideo((prev) => (prev ? { ...prev, progress: percent } : prev));
+        },
+        hasRealTrim ? trimStart : undefined,
+        hasRealTrim ? trimEnd : undefined
+      );
       const finalDuration = durationSec || result.duration || (trimEnd - trimStart);
-      const trimmedUrl = getTrimmedVideoUrlMobile(result.secure_url, trimStart, trimEnd, finalDuration);
-      setVideo({ localUri, durationSec: finalDuration, trimStart, trimEnd, status: 'done', progress: 100, remoteUrl: trimmedUrl });
+      setVideo({ localUri, durationSec: finalDuration, trimStart, trimEnd, status: 'done', progress: 100, remoteUrl: result.secure_url, posterUrl: result.posterUrl });
     } catch (err: any) {
       setVideo({ localUri, durationSec, trimStart, trimEnd, status: 'error', progress: 0, error: err?.message || 'Video upload failed' });
     }
@@ -1175,6 +1187,12 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
 
       const uploadedImageUrls = images.map((img) => img.remoteUrl!).filter(Boolean);
       const uploadedVideoUrl = video?.status === 'done' ? video.remoteUrl : undefined;
+      // The real eager-generated poster from Cloudinary's own upload response
+      // (see uploadPickedVideo) — not re-derived here, so the stored
+      // videoPoster is guaranteed to match a transform Cloudinary actually
+      // pre-generated rather than a differently-parameterized one nobody's
+      // ever requested (see CloudinaryVideoUploadResult.posterUrl's comment).
+      const uploadedVideoPosterUrl = video?.status === 'done' ? video.posterUrl : undefined;
       const defaultImage = selectedCategory === 'Jobs & Employment'
         ? 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80'
         : 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=900&q=80';
@@ -1210,6 +1228,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           images: finalImages,
           image: finalImages[0] || '',
           videos: uploadedVideoUrl ? [uploadedVideoUrl] : [],
+          videoPoster: uploadedVideoUrl ? uploadedVideoPosterUrl : '',
           negotiable: finalNegotiable,
           isExchangeable: finalIsExchangeable,
           exchangePossible: finalIsExchangeable,
@@ -1241,6 +1260,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         image: finalImages[0] || '',
         images: finalImages,
         videos: uploadedVideoUrl ? [uploadedVideoUrl] : [],
+        videoPoster: uploadedVideoUrl ? uploadedVideoPosterUrl : '',
         sellerId: auth.currentUser.uid,
         sellerName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
         sellerPhoto: auth.currentUser.photoURL || '',
@@ -1273,12 +1293,29 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         return;
       }
 
+      // A video listing has somewhere real to jump to (Watch Video Ads,
+      // scrolled to this exact post) — bare navigation.navigate('Home')
+      // used to just land on whatever grid/video state Home already had,
+      // which for a seller who just posted read as "nothing happened" since
+      // their new post wasn't visibly anywhere near what was already on
+      // screen. See the openVideoNonce effect in HomeScreen.tsx. A
+      // photo-only listing has no video feed to open, so it still goes to
+      // the plain grid.
+      const hasVideo = Array.isArray(created.videos) && created.videos.length > 0;
       Alert.alert('Success', 'Your listing was successfully published on TedBuy Ghana!', [
         {
           text: 'View Feed',
           onPress: () => {
             resetForm();
-            navigation.navigate('Home');
+            if (hasVideo) {
+              navigation.navigate('Home', {
+                openVideoProductId: created.id,
+                openVideoProduct: created,
+                openVideoNonce: Date.now(),
+              });
+            } else {
+              navigation.navigate('Home');
+            }
           },
         },
       ]);

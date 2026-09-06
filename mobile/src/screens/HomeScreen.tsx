@@ -230,7 +230,7 @@ function HomePreloadVideos({ items }: { items: Product[] }) {
 import { ProductCard } from '../components/ProductCard';
 import { SellerCard } from '../components/SellerCard';
 import { TedBuyLogo } from '../components/TedBuyLogo';
-import { getForYouProducts } from '../utils/recommendationScore';
+import { getForYouProducts, rankVideoFeedProducts } from '../utils/recommendationScore';
 
 // Animated.event with useNativeDriver requires the scrollable component to
 // be wrapped via createAnimatedComponent — a plain FlatList throws
@@ -947,9 +947,10 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       users,
       currentUserId: auth.currentUser?.uid,
       selectedCategory,
+      recentlyViewedIds,
       limit: 12,
     });
-  }, [products, users, selectedCategory]);
+  }, [products, users, selectedCategory, recentlyViewedIds]);
 
   // Sellers to Discover memo (Active Ghanaian merchants with active listings).
   // Matches web's SellersToDiscover.tsx exactly — it accepts a selectedCategory
@@ -962,10 +963,21 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
 
   // Only listings with a real video belong in the video ads feed — the
   // previous implementation showed every product's photo with a fake play
-  // icon overlay, regardless of whether it actually had a video.
+  // icon overlay, regardless of whether it actually had a video. Ordering is
+  // personalized by the same affinity signals as the "For You" section above
+  // (saved products, followed sellers, recently-viewed categories) — a user
+  // who's been browsing laptops sees laptop videos surface first, per
+  // explicit product direction, rather than every viewer getting the same
+  // unordered feed. Falls back to plain engagement/freshness ordering for a
+  // cold-start account with no affinity signal yet.
   const videoAdsProducts = useMemo(() => {
-    return products.filter((p) => Array.isArray((p as any).videos) && (p as any).videos.length > 0 && (p as any).videos[0]);
-  }, [products]);
+    return rankVideoFeedProducts({
+      products,
+      users,
+      currentUserId: auth.currentUser?.uid,
+      recentlyViewedIds,
+    });
+  }, [products, users, recentlyViewedIds]);
 
   // Matches web's VideoAdsFeed loadNextBatch — an effectively endless feed
   // via /api/video-ads pagination + anti-repeat tracking, not a bounded
@@ -989,6 +1001,40 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       setVideoFeedItems(videoAdsProducts);
     }
   }, [videoAdsProducts, videoFeedItems.length]);
+
+  // "View Feed" after publishing a video listing (SellScreen) passes the
+  // freshly created product here rather than just calling
+  // navigation.navigate('Home') bare — that used to land on whatever
+  // grid/video mode and scroll position Home already had, which for a
+  // seller who just posted read as "nothing happened" since their new post
+  // wasn't visibly anywhere near what was already on screen. Unshifting the
+  // passed product directly (rather than waiting for it to arrive through
+  // watchProducts' listener) covers the real case where a listing this
+  // fresh hasn't propagated through that listener yet by the time the
+  // wizard already has the full object in hand. openVideoNonce (not just
+  // the id) is the effect's dependency so a second post-and-view in the same
+  // session re-triggers this even for what would otherwise be an unchanged id.
+  useEffect(() => {
+    const openId = route?.params?.openVideoProductId;
+    if (!openId || !route?.params?.openVideoNonce) return;
+    const openProduct = route?.params?.openVideoProduct;
+    setVideoFeedItems((prev) => {
+      const existingIndex = prev.findIndex((p) => p.id === openId);
+      if (existingIndex !== -1) {
+        setActiveVideoIndex(existingIndex);
+        visitedVideoIndicesRef.current.add(existingIndex);
+        return prev;
+      }
+      if (openProduct) {
+        setActiveVideoIndex(0);
+        visitedVideoIndicesRef.current.add(0);
+        return [openProduct, ...prev];
+      }
+      return prev;
+    });
+    setViewMode('video');
+    navigation?.setParams?.({ openVideoProductId: undefined, openVideoProduct: undefined, openVideoNonce: undefined });
+  }, [route?.params?.openVideoNonce]);
 
   const loadMoreVideoAds = async () => {
     if (isLoadingMoreVideos) return;
@@ -1367,7 +1413,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                     style={[styles.toggleBtn, viewMode === 'video' && styles.toggleBtnActive]}
                   >
                     <Video size={19} color="#10b981" fill="#10b981" strokeWidth={1.6} />
-                    <Text style={[styles.toggleBtnText, viewMode === 'video' && styles.toggleBtnTextActive]}>Watch Video Ads</Text>
+                    <Text style={[styles.toggleBtnText, viewMode === 'video' && styles.toggleBtnTextActive]}>Video Feed</Text>
                   </Pressable>
                 </View>
 
@@ -2017,7 +2063,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
         ) : videoAdsProducts.length === 0 && videoFeedItems.length === 0 ? (
           <View style={styles.videoFeedEmptyState}>
             <Text style={styles.videoFeedEmptyEmoji}>🎥</Text>
-            <Text style={styles.videoFeedEmptyTitle}>No video ads yet</Text>
+            <Text style={styles.videoFeedEmptyTitle}>No videos yet</Text>
             <Text style={styles.videoFeedEmptyText}>
               Sellers haven't posted any video listings yet. Check back soon, or record your own from the Sell tab!
             </Text>

@@ -855,7 +855,7 @@ const MarketplaceContent: React.FC = () => {
                   className="flex-1 py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition duration-200 cursor-pointer outline-none text-slate-650 hover:text-slate-900 hover:bg-white/30"
                 >
                   <Video className="w-4 h-4 text-emerald-500 animate-pulse fill-emerald-500" />
-                  <span>Watch Video Ads</span>
+                  <span>Video Feed</span>
                   <span className="hidden sm:inline px-1 py-0.5 bg-emerald-600 text-[8px] text-white rounded-md tracking-wide font-black">
                     NEW
                   </span>

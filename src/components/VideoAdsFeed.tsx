@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Product, isUserVerified, isUserAdmin } from '../types';
 import { isVideoAsset } from './MediaRenderer';
 import { slugify } from '../utils/slugify';
+import { rankVideoFeedProducts } from '../utils/recommendationScore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Video, 
@@ -847,7 +848,10 @@ export const VideoAdsFeed: React.FC = () => {
   const {
     products,
     users,
+    reviews,
+    chats,
     currentUser,
+    recentlyViewedIds,
     setCurrentView,
     setSelectedProductId,
     toggleSaveProduct,
@@ -865,6 +869,23 @@ export const VideoAdsFeed: React.FC = () => {
     isBottomNavVisible,
     setIsBottomNavVisible
   } = useApp();
+
+  // Same affinity/scoring pipeline as the homepage's "For You" section — a
+  // user who's been browsing laptops (recently-viewed, saved, followed
+  // sellers) gets laptop videos prioritized here too, per explicit product
+  // direction, rather than every viewer getting the same shuffled feed.
+  // Recomputed only when the underlying signals actually change; consumed
+  // below as a priority order for assembling each fetched/local batch, not
+  // as a list rendered directly (this feed is still an infinite, paginated
+  // scroll, not a bounded top-N strip).
+  const personalizedRankedIds = useMemo(() => {
+    return rankVideoFeedProducts({ products, users, reviews, chats, currentUser, recentlyViewedIds });
+  }, [products, users, reviews, chats, currentUser, recentlyViewedIds]);
+  const personalizedRankIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    personalizedRankedIds.forEach((id, index) => map.set(id, index));
+    return map;
+  }, [personalizedRankedIds]);
 
   const feedScrollContainerRef = useRef<HTMLDivElement>(null);
   const productRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
@@ -936,26 +957,30 @@ export const VideoAdsFeed: React.FC = () => {
       // 3. Assemble dynamic batch of 5 in non-ordered / shuffled manner
       const newBatchProducts: Product[] = [];
 
-      // A. Add unseen products from fetchedBatch
-      for (const p of fetchedBatch) {
+      // A. Add unseen products from fetchedBatch, personalized-rank first
+      const rankedFetchedBatch = [...fetchedBatch].sort((a, b) =>
+        (personalizedRankIndex.get(a.id) ?? Infinity) - (personalizedRankIndex.get(b.id) ?? Infinity)
+      );
+      for (const p of rankedFetchedBatch) {
         if (newBatchProducts.length < BATCH_SIZE && !seenProductIdsRef.current.has(p.id)) {
           newBatchProducts.push(p);
           seenProductIdsRef.current.add(p.id);
         }
       }
 
-      // B. If still need items, take unseen items from fullPool with dynamic Fisher-Yates shuffle
+      // B. If still need items, take unseen items from fullPool ordered by
+      // personalized rank (was a pure Fisher-Yates shuffle — see
+      // personalizedRankedIds above for why this now reflects the viewer's
+      // own category/seller affinity instead of pure randomness). Items
+      // outside the ranked pool (e.g. a just-fetched product global state
+      // hasn't caught up to yet) sink to the end rather than being dropped.
       if (newBatchProducts.length < BATCH_SIZE) {
         const unseenCandidates = fullPool.filter(p => !seenProductIdsRef.current.has(p.id));
-        const shuffledUnseen = [...unseenCandidates];
-        for (let i = shuffledUnseen.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          const temp = shuffledUnseen[i];
-          shuffledUnseen[i] = shuffledUnseen[j];
-          shuffledUnseen[j] = temp;
-        }
+        const rankedUnseen = [...unseenCandidates].sort((a, b) =>
+          (personalizedRankIndex.get(a.id) ?? Infinity) - (personalizedRankIndex.get(b.id) ?? Infinity)
+        );
 
-        for (const p of shuffledUnseen) {
+        for (const p of rankedUnseen) {
           if (newBatchProducts.length < BATCH_SIZE) {
             newBatchProducts.push(p);
             seenProductIdsRef.current.add(p.id);
@@ -963,16 +988,13 @@ export const VideoAdsFeed: React.FC = () => {
         }
       }
 
-      // C. If unseen items are exhausted, dynamically sample/shuffle from fullPool
-      // (avoiding consecutive back-to-back duplicate product IDs)
+      // C. If unseen items are exhausted, cycle back through fullPool ordered
+      // by personalized rank (avoiding consecutive back-to-back duplicate
+      // product IDs) instead of a pure shuffle.
       if (newBatchProducts.length < BATCH_SIZE && fullPool.length > 0) {
-        const shuffledPool = [...fullPool];
-        for (let i = shuffledPool.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          const temp = shuffledPool[i];
-          shuffledPool[i] = shuffledPool[j];
-          shuffledPool[j] = temp;
-        }
+        const shuffledPool = [...fullPool].sort((a, b) =>
+          (personalizedRankIndex.get(a.id) ?? Infinity) - (personalizedRankIndex.get(b.id) ?? Infinity)
+        );
 
         let poolCursor = 0;
         let attempts = 0;
@@ -1012,7 +1034,7 @@ export const VideoAdsFeed: React.FC = () => {
       setIsLoadingBatch(false);
       isFetchingRef.current = false;
     }
-  }, [feedItems, getLocalVideoProducts, hasMoreProducts, isProductsLoading, loadMoreProducts]);
+  }, [feedItems, getLocalVideoProducts, hasMoreProducts, isProductsLoading, loadMoreProducts, personalizedRankIndex]);
 
   // Initial load effect
   useEffect(() => {
@@ -1211,9 +1233,9 @@ export const VideoAdsFeed: React.FC = () => {
         <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
           <Video className="w-8 h-8" />
         </div>
-        <h3 className="text-xl font-black text-slate-900 tracking-tight">No Dynamic Video Ads Yet!</h3>
+        <h3 className="text-xl font-black text-slate-900 tracking-tight">No Videos Yet!</h3>
         <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
-          Be the first to create a beautiful interactive video ad! Dynamic video ads are displayed in a fully scrollable, immersive feed on our homepage to captivate real-time buyers.
+          Be the first to post a video listing! Videos appear in a fully scrollable, immersive Video Feed on our homepage to captivate real-time buyers.
         </p>
         <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
           <button

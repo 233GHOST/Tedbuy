@@ -63,14 +63,24 @@ function normalizeMap(map: Map<string, number>): Map<string, number> {
 }
 
 /**
- * Derives affinity from the only two behavioral signals actually available in
- * memory on mobile's Home screen: saved products and followed sellers, both
- * read off the current user's own record inside the already-loaded users list.
+ * Derives affinity from behavioral signals available in memory on mobile's
+ * Home screen: saved products and followed sellers (read off the current
+ * user's own record, already loaded), plus — as of the video feed
+ * personalization work — recently-viewed product ids. That last one WAS
+ * genuinely unavailable when this module's original doc comment was written
+ * (no AsyncStorage usage existed in mobile/src at all); HomeScreen now
+ * persists it (tedbuy_recently_viewed_ids, see ProductDetailScreen.tsx) for
+ * its own "Recently Viewed" strip, so this reuses that same list rather than
+ * standing up a second, parallel tracking mechanism. Ordered most-recent
+ * first (as ProductDetailScreen stores it) — weight decays by position so a
+ * single long-ago view of an unrelated category doesn't linger as strongly
+ * as what the user was just looking at.
  */
 export function extractUserAffinity(
   currentUserId: string | null | undefined,
   users: User[],
-  products: Product[]
+  products: Product[],
+  recentlyViewedIds: string[] = []
 ): UserAffinity {
   const categoryRaw = new Map<string, number>();
   const sellerRaw = new Map<string, number>();
@@ -87,6 +97,20 @@ export function extractUserAffinity(
     if (!p) return;
     bump(categoryRaw, normalizeCategory(p.category), 1.4);
     bump(sellerRaw, p.sellerId, 0.8);
+    signalCount++;
+  });
+
+  // A single view is a weaker intent signal than explicitly saving something
+  // (base weight below saved's 1.4), but browsing several items in the same
+  // category in a row — exactly the "views laptops often" case this is
+  // for — still accumulates into a real category signal even though no
+  // individual view counts for much on its own.
+  recentlyViewedIds.forEach((id, index) => {
+    const p = productById.get(id);
+    if (!p) return;
+    const recencyWeight = 1.1 * Math.pow(0.85, index);
+    bump(categoryRaw, normalizeCategory(p.category), recencyWeight);
+    bump(sellerRaw, p.sellerId, recencyWeight * 0.5);
     signalCount++;
   });
 
@@ -220,17 +244,18 @@ export function getForYouProducts(params: {
   users: User[];
   currentUserId: string | null | undefined;
   selectedCategory?: string | null;
+  recentlyViewedIds?: string[];
   limit?: number;
   explorationRatio?: number;
 }): ForYouResult {
-  const { products, users, currentUserId, selectedCategory, limit = 12, explorationRatio = EXPLORATION_RATIO } = params;
+  const { products, users, currentUserId, selectedCategory, recentlyViewedIds = [], limit = 12, explorationRatio = EXPLORATION_RATIO } = params;
 
   const eligible = products.filter((p: any) => p && p.status !== 'hidden' && p.status !== 'sold' && !p.isSold);
   if (eligible.length === 0) {
     return { items: [], isColdStart: true, headline: 'Discover on TedBuy', subtitle: null };
   }
 
-  const affinity = extractUserAffinity(currentUserId, users, products);
+  const affinity = extractUserAffinity(currentUserId, users, products, recentlyViewedIds);
 
   const userMap = new Map<string, User>();
   users.forEach(u => { if (u && (u as any).id) userMap.set((u as any).id, u); });
@@ -251,4 +276,49 @@ export function getForYouProducts(params: {
   const subtitle: string | null = null;
 
   return { items, isColdStart: !affinity.hasHistory, headline, subtitle };
+}
+
+/**
+ * Orders the Video Feed's full candidate list by the same affinity/scoring
+ * pipeline as getForYouProducts above — a user who's been browsing laptops
+ * (recently-viewed) or has saved/followed laptop sellers gets laptop videos
+ * surfaced first, without a second, parallel ranking system to keep in sync.
+ * Unlike getForYouProducts this returns every eligible item (not just a
+ * bounded top-N strip) since the video feed is an infinite-scroll list, and
+ * still runs exploration interleaving so a user's feed doesn't calcify into
+ * one category — the same reasoning that already justified it for For You.
+ * With no real affinity signal yet (a new/cold-start account), scoring falls
+ * back to engagement + freshness + trust, i.e. today's unpersonalized order.
+ */
+export function rankVideoFeedProducts(params: {
+  products: Product[];
+  users: User[];
+  currentUserId: string | null | undefined;
+  recentlyViewedIds?: string[];
+  explorationRatio?: number;
+}): Product[] {
+  const { products, users, currentUserId, recentlyViewedIds = [], explorationRatio = EXPLORATION_RATIO } = params;
+
+  const eligible = products.filter((p: any) =>
+    p && p.status !== 'hidden' && p.status !== 'sold' && !p.isSold &&
+    Array.isArray(p.videos) && p.videos.length > 0 && p.videos[0]
+  );
+  if (eligible.length === 0) return [];
+
+  const affinity = extractUserAffinity(currentUserId, users, products, recentlyViewedIds);
+
+  const userMap = new Map<string, User>();
+  users.forEach(u => { if (u && (u as any).id) userMap.set((u as any).id, u); });
+
+  const ctx: ScoringContext = { affinity, userMap };
+
+  const productById = new Map<string, Product>();
+  eligible.forEach(p => productById.set(p.id, p));
+
+  const scored = eligible.map(p => ({ id: p.id, score: scoreProductForUser(p, ctx) }));
+  scored.sort((a, b) => b.score - a.score);
+
+  const rankedIds = scored.map(s => s.id);
+  const finalIds = applyExploration(rankedIds, affinity, productById, explorationRatio);
+  return finalIds.map(id => productById.get(id)!).filter(Boolean);
 }
