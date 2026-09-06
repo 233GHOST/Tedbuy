@@ -5,8 +5,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { TedBuyLogo } from '../components/TedBuyLogo';
 import { BoostModal } from '../components/BoostModal';
-import { auth, observeAuthState, signIn, signUp, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage } from '../firebase';
-import { Users as UsersIcon, Bookmark, Eye, Flame, Clock, Edit2, Tag, MapPin, Trash2, ShieldCheck, UserCircle2, Bell, Store, HelpCircle, ChevronRight, Settings as SettingsIcon } from 'lucide-react-native';
+import { auth, observeAuthState, signIn, signUp, signInWithGoogle, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage } from '../firebase';
+import { Users as UsersIcon, Bookmark, Eye, EyeOff, Flame, Clock, Edit2, Tag, MapPin, Trash2, ShieldCheck, UserCircle2, Bell, Store, HelpCircle, ChevronRight, Settings as SettingsIcon } from 'lucide-react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT, useTabBarVisibility } from '../context/TabBarVisibility';
@@ -106,6 +106,7 @@ export function ProfileScreen() {
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [isSendingReset, setIsSendingReset] = useState(false);
 
@@ -241,8 +242,21 @@ export function ProfileScreen() {
       setEmail('');
       setPassword('');
       setUsername('');
+      setIsPasswordVisible(false);
     } catch (err: any) {
       Alert.alert('Authentication Failure', getFriendlyAuthErrorMessage(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    if (authLoading) return;
+    try {
+      setAuthLoading(true);
+      await signInWithGoogle();
+    } catch (err: any) {
+      Alert.alert('Google Sign-In Failed', err?.message || 'Could not sign in with Google. Please try again.');
     } finally {
       setAuthLoading(false);
     }
@@ -372,15 +386,28 @@ export function ProfileScreen() {
                       </Pressable>
                     )}
                   </View>
-                  <TextInput
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="••••••••"
-                    placeholderTextColor="#94a3b8"
-                    secureTextEntry
-                    autoCapitalize="none"
-                    style={styles.textInput}
-                  />
+                  <View style={styles.passwordFieldRow}>
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="••••••••"
+                      placeholderTextColor="#94a3b8"
+                      secureTextEntry={!isPasswordVisible}
+                      autoCapitalize="none"
+                      style={[styles.textInput, styles.passwordFieldInput]}
+                    />
+                    <Pressable
+                      onPress={() => setIsPasswordVisible((prev) => !prev)}
+                      hitSlop={10}
+                      style={styles.passwordVisibilityBtn}
+                    >
+                      {isPasswordVisible ? (
+                        <EyeOff size={18} color="#64748b" strokeWidth={2} />
+                      ) : (
+                        <Eye size={18} color="#64748b" strokeWidth={2} />
+                      )}
+                    </Pressable>
+                  </View>
                 </View>
 
                 <Pressable
@@ -392,9 +419,26 @@ export function ProfileScreen() {
                     <ActivityIndicator color="#ffffff" size="small" />
                   ) : (
                     <Text style={styles.authSubmitText}>
-                      {isRegisterMode ? 'Initialize Storefront' : 'Sign In Safely'}
+                      {isRegisterMode ? 'Create Store' : 'Sign In'}
                     </Text>
                   )}
+                </Pressable>
+
+                <View style={styles.authDividerRow}>
+                  <View style={styles.authDividerLine} />
+                  <Text style={styles.authDividerText}>OR</Text>
+                  <View style={styles.authDividerLine} />
+                </View>
+
+                {/* Same Firebase project as web (tedbuy-fb79a) — a buyer or
+                    seller who signed up with Google on web lands in that
+                    exact same TedBuy account here, not a new one. */}
+                <Pressable
+                  onPress={handleGoogleAuth}
+                  style={styles.googleAuthButton}
+                  disabled={authLoading}
+                >
+                  <Text style={styles.googleAuthButtonText}>Continue with Google</Text>
                 </Pressable>
 
                 <Pressable
@@ -777,8 +821,16 @@ const styles = StyleSheet.create({
   passwordLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   forgotPasswordLink: { fontSize: 10.5, fontFamily: fonts.bold, color: '#475569', marginBottom: 6 },
   textInput: { height: 46, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, paddingHorizontal: 14, fontSize: 14, color: '#0f172a', fontFamily: fonts.medium },
+  passwordFieldRow: { position: 'relative', justifyContent: 'center' },
+  passwordFieldInput: { paddingRight: 44 },
+  passwordVisibilityBtn: { position: 'absolute', right: 4, height: 46, width: 40, alignItems: 'center', justifyContent: 'center' },
   authSubmitButton: { marginTop: 10, backgroundColor: '#0f172a', height: 46, borderRadius: 10, justifyContent: 'center', alignItems: 'center', shadowColor: '#0f172a', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   authSubmitText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 14 },
+  authDividerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 4 },
+  authDividerLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
+  authDividerText: { marginHorizontal: 10, color: '#94a3b8', fontSize: 11, fontFamily: fonts.extrabold },
+  googleAuthButton: { marginTop: 10, height: 46, borderRadius: 10, borderWidth: 1.5, borderColor: '#e2e8f0', backgroundColor: '#ffffff', justifyContent: 'center', alignItems: 'center' },
+  googleAuthButtonText: { color: '#0f172a', fontFamily: fonts.extrabold, fontSize: 14 },
   toggleAuthModeBtn: { marginTop: 14, alignSelf: 'center' },
   toggleAuthModeText: { color: '#2563eb', fontSize: 12.5, fontFamily: fonts.bold },
 

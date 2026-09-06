@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Search, X, UserPlus, UserMinus } from 'lucide-react-native';
+import { Search, X, UserPlus, UserMinus } from 'lucide-react-native';
+import { BackButton } from '../components/BackButton';
 import { auth, watchUsers, fetchUserById, toggleFollowSeller } from '../firebase';
 import { fonts } from '../theme';
 
@@ -83,9 +84,7 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn} hitSlop={10}>
-          <ChevronLeft size={22} color="#0f172a" />
-        </Pressable>
+        <BackButton onPress={onBack} color="#0f172a" />
         <Text style={styles.headerTitle} numberOfLines={1}>{targetProfile?.username || 'Network'}</Text>
         <View style={{ width: 34 }} />
       </View>
@@ -198,7 +197,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
-  backBtn: { width: 34, height: 34, alignItems: 'flex-start', justifyContent: 'center' },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: 15, fontFamily: fonts.extrabold, color: '#0f172a' },
 
   tabRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },

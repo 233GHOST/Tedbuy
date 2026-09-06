@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import { ChevronLeft, ShieldCheck, HelpCircle, FileText, Info } from 'lucide-react-native';
+import { ShieldCheck, HelpCircle, FileText, Info } from 'lucide-react-native';
+import { BackButton } from '../components/BackButton';
 import { colors, radius, spacing, fonts } from '../theme';
 
 interface Props {
@@ -76,9 +77,7 @@ export function HelpSupportSettingsScreen({ onBack }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn} hitSlop={10}>
-          <ChevronLeft size={22} color={colors.text} />
-        </Pressable>
+        <BackButton onPress={onBack} color={colors.text} />
         <Text style={styles.headerTitle}>Help &amp; Support</Text>
         <View style={{ width: 34 }} />
       </View>
@@ -304,7 +303,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  backBtn: { width: 34, height: 34, alignItems: 'flex-start', justifyContent: 'center' },
   headerTitle: { fontSize: 17, fontFamily: fonts.extrabold, color: colors.text },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
   group: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Flame } from 'lucide-react-native';
+import { Flame } from 'lucide-react-native';
+import { BackButton } from '../components/BackButton';
 import { watchProducts } from '../firebase';
 import { Product } from '../types';
 import { fonts } from '../theme';
@@ -51,10 +52,7 @@ export function FeaturedListingsScreen({ onBack, navigation, category }: Feature
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn}>
-          <ArrowLeft size={15} color="#64748b" strokeWidth={2.3} />
-          <Text style={styles.backBtnText}>Back to Marketplace</Text>
-        </Pressable>
+        <BackButton onPress={onBack} color="#64748b" size={20} style={{ marginBottom: 12 }} />
         <View style={styles.titleRow}>
           <View style={styles.iconBadge}>
             <Flame size={18} color="#ffffff" fill="#ffffff" strokeWidth={2} />
@@ -101,8 +99,6 @@ export function FeaturedListingsScreen({ onBack, navigation, category }: Feature
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f8fafc' },
   header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#ffffff' },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, alignSelf: 'flex-start' },
-  backBtnText: { color: '#64748b', fontSize: 12, fontFamily: fonts.bold },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBadge: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f59e0b', justifyContent: 'center', alignItems: 'center' },
   title: { fontSize: 20, color: '#0f172a', fontFamily: fonts.extrabold, letterSpacing: -0.3 },

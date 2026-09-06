@@ -13,6 +13,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { AppNavigator } from './src/navigation';
 import { applyGlobalFont } from './src/applyGlobalFont';
+import { configureGoogleSignIn } from './src/firebase';
 import { SuspensionGate } from './src/components/SuspensionGate';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { UnreadChatsProvider } from './src/context/UnreadChats';
@@ -20,6 +21,11 @@ import { SavedProductsProvider } from './src/context/SavedProducts';
 import { DismissKeyboardView } from './src/components/DismissKeyboardView';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Safe to call unconditionally — a no-op until GOOGLE_WEB_CLIENT_ID is filled
+// in (firebase.ts), and self-guarded against Expo Go (no native module) so
+// this never breaks app startup either way.
+configureGoogleSignIn();
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({

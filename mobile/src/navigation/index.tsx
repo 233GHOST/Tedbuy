@@ -182,7 +182,21 @@ export function AppNavigator() {
   return (
     <TabBarVisibilityProvider>
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {/* gestureEnabled + fullScreenGestureEnabled swipe left-to-right to go
+          back is automatic on iOS, but native-stack does NOT enable it on
+          Android by default — nor does it kick in there without an explicit
+          `animation`, since the gesture is driven by the same transition the
+          system animation uses (the default has none to drive). Both set
+          here at the navigator level so every pushed screen gets it, not
+          just the ones that opted in individually before this. */}
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          gestureEnabled: true,
+          fullScreenGestureEnabled: true,
+          animation: 'slide_from_right',
+        }}
+      >
         <Stack.Screen name="MainTabs" component={MainTabs} />
         <Stack.Screen name="ProductDetail" options={{ presentation: 'card' }}>
           {({ route }) => {
@@ -190,17 +204,7 @@ export function AppNavigator() {
             return <ProductDetailScreen productId={route.params.productId} onBack={() => navigation.goBack()} />;
           }}
         </Stack.Screen>
-        {/* gestureEnabled/fullScreenGestureEnabled made explicit (rather than
-            relying on native-stack's default) so swiping left-to-right
-            anywhere on this screen — not just an edge-swipe — returns to
-            wherever it was opened from, e.g. the Watch Video Ads feed.
-            fullScreenGestureEnabled is iOS-only; Android's equivalent is its
-            own system edge-swipe-back, which is the platform-native
-            convention there already. */}
-        <Stack.Screen
-          name="SellerProfile"
-          options={{ presentation: 'card', gestureEnabled: true, fullScreenGestureEnabled: true }}
-        >
+        <Stack.Screen name="SellerProfile" options={{ presentation: 'card' }}>
           {({ route }) => {
             const navigation = useNavigation<any>();
             return (

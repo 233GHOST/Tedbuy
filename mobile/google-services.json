@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "735307724523",
+    "project_id": "tedbuy-fb79a",
+    "storage_bucket": "tedbuy-fb79a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:735307724523:android:fdfc1ccd655c744c9230ae",
+        "android_client_info": {
+          "package_name": "com.tedbuy.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "735307724523-3gf9oqht0oat5tapa2dteqip1tehkt3l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tedbuy.app",
+            "certificate_hash": "fa5b0a71745d84462593cdb4d52a0dc59281f4f2"
+          }
+        },
+        {
+          "client_id": "735307724523-hojhs1sp150gvfccokckvclbs3a230gh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4jof0EVkNEDZ-6qHuvuSSk4fXRjdsVIo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "735307724523-hojhs1sp150gvfccokckvclbs3a230gh.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "735307724523-i66v0emjupugqgnd5voeptbjo8foqgev.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.tedbuy.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

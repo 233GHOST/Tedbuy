@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, fetchChatsApi, fetchMessagesApi, sendMessageApi, markChatReadApi, markAsDelivered, markAsPickedUp, fetchUserById, sendTypingStatus, watchTypingStatus, fetchReviewsForSeller, addReview, isRetryableApiError } from '../firebase';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
+import { BackButton } from '../components/BackButton';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { CheckCircle, ShoppingBag, Star, X } from 'lucide-react-native';
 import { fonts } from '../theme';
@@ -569,12 +570,7 @@ export function ChatsScreen() {
         >
           {/* Chat room header */}
           <View style={styles.chatRoomHeader}>
-            <Pressable
-              onPress={handleBackToInbox}
-              style={styles.chatRoomBackBtn}
-            >
-              <Text style={styles.chatRoomBackText}>← Inbox</Text>
-            </Pressable>
+            <BackButton onPress={handleBackToInbox} color="#ffffff" />
             <View style={styles.chatRoomTitleBox}>
               <Text style={styles.chatRoomTitle} numberOfLines={1}>
                 {displayPeerName}
@@ -1110,12 +1106,10 @@ const styles = StyleSheet.create({
 
   /* Chat Room Styling */
   chatRoomHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#020617', justifyContent: 'space-between' },
-  chatRoomBackBtn: { paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#1e293b', borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
-  chatRoomBackText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 12 },
   chatRoomTitleBox: { alignItems: 'center', flex: 1, marginHorizontal: 8 },
   chatRoomTitle: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 15, letterSpacing: -0.3 },
   chatRoomSubtitle: { color: '#94a3b8', fontSize: 9, fontFamily: fonts.extrabold, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 1 },
-  placeholderBtn: { width: 64 },
+  placeholderBtn: { width: 34 },
 
   productPanel: { flexDirection: 'row', backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center', justifyContent: 'space-between' },
 

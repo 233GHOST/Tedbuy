@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, View, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, UserPlus, MessageCircle, Store } from 'lucide-react-native';
+import { UserPlus, MessageCircle, Store } from 'lucide-react-native';
+import { BackButton } from '../components/BackButton';
 import { auth, observeAuthState, fetchUserById, updateUserProfile } from '../firebase';
 import { colors, radius, spacing, fonts } from '../theme';
 
@@ -68,9 +69,7 @@ export function NotificationSettingsScreen({ onBack }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn} hitSlop={10}>
-          <ChevronLeft size={22} color={colors.text} />
-        </Pressable>
+        <BackButton onPress={onBack} color={colors.text} />
         <Text style={styles.headerTitle}>Notifications</Text>
         <View style={{ width: 34 }} />
       </View>
@@ -160,7 +159,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  backBtn: { width: 34, height: 34, alignItems: 'flex-start', justifyContent: 'center' },
   headerTitle: { fontSize: 17, fontFamily: fonts.extrabold, color: colors.text },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
   intro: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.lg },

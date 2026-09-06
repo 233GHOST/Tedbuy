@@ -3,7 +3,8 @@ import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Tex
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { ChevronLeft, Camera } from 'lucide-react-native';
+import { Camera } from 'lucide-react-native';
+import { BackButton } from '../components/BackButton';
 import { observeAuthState, fetchUserById, updateUserProfile, uploadMediaToCloudinaryMobile } from '../firebase';
 import { isReservedStoreName, isUserAdmin } from '../types';
 import { colors, radius, spacing, fonts } from '../theme';
@@ -129,9 +130,7 @@ export function ProfileStoreSettingsScreen({ onBack }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn} hitSlop={10}>
-          <ChevronLeft size={22} color={colors.text} />
-        </Pressable>
+        <BackButton onPress={onBack} color={colors.text} />
         <Text style={styles.headerTitle}>Profile &amp; Store</Text>
         <View style={{ width: 34 }} />
       </View>
@@ -222,7 +221,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  backBtn: { width: 34, height: 34, alignItems: 'flex-start', justifyContent: 'center' },
   headerTitle: { fontSize: 17, fontFamily: fonts.extrabold, color: colors.text },
   content: { padding: spacing.lg, paddingBottom: spacing.xxl },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, alignItems: 'center' },

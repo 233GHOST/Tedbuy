@@ -8,6 +8,7 @@ import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, rep
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
 import { ProductCard } from '../components/ProductCard';
+import { BackButton } from '../components/BackButton';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
 import { formatProductPrice } from '../utils/formatPrice';
 import { resolveProductImageUri } from '../utils/productImage';
@@ -423,9 +424,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       {/* Header bar */}
       <View style={styles.headerBar}>
-        <Pressable onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </Pressable>
+        <BackButton onPress={onBack} color="#ffffff" style={{ marginRight: 8 }} />
         <Text style={styles.headerLabel} numberOfLines={1}>
           {product.title}
         </Text>
@@ -1084,9 +1083,13 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc', padding: 24 },
   errorText: { color: '#64748b', fontSize: 14, fontFamily: fonts.semibold, marginBottom: 16, textAlign: 'center' },
   headerBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#0f172a', borderBottomWidth: 1, borderBottomColor: '#020617' },
+  headerLabel: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 15, flex: 1, letterSpacing: -0.3 },
+  // Still used by the load-error/not-found states' labeled action buttons
+  // ("Try Again", "Return to Marketplace", "Browse Similar Listings") —
+  // those aren't a "go back" action so they keep their own labeled pill,
+  // unlike the header's plain back arrow (BackButton) above.
   backButton: { marginRight: 12, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#1e293b', borderRadius: 8, borderWidth: 1, borderColor: '#334155' },
   backText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13 },
-  headerLabel: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 15, flex: 1, letterSpacing: -0.3 },
 
   /* Horizontal Carousel Styles */
   carouselContainer: { width: width, height: 320, backgroundColor: '#f1f5f9', position: 'relative' },

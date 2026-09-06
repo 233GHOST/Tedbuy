@@ -1,7 +1,7 @@
 import { AppState, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendPasswordResetEmail, sendEmailVerification } from 'firebase/auth';
+import { initializeAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendPasswordResetEmail, sendEmailVerification, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
 // @ts-ignore — getReactNativePersistence exists at runtime (Metro resolves the
 // "react-native" package-export condition correctly) but the firebase package's
 // bundled .d.ts doesn't pick up that condition, a long-standing upstream typing
@@ -314,9 +314,20 @@ export async function createProduct(productData: any) {
     }
   }
 
-  const videoPoster = (cloudinaryVideos[0] && cloudinaryVideos[0].includes('res.cloudinary.com'))
-    ? cloudinaryVideos[0].replace(/\.[a-zA-Z0-9]+$/, '.jpg').replace('/upload/', '/upload/so_0,f_jpg,q_auto,w_800/')
+  // Prefer the caller-supplied videoPoster (SellScreen passes the real
+  // eager-generated poster straight from Cloudinary's own upload response —
+  // see uploadVideoDirectToCloudinaryMobile's posterUrl) over deriving one
+  // here. A derived so_/f_jpg URL is a transform Cloudinary has never
+  // pre-generated, which falls back to the same on-demand cold-stall the
+  // eager pipeline exists to avoid (measured at 4.86s cold vs 0.7-0.9s warm
+  // for this exact transform — see sign-video-upload's comment in
+  // server.ts). Only derived as a last resort, for any caller that hasn't
+  // supplied one — matching the server's actual eager poster dimensions so
+  // an untrimmed video at least has a chance of hitting that warm cache.
+  const derivedVideoPoster = (!productData.videoPoster && cloudinaryVideos[0] && cloudinaryVideos[0].includes('res.cloudinary.com'))
+    ? cloudinaryVideos[0].replace(/\.[a-zA-Z0-9]+$/, '.jpg').replace('/upload/', '/upload/so_0,f_jpg,q_auto,w_1200,h_630,c_fill/')
     : '';
+  const videoPoster = productData.videoPoster || derivedVideoPoster;
 
   const finalProduct = {
     ...productData,
@@ -329,7 +340,7 @@ export async function createProduct(productData: any) {
     imageUrls: cloudinaryImages,
     videos: cloudinaryVideos,
     videoUrls: cloudinaryVideos,
-    videoPoster: videoPoster || productData.videoPoster || '',
+    videoPoster,
     displayImage: cloudinaryImages[0] || videoPoster || '',
     primaryPicture: cloudinaryImages[0] || videoPoster || ''
   };
@@ -471,6 +482,107 @@ export async function signUp(email: string, password: string, username: string) 
     throw new Error('Your account was created, but we could not finish setting up your profile. Please check your connection and try signing in again.');
   }
   return credential;
+}
+
+// The web OAuth client id from the SAME Firebase project (tedbuy-fb79a) that
+// web's own Google sign-in already uses — visible in Firebase Console under
+// Authentication > Sign-in method > Google > Web SDK configuration, or
+// Google Cloud Console > APIs & Services > Credentials as the "Web client
+// (auto created by Google Service)" entry. This is NOT the Android/iOS
+// client id, even though this is a native/mobile sign-in — GoogleSignin
+// needs it to request an id_token whose audience Firebase Auth will accept.
+// Empty until that's filled in, which signInWithGoogle below checks for
+// rather than failing with a cryptic native-SDK error.
+const GOOGLE_WEB_CLIENT_ID = '735307724523-hojhs1sp150gvfccokckvclbs3a230gh.apps.googleusercontent.com';
+
+// @react-native-google-signin/google-signin ships real native code with no
+// Expo Go equivalent (unlike everything else this file imports) — a static
+// top-level `import` of it would throw "native module not found" the
+// instant this file loads, which is every screen in the app, breaking
+// Expo Go entirely rather than just the Google sign-in feature. Deferred to
+// a lazy require inside the two functions that actually need it, so Expo Go
+// keeps working for everything else until a custom dev-client build (see
+// app.json's ios/android googleServicesFile + package/bundleIdentifier,
+// added alongside this) exists to actually run it.
+function getGoogleSignInModule(): any {
+  try {
+    return require('@react-native-google-signin/google-signin').GoogleSignin;
+  } catch (err) {
+    throw new Error('Google sign-in requires a custom dev-client build — it is not available in Expo Go.');
+  }
+}
+
+/** Call once at app startup (see App.tsx) — configuring more than once is
+ * harmless, but never configuring before signInWithGoogle() leaves
+ * GoogleSignin.signIn() unable to return a usable idToken. */
+export function configureGoogleSignIn() {
+  if (!GOOGLE_WEB_CLIENT_ID) return;
+  try {
+    getGoogleSignInModule().configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
+  } catch (err) {
+    // Expo Go, or the native module genuinely isn't present — sign-in itself
+    // will surface a clear error when actually attempted; nothing to do here.
+  }
+}
+
+/** Matches web's loginWithGoogle (src/context/AppContext.tsx) — same
+ * Firebase project (tedbuy-fb79a), so signing in with the same Google
+ * account here resolves to the exact same Firebase UID as on web, landing
+ * in the same TedBuy account automatically; no separate account-linking
+ * step needed. New-account creation mirrors signUp() above (an
+ * authenticated /api/users/sync call, never a direct database write) —
+ * unlike web, which still writes the new user doc client-side. */
+export async function signInWithGoogle() {
+  if (!GOOGLE_WEB_CLIENT_ID) {
+    throw new Error('Google sign-in is not configured yet.');
+  }
+  const GoogleSignin = getGoogleSignInModule();
+  await GoogleSignin.hasPlayServices();
+  const response = await GoogleSignin.signIn();
+  const idToken = response?.data?.idToken;
+  if (!idToken) {
+    throw new Error('Google sign-in did not return an authentication token.');
+  }
+
+  const credential = GoogleAuthProvider.credential(idToken);
+  const userCred = await signInWithCredential(auth, credential);
+  const firebaseUser = userCred.user;
+
+  // First time this Google account has ever signed into TedBuy on any
+  // platform — create the profile row, exactly like signUp() does for a
+  // new email/password account.
+  const existingProfile = await fetchUserById(firebaseUser.uid);
+  if (!existingProfile) {
+    const newUser = {
+      id: firebaseUser.uid,
+      username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || `User_${firebaseUser.uid.substring(0, 5)}`,
+      email: firebaseUser.email || undefined,
+      role: 'both',
+      joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      photoUrl: firebaseUser.photoURL || undefined,
+      followingSellers: [],
+      savedProductIds: [],
+      // Google already verifies the email address itself.
+      emailVerified: true,
+      isGoogleAuth: true,
+      authProvider: 'google.com',
+    };
+    let profileSynced = false;
+    for (let attempt = 0; attempt < 3 && !profileSynced; attempt++) {
+      const data = await apiFetch('/api/users/sync', { method: 'POST', body: { user: newUser } });
+      if (data.success) {
+        profileSynced = true;
+      } else {
+        console.warn(`[signInWithGoogle] Profile sync attempt ${attempt + 1} failed:`, data.error);
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+    if (!profileSynced) {
+      throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
+    }
+  }
+
+  return userCred;
 }
 
 export async function logOut() {
