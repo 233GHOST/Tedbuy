@@ -875,29 +875,45 @@ CEO, Tedbuy Inc`;
 
           <div className="flex items-center justify-between relative z-10 gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              {/* Avatar circle with click-to-upload */}
-              <div
-                onClick={handleAvatarClick}
-                className="relative w-12 h-12 rounded-full border-2 border-slate-200 bg-slate-100 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-xs"
-              >
-                {photoUrl ? (
-                  <img
-                    src={photoUrl}
-                    alt={username || 'Profile'}
-                    className="w-full h-full object-cover group-hover:opacity-85 transition"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="text-base font-black text-slate-700">
-                    {String(username || currentUser.email || 'T').substring(0, 2).toUpperCase()}
-                  </span>
-                )}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                  <Camera className="w-4 h-4 text-white" />
-                </div>
-                <div className="absolute bottom-0 right-0 p-0.5 bg-orange-500 rounded-full text-white ring-1.5 ring-white">
-                  <Camera className="w-2 h-2" />
-                </div>
+              {/* Avatar circle with prominent change photo badge */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={handleAvatarClick}
+                  className="relative w-13 h-13 sm:w-14 sm:h-14 rounded-full border-2 border-slate-200 bg-slate-100 overflow-hidden cursor-pointer group flex items-center justify-center shadow-xs focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  title="Change profile photo"
+                  aria-label="Change profile photo"
+                >
+                  {photoUrl ? (
+                    <img
+                      src={photoUrl}
+                      alt={username || 'Profile'}
+                      className="w-full h-full object-cover group-hover:opacity-85 transition"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <span className="text-base font-black text-slate-700">
+                      {String(username || currentUser.email || 'T').substring(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                    <Camera className="w-4 h-4 text-white" />
+                  </div>
+                </button>
+
+                {/* Highly visible Change Profile Photo Camera Badge */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAvatarClick();
+                  }}
+                  className="absolute -bottom-1 -right-1 w-6 h-6 bg-orange-500 hover:bg-orange-600 active:scale-90 rounded-full text-white ring-2 ring-white shadow-md flex items-center justify-center cursor-pointer transition z-20"
+                  title="Change profile photo"
+                  aria-label="Change profile photo"
+                >
+                  <Camera className="w-3.5 h-3.5 text-white" />
+                </button>
               </div>
 
               <div className="min-w-0 flex-1">
@@ -1020,34 +1036,24 @@ CEO, Tedbuy Inc`;
             </div>
           )}
 
-          {/* Mobile Quick Action Buttons Row */}
-          <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-100">
-            <button
-              onClick={() => {
-                setProductToEdit(null);
-                setIsListingModalOpen(true);
-              }}
-              className="flex-1 py-1.5 px-2.5 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Post Ad</span>
-            </button>
-
+          {/* Mobile Quick Action Buttons Row (Storefront & Share) */}
+          <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-slate-100">
             <button
               onClick={handleViewPublicStore}
-              className="py-1.5 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-slate-200 cursor-pointer"
+              className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 border border-slate-200 cursor-pointer"
               title="Preview public storefront"
             >
-              <Store className="w-3.5 h-3.5 text-orange-500" />
-              <span>Storefront</span>
+              <Store className="w-4 h-4 text-orange-500" />
+              <span>View Storefront</span>
             </button>
 
             <button
               onClick={handleShareStore}
-              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 transition cursor-pointer"
+              className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 border border-slate-200 cursor-pointer"
               title="Share store link"
             >
-              <Share2 className="w-3.5 h-3.5" />
+              <Share2 className="w-4 h-4 text-slate-600" />
+              <span>Share Store</span>
             </button>
           </div>
         </div>
@@ -1593,30 +1599,43 @@ CEO, Tedbuy Inc`;
           <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
             {/* Avatar & Store Identity */}
             <div className="flex items-center gap-5">
-              <div
-                onClick={handleAvatarClick}
-                className="relative w-20 h-20 lg:w-24 lg:h-24 rounded-full border-2 border-slate-200 bg-slate-100 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-sm transition hover:ring-2 hover:ring-orange-500 hover:ring-offset-2 hover:ring-offset-white"
-                title="Click to update profile photo"
-              >
-                {photoUrl ? (
-                  <img
-                    src={photoUrl}
-                    alt={username || 'Profile'}
-                    className="w-full h-full object-cover group-hover:opacity-85 transition"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="text-2xl font-black text-slate-700">
-                    {String(username || currentUser.email || 'T').substring(0, 2).toUpperCase()}
-                  </span>
-                )}
-                <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-white">
-                  <Camera className="w-5 h-5" />
-                  <span className="text-[10px] font-bold mt-0.5">Upload</span>
+              <div className="relative shrink-0">
+                <div
+                  onClick={handleAvatarClick}
+                  className="relative w-20 h-20 lg:w-24 lg:h-24 rounded-full border-2 border-slate-200 bg-slate-100 overflow-hidden cursor-pointer group flex items-center justify-center shadow-sm transition hover:ring-2 hover:ring-orange-500 hover:ring-offset-2 hover:ring-offset-white"
+                  title="Click to update profile photo"
+                >
+                  {photoUrl ? (
+                    <img
+                      src={photoUrl}
+                      alt={username || 'Profile'}
+                      className="w-full h-full object-cover group-hover:opacity-85 transition"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <span className="text-2xl font-black text-slate-700">
+                      {String(username || currentUser.email || 'T').substring(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-white">
+                    <Camera className="w-5 h-5" />
+                    <span className="text-[10px] font-bold mt-0.5">Change</span>
+                  </div>
                 </div>
-                <div className="absolute bottom-1 right-1 p-1 bg-orange-500 rounded-full text-white ring-2 ring-white">
-                  <Camera className="w-2.5 h-2.5" />
-                </div>
+
+                {/* Prominent change photo badge */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAvatarClick();
+                  }}
+                  className="absolute -bottom-1 -right-1 w-8 h-8 bg-orange-500 hover:bg-orange-600 rounded-full text-white ring-2 ring-white shadow-md flex items-center justify-center cursor-pointer transition z-20 active:scale-95"
+                  title="Change profile photo"
+                  aria-label="Change profile photo"
+                >
+                  <Camera className="w-4 h-4 text-white" />
+                </button>
               </div>
 
               <div>
@@ -1670,17 +1689,6 @@ CEO, Tedbuy Inc`;
 
             {/* Header Actions */}
             <div className="flex items-center gap-2.5 flex-wrap w-full lg:w-auto">
-              <button
-                onClick={() => {
-                  setProductToEdit(null);
-                  setIsListingModalOpen(true);
-                }}
-                className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-xs cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ Post New Ad</span>
-              </button>
-
               <button
                 onClick={handleViewPublicStore}
                 className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer"
