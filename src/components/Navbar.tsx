@@ -49,7 +49,8 @@ export const Navbar: React.FC = () => {
     deletedMessageIds,
     setSelectedProductId,
     setSelectedSellerId,
-    showToast
+    showToast,
+    viewingChatOnMobile
   } = useApp();
 
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
@@ -338,7 +339,7 @@ export const Navbar: React.FC = () => {
     <>
       {!showAuthModal && (
         <header className={`sticky top-0 z-40 bg-slate-900 border-b border-slate-950 text-white shadow-md ${
-          currentView === 'browse' && homeViewMode === 'video-feed' ? 'hidden md:block' : ''
+          (currentView === 'browse' && homeViewMode === 'video-feed') || (currentView === 'chats' && viewingChatOnMobile) ? 'hidden md:block' : ''
         }`}>
 
 
