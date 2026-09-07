@@ -869,16 +869,16 @@ CEO, Tedbuy Inc`;
           </span>
         </div>
 
-        {/* Profile Header (Dark Card, matching native mobile app) */}
-        <div className="bg-slate-900 text-white rounded-2xl sm:rounded-3xl p-3 sm:p-4.5 shadow-sm relative overflow-hidden w-full">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+        {/* Profile Header (Clean White Card) */}
+        <div className="bg-white text-slate-900 rounded-2xl sm:rounded-3xl p-3 sm:p-4.5 shadow-xs border border-slate-200/90 relative overflow-hidden w-full">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-orange-500/5 rounded-full blur-3xl pointer-events-none" />
 
           <div className="flex items-center justify-between relative z-10 gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               {/* Avatar circle with click-to-upload */}
               <div
                 onClick={handleAvatarClick}
-                className="relative w-12 h-12 rounded-full border-2 border-slate-700 bg-slate-800 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-xs"
+                className="relative w-12 h-12 rounded-full border-2 border-slate-200 bg-slate-100 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-xs"
               >
                 {photoUrl ? (
                   <img
@@ -888,36 +888,36 @@ CEO, Tedbuy Inc`;
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <span className="text-base font-black text-slate-200">
+                  <span className="text-base font-black text-slate-700">
                     {String(username || currentUser.email || 'T').substring(0, 2).toUpperCase()}
                   </span>
                 )}
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                   <Camera className="w-4 h-4 text-white" />
                 </div>
-                <div className="absolute bottom-0 right-0 p-0.5 bg-orange-500 rounded-full text-white ring-1.5 ring-slate-900">
+                <div className="absolute bottom-0 right-0 p-0.5 bg-orange-500 rounded-full text-white ring-1.5 ring-white">
                   <Camera className="w-2 h-2" />
                 </div>
               </div>
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <h2 className="text-sm font-black text-white truncate">
+                  <h2 className="text-sm font-black text-slate-900 truncate">
                     {username || currentUser.email?.split('@')[0] || 'TedBuy Partner'}
                   </h2>
                   {isUserVerified(currentUser) && (
-                    <Check className="w-3.5 h-3.5 text-orange-400 bg-orange-400/20 rounded-full p-0.5 shrink-0" />
+                    <Check className="w-3.5 h-3.5 text-orange-600 bg-orange-100 rounded-full p-0.5 shrink-0" />
                   )}
                 </div>
-                <p className="text-[11px] text-slate-400 truncate mt-0.2">
+                <p className="text-[11px] text-slate-500 truncate mt-0.2">
                   {currentUser.email}
                 </p>
                 <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-orange-500/15 border border-orange-500/30 text-orange-400 text-[9.5px] font-bold rounded-full">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-orange-50 border border-orange-200 text-orange-600 text-[9.5px] font-bold rounded-full">
                     ✓ Authorized Partner
                   </span>
                   {currentUser.isAdmin && (
-                    <span className="inline-flex items-center px-1.5 py-0.2 bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[9.5px] font-bold rounded-full">
+                    <span className="inline-flex items-center px-1.5 py-0.2 bg-purple-50 border border-purple-200 text-purple-700 text-[9.5px] font-bold rounded-full">
                       Admin
                     </span>
                   )}
@@ -939,7 +939,7 @@ CEO, Tedbuy Inc`;
               className={`p-2 rounded-xl border transition cursor-pointer shrink-0 ${
                 mobileProfileTab === 'settings'
                   ? 'bg-orange-500 border-orange-400 text-white shadow-xs'
-                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200'
               }`}
               title="Settings"
             >
@@ -948,16 +948,16 @@ CEO, Tedbuy Inc`;
           </div>
 
           {/* Stats Row */}
-          <div className="grid grid-cols-4 gap-1 mt-2.5 pt-2 border-t border-slate-800/80 text-center relative z-10">
+          <div className="grid grid-cols-4 gap-1 mt-2.5 pt-2 border-t border-slate-100 text-center relative z-10">
             <button
               onClick={() => {
                 setActiveFollowTab('following');
                 setShowFollowModal(true);
               }}
-              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-50 transition cursor-pointer"
             >
-              <p className="text-xs font-black text-white leading-none">{followingUsers.length}</p>
-              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Following</p>
+              <p className="text-xs font-black text-slate-900 leading-none">{followingUsers.length}</p>
+              <p className="text-[10px] font-bold text-slate-500 mt-0.5">Following</p>
             </button>
 
             <button
@@ -965,18 +965,18 @@ CEO, Tedbuy Inc`;
                 setActiveFollowTab('followers');
                 setShowFollowModal(true);
               }}
-              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-50 transition cursor-pointer"
             >
-              <p className="text-xs font-black text-white leading-none">{followerUsers.length}</p>
-              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Followers</p>
+              <p className="text-xs font-black text-slate-900 leading-none">{followerUsers.length}</p>
+              <p className="text-[10px] font-bold text-slate-500 mt-0.5">Followers</p>
             </button>
 
             <div className="py-0.5 px-0.5 rounded-lg">
-              <p className="text-xs font-black text-white leading-none flex items-center justify-center gap-0.5">
-                <Eye className="w-3 h-3 text-orange-400" />
+              <p className="text-xs font-black text-slate-900 leading-none flex items-center justify-center gap-0.5">
+                <Eye className="w-3 h-3 text-orange-500" />
                 {totalViews}
               </p>
-              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Views</p>
+              <p className="text-[10px] font-bold text-slate-500 mt-0.5">Views</p>
             </div>
 
             <button
@@ -984,36 +984,36 @@ CEO, Tedbuy Inc`;
                 setMobileProfileTab('saved');
                 setActiveMobileSubSetting(null);
               }}
-              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-50 transition cursor-pointer"
             >
-              <p className="text-xs font-black text-white leading-none">{savedProducts.length}</p>
-              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Saved</p>
+              <p className="text-xs font-black text-slate-900 leading-none">{savedProducts.length}</p>
+              <p className="text-[10px] font-bold text-slate-500 mt-0.5">Saved</p>
             </button>
           </div>
 
           {/* Bio Row */}
           {bio ? (
-            <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] text-slate-300 italic flex items-start justify-between gap-2">
+            <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10.5px] text-slate-600 italic flex items-start justify-between gap-2">
               <p className="line-clamp-2">"{bio}"</p>
               <button
                 onClick={() => {
                   setMobileProfileTab('settings');
                   setActiveMobileSubSetting('profile');
                 }}
-                className="text-orange-400 hover:text-orange-300 text-[10px] font-bold shrink-0 not-italic cursor-pointer"
+                className="text-orange-600 hover:text-orange-700 text-[10px] font-bold shrink-0 not-italic cursor-pointer"
               >
                 Edit
               </button>
             </div>
           ) : (
-            <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10.5px] text-slate-400">
+            <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10.5px] text-slate-400">
               <span>No store bio added yet</span>
               <button
                 onClick={() => {
                   setMobileProfileTab('settings');
                   setActiveMobileSubSetting('profile');
                 }}
-                className="text-orange-400 hover:text-orange-300 text-[10px] font-bold cursor-pointer"
+                className="text-orange-600 hover:text-orange-700 text-[10px] font-bold cursor-pointer"
               >
                 + Add Bio
               </button>
@@ -1021,7 +1021,7 @@ CEO, Tedbuy Inc`;
           )}
 
           {/* Mobile Quick Action Buttons Row */}
-          <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-800/80">
+          <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-100">
             <button
               onClick={() => {
                 setProductToEdit(null);
@@ -1035,16 +1035,16 @@ CEO, Tedbuy Inc`;
 
             <button
               onClick={handleViewPublicStore}
-              className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-slate-750 cursor-pointer"
+              className="py-1.5 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-slate-200 cursor-pointer"
               title="Preview public storefront"
             >
-              <Store className="w-3.5 h-3.5 text-orange-400" />
+              <Store className="w-3.5 h-3.5 text-orange-500" />
               <span>Storefront</span>
             </button>
 
             <button
               onClick={handleShareStore}
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-750 transition cursor-pointer"
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 transition cursor-pointer"
               title="Share store link"
             >
               <Share2 className="w-3.5 h-3.5" />
@@ -1585,9 +1585,9 @@ CEO, Tedbuy Inc`;
           </div>
         </div>
 
-        {/* Desktop Storefront Hero Card */}
-        <div className="bg-slate-900 text-white rounded-3xl p-6 lg:p-8 shadow-xs relative overflow-hidden mb-8 border border-slate-800">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+        {/* Desktop Storefront Hero Card (Clean White Theme) */}
+        <div className="bg-white text-slate-900 rounded-3xl p-6 lg:p-8 shadow-xs relative overflow-hidden mb-8 border border-slate-200">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/5 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
@@ -1595,7 +1595,7 @@ CEO, Tedbuy Inc`;
             <div className="flex items-center gap-5">
               <div
                 onClick={handleAvatarClick}
-                className="relative w-20 h-20 lg:w-24 lg:h-24 rounded-full border-2 border-slate-700 bg-slate-800 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-md transition hover:ring-2 hover:ring-orange-500 hover:ring-offset-2 hover:ring-offset-slate-900"
+                className="relative w-20 h-20 lg:w-24 lg:h-24 rounded-full border-2 border-slate-200 bg-slate-100 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-sm transition hover:ring-2 hover:ring-orange-500 hover:ring-offset-2 hover:ring-offset-white"
                 title="Click to update profile photo"
               >
                 {photoUrl ? (
@@ -1606,7 +1606,7 @@ CEO, Tedbuy Inc`;
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <span className="text-2xl font-black text-slate-200">
+                  <span className="text-2xl font-black text-slate-700">
                     {String(username || currentUser.email || 'T').substring(0, 2).toUpperCase()}
                   </span>
                 )}
@@ -1614,38 +1614,38 @@ CEO, Tedbuy Inc`;
                   <Camera className="w-5 h-5" />
                   <span className="text-[10px] font-bold mt-0.5">Upload</span>
                 </div>
-                <div className="absolute bottom-1 right-1 p-1 bg-orange-500 rounded-full text-white ring-2 ring-slate-900">
+                <div className="absolute bottom-1 right-1 p-1 bg-orange-500 rounded-full text-white ring-2 ring-white">
                   <Camera className="w-2.5 h-2.5" />
                 </div>
               </div>
 
               <div>
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h2 className="text-xl lg:text-2xl font-black text-white tracking-tight">
+                  <h2 className="text-xl lg:text-2xl font-black text-slate-900 tracking-tight">
                     {username || currentUser.email?.split('@')[0] || 'TedBuy Partner'}
                   </h2>
                   {isUserVerified(currentUser) && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-bold rounded-full border border-orange-500/30">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-50 text-orange-600 text-xs font-bold rounded-full border border-orange-200">
                       <Check className="w-3.5 h-3.5" />
                       Verified Partner
                     </span>
                   )}
                   {currentUser.isAdmin && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-purple-500/20 text-purple-300 text-xs font-bold rounded-full border border-purple-500/30">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-purple-50 text-purple-700 text-xs font-bold rounded-full border border-purple-200">
                       Admin
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-3 text-xs text-slate-400 mt-1.5 flex-wrap">
+                <div className="flex items-center gap-3 text-xs text-slate-500 mt-1.5 flex-wrap">
                   <span>{currentUser.email}</span>
                   <span>•</span>
                   <span>Member since {formatTedbuyTenure(currentUser.joinDate)}</span>
                   {whatsAppNumber && (
                     <>
                       <span>•</span>
-                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                        <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
                         WhatsApp Verified
                       </span>
                     </>
@@ -1653,13 +1653,13 @@ CEO, Tedbuy Inc`;
                 </div>
 
                 {bio ? (
-                  <p className="text-xs text-slate-300 italic mt-2.5 max-w-xl line-clamp-2">
+                  <p className="text-xs text-slate-600 italic mt-2.5 max-w-xl line-clamp-2">
                     "{bio}"
                   </p>
                 ) : (
                   <button
                     onClick={() => setSettingsTab('profile')}
-                    className="text-xs text-orange-400 hover:text-orange-300 mt-2 flex items-center gap-1 font-semibold cursor-pointer"
+                    className="text-xs text-orange-600 hover:text-orange-700 mt-2 flex items-center gap-1 font-semibold cursor-pointer"
                   >
                     <Edit2 className="w-3 h-3" />
                     <span>Add store bio & delivery locations</span>
@@ -1683,16 +1683,16 @@ CEO, Tedbuy Inc`;
 
               <button
                 onClick={handleViewPublicStore}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer"
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer"
                 title="Preview public storefront as viewed by buyers in Ghana"
               >
-                <Store className="w-4 h-4 text-orange-400" />
+                <Store className="w-4 h-4 text-orange-500" />
                 <span>Storefront</span>
               </button>
 
               <button
                 onClick={handleShareStore}
-                className="p-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white rounded-xl transition cursor-pointer"
+                className="p-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 hover:text-slate-950 rounded-xl transition cursor-pointer"
                 title="Copy public storefront link"
               >
                 <Share2 className="w-4 h-4" />
@@ -1701,28 +1701,28 @@ CEO, Tedbuy Inc`;
           </div>
 
           {/* Quick Metrics Strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-800">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-100">
             <div
               onClick={() => setSettingsTab('my-ads')}
-              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+              className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-2xl p-3 cursor-pointer transition text-left"
             >
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                 Active Listings
               </span>
-              <span className="text-base font-black text-white mt-0.5 block">
+              <span className="text-base font-black text-slate-900 mt-0.5 block">
                 {myProducts.length}
               </span>
             </div>
 
             <div
               onClick={() => setSettingsTab('my-ads')}
-              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+              className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-2xl p-3 cursor-pointer transition text-left"
             >
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                 Total Ad Views
               </span>
-              <span className="text-base font-black text-white mt-0.5 flex items-center gap-1">
-                <Eye className="w-4 h-4 text-orange-400" />
+              <span className="text-base font-black text-slate-900 mt-0.5 flex items-center gap-1">
+                <Eye className="w-4 h-4 text-orange-500" />
                 {totalViews}
               </span>
             </div>
@@ -1732,12 +1732,12 @@ CEO, Tedbuy Inc`;
                 setActiveFollowTab('following');
                 setShowFollowModal(true);
               }}
-              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+              className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-2xl p-3 cursor-pointer transition text-left"
             >
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                 Following
               </span>
-              <span className="text-base font-black text-white mt-0.5 block">
+              <span className="text-base font-black text-slate-900 mt-0.5 block">
                 {followingUsers.length}
               </span>
             </div>
@@ -1747,25 +1747,25 @@ CEO, Tedbuy Inc`;
                 setActiveFollowTab('followers');
                 setShowFollowModal(true);
               }}
-              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+              className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-2xl p-3 cursor-pointer transition text-left"
             >
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                 Store Followers
               </span>
-              <span className="text-base font-black text-white mt-0.5 block">
+              <span className="text-base font-black text-slate-900 mt-0.5 block">
                 {followerUsers.length}
               </span>
             </div>
 
             <div
               onClick={() => setSettingsTab('saved')}
-              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+              className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-2xl p-3 cursor-pointer transition text-left"
             >
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                 Saved Deals
               </span>
-              <span className="text-base font-black text-white mt-0.5 flex items-center gap-1">
-                <Bookmark className="w-4 h-4 text-orange-400" />
+              <span className="text-base font-black text-slate-900 mt-0.5 flex items-center gap-1">
+                <Bookmark className="w-4 h-4 text-orange-500" />
                 {savedProducts.length}
               </span>
             </div>
