@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical, Search, Bell, Lock, KeyRound, Settings, Bookmark, Flame, Plus, Eye, Edit2, ChevronRight, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical, Search, Bell, Lock, KeyRound, Settings, Bookmark, Flame, Plus, Eye, Edit2, ChevronRight, ExternalLink, Store, Share2, Copy } from 'lucide-react';
 import { isUserVerified, isUserAdmin, isReservedStoreName, NotificationPreferences, Product } from '../types';
 import { SellerBadge } from './SellerBadge';
 import { compressImage } from '../utils/imageOptimizer';
@@ -438,13 +438,19 @@ CEO, Tedbuy Inc`;
   }, []);
 
   // Settings sub tabs and sections
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin'>(() => {
+  type SettingsTabType = 'my-ads' | 'saved' | 'profile' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin';
+
+  const [settingsTab, setSettingsTab] = useState<SettingsTabType>(() => {
     const path = (window.location.hash.replace(/^#/, '') || window.location.pathname).split('?')[0];
     if (['/terms', '/privacy', '/help', '/about', '/contact'].includes(path)) {
       return 'more';
     }
-    return 'profile';
+    return 'my-ads';
   });
+
+  // Filter and search state for listings
+  const [listingFilter, setListingFilter] = useState<'all' | 'active' | 'boosted' | 'sold'>('all');
+  const [listingSearchQuery, setListingSearchQuery] = useState('');
 
   // Mobile Profile State: mirrors mobile app's native ProfileScreen (dashboard, saved, settings)
   const [mobileProfileTab, setMobileProfileTab] = useState<'dashboard' | 'saved' | 'settings'>('dashboard');
@@ -467,6 +473,42 @@ CEO, Tedbuy Inc`;
       );
 
   const savedProducts = products.filter(p => currentUser?.savedProductIds?.includes(p.id) || false);
+
+  // Performance metrics across user's listings
+  const totalViews = myProducts.reduce((sum, p) => sum + (p.views || 0), 0);
+  const boostedCount = myProducts.filter(p => isBoostActive(p)).length;
+
+  const handleShareStore = () => {
+    if (!currentUser) return;
+    const storeUrl = `${window.location.origin}/#seller/${currentUser.id}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(storeUrl);
+      showToast('Storefront link copied to clipboard!', 'success');
+    } else {
+      showToast('Store link: ' + storeUrl, 'info');
+    }
+  };
+
+  const handleViewPublicStore = () => {
+    if (currentUser) {
+      setSelectedSellerId(currentUser.id);
+      setCurrentView('seller-profile');
+    }
+  };
+
+  const filteredMyProducts = myProducts.filter(item => {
+    if (listingFilter === 'active' && item.isSold) return false;
+    if (listingFilter === 'sold' && !item.isSold) return false;
+    if (listingFilter === 'boosted' && !isBoostActive(item)) return false;
+    if (listingSearchQuery.trim()) {
+      const q = listingSearchQuery.toLowerCase();
+      const matchTitle = item.title?.toLowerCase().includes(q);
+      const matchDesc = item.description?.toLowerCase().includes(q);
+      const matchCat = item.category?.toLowerCase().includes(q);
+      if (!matchTitle && !matchDesc && !matchCat) return false;
+    }
+    return true;
+  });
 
   const handleDeleteListing = async (productId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -898,14 +940,14 @@ CEO, Tedbuy Inc`;
             </button>
           </div>
 
-          {/* Follow Stats Row */}
-          <div className="grid grid-cols-3 gap-2 mt-4 pt-3.5 border-t border-slate-800 text-center relative z-10">
+          {/* Stats Row */}
+          <div className="grid grid-cols-4 gap-1.5 mt-4 pt-3.5 border-t border-slate-800 text-center relative z-10">
             <button
               onClick={() => {
                 setActiveFollowTab('following');
                 setShowFollowModal(true);
               }}
-              className="py-1 px-2 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-1 px-1 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
             >
               <p className="text-sm font-black text-white leading-none">{followingUsers.length}</p>
               <p className="text-[10px] font-bold text-slate-400 mt-1">Following</p>
@@ -916,18 +958,26 @@ CEO, Tedbuy Inc`;
                 setActiveFollowTab('followers');
                 setShowFollowModal(true);
               }}
-              className="py-1 px-2 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-1 px-1 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
             >
               <p className="text-sm font-black text-white leading-none">{followerUsers.length}</p>
               <p className="text-[10px] font-bold text-slate-400 mt-1">Followers</p>
             </button>
+
+            <div className="py-1 px-1 rounded-xl">
+              <p className="text-sm font-black text-white leading-none flex items-center justify-center gap-0.5">
+                <Eye className="w-3 h-3 text-orange-400" />
+                {totalViews}
+              </p>
+              <p className="text-[10px] font-bold text-slate-400 mt-1">Views</p>
+            </div>
 
             <button
               onClick={() => {
                 setMobileProfileTab('saved');
                 setActiveMobileSubSetting(null);
               }}
-              className="py-1 px-2 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-1 px-1 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
             >
               <p className="text-sm font-black text-white leading-none">{savedProducts.length}</p>
               <p className="text-[10px] font-bold text-slate-400 mt-1">Saved</p>
@@ -962,6 +1012,37 @@ CEO, Tedbuy Inc`;
               </button>
             </div>
           )}
+
+          {/* Mobile Quick Action Buttons Row */}
+          <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800/80">
+            <button
+              onClick={() => {
+                setProductToEdit(null);
+                setIsListingModalOpen(true);
+              }}
+              className="flex-1 py-2 px-3 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Post Ad</span>
+            </button>
+
+            <button
+              onClick={handleViewPublicStore}
+              className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1.5 border border-slate-750 cursor-pointer"
+              title="Preview public storefront"
+            >
+              <Store className="w-3.5 h-3.5 text-orange-400" />
+              <span>Storefront</span>
+            </button>
+
+            <button
+              onClick={handleShareStore}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-750 transition cursor-pointer"
+              title="Share store link"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Mobile Navigation Segment Control */}
@@ -1018,33 +1099,94 @@ CEO, Tedbuy Inc`;
             <div className="flex items-center justify-between px-1">
               <div>
                 <h3 className="text-sm font-black text-slate-900">My Classified Listings</h3>
-                <p className="text-[11px] text-slate-500">{myProducts.length} active ads in marketplace</p>
+                <p className="text-[11px] text-slate-500">{myProducts.length} active ads • {totalViews} total views</p>
               </div>
               <button
                 onClick={() => {
                   setProductToEdit(null);
                   setIsListingModalOpen(true);
                 }}
-                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-3xs cursor-pointer"
+                className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-xs cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Post Ad</span>
               </button>
             </div>
 
-            {myProducts.length === 0 ? (
+            {/* Mobile Search & Filter Bar */}
+            {myProducts.length > 0 && (
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search your listings..."
+                    value={listingSearchQuery}
+                    onChange={(e) => setListingSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900 transition"
+                  />
+                  {listingSearchQuery && (
+                    <button
+                      onClick={() => setListingSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  {(['all', 'active', 'boosted', 'sold'] as const).map((filter) => {
+                    const count =
+                      filter === 'all'
+                        ? myProducts.length
+                        : filter === 'active'
+                        ? myProducts.filter((p) => !p.isSold).length
+                        : filter === 'boosted'
+                        ? boostedCount
+                        : myProducts.filter((p) => p.isSold).length;
+
+                    return (
+                      <button
+                        key={filter}
+                        onClick={() => setListingFilter(filter)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                          listingFilter === filter
+                            ? 'bg-slate-900 text-white shadow-xs'
+                            : 'bg-white border border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {filter === 'boosted' && <Flame className="w-3 h-3 text-orange-400" />}
+                        <span>{filter}</span>
+                        <span className={`text-[9px] px-1 py-0.2 rounded-full ${
+                          listingFilter === filter ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {filteredMyProducts.length === 0 ? (
               <div className="bg-white border border-slate-200 rounded-3xl p-6 text-center shadow-xs">
                 <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                <h4 className="text-sm font-bold text-slate-900">No Listings Yet</h4>
+                <h4 className="text-sm font-bold text-slate-900">
+                  {myProducts.length === 0 ? 'No Listings Yet' : 'No matching listings found'}
+                </h4>
                 <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                  You haven't listed any products or services for sale on Tedbuy yet.
+                  {myProducts.length === 0
+                    ? "You haven't listed any products or services for sale on Tedbuy yet."
+                    : 'Try clearing your search query or switching filters.'}
                 </p>
                 <button
                   onClick={() => {
                     setProductToEdit(null);
                     setIsListingModalOpen(true);
                   }}
-                  className="mt-4 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  className="mt-4 px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl transition inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Create First Ad</span>
@@ -1052,7 +1194,7 @@ CEO, Tedbuy Inc`;
               </div>
             ) : (
               <div className="space-y-2.5">
-                {myProducts.map((item) => (
+                {filteredMyProducts.map((item) => (
                   <div key={item.id} className="bg-white border border-slate-200 rounded-2xl p-3 shadow-xs space-y-2.5">
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleViewProduct(item.id)}>
                       <img
@@ -1409,108 +1551,655 @@ CEO, Tedbuy Inc`;
       {/* ========================================================================= */}
       <div className="hidden md:block">
         {/* Upper header action area */}
-        <div className="flex items-center justify-between mb-8 border-b border-slate-250/75 pb-4">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setCurrentView('browse')}
-              className="p-2 bg-white border border-slate-200 hover:bg-slate-55 rounded-xl text-slate-700 transition cursor-pointer shadow-3xs shrink-0"
-              title="Go back to Browse"
+              className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-700 transition cursor-pointer shadow-xs shrink-0"
+              title="Go back to Marketplace"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-none">
-                Account Profile Settings
+                Merchant Hub & Profile
               </h1>
               <p className="text-xs text-slate-500 mt-1">
-                Customize how clients verify your store listings and communicate with you inside Ghana.
+                Manage your classified storefront, track listings, and update trading preferences across Ghana.
               </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleViewPublicStore}
+              className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Store className="w-4 h-4 text-orange-600" />
+              <span>Public Storefront</span>
+            </button>
+            <button
+              onClick={handleShareStore}
+              className="p-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-900 rounded-xl transition cursor-pointer shadow-xs"
+              title="Copy store link"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Desktop Storefront Hero Card */}
+        <div className="bg-slate-900 text-white rounded-3xl p-6 lg:p-8 shadow-xs relative overflow-hidden mb-8 border border-slate-800">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+            {/* Avatar & Store Identity */}
+            <div className="flex items-center gap-5">
+              <div
+                onClick={handleAvatarClick}
+                className="relative w-20 h-20 lg:w-24 lg:h-24 rounded-full border-2 border-slate-700 bg-slate-800 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-md transition hover:ring-2 hover:ring-orange-500 hover:ring-offset-2 hover:ring-offset-slate-900"
+                title="Click to update profile photo"
+              >
+                {photoUrl ? (
+                  <img
+                    src={photoUrl}
+                    alt={username || 'Profile'}
+                    className="w-full h-full object-cover group-hover:opacity-85 transition"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="text-2xl font-black text-slate-200">
+                    {String(username || currentUser.email || 'T').substring(0, 2).toUpperCase()}
+                  </span>
+                )}
+                <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-white">
+                  <Camera className="w-5 h-5" />
+                  <span className="text-[10px] font-bold mt-0.5">Upload</span>
+                </div>
+                <div className="absolute bottom-1 right-1 p-1 bg-orange-500 rounded-full text-white ring-2 ring-slate-900">
+                  <Camera className="w-2.5 h-2.5" />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h2 className="text-xl lg:text-2xl font-black text-white tracking-tight">
+                    {username || currentUser.email?.split('@')[0] || 'TedBuy Partner'}
+                  </h2>
+                  {isUserVerified(currentUser) && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-bold rounded-full border border-orange-500/30">
+                      <Check className="w-3.5 h-3.5" />
+                      Verified Partner
+                    </span>
+                  )}
+                  {currentUser.isAdmin && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-purple-500/20 text-purple-300 text-xs font-bold rounded-full border border-purple-500/30">
+                      Admin
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 text-xs text-slate-400 mt-1.5 flex-wrap">
+                  <span>{currentUser.email}</span>
+                  <span>•</span>
+                  <span>Member since {formatTedbuyTenure(currentUser.joinDate)}</span>
+                  {whatsAppNumber && (
+                    <>
+                      <span>•</span>
+                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
+                        WhatsApp Verified
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {bio ? (
+                  <p className="text-xs text-slate-300 italic mt-2.5 max-w-xl line-clamp-2">
+                    "{bio}"
+                  </p>
+                ) : (
+                  <button
+                    onClick={() => setSettingsTab('profile')}
+                    className="text-xs text-orange-400 hover:text-orange-300 mt-2 flex items-center gap-1 font-semibold cursor-pointer"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>Add store bio & delivery locations</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Header Actions */}
+            <div className="flex items-center gap-2.5 flex-wrap w-full lg:w-auto">
+              <button
+                onClick={() => {
+                  setProductToEdit(null);
+                  setIsListingModalOpen(true);
+                }}
+                className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Post New Ad</span>
+              </button>
+
+              <button
+                onClick={handleViewPublicStore}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer"
+                title="Preview public storefront as viewed by buyers in Ghana"
+              >
+                <Store className="w-4 h-4 text-orange-400" />
+                <span>Storefront</span>
+              </button>
+
+              <button
+                onClick={handleShareStore}
+                className="p-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white rounded-xl transition cursor-pointer"
+                title="Copy public storefront link"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-800">
+            <div
+              onClick={() => setSettingsTab('my-ads')}
+              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+            >
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Active Listings
+              </span>
+              <span className="text-base font-black text-white mt-0.5 block">
+                {myProducts.length}
+              </span>
+            </div>
+
+            <div
+              onClick={() => setSettingsTab('my-ads')}
+              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+            >
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Total Ad Views
+              </span>
+              <span className="text-base font-black text-white mt-0.5 flex items-center gap-1">
+                <Eye className="w-4 h-4 text-orange-400" />
+                {totalViews}
+              </span>
+            </div>
+
+            <div
+              onClick={() => {
+                setActiveFollowTab('following');
+                setShowFollowModal(true);
+              }}
+              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+            >
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Following
+              </span>
+              <span className="text-base font-black text-white mt-0.5 block">
+                {followingUsers.length}
+              </span>
+            </div>
+
+            <div
+              onClick={() => {
+                setActiveFollowTab('followers');
+                setShowFollowModal(true);
+              }}
+              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+            >
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Store Followers
+              </span>
+              <span className="text-base font-black text-white mt-0.5 block">
+                {followerUsers.length}
+              </span>
+            </div>
+
+            <div
+              onClick={() => setSettingsTab('saved')}
+              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-750 rounded-2xl p-3 cursor-pointer transition text-left"
+            >
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                Saved Deals
+              </span>
+              <span className="text-base font-black text-white mt-0.5 flex items-center gap-1">
+                <Bookmark className="w-4 h-4 text-orange-400" />
+                {savedProducts.length}
+              </span>
             </div>
           </div>
         </div>
 
-      {/* Settings Navigation Tabs */}
-      <div className="flex border-b border-slate-200 mb-6 gap-1 overflow-x-auto scrollbar-none pb-0.5">
-        <button
-          type="button"
-          onClick={() => setSettingsTab('profile')}
-          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-            settingsTab === 'profile'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-400 hover:text-slate-700'
-          }`}
-        >
-          <User className="w-3.5 h-3.5" />
-          <span>Profile & Store</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSettingsTab('selling-buying')}
-          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-            settingsTab === 'selling-buying'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-400 hover:text-slate-700'
-          }`}
-        >
-          <ShoppingBag className="w-3.5 h-3.5" />
-          <span>Selling & Buying</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSettingsTab('notifications')}
-          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-            settingsTab === 'notifications'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-400 hover:text-slate-700'
-          }`}
-        >
-          <Bell className="w-3.5 h-3.5" />
-          <span>Notifications</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSettingsTab('account-security')}
-          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-            settingsTab === 'account-security'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-400 hover:text-slate-700'
-          }`}
-        >
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Account & Security</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSettingsTab('more')}
-          className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-            settingsTab === 'more'
-              ? 'border-slate-900 text-slate-900'
-              : 'border-transparent text-slate-400 hover:text-slate-700'
-          }`}
-        >
-          <Info className="w-3.5 h-3.5" />
-          <span>Help & Support</span>
-        </button>
-
-        {currentUser?.isAdmin && (
+        {/* Settings Navigation Tabs */}
+        <div className="flex border-b border-slate-200 mb-6 gap-1 overflow-x-auto scrollbar-none pb-0.5">
           <button
             type="button"
-            onClick={() => setSettingsTab('admin')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              settingsTab === 'admin'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-slate-400 hover:text-indigo-600'
+            onClick={() => setSettingsTab('my-ads')}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+              settingsTab === 'my-ads'
+                ? 'border-orange-600 text-orange-600'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
             }`}
           >
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span>Admin Tools</span>
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span>My Listings</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+              settingsTab === 'my-ads' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {myProducts.length}
+            </span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsTab('saved')}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+              settingsTab === 'saved'
+                ? 'border-orange-600 text-orange-600'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            <Bookmark className="w-3.5 h-3.5" />
+            <span>Saved Deals</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+              settingsTab === 'saved' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {savedProducts.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsTab('profile')}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              settingsTab === 'profile'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            <User className="w-3.5 h-3.5" />
+            <span>Profile & Store</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsTab('selling-buying')}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              settingsTab === 'selling-buying'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            <Briefcase className="w-3.5 h-3.5" />
+            <span>Trading Preferences</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsTab('notifications')}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              settingsTab === 'notifications'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            <Bell className="w-3.5 h-3.5" />
+            <span>Notifications</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsTab('account-security')}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              settingsTab === 'account-security'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Account & Security</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsTab('more')}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+              settingsTab === 'more'
+                ? 'border-slate-900 text-slate-900'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            <Info className="w-3.5 h-3.5" />
+            <span>Help & Support</span>
+          </button>
+
+          {currentUser?.isAdmin && (
+            <button
+              type="button"
+              onClick={() => setSettingsTab('admin')}
+              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                settingsTab === 'admin'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-slate-400 hover:text-indigo-600'
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>Admin Tools</span>
+            </button>
+          )}
+        </div>
+
+        {/* Tab: My Listings */}
+        {settingsTab === 'my-ads' && (
+          <div className="space-y-6 animate-fade-in text-left">
+            {/* Filter and search controls bar */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-3xs">
+              {/* Search input */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search among your listings..."
+                  value={listingSearchQuery}
+                  onChange={(e) => setListingSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white text-slate-900 transition"
+                />
+                {listingSearchQuery && (
+                  <button
+                    onClick={() => setListingSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Status filter pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                {(['all', 'active', 'boosted', 'sold'] as const).map((filter) => {
+                  const count =
+                    filter === 'all'
+                      ? myProducts.length
+                      : filter === 'active'
+                      ? myProducts.filter((p) => !p.isSold).length
+                      : filter === 'boosted'
+                      ? boostedCount
+                      : myProducts.filter((p) => p.isSold).length;
+
+                  return (
+                    <button
+                      key={filter}
+                      onClick={() => setListingFilter(filter)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                        listingFilter === filter
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {filter === 'boosted' && <Flame className="w-3 h-3 text-orange-400" />}
+                      <span>{filter}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                          listingFilter === filter ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => {
+                  setProductToEdit(null);
+                  setIsListingModalOpen(true);
+                }}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Post New Ad</span>
+              </button>
+            </div>
+
+            {/* Listings Grid */}
+            {filteredMyProducts.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center space-y-3">
+                <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto" />
+                <h3 className="text-base font-bold text-slate-900">
+                  {myProducts.length === 0 ? 'No Classified Ads Yet' : 'No matching listings found'}
+                </h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  {myProducts.length === 0
+                    ? 'Start selling across Accra, Kumasi, and all of Ghana today. Post your first ad in minutes!'
+                    : 'Try changing your search keywords or switching filters to see other listings.'}
+                </p>
+                {myProducts.length === 0 && (
+                  <button
+                    onClick={() => {
+                      setProductToEdit(null);
+                      setIsListingModalOpen(true);
+                    }}
+                    className="mt-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs rounded-xl transition shadow-xs inline-flex items-center gap-2 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Create First Listing</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredMyProducts.map((item) => {
+                  const boosted = isBoostActive(item);
+                  return (
+                    <div
+                      key={item.id}
+                      className="bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 shadow-3xs transition flex flex-col justify-between group"
+                    >
+                      <div>
+                        {/* Image & Status Badge */}
+                        <div
+                          className="relative aspect-video rounded-xl overflow-hidden bg-slate-100 mb-3 cursor-pointer"
+                          onClick={() => handleViewProduct(item.id)}
+                        >
+                          <img
+                            src={resolveProductImage(item)}
+                            alt={item.title}
+                            className="w-full h-full object-cover group-hover:scale-103 transition duration-300"
+                          />
+
+                          {/* Boosted badge */}
+                          {boosted && (
+                            <span className="absolute top-2 left-2 px-2 py-0.5 bg-orange-600/90 backdrop-blur-sm text-white text-[10px] font-bold rounded-lg flex items-center gap-1 shadow-xs">
+                              <Flame className="w-3 h-3 fill-white" />
+                              Boost Active
+                            </span>
+                          )}
+
+                          {/* Sold badge */}
+                          {item.isSold && (
+                            <span className="absolute top-2 right-2 px-2 py-0.5 bg-slate-900/90 backdrop-blur-sm text-white text-[10px] font-bold rounded-lg">
+                              Sold
+                            </span>
+                          )}
+
+                          {/* Views counter badge */}
+                          <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/60 backdrop-blur-sm text-white text-[10px] font-medium rounded-lg flex items-center gap-1">
+                            <Eye className="w-3 h-3" />
+                            {item.views || 0} views
+                          </span>
+                        </div>
+
+                        {/* Title & Price */}
+                        <div className="cursor-pointer" onClick={() => handleViewProduct(item.id)}>
+                          <p className="text-sm font-extrabold text-slate-900 line-clamp-1 group-hover:text-orange-600 transition">
+                            {item.title}
+                          </p>
+                          <p className="text-base font-black text-slate-900 mt-1">
+                            GH₵ {Number(item.price || 0).toLocaleString()}
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">
+                            {item.category || 'General'} • {item.location || 'Ghana'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="grid grid-cols-3 gap-1.5 mt-3.5 pt-3 border-t border-slate-100 text-xs">
+                        <button
+                          onClick={() => handleViewProduct(item.id)}
+                          className="py-1.5 px-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-center transition cursor-pointer flex items-center justify-center gap-1"
+                          title="View live ad"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Specs</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setProductToEdit(item);
+                            setIsListingModalOpen(true);
+                          }}
+                          className="py-1.5 px-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-center transition cursor-pointer flex items-center justify-center gap-1"
+                          title="Edit ad details"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Edit</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setProductToBoost(item);
+                            setIsBoostModalOpen(true);
+                          }}
+                          className="py-1.5 px-2 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold text-center transition cursor-pointer flex items-center justify-center gap-1"
+                          title="Boost ad visibility"
+                        >
+                          <Flame className="w-3.5 h-3.5 text-orange-600" />
+                          <span>Boost</span>
+                        </button>
+                      </div>
+
+                      {/* Bottom Delete row */}
+                      <div className="flex justify-end mt-2">
+                        <button
+                          onClick={(e) => handleDeleteListing(item.id, e)}
+                          disabled={deletingListingId === item.id}
+                          className="text-[11px] text-rose-500 hover:text-rose-700 font-semibold flex items-center gap-1 cursor-pointer transition"
+                        >
+                          {deletingListingId === item.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                          <span>Delete Listing</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
-      </div>
+
+        {/* Tab: Saved Deals */}
+        {settingsTab === 'saved' && (
+          <div className="space-y-6 animate-fade-in text-left">
+            <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-3xs">
+              <div>
+                <h2 className="text-base font-black text-slate-900">Saved Classified Deals</h2>
+                <p className="text-xs text-slate-500">Items bookmarked for future reference or price tracking across Ghana.</p>
+              </div>
+              <button
+                onClick={() => setCurrentView('browse')}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Browse More Deals
+              </button>
+            </div>
+
+            {savedProducts.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center space-y-3">
+                <Bookmark className="w-12 h-12 text-slate-300 mx-auto" />
+                <h3 className="text-base font-bold text-slate-900">No Saved Ads Yet</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Bookmark products you love while browsing to compare prices and contact sellers anytime.
+                </p>
+                <button
+                  onClick={() => setCurrentView('browse')}
+                  className="mt-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs rounded-xl transition shadow-xs inline-flex items-center gap-2 cursor-pointer"
+                >
+                  <Search className="w-4 h-4" />
+                  <span>Discover Marketplace</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {savedProducts.map((deal) => (
+                  <div
+                    key={deal.id}
+                    className="bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-3.5 shadow-3xs transition flex flex-col justify-between group"
+                  >
+                    <div>
+                      <div
+                        className="relative aspect-video rounded-xl overflow-hidden bg-slate-100 mb-3 cursor-pointer"
+                        onClick={() => handleViewProduct(deal.id)}
+                      >
+                        <img
+                          src={resolveProductImage(deal)}
+                          alt={deal.title}
+                          className="w-full h-full object-cover group-hover:scale-103 transition duration-300"
+                        />
+                        <button
+                          onClick={(e) => handleRemoveBookmark(deal.id, e)}
+                          className="absolute top-2 right-2 p-1.5 bg-white/90 hover:bg-white text-rose-500 rounded-full shadow-xs transition cursor-pointer"
+                          title="Remove bookmark"
+                        >
+                          <Bookmark className="w-4 h-4 fill-rose-500 text-rose-500" />
+                        </button>
+                      </div>
+
+                      <div className="cursor-pointer" onClick={() => handleViewProduct(deal.id)}>
+                        <p className="text-sm font-extrabold text-slate-900 line-clamp-1 group-hover:text-orange-600 transition">
+                          {deal.title}
+                        </p>
+                        <p className="text-base font-black text-slate-900 mt-1">
+                          GH₵ {Number(deal.price || 0).toLocaleString()}
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">
+                          Seller: {deal.sellerName || 'Verified Partner'} • {deal.location || 'Ghana'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <button
+                        onClick={() => handleViewProduct(deal.id)}
+                        className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View Deal</span>
+                      </button>
+
+                      <button
+                        onClick={(e) => handleRemoveBookmark(deal.id, e)}
+                        className="text-xs text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
       {/* Tab 1: Profile & Store Settings */}
       {settingsTab === 'profile' && (
