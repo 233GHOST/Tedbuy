@@ -63,7 +63,7 @@ export function DiscoverSellersScreen({ onBack, navigation }: DiscoverSellersScr
   const handleToggleFollow = async (sellerId: string) => {
     const user = auth.currentUser;
     if (!user) {
-      navigation?.navigate('Profile');
+      navigation?.navigate('MainTabs', { screen: 'Profile' });
       return;
     }
     const wasFollowing = followingIds.has(sellerId);

@@ -3,7 +3,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { View, Text, StyleSheet } from 'react-native';
-import { House, Search, PlusCircle, MessageSquare, User } from 'lucide-react-native';
+import { Search, PlusCircle, MessageSquare, User } from 'lucide-react-native';
+import { HomeTabIcon } from '../components/HomeTabIcon';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ChatsScreen } from '../screens/ChatsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
@@ -82,15 +83,6 @@ function MainTabs() {
       <Tab.Screen
         name="Home"
         component={HomeStackScreen}
-        listeners={({ navigation }) => ({
-          tabPress: () => {
-            // Tapping Home while already on Home should back out of the
-            // video ads feed to classifieds, not sit there doing nothing.
-            if (navigation.isFocused()) {
-              navigation.setParams({ resetToGrid: Date.now() });
-            }
-          },
-        })}
         options={{
           tabBarLabel: ({ focused }) => (
             <Text style={[styles.tabBarLabelText, { color: focused ? activeIconColor : inactiveIconColor, fontFamily: fonts.extrabold }]}>
@@ -99,8 +91,11 @@ function MainTabs() {
           ),
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
-              <House size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.2} fill={focused ? activeIconColor : 'none'} />
-              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
+              <HomeTabIcon
+                size={focused ? 22 : 20}
+                color={focused ? activeIconColor : inactiveIconColor}
+                cutoutColor={isDarkTabBar ? '#0f172a' : '#ffffff'}
+              />
             </View>
           ),
         }}
@@ -117,7 +112,6 @@ function MainTabs() {
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
               <Search size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.4} />
-              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
             </View>
           ),
         }}
@@ -152,7 +146,6 @@ function MainTabs() {
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
               <MessageSquare size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.2} fill={focused ? activeIconColor : 'none'} />
-              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
             </View>
           ),
         }}
@@ -169,7 +162,6 @@ function MainTabs() {
           tabBarIcon: ({ focused }) => (
             <View style={styles.tabIconContainer}>
               <User size={focused ? 22 : 20} color={focused ? activeIconColor : inactiveIconColor} strokeWidth={2.2} fill={focused ? activeIconColor : 'none'} />
-              {focused && <View style={[styles.activeIndicatorDot, { backgroundColor: activeIconColor }]} />}
             </View>
           ),
         }}
@@ -212,6 +204,7 @@ export function AppNavigator() {
                 sellerId={route.params.sellerId}
                 onBack={() => navigation.goBack()}
                 navigation={navigation}
+                initialTab={route.params.initialTab}
               />
             );
           }}
@@ -308,13 +301,6 @@ const styles = StyleSheet.create({
     height: 40,
     width: 40,
     position: 'relative',
-  },
-  activeIndicatorDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    position: 'absolute',
-    bottom: -2,
   },
   tabBarLabelText: {
     fontSize: 9,

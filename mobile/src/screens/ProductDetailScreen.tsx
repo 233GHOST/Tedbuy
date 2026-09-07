@@ -357,6 +357,20 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   const hasLiked = !!user && isSavedProduct(product.id);
   const isOwner = !!(user && product.sellerId === user.uid);
   const trustResult = calculateTrustScore(seller, sellerReviews);
+  // Reviews are fundamentally seller reviews, not per-product ones — the
+  // productTitle field only preserves which trade generated a given
+  // review, it isn't a filter for what shows on any one listing. Every
+  // listing from this seller shows the SAME seller-wide recent-reviews
+  // slice, so a brand-new review on any of their trades can show up here
+  // regardless of which specific product this page is for. sellerReviews
+  // is already fetched in full (for the trust score above) and already
+  // ordered createdAt DESC by the server (/api/reviews) — slicing it here
+  // is free, so this deliberately reuses that one fetch rather than making
+  // a second "give me just 3" request for the same seller.
+  const recentSellerReviews = sellerReviews.slice(0, 3);
+  const sellerReviewAvg = sellerReviews.length > 0
+    ? (sellerReviews.reduce((sum: number, r: any) => sum + (r.rating || 0), 0) / sellerReviews.length).toFixed(1)
+    : null;
   const isFollowingSeller = Array.isArray(currentUserProfile?.followingSellers) && product.sellerId
     ? currentUserProfile.followingSellers.includes(product.sellerId)
     : false;
@@ -800,6 +814,49 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
           <View style={styles.divider} />
 
+          {/* Seller Reviews — these are the SAME seller-wide reviews shown on
+              SellerProfileScreen's Reviews tab (identical fetch, identical
+              card styling), just the 3 most recent, so a buyer can gauge
+              this seller's reputation without leaving the listing. Never a
+              product-specific review system — productTitle on each card is
+              only the trade context, not a filter for what appears here. */}
+          <Text style={styles.sectionTitle}>Seller Reviews</Text>
+          {sellerReviewAvg && (
+            <View style={[styles.tagRow, styles.sellerReviewSummaryRow]}>
+              <Text style={styles.sellerReviewSummary}>★ {sellerReviewAvg}</Text>
+              <Text style={styles.sellerReviewSummaryMuted}> · {sellerReviews.length} review{sellerReviews.length === 1 ? '' : 's'}</Text>
+            </View>
+          )}
+          {recentSellerReviews.length === 0 ? (
+            <Text style={styles.noReviewsText}>No reviews yet</Text>
+          ) : (
+            recentSellerReviews.map((rev: any) => (
+              <View key={rev.id} style={styles.listingReviewCard}>
+                <View style={styles.listingReviewCardHeader}>
+                  <Text style={styles.listingReviewerName}>{rev.buyerName}</Text>
+                  <Text style={styles.listingReviewStars}>{'★'.repeat(rev.rating)}</Text>
+                </View>
+                {rev.productTitle && (
+                  <Text style={styles.listingReviewProductTag} numberOfLines={1}>For: {rev.productTitle}</Text>
+                )}
+                <Text style={styles.listingReviewComment}>{rev.comment}</Text>
+                <Text style={styles.listingReviewDate}>
+                  {new Date(rev.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                </Text>
+              </View>
+            ))
+          )}
+          {sellerReviews.length > 3 && (
+            <Pressable
+              onPress={() => navigation.navigate('SellerProfile', { sellerId: product.sellerId, initialTab: 'reviews' })}
+              style={styles.seeAllReviewsBtn}
+            >
+              <Text style={styles.seeAllReviewsBtnText}>See all {sellerReviews.length} reviews →</Text>
+            </Pressable>
+          )}
+
+          <View style={styles.divider} />
+
           {/* Similar Listings — was entirely missing on mobile. */}
           <Text style={styles.sectionTitle}>Similar Listings</Text>
           {similarProducts.length === 0 ? (
@@ -1187,6 +1244,19 @@ const styles = StyleSheet.create({
   title: { color: '#0f172a', fontSize: 19, fontFamily: fonts.extrabold, marginTop: 4, letterSpacing: -0.5 },
   meta: { color: '#64748b', marginTop: 6, fontSize: 12, fontFamily: fonts.semibold },
   divider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 14 },
+  listingReviewCard: { backgroundColor: '#ffffff', borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#e2e8f0' },
+  listingReviewCardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  listingReviewerName: { fontSize: 13, fontFamily: fonts.extrabold, color: '#0f172a' },
+  listingReviewStars: { fontSize: 12, color: '#eab308' },
+  listingReviewProductTag: { fontSize: 10.5, fontFamily: fonts.bold, color: '#2563eb', marginBottom: 4 },
+  listingReviewComment: { fontSize: 12, color: '#475569', lineHeight: 17 },
+  listingReviewDate: { fontSize: 10, color: '#94a3b8', marginTop: 6 },
+  sellerReviewSummaryRow: { marginBottom: 10 },
+  sellerReviewSummary: { fontSize: 13, fontFamily: fonts.extrabold, color: '#eab308' },
+  sellerReviewSummaryMuted: { fontSize: 12, fontFamily: fonts.semibold, color: '#64748b' },
+  noReviewsText: { fontSize: 12.5, color: '#94a3b8', fontStyle: 'italic', marginBottom: 4 },
+  seeAllReviewsBtn: { alignSelf: 'flex-start', marginTop: 4 },
+  seeAllReviewsBtnText: { fontSize: 12.5, fontFamily: fonts.extrabold, color: '#0f172a' },
   sectionTitle: { color: '#0f172a', fontSize: 13, fontFamily: fonts.extrabold, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
   description: { color: '#334155', lineHeight: 22, fontSize: 13.5, fontFamily: fonts.regular },
 

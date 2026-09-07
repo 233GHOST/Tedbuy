@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Animated, FlatList, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTabBarVisibility, TAB_BAR_HEIGHT } from '../context/TabBarVisibility';
-import { Bookmark, MessageSquare, Share2, Eye, VolumeX, Volume2, TrendingUp, Store, MapPin, Check, Flame, RefreshCw, ChevronDown, ChevronUp, X, History, LayoutDashboard, LayoutGrid, Video, Play } from 'lucide-react-native';
+import { Bookmark, MessageSquare, Forward, Eye, TrendingUp, Store, MapPin, Check, Flame, RefreshCw, ChevronDown, ChevronUp, X, History, LayoutDashboard, LayoutGrid, Video, Play, Search } from 'lucide-react-native';
 import { categories } from '../data';
 import { GHANA_REGIONS, getRegionForLocation } from '../regions';
 import { computeDiscoverSellers } from '../utils/discoverSellers';
@@ -78,8 +78,37 @@ import { fonts } from '../theme';
  *    for smooth paging (windowSize) — everything outside the load window is
  *    just the poster Image, which virtualizes fine on its own.
  */
-const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, posterUri, isActive, isMuted }: { uri: string; productId: string; posterUri?: string | null; isActive: boolean; isMuted: boolean }) {
+const SPEED_LOCK_LEARNED_KEY = 'tedbuy_speed_lock_learned_v1';
+const SPEED_UNLOCK_LEARNED_KEY = 'tedbuy_speed_unlock_learned_v1';
+type SpeedHintPhase = 'teachLock' | 'minimalHold' | 'teachUnlock' | 'minimalLockedHold' | 'justLocked' | 'justUnlocked';
+
+const VideoFeedPlayer = React.memo(function VideoFeedPlayer({
+  uri,
+  productId,
+  posterUri,
+  isActive,
+  hasLockedSpeedBefore,
+  hasUnlockedSpeedBefore,
+  onLockedSpeedLearned,
+  onUnlockedSpeedLearned,
+}: {
+  uri: string;
+  productId: string;
+  posterUri?: string | null;
+  isActive: boolean;
+  hasLockedSpeedBefore: boolean;
+  hasUnlockedSpeedBefore: boolean;
+  onLockedSpeedLearned: () => void;
+  onUnlockedSpeedLearned: () => void;
+}) {
   const optimizedUri = useMemo(() => getOptimizedVideoUrlMobile(uri), [uri]);
+  // Tapping the video to pause/resume it is a distinct gesture from
+  // scrolling between videos, but should drive the tab bar the same way:
+  // pausing (stepping out of the immersive feed to read something) reveals
+  // it, resuming playback hides it again — matching scroll's own hide-while-
+  // watching / show-while-not behavior instead of leaving whatever state a
+  // scroll last left it in.
+  const { resetTabBar, hideTabBar } = useTabBarVisibility();
   useEffect(() => {
     console.log('VIDEO_TIMING player_created', productId, Date.now());
   }, []);
@@ -95,7 +124,6 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, po
   // source is simply correct from the moment the native player exists.
   const player = useVideoPlayer(optimizedUri, (p) => {
     p.loop = true;
-    p.muted = isMuted;
     // Android's default BufferOptions (preferredForwardBufferDuration: 20s,
     // minBufferForPlayback: 2s) is tuned for long-form content, not ~14s
     // vertical clips. Measured directly against this feed's actual
@@ -119,10 +147,6 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, po
     p.bufferOptions = { minBufferForPlayback: 0.75, preferredForwardBufferDuration: 8 };
   });
 
-  useEffect(() => {
-    player.muted = isMuted;
-  }, [isMuted, player]);
-
   // A tap on the video toggles this; it's intentionally separate from
   // `isActive` (which is scroll-driven) so a manual pause survives things
   // like a mute toggle, and resets for free on the next video because this
@@ -139,6 +163,16 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, po
   }, [isActive, isPaused, player]);
 
   const [isBuffering, setIsBuffering] = useState(true);
+  // Most sellers film in portrait, which already matches this full-screen
+  // feed's own aspect ratio — cropping it to `cover` fills every edge with
+  // no loss anyone would notice. A landscape clip cropped the same way loses
+  // most of its actual content, so once the real source dimensions are known
+  // (sourceLoad fires after metadata loads, before enough is buffered to
+  // play) a landscape/near-square video instead gets `contain`: the full
+  // frame stays visible, letterboxed by videoPlayerFrame's own dark
+  // background, rather than blindly forcing an edge-to-edge fill that isn't
+  // actually the better result for that video.
+  const [contentFit, setContentFit] = useState<'cover' | 'contain'>('cover');
   useEffect(() => {
     const sub = player.addListener('statusChange', ({ status }: { status: string }) => {
       console.log('VIDEO_TIMING status_' + status, productId, Date.now());
@@ -147,13 +181,155 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, po
     const sub2 = player.addListener('playingChange', ({ isPlaying }: { isPlaying: boolean }) => {
       if (isPlaying) console.log('VIDEO_TIMING playing', productId, Date.now());
     });
-    return () => { sub.remove(); sub2.remove(); };
+    const sub3 = player.addListener('sourceLoad', ({ availableVideoTracks }: { availableVideoTracks: { size?: { width: number; height: number } }[] }) => {
+      const size = availableVideoTracks?.[0]?.size;
+      if (size && size.width > 0 && size.height > 0) {
+        setContentFit(size.height >= size.width ? 'cover' : 'contain');
+      }
+    });
+    return () => { sub.remove(); sub2.remove(); sub3.remove(); };
   }, [player, productId]);
 
+  // Hold-to-2x-speed, TikTok-style. isSpeedLocked (state, drives the
+  // persistent badge + re-render) is mirrored into a ref so the gesture's
+  // callbacks — captured once by the useMemo below — always read the
+  // CURRENT lock state instead of whatever it was when the gesture object
+  // was created. previousRateRef/preLockRateRef intentionally never assume
+  // "normal" means 1.0: previousRateRef captures whatever rate was actually
+  // playing right before a hold begins, and preLockRateRef freezes that
+  // value at the exact moment a hold locks in 2x, so unlocking later
+  // restores to it rather than to a hard-coded default.
+  const [isSpeedLocked, setIsSpeedLocked] = useState(false);
+  const isSpeedLockedRef = useRef(false);
+  const previousRateRef = useRef(1);
+  const preLockRateRef = useRef(1);
+  const dragLockToggledRef = useRef(false);
+  const [isHoldingSpeed, setIsHoldingSpeed] = useState(false);
+  const holdIndicatorOpacity = useRef(new Animated.Value(0)).current;
+  // Which flavor of the center hint is showing — teachLock/teachUnlock spell
+  // the gesture out for a user who's never crossed the lock threshold before;
+  // minimalHold/minimalLockedHold are just the bare "2×"/"🔒 2×" once they
+  // have; justLocked/justUnlocked are the brief post-drag confirmation,
+  // shown every time regardless of what's already been learned.
+  const [speedHintPhase, setSpeedHintPhase] = useState<SpeedHintPhase | null>(null);
+  const lockConfirmFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pullDownAnim = useRef(new Animated.Value(0)).current;
+
+  const DRAG_LOCK_THRESHOLD = 40;
+
+  // The teaching label only nudges downward while a hint is actively
+  // spelling out the gesture — a bounded loop (not indefinite) keeps it
+  // feeling like a quick demonstration rather than a distracting permanent
+  // animation.
+  useEffect(() => {
+    if (speedHintPhase === 'teachLock' || speedHintPhase === 'teachUnlock') {
+      pullDownAnim.setValue(0);
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pullDownAnim, { toValue: 1, duration: 450, useNativeDriver: true }),
+          Animated.timing(pullDownAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
+          Animated.delay(150),
+        ]),
+        { iterations: 2 }
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [speedHintPhase, pullDownAnim]);
+
+  useEffect(() => () => {
+    if (lockConfirmFadeTimerRef.current) clearTimeout(lockConfirmFadeTimerRef.current);
+  }, []);
+
+  // activateAfterLongPress is exactly the "hold, don't just tap" primitive:
+  // it only transitions to ACTIVE once the finger has been down for this
+  // long, regardless of movement — a quick tap (or a normal fast swipe,
+  // vertical or horizontal) releases or moves on well before that, so this
+  // gesture simply never activates for them and the tap-to-pause Pressable
+  // below, and the feed's own vertical/horizontal swipe gestures, are
+  // completely unaffected. Once active, onUpdate tracks the drag to detect
+  // a deliberate downward pull past DRAG_LOCK_THRESHOLD (checked against
+  // horizontal movement too, so a diagonal or sideways drag never locks).
+  const speedGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activateAfterLongPress(180)
+        .onStart(() => {
+          dragLockToggledRef.current = false;
+          if (lockConfirmFadeTimerRef.current) {
+            clearTimeout(lockConfirmFadeTimerRef.current);
+            lockConfirmFadeTimerRef.current = null;
+          }
+          if (!isSpeedLockedRef.current) {
+            previousRateRef.current = player.playbackRate || 1;
+            player.playbackRate = 2.0;
+            setSpeedHintPhase(hasLockedSpeedBefore ? 'minimalHold' : 'teachLock');
+          } else {
+            setSpeedHintPhase(hasUnlockedSpeedBefore ? 'minimalLockedHold' : 'teachUnlock');
+          }
+          setIsHoldingSpeed(true);
+          Animated.timing(holdIndicatorOpacity, { toValue: 1, duration: 120, useNativeDriver: true }).start();
+        })
+        .onUpdate((e) => {
+          if (dragLockToggledRef.current) return;
+          const { translationX, translationY } = e;
+          if (translationY > DRAG_LOCK_THRESHOLD && translationY > Math.abs(translationX) * 1.5) {
+            dragLockToggledRef.current = true;
+            if (!isSpeedLockedRef.current) {
+              preLockRateRef.current = previousRateRef.current;
+              isSpeedLockedRef.current = true;
+              setIsSpeedLocked(true);
+              setSpeedHintPhase('justLocked');
+              onLockedSpeedLearned();
+            } else {
+              player.playbackRate = preLockRateRef.current || 1;
+              isSpeedLockedRef.current = false;
+              setIsSpeedLocked(false);
+              setSpeedHintPhase('justUnlocked');
+              onUnlockedSpeedLearned();
+            }
+            // The confirmation ("🔒 2× Locked" / "2× Unlocked") only needs to
+            // read briefly — if the finger is still down after this, fade it
+            // out early rather than letting it linger for the rest of the
+            // hold. A normal release before this fires is unaffected: onEnd
+            // clears this timer and runs its own fade instead.
+            lockConfirmFadeTimerRef.current = setTimeout(() => {
+              Animated.timing(holdIndicatorOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+                setIsHoldingSpeed(false);
+              });
+            }, 900);
+          }
+        })
+        .onEnd(() => {
+          if (lockConfirmFadeTimerRef.current) {
+            clearTimeout(lockConfirmFadeTimerRef.current);
+            lockConfirmFadeTimerRef.current = null;
+          }
+          if (!dragLockToggledRef.current && !isSpeedLockedRef.current) {
+            player.playbackRate = previousRateRef.current || 1;
+          }
+          Animated.timing(holdIndicatorOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+            setIsHoldingSpeed(false);
+          });
+        }),
+    [player, holdIndicatorOpacity, hasLockedSpeedBefore, hasUnlockedSpeedBefore, onLockedSpeedLearned, onUnlockedSpeedLearned]
+  );
+
   return (
+    <GestureDetector gesture={speedGesture}>
     <Pressable
       style={styles.videoPlaceholderImage}
-      onPress={() => setIsPaused((prev) => !prev)}
+      onPress={() => {
+        setIsPaused((prev) => {
+          const nowPaused = !prev;
+          if (nowPaused) {
+            resetTabBar();
+          } else {
+            hideTabBar();
+          }
+          return nowPaused;
+        });
+      }}
     >
       {/* Instant first paint (already a lightweight q_auto poster frame, see
           resolveProductImageUri) so this shows a real frame from frame one
@@ -171,7 +347,7 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, po
         player={player}
         style={StyleSheet.absoluteFill}
         nativeControls={false}
-        contentFit="cover"
+        contentFit={contentFit}
         pointerEvents="none"
       />
       {isActive && isBuffering && !isPaused && (
@@ -184,7 +360,58 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({ uri, productId, po
           <Play size={30} color="#ffffff" fill="#ffffff" strokeWidth={0} />
         </View>
       )}
+      {/* Transient center feedback for the hold-to-2x gesture — only visible
+          while actively holding, fades in/out fast per the "subtle, native-
+          feeling" requirement. A user who's never crossed the lock threshold
+          gets the full "drag down to lock/unlock" teaching copy, with the
+          label itself nudging downward on a loop to physically demonstrate
+          the pull; once they have (persisted via AsyncStorage, see
+          hasLockedSpeedBefore/hasUnlockedSpeedBefore in HomeScreen), this
+          collapses to the bare "2×"/"2× Locked" so it stops reading as a
+          tooltip. */}
+      {isHoldingSpeed && speedHintPhase && (
+        <Animated.View
+          style={[
+            styles.speedHoldIndicator,
+            (speedHintPhase === 'teachLock' || speedHintPhase === 'teachUnlock') && styles.speedHoldIndicatorTeach,
+            { opacity: holdIndicatorOpacity },
+          ]}
+          pointerEvents="none"
+        >
+          {speedHintPhase === 'teachLock' && (
+            <>
+              <Animated.Text style={[styles.speedHoldIndicatorText, { transform: [{ translateY: pullDownAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 10] }) }] }]}>
+                2× Speed
+              </Animated.Text>
+              <Text style={styles.speedHoldIndicatorSubText}>Drag down to lock</Text>
+            </>
+          )}
+          {speedHintPhase === 'minimalHold' && <Text style={styles.speedHoldIndicatorText}>2×</Text>}
+          {speedHintPhase === 'teachUnlock' && (
+            <>
+              <Animated.Text style={[styles.speedHoldIndicatorText, { transform: [{ translateY: pullDownAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 10] }) }] }]}>
+                2× Locked
+              </Animated.Text>
+              <Text style={styles.speedHoldIndicatorSubText}>Drag down to unlock</Text>
+            </>
+          )}
+          {speedHintPhase === 'minimalLockedHold' && <Text style={styles.speedHoldIndicatorText}>🔒 2×</Text>}
+          {speedHintPhase === 'justLocked' && <Text style={styles.speedHoldIndicatorText}>🔒 2× Locked</Text>}
+          {speedHintPhase === 'justUnlocked' && <Text style={styles.speedHoldIndicatorText}>2× Unlocked</Text>}
+        </Animated.View>
+      )}
+      {/* Persistent small badge for as long as 2x stays locked — independent
+          of whether the finger is currently down, so a locked video reads
+          as locked even between holds. Placed top-left, clear of the mute
+          toggle (top-right), the title/price block (bottom-left), and the
+          Save/Chat/Share column (right edge). */}
+      {isSpeedLocked && !isHoldingSpeed && (
+        <View style={styles.speedLockBadge} pointerEvents="none">
+          <Text style={styles.speedLockBadgeText}>2× 🔒</Text>
+        </View>
+      )}
     </Pressable>
+    </GestureDetector>
   );
 });
 
@@ -261,13 +488,15 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
   height,
   isActive,
   shouldLoad,
-  isMuted,
   isSaved,
   sellerProfile,
   isOwnVideoItem,
   isFollowingSeller,
   isTogglingFollow,
-  onToggleMute,
+  hasLockedSpeedBefore,
+  hasUnlockedSpeedBefore,
+  onLockedSpeedLearned,
+  onUnlockedSpeedLearned,
   onOpenSeller,
   onToggleFollow,
   onToggleSave,
@@ -279,13 +508,15 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
   height: number;
   isActive: boolean;
   shouldLoad: boolean;
-  isMuted: boolean;
   isSaved: boolean;
   sellerProfile: any;
   isOwnVideoItem: boolean;
   isFollowingSeller: boolean;
   isTogglingFollow: boolean;
-  onToggleMute: () => void;
+  hasLockedSpeedBefore: boolean;
+  hasUnlockedSpeedBefore: boolean;
+  onLockedSpeedLearned: () => void;
+  onUnlockedSpeedLearned: () => void;
   onOpenSeller: (sellerId: string) => void;
   onToggleFollow: (sellerId: string) => void;
   onToggleSave: (item: Product) => void;
@@ -315,22 +546,22 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
         // that ever create one; everything else below just shows the same
         // poster image VideoFeedPlayer would have shown anyway, so there's
         // no visible change when a cell crosses into the load window.
-        <VideoFeedPlayer uri={videoUri} productId={item.id} posterUri={videoFallbackImageUri} isActive={isActive} isMuted={isMuted} />
+        <VideoFeedPlayer
+          uri={videoUri}
+          productId={item.id}
+          posterUri={videoFallbackImageUri}
+          isActive={isActive}
+          hasLockedSpeedBefore={hasLockedSpeedBefore}
+          hasUnlockedSpeedBefore={hasUnlockedSpeedBefore}
+          onLockedSpeedLearned={onLockedSpeedLearned}
+          onUnlockedSpeedLearned={onUnlockedSpeedLearned}
+        />
       ) : videoFallbackImageUri ? (
         <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} />
       ) : (
         <CategoryImagePlaceholder category={item.category} style={styles.videoPlaceholderImage} iconSize={40} />
       )}
       <View style={styles.videoOverlay} pointerEvents="none" />
-
-      {/* Mute toggle */}
-      <Pressable style={styles.videoMuteBtn} onPress={onToggleMute} hitSlop={8}>
-        {isMuted ? (
-          <VolumeX size={16} color="#ffffff" strokeWidth={2.2} />
-        ) : (
-          <Volume2 size={16} color="#ffffff" strokeWidth={2.2} />
-        )}
-      </Pressable>
 
       {/* Immersive bottom details row */}
       <View style={styles.videoBottomDetails}>
@@ -403,7 +634,7 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
         {/* Share */}
         <Pressable style={styles.actionBtn} onPress={() => onShare(item)}>
           <View style={styles.actionBtnCircle}>
-            <Share2 size={17} color="#ffffff" strokeWidth={2.2} />
+            <Forward size={17} color="#ffffff" strokeWidth={2.2} />
           </View>
           <Text style={styles.actionBtnLabel}>Share</Text>
         </Pressable>
@@ -430,12 +661,13 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
   prev.height === next.height &&
   prev.isActive === next.isActive &&
   prev.shouldLoad === next.shouldLoad &&
-  prev.isMuted === next.isMuted &&
   prev.isSaved === next.isSaved &&
   prev.sellerProfile === next.sellerProfile &&
   prev.isOwnVideoItem === next.isOwnVideoItem &&
   prev.isFollowingSeller === next.isFollowingSeller &&
-  prev.isTogglingFollow === next.isTogglingFollow
+  prev.isTogglingFollow === next.isTogglingFollow &&
+  prev.hasLockedSpeedBefore === next.hasLockedSpeedBefore &&
+  prev.hasUnlockedSpeedBefore === next.hasUnlockedSpeedBefore
 ));
 
 interface HomeScreenProps {
@@ -474,11 +706,6 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchText, setSearchText] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'video'>('grid');
-  useEffect(() => {
-    if (route?.params?.resetToGrid) {
-      setViewMode('grid');
-    }
-  }, [route?.params?.resetToGrid]);
   // Bring the tab bar back whenever this screen loses focus (so it's not
   // left hidden on another tab) or the grid/video toggle changes (each
   // starts its own scroll position, so a leftover hidden state would be
@@ -545,9 +772,6 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       unsubBlur?.();
     };
   }, [navigation]);
-  // Matches web's VideoAdsFeed default (isMuted starts false — autoplay
-  // attempts with sound on, same as TikTok/Reels-style feeds).
-  const [isVideoFeedMuted, setIsVideoFeedMuted] = useState(false);
   const videoViewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
   const onVideoViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0 && viewableItems[0].index != null) {
@@ -702,6 +926,31 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     setRecentlyViewedIds([]);
     AsyncStorage.removeItem(RECENTLY_VIEWED_KEY).catch(() => {});
   };
+
+  // Progressive discovery for the hold-to-2x lock/unlock gesture: the full
+  // "drag down to lock/unlock" teaching hint only needs to show until a user
+  // has actually done it once — after that it'd just be a repeating tooltip.
+  // Lifted up here (rather than loaded inside VideoFeedPlayer, which mounts
+  // fresh per active video) so every video reflects the same learned state
+  // immediately, with a single AsyncStorage read for the whole session.
+  const [hasLockedSpeedBefore, setHasLockedSpeedBefore] = useState(false);
+  const [hasUnlockedSpeedBefore, setHasUnlockedSpeedBefore] = useState(false);
+  useEffect(() => {
+    AsyncStorage.multiGet([SPEED_LOCK_LEARNED_KEY, SPEED_UNLOCK_LEARNED_KEY])
+      .then((pairs) => {
+        if (pairs.find(([k]) => k === SPEED_LOCK_LEARNED_KEY)?.[1] === '1') setHasLockedSpeedBefore(true);
+        if (pairs.find(([k]) => k === SPEED_UNLOCK_LEARNED_KEY)?.[1] === '1') setHasUnlockedSpeedBefore(true);
+      })
+      .catch(() => {});
+  }, []);
+  const handleLockedSpeedLearned = useCallback(() => {
+    setHasLockedSpeedBefore(true);
+    AsyncStorage.setItem(SPEED_LOCK_LEARNED_KEY, '1').catch(() => {});
+  }, []);
+  const handleUnlockedSpeedLearned = useCallback(() => {
+    setHasUnlockedSpeedBefore(true);
+    AsyncStorage.setItem(SPEED_UNLOCK_LEARNED_KEY, '1').catch(() => {});
+  }, []);
 
   // TextInput's own hit box only covers its intrinsic (font-height) content
   // box, not the full visual height of searchRow around it — with
@@ -986,7 +1235,65 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // items already in that page.
   const [videoFeedItems, setVideoFeedItems] = useState<Product[]>([]);
   const [isLoadingMoreVideos, setIsLoadingMoreVideos] = useState(false);
+  const [isRefreshingVideoFeed, setIsRefreshingVideoFeed] = useState(false);
   const seenVideoIdsRef = useRef<Set<string>>(new Set());
+
+  // For You / Following — two content sources over the SAME underlying
+  // videoFeedItems pool (ranking, pagination, preloading, gestures, all
+  // shared below), not a second feed system. Resets to 'forYou' each time
+  // the video feed is freshly opened, per product spec, rather than
+  // remembering the last tab across a full grid<->video round trip.
+  const [feedMode, setFeedMode] = useState<'forYou' | 'following'>('forYou');
+  useEffect(() => {
+    if (viewMode === 'video') {
+      setFeedMode('forYou');
+    }
+  }, [viewMode]);
+
+  // Same followingSellers lookup already done per-row below (for the
+  // follow-button state) — hoisted here so the Following tab can filter by
+  // it too, both reading the one canonical field rather than a second copy.
+  const followingSellerIds: string[] = useMemo(() => {
+    const currentUserId = auth.currentUser?.uid;
+    const myProfile: any = currentUserId ? users.find((u: any) => u.id === currentUserId) : null;
+    return Array.isArray(myProfile?.followingSellers) ? myProfile.followingSellers : [];
+  }, [users]);
+
+  // The Following feed is a client-side filter over the exact same pool —
+  // no second fetch, no separate ranking system, no server changes. It
+  // still benefits from pagination (loadMoreVideoAds keeps growing the
+  // underlying pool regardless of which tab is active, so more of a
+  // followed seller's videos can surface as more pages load).
+  const displayedVideoFeedItems: Product[] = useMemo(() => {
+    if (feedMode === 'following') {
+      return videoFeedItems.filter((item) => followingSellerIds.includes(item.sellerId));
+    }
+    return videoFeedItems;
+  }, [feedMode, videoFeedItems, followingSellerIds]);
+
+  // Keeps each tab's own scroll position so switching back to a tab you
+  // already scrolled through resumes where you left it, rather than
+  // snapping back to the top every time.
+  const lastIndexByModeRef = useRef<{ forYou: number; following: number }>({ forYou: 0, following: 0 });
+  useEffect(() => {
+    lastIndexByModeRef.current[feedMode] = activeVideoIndex;
+  }, [activeVideoIndex, feedMode]);
+  const videoFeedListRef = useRef<any>(null);
+
+  const handleFeedModeChange = (mode: 'forYou' | 'following') => {
+    if (mode === feedMode) return;
+    setFeedMode(mode);
+    const targetList = mode === 'following'
+      ? videoFeedItems.filter((item) => followingSellerIds.includes(item.sellerId))
+      : videoFeedItems;
+    const targetIndex = Math.min(lastIndexByModeRef.current[mode], Math.max(0, targetList.length - 1));
+    setActiveVideoIndex(targetIndex);
+    if (targetList.length > 0) {
+      requestAnimationFrame(() => {
+        videoFeedListRef.current?.scrollToIndex?.({ index: targetIndex, animated: false });
+      });
+    }
+  };
 
   // No longer gated on viewMode === 'video': videoAdsProducts is already
   // derived from `products`, which loads on Home mount regardless of which
@@ -1060,6 +1367,54 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       }
     } finally {
       setIsLoadingMoreVideos(false);
+    }
+  };
+
+  // Pull-to-refresh for the video feed. Unlike loadMoreVideoAds (append-only,
+  // preserves scroll position), this is a deliberate full reseed — the same
+  // "bring in what's new" gesture as the grid's own handleRefresh, just
+  // landing on this feed's own pool instead of `products`. Re-ranks with
+  // rankVideoFeedProducts directly against the just-fetched data rather than
+  // waiting on the videoAdsProducts memo (which wouldn't reflect this fetch
+  // until the next render), so the reseed below always uses genuinely fresh
+  // results, not whatever was ranked a render behind.
+  const handleVideoFeedRefresh = async () => {
+    setIsRefreshingVideoFeed(true);
+    try {
+      const [freshResult, freshUsers] = await Promise.all([
+        fetchProductsWithStatus(200),
+        new Promise<any[]>((resolve) => {
+          const unsub = watchUsers((result) => {
+            resolve(result);
+            unsub();
+          });
+        }),
+      ]);
+      const freshProducts = freshResult.failed ? products : (freshResult.products as Product[]);
+      if (!freshResult.failed) {
+        setProducts(freshProducts);
+        setFeedLoadFailed(false);
+      }
+      setUsers(freshUsers);
+
+      const freshRanked = rankVideoFeedProducts({
+        products: freshProducts,
+        users: freshUsers,
+        currentUserId: auth.currentUser?.uid,
+        recentlyViewedIds,
+      });
+      seenVideoIdsRef.current = new Set(freshRanked.map((p) => p.id));
+      visitedVideoIndicesRef.current = new Set([0]);
+      lastIndexByModeRef.current = { forYou: 0, following: 0 };
+      setVideoFeedItems(freshRanked);
+      setActiveVideoIndex(0);
+      requestAnimationFrame(() => {
+        videoFeedListRef.current?.scrollToOffset?.({ offset: 0, animated: false });
+      });
+    } catch (err) {
+      // keep showing the existing feed if the refresh fails
+    } finally {
+      setIsRefreshingVideoFeed(false);
     }
   };
 
@@ -1260,7 +1615,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
         .failOffsetY([-15, 15])
         .onEnd((e) => {
           if (e.translationX < -HORIZONTAL_SWIPE_MIN_DISTANCE && e.velocityX < -HORIZONTAL_SWIPE_MIN_VELOCITY) {
-            const currentSellerId = videoFeedItems[activeVideoIndex]?.sellerId;
+            const currentSellerId = displayedVideoFeedItems[activeVideoIndex]?.sellerId;
             if (currentSellerId) {
               navigation?.navigate('SellerProfile', { sellerId: currentSellerId });
             }
@@ -1268,7 +1623,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
             setViewMode('grid');
           }
         }),
-    [videoFeedItems, activeVideoIndex, navigation]
+    [displayedVideoFeedItems, activeVideoIndex, navigation]
   );
 
   return (
@@ -1281,67 +1636,91 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       {viewMode === 'grid' && !visitedVideoIndicesRef.current.has(0) && (
         <HomePreloadVideos items={videoFeedItems} />
       )}
-      {/* Premium Web-aligned top header */}
-      <View style={styles.headerContainer}>
-        <View style={styles.topBar}>
-          <Pressable
-            style={styles.topBarLeft}
-            onPress={() => {
-              // Matches web's logo click: back to the default browse state.
-              setSearchText('');
-              setSelectedCategory('All');
-              setViewMode('grid');
-              resetTabBar();
-              mainGridRef.current?.scrollToOffset({ offset: 0, animated: true });
-            }}
-          >
-            <View style={styles.brandBadge}>
-              <TedBuyLogo size={26} />
-            </View>
-            <Text style={styles.brandName}>
-              Ted<Text style={styles.brandNameAccent}>Buy</Text>
-            </Text>
-          </Pressable>
-          <View style={styles.topBarRight}>
-            {/* Matches web's Navbar.tsx "Saved" button exactly — real count
-                from savedProductIds (was a static Alert with no real count
-                or destination). Opens its own dedicated Saved Deals screen
-                rather than landing on the Profile Dashboard's shared scroll
-                (matches web's own separate "Saved" tab being one tap away,
-                not something you have to scroll past your listings to reach). */}
+      {viewMode === 'grid' ? (
+        /* Premium Web-aligned top header */
+        <View style={styles.headerContainer}>
+          <View style={styles.topBar}>
             <Pressable
-              style={styles.bookmarkBadge}
-              onPress={() => navigation?.navigate('SavedProducts')}
+              style={styles.topBarLeft}
+              onPress={() => {
+                // Matches web's logo click: back to the default browse state.
+                setSearchText('');
+                setSelectedCategory('All');
+                setViewMode('grid');
+                resetTabBar();
+                mainGridRef.current?.scrollToOffset({ offset: 0, animated: true });
+              }}
             >
-              <Bookmark size={16} color="#ffffff" strokeWidth={2.2} fill={savedProductIds.length ? '#fda4af' : 'none'} />
-              {savedProductIds.length > 0 && (
-                <View style={styles.bookmarkCountBadge}>
-                  <Text style={styles.bookmarkCountBadgeText}>{savedProductIds.length}</Text>
-                </View>
-              )}
+              <View style={styles.brandBadge}>
+                <TedBuyLogo size={26} />
+              </View>
+              <Text style={styles.brandName}>
+                Ted<Text style={styles.brandNameAccent}>Buy</Text>
+              </Text>
             </Pressable>
-            {auth.currentUser ? (
-              // Matches web's icon-only "My Listings" dashboard shortcut
-              // (Navbar.tsx nav-btn-dashboard, LayoutDashboard icon) — was a
-              // plain "My Account" text button that just opened whatever tab
-              // Profile last happened to be on.
+            <View style={styles.topBarRight}>
+              {/* Matches web's Navbar.tsx "Saved" button exactly — real count
+                  from savedProductIds (was a static Alert with no real count
+                  or destination). Opens its own dedicated Saved Deals screen
+                  rather than landing on the Profile Dashboard's shared scroll
+                  (matches web's own separate "Saved" tab being one tap away,
+                  not something you have to scroll past your listings to reach). */}
               <Pressable
-                onPress={() => navigation?.navigate('Profile', { tab: 'dashboard' })}
-                style={styles.dashboardIconBtn}
+                style={styles.bookmarkBadge}
+                onPress={() => navigation?.navigate('SavedProducts')}
               >
-                <LayoutDashboard size={18} color="#0f172a" strokeWidth={2.2} />
+                <Bookmark size={16} color="#ffffff" strokeWidth={2.2} fill={savedProductIds.length ? '#fda4af' : 'none'} />
+                {savedProductIds.length > 0 && (
+                  <View style={styles.bookmarkCountBadge}>
+                    <Text style={styles.bookmarkCountBadgeText}>{savedProductIds.length}</Text>
+                  </View>
+                )}
               </Pressable>
-            ) : (
-              <Pressable
-                onPress={() => navigation?.navigate('Profile')}
-                style={styles.loginBtn}
-              >
-                <Text style={styles.loginBtnText}>→ Log In</Text>
-              </Pressable>
-            )}
+              {auth.currentUser ? (
+                // Matches web's icon-only "My Listings" dashboard shortcut
+                // (Navbar.tsx nav-btn-dashboard, LayoutDashboard icon) — was a
+                // plain "My Account" text button that just opened whatever tab
+                // Profile last happened to be on.
+                <Pressable
+                  onPress={() => navigation?.navigate('Profile', { tab: 'dashboard' })}
+                  style={styles.dashboardIconBtn}
+                >
+                  <LayoutDashboard size={18} color="#0f172a" strokeWidth={2.2} />
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => navigation?.navigate('Profile')}
+                  style={styles.loginBtn}
+                >
+                  <Text style={styles.loginBtnText}>→ Log In</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         </View>
-      </View>
+      ) : (
+        // Video Feed's own header: a For You / Following switcher, floating
+        // transparently over the immersive video rather than the grid's
+        // opaque bar — box-none so taps in the empty space around the tabs
+        // fall through to the video/gestures underneath. The left side stays
+        // an empty flex spacer (matching the right) purely so the tabs
+        // remain centered — swiping right at index 0 (videoHorizontalGesture)
+        // is still the way back to grid now that there's no logo to tap.
+        <View style={[styles.videoFeedHeaderContainer, { paddingTop: insets.top + 10 }]} pointerEvents="box-none">
+          <View style={styles.videoFeedHeaderSide} pointerEvents="none" />
+          <View style={styles.feedModeTabsRow}>
+            <Pressable onPress={() => handleFeedModeChange('forYou')} style={styles.feedModeTab} hitSlop={8}>
+              <Text style={[styles.feedModeTabText, feedMode === 'forYou' && styles.feedModeTabTextActive]}>For You</Text>
+              {feedMode === 'forYou' && <View style={styles.feedModeTabIndicator} />}
+            </Pressable>
+            <Pressable onPress={() => handleFeedModeChange('following')} style={[styles.feedModeTab, { marginRight: 0 }]} hitSlop={8}>
+              <Text style={[styles.feedModeTabText, feedMode === 'following' && styles.feedModeTabTextActive]}>Following</Text>
+              {feedMode === 'following' && <View style={styles.feedModeTabIndicator} />}
+            </Pressable>
+          </View>
+          <View style={styles.videoFeedHeaderSide} pointerEvents="none" />
+        </View>
+      )}
 
       {/* Main body of the screen */}
       <View style={styles.body}>
@@ -1376,12 +1755,12 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                 <View style={styles.searchBoxCard}>
                   <Text style={styles.searchLabel}>LOOKING FOR SOMETHING?</Text>
                   <Pressable style={styles.searchRow} onPress={() => homeSearchInputRef.current?.focus()}>
-                    <Text style={styles.searchEmoji}>🔍</Text>
+                    <Search size={16} color="#64748b" strokeWidth={2.2} style={styles.searchIcon} />
                     <TextInput
                       ref={homeSearchInputRef}
                       value={searchText}
                       onChangeText={setSearchText}
-                      placeholder="Search phones, laptops, sneakers..."
+                      placeholder="Search on TedBuy"
                       style={styles.input}
                       placeholderTextColor="#64748b"
                       clearButtonMode="never"
@@ -2060,6 +2439,30 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
           <View style={styles.videoFeedEmptyState}>
             <ActivityIndicator size="large" color="#ffffff" />
           </View>
+        ) : feedMode === 'following' && displayedVideoFeedItems.length === 0 ? (
+          // Never the For You feed relabeled — this only ever shows what's
+          // left after filtering the SAME pool down to sellers the current
+          // user actually follows (see displayedVideoFeedItems above), so an
+          // empty result here means exactly "you follow nobody with a video
+          // posted," not a loading/error state. Still wrapped in the same
+          // swipe-back-to-grid gesture as the populated feed below.
+          <GestureDetector gesture={videoHorizontalGesture}>
+            <View style={styles.videoFeedContainer}>
+              <View style={styles.videoFeedEmptyState}>
+                <Text style={styles.videoFeedEmptyEmoji}>👥</Text>
+                <Text style={styles.videoFeedEmptyTitle}>No videos from sellers you follow yet</Text>
+                <Text style={styles.videoFeedEmptyText}>
+                  Follow sellers to see their videos here.
+                </Text>
+                <Pressable
+                  style={styles.discoverSellersBtn}
+                  onPress={() => navigation?.navigate('DiscoverSellers')}
+                >
+                  <Text style={styles.discoverSellersBtnText}>Discover Sellers</Text>
+                </Pressable>
+              </View>
+            </View>
+          </GestureDetector>
         ) : videoAdsProducts.length === 0 && videoFeedItems.length === 0 ? (
           <View style={styles.videoFeedEmptyState}>
             <Text style={styles.videoFeedEmptyEmoji}>🎥</Text>
@@ -2078,7 +2481,8 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
           >
             {videoFeedHeight > 0 && (
             <AnimatedFlatList
-              data={videoFeedItems}
+              ref={videoFeedListRef}
+              data={displayedVideoFeedItems}
               // Standard Grid <-> Watch Video Ads is a conditional render,
               // not a screen navigation — switching to Grid and back
               // unmounts and remounts this exact FlatList, but
@@ -2091,13 +2495,27 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
               // on-screen video sat outside the preload window until the
               // next viewability tick corrected it — precisely the kind of
               // glitch a returning user would read as "the feed is broken."
-              initialScrollIndex={Math.min(activeVideoIndex, Math.max(0, videoFeedItems.length - 1))}
+              initialScrollIndex={Math.min(activeVideoIndex, Math.max(0, displayedVideoFeedItems.length - 1))}
               // The FlatList had no explicit style, so it never had a
               // guaranteed viewport bounded to exactly one page — needed for
               // pagingEnabled below to page against the right size.
               style={styles.videoFeedList}
               keyExtractor={(item) => `video-${item.id}`}
               showsVerticalScrollIndicator={false}
+              // Pull-to-refresh only ever engages from scroll offset 0 (the
+              // very first video) pulling further down — the same axis as
+              // paging between videos but the opposite direction from how a
+              // user advances, so it never fires mid-scroll. White tint/
+              // colors (unlike the grid's dark ones) so the spinner is
+              // actually visible against this feed's near-black background.
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshingVideoFeed}
+                  onRefresh={handleVideoFeedRefresh}
+                  tintColor="#ffffff"
+                  colors={['#ffffff']}
+                />
+              }
               viewabilityConfig={videoViewabilityConfig}
               onViewableItemsChanged={onVideoViewableItemsChanged}
               onScroll={onTabBarScroll}
@@ -2178,13 +2596,15 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                     height={videoFeedHeight}
                     isActive={index === activeVideoIndex && isHomeScreenFocused}
                     shouldLoad={shouldLoadVideo}
-                    isMuted={isVideoFeedMuted}
                     isSaved={isSavedProduct(item.id)}
                     sellerProfile={sellerProfile}
                     isOwnVideoItem={isOwnVideoItem}
                     isFollowingSeller={isFollowingSeller}
                     isTogglingFollow={togglingFollowSellerId === item.sellerId}
-                    onToggleMute={() => setIsVideoFeedMuted((prev) => !prev)}
+                    hasLockedSpeedBefore={hasLockedSpeedBefore}
+                    hasUnlockedSpeedBefore={hasUnlockedSpeedBefore}
+                    onLockedSpeedLearned={handleLockedSpeedLearned}
+                    onUnlockedSpeedLearned={handleUnlockedSpeedLearned}
                     onOpenSeller={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
                     onToggleFollow={handleToggleFollowInVideoFeed}
                     onToggleSave={handleToggleSave}
@@ -2298,7 +2718,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     height: 44,
   },
-  searchEmoji: { fontSize: 16, marginRight: 8, color: '#64748b' },
+  searchIcon: { marginRight: 8 },
   input: { flex: 1, fontSize: 14, color: '#0f172a', fontFamily: fonts.medium },
   searchClearBtn: { padding: 4, marginLeft: 4 },
 
@@ -2680,6 +3100,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.15)',
   },
+  speedHoldIndicator: {
+    position: 'absolute',
+    top: '44%',
+    alignSelf: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  // The full teaching copy (label + arrow + sub-line) needs more room than
+  // the bare pill — a taller rounded rect reads better than an oversized
+  // pill once there are three stacked lines of content.
+  speedHoldIndicatorTeach: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 20, gap: 2 },
+  speedHoldIndicatorText: { color: '#ffffff', fontSize: 15, fontFamily: fonts.extrabold, letterSpacing: 0.5 },
+  speedHoldIndicatorSubText: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontFamily: fonts.extrabold, letterSpacing: 0.2, marginTop: 2 },
+  speedLockBadge: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  speedLockBadgeText: { color: '#ffffff', fontSize: 11, fontFamily: fonts.extrabold },
   videoOverlay: {
     // Lighter than before deliberately — this used to darken a blurred fake
     // placeholder image; with real video playing underneath, a heavy scrim
@@ -2691,18 +3137,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(2, 6, 23, 0.15)',
   },
-  videoMuteBtn: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
   videoFeedEmptyState: {
     flex: 1,
     backgroundColor: '#020617',
@@ -2713,6 +3147,50 @@ const styles = StyleSheet.create({
   videoFeedEmptyEmoji: { fontSize: 44, marginBottom: 14 },
   videoFeedEmptyTitle: { color: '#ffffff', fontSize: 17, fontFamily: fonts.extrabold, marginBottom: 8 },
   videoFeedEmptyText: { color: '#94a3b8', fontSize: 13, textAlign: 'center', lineHeight: 19 },
+  discoverSellersBtn: {
+    marginTop: 20,
+    backgroundColor: '#ea580c',
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  discoverSellersBtnText: { color: '#ffffff', fontSize: 14, fontFamily: fonts.extrabold },
+  videoFeedHeaderContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+  },
+  // Equal flex:1 spacers on both sides of the (auto-width) tab group keep the
+  // tabs truly centered on the header regardless of device width — the right
+  // spacer stays empty so it balances the left branding without adding a
+  // second control.
+  videoFeedHeaderSide: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  feedModeTabsRow: { flexDirection: 'row', alignItems: 'center' },
+  feedModeTab: { marginRight: 22, paddingVertical: 4 },
+  feedModeTabText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 15,
+    fontFamily: fonts.extrabold,
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  feedModeTabTextActive: { color: '#ffffff' },
+  feedModeTabIndicator: {
+    marginTop: 5,
+    alignSelf: 'center',
+    width: 18,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#ea580c',
+  },
   videoBottomDetails: {
     position: 'absolute',
     bottom: 12,

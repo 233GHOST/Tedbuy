@@ -69,6 +69,15 @@ export function ChatsScreen() {
   // prompt the way web does. Also web hides the button once a review for
   // this exact seller+product already exists — mobile had no such check.
   const [showReviewModal, setShowReviewModal] = useState(false);
+  // A snapshot of which chat the review modal is for, taken the moment it
+  // opens — NOT a reference to activeChat. activeChat tracks whatever chat
+  // the user is currently viewing, and goes back to null the moment they
+  // return to the inbox (handleBackToInbox). Since this modal can stay open
+  // across that navigation (closing it isn't forced), handleSubmitReview
+  // referencing activeChat directly meant Submit silently no-op'd — its own
+  // `if (!activeChat) return` guard — the instant the buyer left the chat
+  // screen while the modal was still up, with no visible error at all.
+  const [reviewModalChat, setReviewModalChat] = useState<any>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
@@ -179,11 +188,24 @@ export function ChatsScreen() {
     return unsubscribe;
   }, [navigation, resetTabBar]);
 
-  // Monitor navigation parameters to auto-open specific chats (e.g. from ProductDetailScreen)
+  // Monitor navigation parameters to auto-open specific chats (e.g. from
+  // ProductDetailScreen or the video feed's Chat button). If this screen was
+  // already mounted (React Navigation keeps tab screens alive), its own chat
+  // list only refreshes on its own 15s poll otherwise — a chat created
+  // seconds ago elsewhere wouldn't be in `chats` yet, so the sync effect
+  // below would find nothing and silently leave the inbox list showing
+  // instead of the new thread. Reading `chats` here without listing it as a
+  // dep is deliberate: this only needs "was it in the list at the moment
+  // this param arrived," not to re-run every time the list changes.
   useEffect(() => {
     if (route?.params?.activeChatId) {
-      setActiveChatId(route.params.activeChatId);
+      const incomingChatId = route.params.activeChatId;
+      setActiveChatId(incomingChatId);
+      if (!chats.some((c) => c.id === incomingChatId)) {
+        fetchChatsApi().then(setChats).catch(() => {});
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.params?.activeChatId]);
 
   // Sync activeChat when chats list or activeChatId changes
@@ -218,7 +240,7 @@ export function ChatsScreen() {
   }, [sellerReviews, activeChat]);
 
   const handleSubmitReview = async () => {
-    if (!activeChat || isSubmittingReview) return;
+    if (!reviewModalChat || isSubmittingReview) return;
     if (reviewComment.trim().length < 5) {
       Alert.alert('Review Too Short', 'Please write a short comment (at least 5 characters) about your experience.');
       return;
@@ -230,9 +252,10 @@ export function ChatsScreen() {
     }
     setIsSubmittingReview(true);
     try {
-      const newRev = await addReview(activeChat.sellerId, reviewRating, reviewComment.trim(), activeChat.productTitle, activeChat.id);
+      const newRev = await addReview(reviewModalChat.sellerId, reviewRating, reviewComment.trim(), reviewModalChat.productTitle, reviewModalChat.id);
       setSellerReviews((prev) => [newRev, ...prev]);
       setShowReviewModal(false);
+      setReviewModalChat(null);
       setReviewComment('');
       setReviewRating(5);
     } catch (err: any) {
@@ -467,11 +490,21 @@ export function ChatsScreen() {
     try {
       setIsPickingUp(true);
       await markAsPickedUp(activeChatId);
-      const result = await fetchChatsApi();
-      setChats(result);
-      // Matches web: confirming pickup immediately surfaces the review
-      // prompt instead of leaving the buyer to find "Leave Review" later.
+      // Show the review prompt right here, immediately — do NOT wait on the
+      // chats refetch below first. That's a second network round trip, and
+      // waiting on it before opening the modal was exactly why the review
+      // prompt seemed to only show up after the buyer had already backed
+      // out of the chat: by the time it resolved, they'd often already
+      // navigated away. The optimistic chat object below already has
+      // everything the modal needs (sellerId, productTitle, id, and the
+      // tradeStatus the server just set) without waiting for anything.
+      const optimisticChat = { ...(activeChat || {}), tradeStatus: 'completed' };
+      setActiveChat(optimisticChat);
+      setReviewModalChat(optimisticChat);
       setShowReviewModal(true);
+      // Refresh the full list in the background so the inbox and trade
+      // banner reflect it too — not awaited, since the modal doesn't need it.
+      fetchChatsApi().then(setChats).catch(() => {});
     } catch (err: any) {
       Alert.alert('Could Not Confirm Pickup', err?.message || 'Please try again.');
     } finally {
@@ -655,7 +688,7 @@ export function ChatsScreen() {
 
                 {isBuyer && currentStatus === 'completed' && !existingReview && (
                   <Pressable
-                    onPress={() => setShowReviewModal(true)}
+                    onPress={() => { setReviewModalChat(activeChat); setShowReviewModal(true); }}
                     style={[styles.tradeActionBtn, styles.tradeActionBtnAmber]}
                   >
                     <Text style={[styles.tradeActionBtnText, { color: '#0f172a' }]}>Leave Review</Text>
@@ -989,9 +1022,9 @@ export function ChatsScreen() {
                 <X size={18} color="#64748b" />
               </Pressable>
             </View>
-            {activeChat?.productTitle && (
+            {reviewModalChat?.productTitle && (
               <Text style={styles.reviewModalSubtitle}>
-                Rate your trade for "{activeChat.productTitle}" with {activeChat.sellerName}
+                Rate your trade for "{reviewModalChat.productTitle}" with {reviewModalChat.sellerName}
               </Text>
             )}
             <View style={styles.starRow}>

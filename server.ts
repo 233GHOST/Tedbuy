@@ -2235,6 +2235,20 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
     targetSellerId = user.uid;
   }
 
+  // Stamps soldAt the moment isSold actually flips false→true, so the
+  // 30-day auto-delete retention rule (purgeExpiredSoldProducts below) has
+  // a real clock to measure against — never reset on a later edit while
+  // already sold (a seller tweaking the description of a sold listing must
+  // not restart its countdown), and cleared if it's marked available again.
+  const wasSold = existingRow?.isSold === true;
+  const isNowSold = product.isSold === true;
+  let soldAtPatch: { soldAt?: string | null } = {};
+  if (isNowSold && !wasSold) {
+    soldAtPatch = { soldAt: new Date().toISOString() };
+  } else if (!isNowSold && wasSold) {
+    soldAtPatch = { soldAt: null };
+  }
+
   const cleanProduct = {
     ...product,
     sellerId: targetSellerId,
@@ -2242,6 +2256,7 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
     sellerEmail: targetSellerEmail,
     sellerPhoto: targetSellerPhoto,
     sellerJoinDate: targetSellerJoinDate,
+    ...soldAtPatch,
     ...(isAdmin && targetSellerId !== user.uid ? {
       modifiedByAdmin: user.email || 'Admin',
       modifiedBy: user.uid,
@@ -2380,6 +2395,44 @@ async function deleteProductFromBackend(productId: string) {
 
   // Invalidate memory caches for deleted product
   invalidateProductCache(productId, sellerId, category);
+}
+
+const SOLD_LISTING_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** A listing marked sold and left that way for 30 days is permanently
+ * deleted — same cleanup as a manual delete (Cloudinary assets, Supabase
+ * row, Firestore mirror, caches), just triggered by time instead of a
+ * seller's own action. soldAt is stamped in /api/products/sync the moment
+ * isSold flips false→true, so this only measures real elapsed time, not
+ * "last touched" — an unrelated edit to an already-sold listing doesn't
+ * restart the clock. Called both on a recurring interval (see startServer)
+ * and from the admin retention-purge endpoint for on-demand/visible runs. */
+async function purgeExpiredSoldProducts(): Promise<number> {
+  if (!backendSupabase) return 0;
+  const cutoff = new Date(Date.now() - SOLD_LISTING_RETENTION_MS).toISOString();
+  let purged = 0;
+  try {
+    const { data: expiredSoldProducts } = await backendSupabase
+      .from('products')
+      .select('id')
+      .eq('isSold', true)
+      .lt('soldAt', cutoff);
+
+    for (const p of expiredSoldProducts || []) {
+      try {
+        await deleteProductFromBackend(p.id);
+        purged++;
+      } catch (delErr) {
+        console.warn(`[Sold Listing Retention] Failed to delete expired sold product ${p.id}:`, delErr);
+      }
+    }
+  } catch (err) {
+    console.warn('[Sold Listing Retention] Query failed:', err);
+  }
+  if (purged > 0) {
+    console.log(`[Sold Listing Retention] Permanently deleted ${purged} listing(s) sold 30+ days ago.`);
+  }
+  return purged;
 }
 
 app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-delete"), async (req, res) => {
@@ -5872,12 +5925,18 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         }
       }
 
+      // 3. Permanently delete listings marked sold for 30+ days. Runs
+      // automatically on a recurring interval too (see startServer) — this
+      // is also exposed here for an on-demand/visible admin-triggered run.
+      const soldListingsPurged = await purgeExpiredSoldProducts();
+
       return res.json({
         success: true,
         purgedCount,
         skippedHoldCount,
         releasedQuarantineCount,
-        message: `Retention run complete. ${releasedQuarantineCount} quarantined names released, ${skippedHoldCount} records protected under security hold.`
+        soldListingsPurged,
+        message: `Retention run complete. ${releasedQuarantineCount} quarantined names released, ${soldListingsPurged} sold listing(s) purged, ${skippedHoldCount} records protected under security hold.`
       });
     } catch (err: any) {
       console.error('[Retention Engine Error]:', err);
@@ -6604,6 +6663,15 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[TedBuy Clean Server] Running at http://0.0.0.0:${PORT}`);
   });
+
+  // Sold-listing 30-day retention — genuinely automatic (not just an admin
+  // button someone has to remember to press, like the rest of the
+  // retention engine currently is). Runs once shortly after boot, then
+  // every 6 hours; a 6-hour cadence keeps a listing from lingering much
+  // past its 30-day mark without needing anything finer-grained than
+  // setInterval on a long-running Node process.
+  setTimeout(() => { purgeExpiredSoldProducts().catch((err) => console.warn('[Sold Listing Retention] Startup run failed:', err)); }, 30 * 1000);
+  setInterval(() => { purgeExpiredSoldProducts().catch((err) => console.warn('[Sold Listing Retention] Scheduled run failed:', err)); }, 6 * 60 * 60 * 1000);
 }
 
 startServer();

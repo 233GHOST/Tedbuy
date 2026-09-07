@@ -13,11 +13,9 @@ import {
   Text,
   TextInput,
   View,
-  TouchableWithoutFeedback,
-  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, watchProducts, watchUsers, fetchUserById, startChatApi, toggleFollowSeller, fetchReviewsForSeller, fetchChatsApi, addReview } from '../firebase';
+import { auth, watchProducts, watchUsers, fetchUserById, startChatApi, toggleFollowSeller, fetchReviewsForSeller } from '../firebase';
 import { Users as UsersIcon, UserPlus, UserMinus, MessageCircle, MessageSquare, ShieldCheck, Flame, Shield } from 'lucide-react-native';
 import { ProductCard } from '../components/ProductCard';
 import { BackButton } from '../components/BackButton';
@@ -31,9 +29,13 @@ interface SellerProfileScreenProps {
   sellerId: string;
   onBack: () => void;
   navigation: any;
+  // Lets a caller (e.g. ProductDetailScreen's "See all reviews") land
+  // directly on the Reviews tab instead of the Listings tab this screen
+  // defaults to — same pattern as FollowersFollowingScreen's initialTab.
+  initialTab?: 'listings' | 'reviews';
 }
 
-export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProfileScreenProps) {
+export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab = 'listings' }: SellerProfileScreenProps) {
   const [seller, setSeller] = useState<any>(null);
   // Distinguishes "still fetching" from "the fetch resolved and there's
   // genuinely no such seller" — fetchUserById returns null for both a
@@ -43,7 +45,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
   const [sellerNotFound, setSellerNotFound] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'listings' | 'reviews'>('listings');
+  const [activeTab, setActiveTab] = useState<'listings' | 'reviews'>(initialTab);
   const [isFollowing, setIsFollowing] = useState(false);
   // Unlike the app's other follow buttons, this one has no `disabled` prop
   // and no state-based guard — the button stays tappable for the entire
@@ -55,25 +57,13 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
   const [showSafetyModal, setShowSafetyModal] = useState(false);
   const [startingChat, setStartingChat] = useState(false);
 
-  // Review modal states
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
-  // Reviews are now tied to one specific completed trade chat, not a
-  // free-text/any-listing choice — see myCompletedChatsWithSeller below for
-  // why. Holds the chosen chat's id, never a typed-in product name.
-  const [selectedReviewChatId, setSelectedReviewChatId] = useState<string | null>(null);
-  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  // Writing a review only happens from the in-chat "Leave Review" flow now
+  // (ChatsScreen.tsx, auto-opened right after a buyer confirms pickup) —
+  // this screen used to also offer its own "+ Write Review" entry point,
+  // removed per explicit product decision so a review always starts from
+  // that trade-completion moment rather than a visitor just tapping into a
+  // seller's store page. reviewsList (below) still shows past reviews.
   const [reviewsList, setReviewsList] = useState<any[]>([]);
-  // The signed-in user's own chats with THIS seller — fetched so "Leave a
-  // Review" can be gated to an actual completed trade instead of being
-  // available to any visitor who taps into the store page. A trade is
-  // "reviewable" once its tradeStatus is 'completed' (buyer confirmed
-  // pickup after the seller marked it delivered — see markAsDelivered/
-  // markAsPickedUp), matching exactly what already gates the in-chat
-  // "Leave Review" button (ChatsScreen.tsx) — this just extends the same
-  // rule to the seller-profile entry point, which previously had none.
-  const [myChatsWithSeller, setMyChatsWithSeller] = useState<any[]>([]);
   // Matches web's currentUser.emailVerified gate on WhatsApp/review actions.
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [blockedActionType, setBlockedActionType] = useState<BlockedActionType>(null);
@@ -117,17 +107,6 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
       if (!isMounted) return;
       setReviewsList(found.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     });
-
-    if (currentUser) {
-      fetchChatsApi().then((allChats) => {
-        if (!isMounted) return;
-        setMyChatsWithSeller(allChats.filter((c: any) => c.buyerId === currentUser.uid && c.sellerId === sellerId));
-      }).catch(() => {
-        // Non-fatal — worst case, the review gate below just sees zero
-        // eligible trades and hides "Leave a Review" a beat longer than
-        // necessary; the profile itself must not break over this.
-      });
-    }
 
     if (currentUser) {
       fetchUserById(currentUser.uid).then((myProfile: any) => {
@@ -264,57 +243,6 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
     Linking.openURL(url).catch(() => {
       Alert.alert('Error', 'Unable to open WhatsApp application.');
     });
-  };
-
-  // Only a completed trade the current user actually had with this seller
-  // is reviewable, and only once per trade — mirrors the server's own
-  // buyerId+sellerId+productTitle duplicate guard (server.ts
-  // /api/reviews/create) so a chat that's already been reviewed doesn't
-  // still show up as an option here only to be rejected on submit.
-  const eligibleReviewChats = myChatsWithSeller.filter((c: any) =>
-    c.tradeStatus === 'completed' &&
-    !reviewsList.some((r: any) => r.buyerId === currentUser?.uid && (r.productTitle || null) === (c.productTitle || null))
-  );
-
-  const openReviewModal = () => {
-    setSelectedReviewChatId(eligibleReviewChats[0]?.id || null);
-    setShowReviewModal(true);
-  };
-
-  const handleAddReview = async () => {
-    if (!currentUser) {
-      Alert.alert('Authentication Required', 'Please sign in to submit a review.');
-      return;
-    }
-    if (!currentUserProfile?.emailVerified) {
-      setBlockedActionType('review');
-      return;
-    }
-    const selectedChat = eligibleReviewChats.find((c: any) => c.id === selectedReviewChatId);
-    if (!selectedChat) {
-      Alert.alert('Select a Trade', 'Please choose which completed trade this review is for.');
-      return;
-    }
-    if (reviewComment.trim().length < 5) {
-      Alert.alert('Review Too Short', 'Please enter at least 5 characters describing your trading experience.');
-      return;
-    }
-    if (isSubmittingReview) return;
-
-    try {
-      setIsSubmittingReview(true);
-      const newRev = await addReview(sellerId, reviewRating, reviewComment.trim(), selectedChat.productTitle || undefined, selectedChat.id);
-      setReviewsList((prev) => [newRev, ...prev]);
-      setReviewComment('');
-      setReviewRating(5);
-      setSelectedReviewChatId(null);
-      setShowReviewModal(false);
-      Alert.alert('Review Submitted', 'Thank you for building community trust on TedBuy!');
-    } catch (err: any) {
-      Alert.alert('Review Failed', err?.message || 'Could not submit your review. Please try again.');
-    } finally {
-      setIsSubmittingReview(false);
-    }
   };
 
   const sellerName = seller?.username || seller?.displayName || products[0]?.sellerName || 'Verified Merchant';
@@ -644,16 +572,6 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
           <View style={styles.reviewsContainer}>
             <View style={styles.reviewHeaderRow}>
               <Text style={styles.reviewHeaderTitle}>Merchant Ratings</Text>
-              {!isOwner && eligibleReviewChats.length > 0 ? (
-                <Pressable onPress={openReviewModal} style={styles.addReviewBtn}>
-                  <Text style={styles.addReviewBtnText}>+ Write Review</Text>
-                </Pressable>
-              ) : !isOwner && currentUser ? (
-                // Reviews are only authentic if tied to a real completed
-                // trade — no button here at all rather than one that would
-                // just reject on tap. See eligibleReviewChats above.
-                <Text style={styles.reviewGateHint}>Complete a trade to review</Text>
-              ) : null}
             </View>
 
             {reviewsList.map((rev) => (
@@ -662,6 +580,13 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
                   <Text style={styles.reviewerName}>{rev.buyerName}</Text>
                   <Text style={styles.reviewStars}>{'★'.repeat(rev.rating)}</Text>
                 </View>
+                {/* Every review is now tied to the specific listing its
+                    trade was for (server-derived, see /api/reviews/create),
+                    so surface that here rather than leaving reviews looking
+                    like generic seller feedback with no listing context. */}
+                {rev.productTitle && (
+                  <Text style={styles.reviewProductTag} numberOfLines={1}>For: {rev.productTitle}</Text>
+                )}
                 <Text style={styles.reviewComment}>{rev.comment}</Text>
                 <Text style={styles.reviewDate}>
                   {new Date(rev.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -698,106 +623,6 @@ export function SellerProfileScreen({ sellerId, onBack, navigation }: SellerProf
                 <Text style={styles.safetyConfirmText}>I Understand, Proceed →</Text>
               </Pressable>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Review Submission Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showReviewModal}
-        onRequestClose={() => setShowReviewModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          {/* Absolutely-positioned background catcher for "tap outside to
-              dismiss keyboard" — a sibling behind the card, not a wrapper
-              around it. Wrapping the whole card (as this used to, via
-              DismissKeyboardView) put Submit Customer Feedback inside the
-              same TouchableWithoutFeedback as the dismiss handler: with the
-              keyboard focused on the comment field, the first tap on submit
-              was consumed by the dismiss-keyboard responder instead of
-              reaching the button underneath. See the identical fix in
-              ChatsScreen.tsx's review modal for the full explanation. */}
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={StyleSheet.absoluteFill} />
-          </TouchableWithoutFeedback>
-          <View style={styles.reviewModalCard}>
-            <View style={styles.reviewModalHeader}>
-              <Text style={styles.reviewModalTitle}>Write Merchant Review</Text>
-              <Pressable onPress={() => setShowReviewModal(false)}>
-                <Text style={{ fontSize: 18, color: '#64748b' }}>✕</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.starRatingLabel}>Rating Score:</Text>
-            <View style={styles.starRow}>
-              {[1, 2, 3, 4, 5].map((star) => (
-                <Pressable key={star} onPress={() => setReviewRating(star)}>
-                  <Text style={[styles.starIcon, star <= reviewRating && styles.starIconSelected]}>
-                    ★
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            {/* Matches web's SellerProfilePage.tsx per-rating caption exactly
-                (this mobile screen is SellerProfilePage's equivalent, not
-                ChatInterface's inline ReviewModal, which uses different text
-                — was mistakenly copied from the wrong web component). */}
-            <Text style={styles.reviewRatingCaption}>
-              {reviewRating === 5 && '⭐ Excellent'}
-              {reviewRating === 4 && '👍 Good'}
-              {reviewRating === 3 && '👌 Average'}
-              {reviewRating === 2 && '⚠️ Poor'}
-              {reviewRating === 1 && '❌ Terrible'}
-            </Text>
-
-            {/* Which completed trade this review is for — REQUIRED, and
-                restricted to trades the reviewer actually completed with
-                this seller (eligibleReviewChats), not any listing in their
-                catalog. Replaces the old "Purchased Item (Optional)" free
-                pick, which let a review claim any product at all with
-                nothing to back it up. */}
-            {eligibleReviewChats.length > 1 && (
-              <View style={{ marginBottom: 10 }}>
-                <Text style={styles.starRatingLabel}>Which trade is this review for?</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
-                  {eligibleReviewChats.map((c: any) => (
-                    <Pressable
-                      key={c.id}
-                      onPress={() => setSelectedReviewChatId(c.id)}
-                      style={[styles.reviewProductChip, selectedReviewChatId === c.id && styles.reviewProductChipActive]}
-                    >
-                      <Text
-                        style={[styles.reviewProductChipText, selectedReviewChatId === c.id && styles.reviewProductChipTextActive]}
-                        numberOfLines={1}
-                      >
-                        {c.productTitle || 'Completed Trade'}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            <TextInput
-              style={styles.reviewInput}
-              value={reviewComment}
-              onChangeText={setReviewComment}
-              placeholder="Describe product quality, delivery speed, and overall trade experience..."
-              placeholderTextColor="#94a3b8"
-              multiline
-              maxLength={1000}
-            />
-            {/* Matches server's real cap (server.ts /api/reviews/create rejects
-                >1000 chars) — web's own UI cap of 200 is stricter than what the
-                server actually enforces, so mobile matches the real constraint
-                rather than copying web's inconsistent stricter one. */}
-            <Text style={styles.reviewCharCount}>{reviewComment.length}/1000</Text>
-
-            <Pressable onPress={handleAddReview} style={styles.submitReviewBtn}>
-              <Text style={styles.submitReviewBtnText}>Submit Customer Feedback</Text>
-            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1104,14 +929,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   reviewHeaderTitle: { fontSize: 15, fontFamily: fonts.extrabold, color: '#0f172a' },
-  addReviewBtn: {
-    backgroundColor: '#0f172a',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  addReviewBtnText: { color: '#ffffff', fontSize: 11, fontFamily: fonts.extrabold },
-  reviewGateHint: { color: '#94a3b8', fontSize: 11, fontFamily: fonts.semibold, fontStyle: 'italic' },
 
   reviewCard: {
     backgroundColor: '#ffffff',
@@ -1124,6 +941,7 @@ const styles = StyleSheet.create({
   reviewCardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   reviewerName: { fontSize: 13, fontFamily: fonts.extrabold, color: '#0f172a' },
   reviewStars: { fontSize: 12, color: '#eab308' },
+  reviewProductTag: { fontSize: 10.5, fontFamily: fonts.bold, color: '#2563eb', marginBottom: 4 },
   reviewComment: { fontSize: 12, color: '#475569', lineHeight: 17 },
   reviewDate: { fontSize: 10, color: '#94a3b8', marginTop: 6 },
 
@@ -1147,44 +965,6 @@ const styles = StyleSheet.create({
   safetyCancelText: { color: '#64748b', fontFamily: fonts.extrabold, fontSize: 12 },
   safetyConfirmBtn: { backgroundColor: '#16a34a', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
   safetyConfirmText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 12 },
-
-  reviewModalCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 20,
-    width: '100%',
-  },
-  reviewModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  reviewModalTitle: { fontSize: 16, fontFamily: fonts.extrabold, color: '#0f172a' },
-  starRatingLabel: { fontSize: 12, fontFamily: fonts.extrabold, color: '#64748b' },
-  starRow: { flexDirection: 'row', gap: 8, marginVertical: 8 },
-  starIcon: { fontSize: 28, color: '#cbd5e1' },
-  starIconSelected: { color: '#eab308' },
-  reviewRatingCaption: { fontSize: 11, fontFamily: fonts.bold, color: '#475569', textAlign: 'center', marginBottom: 10 },
-  reviewCharCount: { fontSize: 9, fontFamily: fonts.medium, color: '#94a3b8', textAlign: 'right', marginTop: 4 },
-  reviewProductChip: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6, maxWidth: 160 },
-  reviewProductChipActive: { backgroundColor: '#0f172a', borderColor: '#0f172a' },
-  reviewProductChipText: { fontSize: 10, fontFamily: fonts.bold, color: '#475569' },
-  reviewProductChipTextActive: { color: '#ffffff' },
-  reviewInput: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
-    fontSize: 13,
-    color: '#0f172a',
-    height: 90,
-    textAlignVertical: 'top',
-    marginVertical: 12,
-  },
-  submitReviewBtn: {
-    backgroundColor: '#0f172a',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  submitReviewBtnText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13 },
 
   followStatsRow: { flexDirection: 'row', gap: 16, marginTop: 10 },
   followStatItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },

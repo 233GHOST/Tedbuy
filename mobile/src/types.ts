@@ -142,7 +142,7 @@ export const isReservedStoreName = (name?: string | null): boolean => {
 export type RootStackParamList = {
   MainTabs: undefined;
   ProductDetail: { productId: string };
-  SellerProfile: { sellerId: string };
+  SellerProfile: { sellerId: string; initialTab?: 'listings' | 'reviews' };
   FollowersFollowing: { userId: string; initialTab?: 'followers' | 'following' };
   FeaturedListings: { category?: string } | undefined;
   DiscoverSellers: undefined;
@@ -169,7 +169,7 @@ export interface Review {
 }
 
 export type MainTabsParamList = {
-  Home: { resetToGrid?: number; category?: string; search?: string; location?: string; openVideoProductId?: string; openVideoProduct?: Product; openVideoNonce?: number } | undefined;
+  Home: { category?: string; search?: string; location?: string; openVideoProductId?: string; openVideoProduct?: Product; openVideoNonce?: number } | undefined;
   Search: undefined;
   Sell: { editProduct?: Product } | undefined;
   Chats: { activeChatId?: string } | undefined;

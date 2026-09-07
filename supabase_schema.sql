@@ -79,6 +79,11 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "paymentReference" TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "boostHistory" JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "visitCount" INTEGER DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "isApproved" BOOLEAN DEFAULT true;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "isSold" BOOLEAN DEFAULT false;
+-- Stamped by /api/products/sync the moment isSold flips false->true; the
+-- 30-day sold-listing auto-delete rule (purgeExpiredSoldProducts in
+-- server.ts) measures elapsed time from this, not from any other edit.
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS "soldAt" TIMESTAMP WITH TIME ZONE;
 
 -- Repair chats table
 CREATE TABLE IF NOT EXISTS public.chats (id TEXT PRIMARY KEY);
