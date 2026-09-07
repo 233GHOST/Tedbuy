@@ -838,7 +838,7 @@ CEO, Tedbuy Inc`;
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -15 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left font-sans min-h-[70vh]"
+      className="max-w-5xl mx-auto px-2 sm:px-6 lg:px-8 py-2.5 sm:py-8 text-left font-sans min-h-[70vh] w-full"
     >
       {/* Hidden file input for avatar */}
       <input
@@ -854,12 +854,12 @@ CEO, Tedbuy Inc`;
       {/* MOBILE-NATIVE PROFILE SCREEN (md:hidden block)                            */}
       {/* Matches mobile app's native ProfileScreen layout and UX                    */}
       {/* ========================================================================= */}
-      <div className="md:hidden block pb-12 space-y-4">
+      <div className="md:hidden block pb-12 space-y-3 w-full">
         {/* Back to Browse Top Row */}
         <div className="flex items-center justify-between px-1">
           <button
             onClick={() => setCurrentView('browse')}
-            className="flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900 py-1 cursor-pointer"
+            className="flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900 py-0.5 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Marketplace</span>
@@ -870,15 +870,15 @@ CEO, Tedbuy Inc`;
         </div>
 
         {/* Profile Header (Dark Card, matching native mobile app) */}
-        <div className="bg-slate-900 text-white rounded-3xl p-4 sm:p-5 shadow-sm relative overflow-hidden">
+        <div className="bg-slate-900 text-white rounded-2xl sm:rounded-3xl p-3 sm:p-4.5 shadow-sm relative overflow-hidden w-full">
           <div className="absolute top-0 right-0 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl pointer-events-none" />
 
-          <div className="flex items-center justify-between relative z-10 gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center justify-between relative z-10 gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               {/* Avatar circle with click-to-upload */}
               <div
                 onClick={handleAvatarClick}
-                className="relative w-14 h-14 rounded-full border-2 border-slate-700 bg-slate-800 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-xs"
+                className="relative w-12 h-12 rounded-full border-2 border-slate-700 bg-slate-800 shrink-0 overflow-hidden cursor-pointer group flex items-center justify-center shadow-xs"
               >
                 {photoUrl ? (
                   <img
@@ -895,26 +895,33 @@ CEO, Tedbuy Inc`;
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                   <Camera className="w-4 h-4 text-white" />
                 </div>
-                <div className="absolute bottom-0 right-0 p-1 bg-orange-500 rounded-full text-white ring-2 ring-slate-900">
+                <div className="absolute bottom-0 right-0 p-0.5 bg-orange-500 rounded-full text-white ring-1.5 ring-slate-900">
                   <Camera className="w-2 h-2" />
                 </div>
               </div>
 
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <h2 className="text-base font-black text-white truncate">
+                  <h2 className="text-sm font-black text-white truncate">
                     {username || currentUser.email?.split('@')[0] || 'TedBuy Partner'}
                   </h2>
                   {isUserVerified(currentUser) && (
                     <Check className="w-3.5 h-3.5 text-orange-400 bg-orange-400/20 rounded-full p-0.5 shrink-0" />
                   )}
                 </div>
-                <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                <p className="text-[11px] text-slate-400 truncate mt-0.2">
                   {currentUser.email}
                 </p>
-                <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-orange-500/15 border border-orange-500/30 text-orange-400 text-[10px] font-bold rounded-full">
-                  ✓ Authorized Partner
-                </span>
+                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-orange-500/15 border border-orange-500/30 text-orange-400 text-[9.5px] font-bold rounded-full">
+                    ✓ Authorized Partner
+                  </span>
+                  {currentUser.isAdmin && (
+                    <span className="inline-flex items-center px-1.5 py-0.2 bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[9.5px] font-bold rounded-full">
+                      Admin
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -929,7 +936,7 @@ CEO, Tedbuy Inc`;
                   setActiveMobileSubSetting(null);
                 }
               }}
-              className={`p-2.5 rounded-2xl border transition cursor-pointer shrink-0 ${
+              className={`p-2 rounded-xl border transition cursor-pointer shrink-0 ${
                 mobileProfileTab === 'settings'
                   ? 'bg-orange-500 border-orange-400 text-white shadow-xs'
                   : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
@@ -941,16 +948,16 @@ CEO, Tedbuy Inc`;
           </div>
 
           {/* Stats Row */}
-          <div className="grid grid-cols-4 gap-1.5 mt-4 pt-3.5 border-t border-slate-800 text-center relative z-10">
+          <div className="grid grid-cols-4 gap-1 mt-2.5 pt-2 border-t border-slate-800/80 text-center relative z-10">
             <button
               onClick={() => {
                 setActiveFollowTab('following');
                 setShowFollowModal(true);
               }}
-              className="py-1 px-1 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-800/60 transition cursor-pointer"
             >
-              <p className="text-sm font-black text-white leading-none">{followingUsers.length}</p>
-              <p className="text-[10px] font-bold text-slate-400 mt-1">Following</p>
+              <p className="text-xs font-black text-white leading-none">{followingUsers.length}</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Following</p>
             </button>
 
             <button
@@ -958,18 +965,18 @@ CEO, Tedbuy Inc`;
                 setActiveFollowTab('followers');
                 setShowFollowModal(true);
               }}
-              className="py-1 px-1 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-800/60 transition cursor-pointer"
             >
-              <p className="text-sm font-black text-white leading-none">{followerUsers.length}</p>
-              <p className="text-[10px] font-bold text-slate-400 mt-1">Followers</p>
+              <p className="text-xs font-black text-white leading-none">{followerUsers.length}</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Followers</p>
             </button>
 
-            <div className="py-1 px-1 rounded-xl">
-              <p className="text-sm font-black text-white leading-none flex items-center justify-center gap-0.5">
+            <div className="py-0.5 px-0.5 rounded-lg">
+              <p className="text-xs font-black text-white leading-none flex items-center justify-center gap-0.5">
                 <Eye className="w-3 h-3 text-orange-400" />
                 {totalViews}
               </p>
-              <p className="text-[10px] font-bold text-slate-400 mt-1">Views</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Views</p>
             </div>
 
             <button
@@ -977,16 +984,16 @@ CEO, Tedbuy Inc`;
                 setMobileProfileTab('saved');
                 setActiveMobileSubSetting(null);
               }}
-              className="py-1 px-1 rounded-xl hover:bg-slate-800/60 transition cursor-pointer"
+              className="py-0.5 px-0.5 rounded-lg hover:bg-slate-800/60 transition cursor-pointer"
             >
-              <p className="text-sm font-black text-white leading-none">{savedProducts.length}</p>
-              <p className="text-[10px] font-bold text-slate-400 mt-1">Saved</p>
+              <p className="text-xs font-black text-white leading-none">{savedProducts.length}</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5">Saved</p>
             </button>
           </div>
 
           {/* Bio Row */}
           {bio ? (
-            <div className="mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] text-slate-300 italic flex items-start justify-between gap-2">
+            <div className="mt-2 pt-1.5 border-t border-slate-800/80 text-[10.5px] text-slate-300 italic flex items-start justify-between gap-2">
               <p className="line-clamp-2">"{bio}"</p>
               <button
                 onClick={() => {
@@ -999,7 +1006,7 @@ CEO, Tedbuy Inc`;
               </button>
             </div>
           ) : (
-            <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+            <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10.5px] text-slate-400">
               <span>No store bio added yet</span>
               <button
                 onClick={() => {
@@ -1014,13 +1021,13 @@ CEO, Tedbuy Inc`;
           )}
 
           {/* Mobile Quick Action Buttons Row */}
-          <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800/80">
+          <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-800/80">
             <button
               onClick={() => {
                 setProductToEdit(null);
                 setIsListingModalOpen(true);
               }}
-              className="flex-1 py-2 px-3 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+              className="flex-1 py-1.5 px-2.5 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Post Ad</span>
@@ -1028,7 +1035,7 @@ CEO, Tedbuy Inc`;
 
             <button
               onClick={handleViewPublicStore}
-              className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1.5 border border-slate-750 cursor-pointer"
+              className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-slate-750 cursor-pointer"
               title="Preview public storefront"
             >
               <Store className="w-3.5 h-3.5 text-orange-400" />
@@ -1037,7 +1044,7 @@ CEO, Tedbuy Inc`;
 
             <button
               onClick={handleShareStore}
-              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-750 transition cursor-pointer"
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-750 transition cursor-pointer"
               title="Share store link"
             >
               <Share2 className="w-3.5 h-3.5" />
@@ -1046,13 +1053,13 @@ CEO, Tedbuy Inc`;
         </div>
 
         {/* Mobile Navigation Segment Control */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl">
+        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
           <button
             onClick={() => {
               setMobileProfileTab('dashboard');
               setActiveMobileSubSetting(null);
             }}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
               mobileProfileTab === 'dashboard'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800'
@@ -1067,7 +1074,7 @@ CEO, Tedbuy Inc`;
               setMobileProfileTab('saved');
               setActiveMobileSubSetting(null);
             }}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
               mobileProfileTab === 'saved'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800'
@@ -1082,7 +1089,7 @@ CEO, Tedbuy Inc`;
               setMobileProfileTab('settings');
               setActiveMobileSubSetting(null);
             }}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
               mobileProfileTab === 'settings'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800'
@@ -1095,27 +1102,17 @@ CEO, Tedbuy Inc`;
 
         {/* TAB 1: MY CLASSIFIED LISTINGS */}
         {mobileProfileTab === 'dashboard' && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between px-1">
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between px-0.5">
               <div>
-                <h3 className="text-sm font-black text-slate-900">My Classified Listings</h3>
-                <p className="text-[11px] text-slate-500">{myProducts.length} active ads • {totalViews} total views</p>
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wide">My Classified Listings</h3>
+                <p className="text-[10.5px] text-slate-500">{filteredMyProducts.length} of {myProducts.length} ads • {totalViews} views</p>
               </div>
-              <button
-                onClick={() => {
-                  setProductToEdit(null);
-                  setIsListingModalOpen(true);
-                }}
-                className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 shadow-xs cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Post Ad</span>
-              </button>
             </div>
 
             {/* Mobile Search & Filter Bar */}
             {myProducts.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
@@ -1123,7 +1120,7 @@ CEO, Tedbuy Inc`;
                     placeholder="Search your listings..."
                     value={listingSearchQuery}
                     onChange={(e) => setListingSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-8 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900 transition"
+                    className="w-full pl-9 pr-8 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900 transition shadow-3xs"
                   />
                   {listingSearchQuery && (
                     <button
@@ -1135,7 +1132,7 @@ CEO, Tedbuy Inc`;
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
                   {(['all', 'active', 'boosted', 'sold'] as const).map((filter) => {
                     const count =
                       filter === 'all'
@@ -1150,15 +1147,15 @@ CEO, Tedbuy Inc`;
                       <button
                         key={filter}
                         onClick={() => setListingFilter(filter)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                        className={`px-2 py-0.5 rounded-lg text-[10.5px] font-bold capitalize transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
                           listingFilter === filter
                             ? 'bg-slate-900 text-white shadow-xs'
                             : 'bg-white border border-slate-200 text-slate-600'
                         }`}
                       >
-                        {filter === 'boosted' && <Flame className="w-3 h-3 text-orange-400" />}
+                        {filter === 'boosted' && <Flame className="w-2.5 h-2.5 text-orange-400" />}
                         <span>{filter}</span>
-                        <span className={`text-[9px] px-1 py-0.2 rounded-full ${
+                        <span className={`text-[9px] px-1 py-0.1 rounded-full ${
                           listingFilter === filter ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-500'
                         }`}>
                           {count}
