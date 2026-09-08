@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { RefreshCw } from 'lucide-react-native';
+import { RefreshCw, Sparkles } from 'lucide-react-native';
 // SDK 57 made the bare 'expo-media-library' entrypoint default to a new
 // class-based API backed by a native module ('ExpoMediaLibraryNext') that
 // this Expo Go build doesn't have registered — crashed the whole app at
@@ -21,7 +21,7 @@ import { RefreshCw } from 'lucide-react-native';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
-import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById } from '../firebase';
+import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, generateListingDescriptionMobile } from '../firebase';
 import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
@@ -310,6 +310,9 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   }, [navigation, resetTabBar]);
 
   const [description, setDescription] = useState('');
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [aiDescriptionError, setAiDescriptionError] = useState('');
+  const lastAiGeneratedTextRef = useRef('');
   const [descHeight, setDescHeight] = useState(DESC_MIN_HEIGHT);
   // Auto-grows as the user types (onContentSizeChange below) so nothing they
   // type is ever hidden below the visible box — while focused, growth also
@@ -1331,6 +1334,58 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     }
   };
 
+  const hasMinimumInfoForAi = selectedCategory.trim().length > 0 && title.trim().length > 0;
+
+  const handleGenerateDescription = async () => {
+    if (!hasMinimumInfoForAi || isGeneratingDescription) return;
+
+    const hasUnprotectedText = description.trim().length > 0 && description !== lastAiGeneratedTextRef.current;
+
+    const runGeneration = async () => {
+      setAiDescriptionError('');
+      setIsGeneratingDescription(true);
+      try {
+        const compiledLocationForAi = adNeighborhood.trim() ? `${adNeighborhood.trim()}, ${adCity}` : adCity;
+        const result = await generateListingDescriptionMobile({
+          category: selectedCategory,
+          title: title.trim(),
+          condition: condition || undefined,
+          price: price || undefined,
+          location: compiledLocationForAi || undefined,
+          brand: brand || undefined,
+          negotiable,
+          isExchangeable,
+          existingDescription: description.trim() || undefined,
+        });
+        if (result.success && result.description) {
+          setDescription(result.description);
+          lastAiGeneratedTextRef.current = result.description;
+        } else {
+          setAiDescriptionError(result.error || "Couldn't generate a description right now. You can write your description manually.");
+        }
+      } finally {
+        setIsGeneratingDescription(false);
+      }
+    };
+
+    // A description that's non-empty and doesn't match our own last AI
+    // output means the seller typed it themselves — never silently replace
+    // that without an explicit confirmation.
+    if (hasUnprotectedText) {
+      Alert.alert(
+        'Replace description?',
+        'Replace your current description with an AI-generated one? Your current text will be lost.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Replace', style: 'destructive', onPress: () => { runGeneration(); } },
+        ]
+      );
+      return;
+    }
+
+    runGeneration();
+  };
+
   // Shared listing-detail fields (category through description) — used by
   // both edit mode's classic single-form view and the new wizard's Screen 3,
   // so the two never drift out of sync with each other.
@@ -1510,9 +1565,43 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       </View>
 
       <View style={styles.inputGroup}>
-        <Text style={styles.label}>
-          {selectedCategory === 'Jobs & Employment' ? 'Detailed Job Description & Requirements' : 'Detailed Description'}
-        </Text>
+        <View style={styles.descriptionLabelRow}>
+          <Text style={styles.label}>
+            {selectedCategory === 'Jobs & Employment' ? 'Detailed Job Description & Requirements' : 'Detailed Description'}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {description.trim().length > 0 && !isGeneratingDescription && (
+              <Pressable
+                onPress={() => {
+                  setDescription('');
+                  lastAiGeneratedTextRef.current = '';
+                  setAiDescriptionError('');
+                }}
+              >
+                <Text style={styles.conditionClearText}>Clear</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={handleGenerateDescription}
+              disabled={!hasMinimumInfoForAi || isGeneratingDescription}
+              style={[styles.aiGenerateButton, (!hasMinimumInfoForAi) && styles.aiGenerateButtonDisabled]}
+            >
+              {isGeneratingDescription ? (
+                <>
+                  <ActivityIndicator size="small" color="#047857" />
+                  <Text style={styles.aiGenerateButtonText}>Generating...</Text>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={13} color={hasMinimumInfoForAi ? '#047857' : '#cbd5e1'} />
+                  <Text style={[styles.aiGenerateButtonText, !hasMinimumInfoForAi && styles.aiGenerateButtonTextDisabled]}>
+                    {description.trim().length > 0 ? 'Regenerate' : 'Generate with AI'}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
         <TextInput
           value={description}
           onChangeText={setDescription}
@@ -1541,6 +1630,11 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           textAlignVertical="top"
           maxLength={5000}
         />
+        {aiDescriptionError ? (
+          <Text style={styles.aiErrorText}>{aiDescriptionError}</Text>
+        ) : !hasMinimumInfoForAi ? (
+          <Text style={styles.aiHintText}>Add a little more information about your item (at least a title) for a better AI-generated description.</Text>
+        ) : null}
       </View>
     </>
   );
@@ -2167,6 +2261,23 @@ const styles = StyleSheet.create({
   negotiableCheckMark: { color: '#ffffff', fontSize: 11, fontFamily: fonts.extrabold },
   negotiableRowText: { fontSize: 12.5, color: '#334155', fontFamily: fonts.semibold },
   conditionClearText: { fontSize: 11, color: '#94a3b8', fontFamily: fonts.semibold, textDecorationLine: 'underline' },
+  descriptionLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 },
+  aiGenerateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#10b981',
+  },
+  aiGenerateButtonDisabled: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
+  aiGenerateButtonText: { fontSize: 11, fontFamily: fonts.bold, color: '#047857' },
+  aiGenerateButtonTextDisabled: { color: '#cbd5e1' },
+  aiHintText: { fontSize: 11, color: '#94a3b8', fontFamily: fonts.medium, marginTop: 6 },
+  aiErrorText: { fontSize: 11, color: '#e11d48', fontFamily: fonts.semibold, marginTop: 6 },
   boostOptionCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 16, padding: 14, marginBottom: 14 },
   boostOptionCardActive: { borderColor: '#fbbf24', backgroundColor: '#fffbeb' },
   boostOptionTitle: { fontSize: 13, color: '#92400e', fontFamily: fonts.extrabold },

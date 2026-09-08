@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import compression from "compression";
 import { v2 as cloudinary } from "cloudinary";
+import { GoogleGenAI } from "@google/genai";
 import { initializeApp as initAdminApp, cert as adminCert, getApps as getAdminApps } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
@@ -17,6 +18,7 @@ import { promisify } from "util";
 import { getSitemapDataset, generateUrlSetXml, generateSitemapIndexXml, clearSitemapCache } from "./src/utils/sitemap.js";
 import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, validatePhoneSecure } from "./src/utils/registrationValidation.js";
 import { getPrefixAutocompleteSuggestions } from "./src/utils/searchAutocomplete.js";
+import { APP_RELEASE_CONFIG, isAndroidReleaseAvailable } from "./src/config/appRelease.js";
 import firebaseConfig from "./firebase-applet-config.json";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -758,6 +760,159 @@ async function deleteCloudinaryAsset(publicId: string, resourceType: 'image' | '
     });
   });
 }
+
+// -------------------------------------------------------------
+// AI Listing Description Generator (Gemini)
+// -------------------------------------------------------------
+let genAI: GoogleGenAI | null = null;
+function getGenAIClient(): GoogleGenAI | null {
+  if (genAI) return genAI;
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('[AI Listing Description] GEMINI_API_KEY is not set. /api/ai/generate-listing-description will return 503 until configured.');
+    return null;
+  }
+  genAI = new GoogleGenAI({ apiKey });
+  return genAI;
+}
+
+const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const AI_GENERATION_TIMEOUT_MS = 20000;
+
+interface ListingDescriptionInput {
+  category: string;
+  title: string;
+  condition?: string;
+  price?: string;
+  location?: string;
+  brand?: string;
+  negotiable?: boolean;
+  isExchangeable?: boolean;
+  existingDescription?: string;
+}
+
+// Descriptions are only ever rendered as plain JSX text (React auto-escapes)
+// or through the existing server-side escapeHtml() for meta tags, so there's
+// no live HTML-injection path today — but AI output is untrusted content
+// regardless, so it's stripped of markup defensively before it ever leaves
+// this endpoint.
+function sanitizeAiDescription(raw: string): string {
+  let text = raw || '';
+  text = text.replace(/<[^>]*>/g, ''); // strip any HTML/XML tags
+  text = text.replace(/```[a-zA-Z]*\n?/g, '').replace(/`/g, ''); // strip markdown code fences/backticks
+  text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (text.length > 1500) text = text.slice(0, 1500).trim(); // hard safety cap regardless of model output
+  return text;
+}
+
+function buildListingDescriptionPrompt(input: ListingDescriptionInput): string {
+  const lines: string[] = [
+    `Category: ${input.category}`,
+    `Title: ${input.title}`,
+  ];
+  if (input.brand) lines.push(`Brand: ${input.brand}`);
+  if (input.condition) lines.push(`Condition: ${input.condition}`);
+  if (input.price) lines.push(`Price: GH₵${input.price}`);
+  if (input.negotiable) lines.push('Price is negotiable.');
+  if (input.isExchangeable) lines.push('Seller is open to exchange/swap.');
+  if (input.location) lines.push(`Location: ${input.location}`);
+  if (input.existingDescription) {
+    lines.push(`Seller's own notes so far (use as extra context, do not just repeat verbatim): ${input.existingDescription}`);
+  }
+  return lines.join('\n');
+}
+
+// Business/prompt logic lives entirely here, server-side, so web and mobile
+// get byte-identical generation behavior through the one shared endpoint.
+const AI_LISTING_SYSTEM_INSTRUCTION = `You write short product listing descriptions for TedBuy, a Ghanaian online marketplace (like a local Craigslist/OLX equivalent).
+
+Rules you must follow exactly:
+1. ONLY use facts given to you below. Never invent specifications, condition details, accessories, warranty, battery health, exact age, ownership history, defects, authenticity, or delivery availability that were not explicitly provided.
+2. Do not claim things like "brand new", "100% genuine", "best price in Ghana", "perfect condition", or "guaranteed" unless that exact fact was given to you.
+3. If information is missing, simply don't mention it — do not guess or hedge with phrases like "likely" or "probably".
+4. Write naturally for a Ghanaian marketplace buyer: concise, honest, persuasive without being misleading, easy to skim.
+5. Target 50-120 words. Only exceed that if the given facts genuinely require more room. Never write a huge paragraph.
+6. Do not repeat the title verbatim as the first sentence. Do not repeat the price more than once.
+7. No emojis. No markdown formatting, no HTML, no code fences — plain text only, short paragraphs or a short bullet list if helpful.
+8. Output ONLY the description text itself — no preamble like "Here's a description:", no labels, no quotes around it.`;
+
+app.post(
+  '/api/ai/generate-listing-description',
+  serverRateLimiter(60 * 1000, 8, 'ai-generate-description'),
+  async (req: express.Request, res: express.Response) => {
+    const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+    if (!verified) {
+      return res.status(401).json({ success: false, error: 'Please sign in to use AI description generation.' });
+    }
+
+    const client = getGenAIClient();
+    if (!client) {
+      return res.status(503).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+    }
+
+    const body = req.body || {};
+
+    // This endpoint only ever needs a handful of short listing fields —
+    // reject anything anywhere near the global 25mb JSON limit used
+    // elsewhere for image/video payloads.
+    let bodySize = 0;
+    try { bodySize = Buffer.byteLength(JSON.stringify(body)); } catch { bodySize = Infinity; }
+    if (bodySize > 8000) {
+      return res.status(400).json({ success: false, error: 'Request too large.' });
+    }
+
+    const category = typeof body.category === 'string' ? body.category.trim().slice(0, 60) : '';
+    const title = typeof body.title === 'string' ? body.title.trim().slice(0, 150) : '';
+    if (!category || !title) {
+      return res.status(400).json({ success: false, error: 'Add a little more information about your item for a better description.' });
+    }
+
+    const input: ListingDescriptionInput = {
+      category,
+      title,
+      condition: typeof body.condition === 'string' ? body.condition.trim().slice(0, 60) || undefined : undefined,
+      price: (typeof body.price === 'string' || typeof body.price === 'number') ? String(body.price).trim().slice(0, 30) || undefined : undefined,
+      location: typeof body.location === 'string' ? body.location.trim().slice(0, 120) || undefined : undefined,
+      brand: typeof body.brand === 'string' ? body.brand.trim().slice(0, 60) || undefined : undefined,
+      negotiable: body.negotiable === true,
+      isExchangeable: body.isExchangeable === true,
+      existingDescription: typeof body.existingDescription === 'string' ? body.existingDescription.trim().slice(0, 2000) || undefined : undefined,
+    };
+
+    const promptContent = buildListingDescriptionPrompt(input);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AI_GENERATION_TIMEOUT_MS);
+
+    try {
+      const response = await client.models.generateContent({
+        model: AI_LISTING_MODEL,
+        contents: promptContent,
+        config: {
+          systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
+          temperature: 0.8,
+          maxOutputTokens: 350,
+          abortSignal: controller.signal,
+        },
+      });
+      clearTimeout(timeoutId);
+
+      const rawText = response?.text;
+      if (!rawText || !rawText.trim()) {
+        return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+      }
+
+      return res.json({ success: true, description: sanitizeAiDescription(rawText) });
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const isAbort = err?.name === 'AbortError' || controller.signal.aborted;
+      console.warn('[AI Listing Description] Generation failed:', isAbort ? 'timeout' : (err?.message || err));
+      if (isAbort) {
+        return res.status(504).json({ success: false, error: 'That took too long. Please try again.' });
+      }
+      return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+    }
+  }
+);
 
 app.post("/api/cloudinary/upload", serverRateLimiter(60 * 1000, 120, "cloudinary-upload"), async (req: express.Request, res: express.Response) => {
   try {
@@ -6382,6 +6537,236 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       return res.sendFile(targetPath);
     }
     return res.status(404).send('Not found');
+  });
+
+  // TedBuy Android direct-download page — official APK distribution outside
+  // Google Play. Deliberately a standalone, server-rendered HTML response
+  // (not part of the React SPA) so it loads instantly on slow mobile
+  // connections and never depends on the SPA's hash-router/view state.
+  function generateDownloadPageHtml(host: string, protocol: string): string {
+    const cfg = APP_RELEASE_CONFIG;
+    const available = isAndroidReleaseAvailable(cfg);
+    const pageUrl = `${protocol}://${host}/download`;
+    const ogImage = `${protocol}://${host}/icon-512x512.png`;
+
+    const metaRows: string[] = [
+      `<div class="meta-row"><span class="meta-label">Version</span><span class="meta-value">${escapeHtml(cfg.version)}</span></div>`,
+    ];
+    if (cfg.minAndroidVersion) {
+      metaRows.push(`<div class="meta-row"><span class="meta-label">Requires</span><span class="meta-value">${escapeHtml(cfg.minAndroidVersion)}</span></div>`);
+    }
+    if (available && cfg.apkSizeMB) {
+      metaRows.push(`<div class="meta-row"><span class="meta-label">Size</span><span class="meta-value">~${escapeHtml(String(cfg.apkSizeMB))} MB</span></div>`);
+    }
+    if (available && cfg.releaseDate) {
+      metaRows.push(`<div class="meta-row"><span class="meta-label">Released</span><span class="meta-value">${escapeHtml(cfg.releaseDate)}</span></div>`);
+    }
+
+    const ctaHtml = available
+      ? `<a class="cta" href="/downloads/tedbuy.apk">Download for Android<span class="cta-sub">Official APK &middot; v${escapeHtml(cfg.version)}</span></a>`
+      : `<button class="cta cta-disabled" type="button" disabled>Coming Soon<span class="cta-sub">We're finalizing the first release</span></button>`;
+
+    const checksumHtml = available && cfg.sha256
+      ? `<p class="checksum">SHA-256: <code>${escapeHtml(cfg.sha256)}</code></p>`
+      : '';
+
+    return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Download TedBuy for Android — Official App</title>
+<meta name="description" content="Download the official TedBuy Android app directly from tedbuy.store. Buy, sell and discover on Ghana's social marketplace." />
+<link rel="canonical" href="${pageUrl}" />
+<meta name="robots" content="index, follow" />
+
+<meta property="og:site_name" content="TedBuy Ghana" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="${pageUrl}" />
+<meta property="og:title" content="Download TedBuy for Android" />
+<meta property="og:description" content="Get the official TedBuy Android app directly from the TedBuy website. Buy. Sell. Discover." />
+<meta property="og:image" content="${ogImage}" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Download TedBuy for Android" />
+<meta name="twitter:description" content="Get the official TedBuy Android app directly from the TedBuy website." />
+<meta name="twitter:image" content="${ogImage}" />
+
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,400&display=swap" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header.topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem;
+  }
+  header.topbar img { width: 28px; height: 28px; }
+  header.topbar span { font-weight: 800; font-size: 1.1rem; }
+  header.topbar span b { color: #ea580c; font-weight: 800; }
+  header.topbar a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 0.5rem; }
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 1.5rem 1.25rem 3rem;
+    max-width: 560px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  .app-icon {
+    width: 96px;
+    height: 96px;
+    border-radius: 24px;
+    margin: 1.5rem 0 1.25rem;
+    box-shadow: 0 12px 32px rgba(234, 88, 12, 0.25);
+  }
+  h1.headline {
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 1.75rem;
+    line-height: 1.25;
+    margin: 0 0 0.5rem;
+  }
+  p.tagline {
+    color: #94a3b8;
+    margin: 0 0 2rem;
+    font-size: 1rem;
+  }
+  .cta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    background: #ea580c;
+    color: #fff;
+    font-weight: 800;
+    font-size: 1.05rem;
+    text-decoration: none;
+    border: none;
+    border-radius: 16px;
+    padding: 0.95rem 1.5rem;
+    box-shadow: 0 8px 24px rgba(234, 88, 12, 0.35);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .cta:active { transform: scale(0.98); }
+  .cta-sub { font-weight: 500; font-size: 0.78rem; opacity: 0.9; margin-top: 0.2rem; }
+  .cta-disabled { background: #334155; box-shadow: none; cursor: not-allowed; }
+  .meta-card {
+    width: 100%;
+    margin-top: 1.5rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 0.25rem 1rem;
+  }
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.7rem 0;
+    font-size: 0.9rem;
+  }
+  .meta-row + .meta-row { border-top: 1px solid rgba(255,255,255,0.06); }
+  .meta-label { color: #94a3b8; }
+  .meta-value { font-weight: 600; }
+  .trust {
+    margin-top: 1.25rem;
+    font-size: 0.82rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .checksum { margin-top: 0.75rem; font-size: 0.75rem; color: #64748b; word-break: break-all; }
+  .checksum code { color: #94a3b8; }
+  .install-note {
+    margin-top: 2rem;
+    text-align: left;
+    width: 100%;
+    background: rgba(234, 88, 12, 0.08);
+    border: 1px solid rgba(234, 88, 12, 0.25);
+    border-radius: 16px;
+    padding: 1rem 1.1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #cbd5e1;
+  }
+  .install-note strong { color: #fdba74; }
+  footer.foot {
+    text-align: center;
+    padding: 1.5rem;
+    font-size: 0.78rem;
+    color: #475569;
+  }
+  footer.foot a { color: #94a3b8; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/">
+      <img src="/favicon.svg" alt="TedBuy" />
+      <span>Ted<b>Buy</b></span>
+    </a>
+  </header>
+  <main>
+    <img class="app-icon" src="/icon-512x512.png" alt="TedBuy app icon" width="96" height="96" />
+    <h1 class="headline">Get the TedBuy Android App</h1>
+    <p class="tagline">Buy. Sell. Discover. &mdash; download the official TedBuy app directly to your Android device.</p>
+
+    ${ctaHtml}
+    ${checksumHtml}
+
+    <div class="meta-card">
+      ${metaRows.join('\n      ')}
+    </div>
+
+    <p class="trust">&#128274; Official TedBuy app, distributed directly from tedbuy.store</p>
+
+    <div class="install-note">
+      <strong>Installing outside Google Play?</strong> Android may show a prompt asking you to allow installs from your browser. This is a normal Android security prompt for apps installed outside the Play Store &mdash; only allow it for the browser you used to download this file.
+    </div>
+  </main>
+  <footer class="foot">
+    <a href="/">&larr; Back to tedbuy.store</a>
+  </footer>
+</body>
+</html>`;
+  }
+
+  app.get('/download', (req, res) => {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'tedbuy.store';
+    const host = cleanHostHeader(rawHost);
+    const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.type('html').send(generateDownloadPageHtml(host, protocol));
+  });
+
+  // Stable public URL for the production Android APK. Redirects to the
+  // actual CDN-hosted binary (configured via ANDROID_APK_URL) rather than
+  // serving/proxying the file through this process — Render's free-tier
+  // instance has a 384MB heap cap and an ephemeral filesystem, both
+  // unsuitable for hosting a large binary directly.
+  app.get('/downloads/tedbuy.apk', (_req, res) => {
+    if (!isAndroidReleaseAvailable(APP_RELEASE_CONFIG)) {
+      return res.status(404).type('text/plain').send('The TedBuy Android APK has not been published yet. Please check back soon.');
+    }
+    res.redirect(302, APP_RELEASE_CONFIG.apkUrl);
   });
 
   // Dynamic robots.txt declaring active domain's sitemap.xml and allowing Googlebot & Googlebot-Image

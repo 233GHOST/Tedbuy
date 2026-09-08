@@ -16,3 +16,17 @@ services:
         sync: false # Prompts you to enter your public key in the Render dashboard
       - key: CRON_SECRET
         generateValue: true # Generates a secure random secret automatically
+      - key: GEMINI_API_KEY
+        sync: false # Powers AI-generated listing descriptions; omit to leave that feature disabled (503, seller writes their own description)
+      - key: ANDROID_APK_URL
+        sync: false # CDN URL of the published TedBuy Android APK (/download page + /downloads/tedbuy.apk redirect). Leave unset to show "Coming Soon".
+      - key: ANDROID_APP_VERSION
+        sync: false # e.g. "1.0.0" — shown on /download, should match mobile/app.json's version
+      - key: ANDROID_APK_SIZE_MB
+        sync: false # Approximate APK size shown on /download, e.g. "78"
+      - key: ANDROID_APK_SHA256
+        sync: false # SHA-256 checksum of the published APK, shown on /download for integrity verification
+      - key: ANDROID_MIN_OS
+        sync: false # e.g. "Android 8.0+" — leave unset until confirmed against a real build
+      - key: ANDROID_APK_RELEASE_DATE
+        sync: false # ISO date (YYYY-MM-DD) the current release was published

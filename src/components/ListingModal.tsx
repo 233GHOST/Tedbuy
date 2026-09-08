@@ -9,6 +9,7 @@ import { validateImageFile } from '../utils/fileValidation';
 import { toUserFriendlyError } from '../utils/authErrorHelper';
 import { uploadToCloudinary, uploadVideoDirectToCloudinary, cleanupOrphanedCloudinaryAssets, getCloudinaryVideoPoster } from '../utils/cloudinary';
 import { resolveProductImages } from '../utils/productUtils';
+import { generateListingDescription } from '../utils/aiListingDescription';
 
 interface ListingModalProps {
   isOpen: boolean;
@@ -44,6 +45,9 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [aiDescriptionError, setAiDescriptionError] = useState('');
+  const lastAiGeneratedTextRef = useRef('');
 
   // Auto-resize description textarea as user types
   useEffect(() => {
@@ -780,6 +784,47 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     setPendingVideoFile(null);
   };
 
+  const hasMinimumInfoForAi = category.trim().length > 0 && title.trim().length > 0;
+
+  const handleGenerateDescription = async () => {
+    if (!hasMinimumInfoForAi || isGeneratingDescription || isSubmitting) return;
+
+    // A description that's non-empty and doesn't match our own last AI
+    // output means the seller typed it themselves (from scratch, or by
+    // editing a prior generation) — never silently replace that.
+    const hasUnprotectedText = description.trim().length > 0 && description !== lastAiGeneratedTextRef.current;
+    if (hasUnprotectedText) {
+      const confirmed = window.confirm('Replace your current description with an AI-generated one? Your current text will be lost.');
+      if (!confirmed) return;
+    }
+
+    setAiDescriptionError('');
+    setIsGeneratingDescription(true);
+    try {
+      const compiledLocationForAi = adNeighborhood.trim() ? `${adNeighborhood.trim()}, ${adCity}` : adCity;
+      const result = await generateListingDescription({
+        category,
+        title: title.trim(),
+        condition: condition || undefined,
+        price: price || undefined,
+        location: compiledLocationForAi || undefined,
+        brand: brand || undefined,
+        negotiable,
+        isExchangeable,
+        existingDescription: description.trim() || undefined,
+      });
+
+      if (result.success && result.description) {
+        setDescription(result.description);
+        lastAiGeneratedTextRef.current = result.description;
+      } else {
+        setAiDescriptionError(result.error || "Couldn't generate a description right now. You can write your description manually.");
+      }
+    } finally {
+      setIsGeneratingDescription(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -1411,9 +1456,51 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
             {/* Description */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5 font-bold text-slate-800">
-                {category === 'Jobs & Employment' ? 'Detailed Description' : 'Detailed Description'}
-              </label>
+              <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
+                <label className="block text-xs font-semibold text-slate-700 font-bold text-slate-800">
+                  {category === 'Jobs & Employment' ? 'Detailed Description' : 'Detailed Description'}
+                </label>
+                <div className="flex items-center gap-2">
+                  {description.trim().length > 0 && !isGeneratingDescription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDescription('');
+                        lastAiGeneratedTextRef.current = '';
+                        setAiDescriptionError('');
+                      }}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 underline font-medium"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleGenerateDescription}
+                    disabled={!hasMinimumInfoForAi || isGeneratingDescription || isSubmitting}
+                    title={!hasMinimumInfoForAi ? 'Add a little more information about your item for a better description.' : undefined}
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition ${
+                      !hasMinimumInfoForAi || isSubmitting
+                        ? 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'
+                        : isGeneratingDescription
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-600 cursor-wait'
+                        : 'bg-emerald-50 border-emerald-500 text-emerald-700 hover:bg-emerald-100 cursor-pointer'
+                    }`}
+                  >
+                    {isGeneratingDescription ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        {description.trim().length > 0 ? 'Regenerate' : 'Generate with AI'}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
               <textarea
                 ref={descriptionTextareaRef}
                 required
@@ -1428,6 +1515,11 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 rows={3}
                 className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-slate-500 focus:outline-none resize-none overflow-hidden transition-[height] duration-75 min-h-[96px]"
               />
+              {aiDescriptionError ? (
+                <p className="mt-1.5 text-[11px] text-rose-500 font-medium">{aiDescriptionError}</p>
+              ) : !hasMinimumInfoForAi ? (
+                <p className="mt-1.5 text-[11px] text-slate-400">Add a little more information about your item (at least a title) for a better AI-generated description.</p>
+              ) : null}
             </div>
 
             {/* Media Type Segmented Selection */}

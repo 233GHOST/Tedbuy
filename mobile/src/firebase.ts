@@ -357,6 +357,32 @@ export async function createProduct(productData: any) {
   return data.product || finalProduct;
 }
 
+export interface ListingDescriptionInputMobile {
+  category: string;
+  title: string;
+  condition?: string;
+  price?: string | number;
+  location?: string;
+  brand?: string;
+  negotiable?: boolean;
+  isExchangeable?: boolean;
+  existingDescription?: string;
+}
+
+// Thin client for POST /api/ai/generate-listing-description — all prompt
+// building and provider logic lives server-side so this behaves identically
+// to the web app's generator. Never throws: mirrors apiFetch's own contract
+// so SellScreen can just check `.success`.
+export async function generateListingDescriptionMobile(
+  input: ListingDescriptionInputMobile
+): Promise<{ success: boolean; description?: string; error?: string }> {
+  const data = await apiFetch('/api/ai/generate-listing-description', { method: 'POST', body: input });
+  if (!data.success) {
+    return { success: false, error: data.error || "Couldn't generate a description right now. You can write your description manually." };
+  }
+  return { success: true, description: data.description as string };
+}
+
 export async function deleteProductMobile(productId: string) {
   if (!productId) return;
 

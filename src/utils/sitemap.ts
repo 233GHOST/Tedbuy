@@ -91,7 +91,8 @@ async function fetchSitemapDataset(): Promise<CachedSitemapData> {
     '/privacy',
     '/terms',
     '/help',
-    '/categories'
+    '/categories',
+    '/download'
   ];
   const staticUrls: SitemapUrl[] = staticPaths.map(p => ({
     loc: p, // relative to be mapped later with dynamic baseUrl
