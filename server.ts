@@ -840,76 +840,88 @@ app.post(
   '/api/ai/generate-listing-description',
   serverRateLimiter(60 * 1000, 8, 'ai-generate-description'),
   async (req: express.Request, res: express.Response) => {
-    const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
-    if (!verified) {
-      return res.status(401).json({ success: false, error: 'Please sign in to use AI description generation.' });
-    }
-
-    const client = getGenAIClient();
-    if (!client) {
-      return res.status(503).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
-    }
-
-    const body = req.body || {};
-
-    // This endpoint only ever needs a handful of short listing fields —
-    // reject anything anywhere near the global 25mb JSON limit used
-    // elsewhere for image/video payloads.
-    let bodySize = 0;
-    try { bodySize = Buffer.byteLength(JSON.stringify(body)); } catch { bodySize = Infinity; }
-    if (bodySize > 8000) {
-      return res.status(400).json({ success: false, error: 'Request too large.' });
-    }
-
-    const category = typeof body.category === 'string' ? body.category.trim().slice(0, 60) : '';
-    const title = typeof body.title === 'string' ? body.title.trim().slice(0, 150) : '';
-    if (!category || !title) {
-      return res.status(400).json({ success: false, error: 'Add a little more information about your item for a better description.' });
-    }
-
-    const input: ListingDescriptionInput = {
-      category,
-      title,
-      condition: typeof body.condition === 'string' ? body.condition.trim().slice(0, 60) || undefined : undefined,
-      price: (typeof body.price === 'string' || typeof body.price === 'number') ? String(body.price).trim().slice(0, 30) || undefined : undefined,
-      location: typeof body.location === 'string' ? body.location.trim().slice(0, 120) || undefined : undefined,
-      brand: typeof body.brand === 'string' ? body.brand.trim().slice(0, 60) || undefined : undefined,
-      negotiable: body.negotiable === true,
-      isExchangeable: body.isExchangeable === true,
-      existingDescription: typeof body.existingDescription === 'string' ? body.existingDescription.trim().slice(0, 2000) || undefined : undefined,
-    };
-
-    const promptContent = buildListingDescriptionPrompt(input);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AI_GENERATION_TIMEOUT_MS);
-
+    // Outer safety net: guarantees this endpoint can never respond with
+    // anything but valid JSON, no matter what throws below (a malformed
+    // response here surfaces client-side as a confusing generic parse
+    // error, so nothing here is allowed to escape uncaught).
     try {
-      const response = await client.models.generateContent({
-        model: AI_LISTING_MODEL,
-        contents: promptContent,
-        config: {
-          systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
-          temperature: 0.8,
-          maxOutputTokens: 350,
-          abortSignal: controller.signal,
-        },
-      });
-      clearTimeout(timeoutId);
+      const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+      if (!verified) {
+        return res.status(401).json({ success: false, error: 'Please sign in to use AI description generation.' });
+      }
 
-      const rawText = response?.text;
-      if (!rawText || !rawText.trim()) {
+      const client = getGenAIClient();
+      if (!client) {
+        return res.status(503).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+      }
+
+      const body = req.body || {};
+
+      // This endpoint only ever needs a handful of short listing fields —
+      // reject anything anywhere near the global 25mb JSON limit used
+      // elsewhere for image/video payloads.
+      let bodySize = 0;
+      try { bodySize = Buffer.byteLength(JSON.stringify(body)); } catch { bodySize = Infinity; }
+      if (bodySize > 8000) {
+        return res.status(400).json({ success: false, error: 'Request too large.' });
+      }
+
+      const category = typeof body.category === 'string' ? body.category.trim().slice(0, 60) : '';
+      const title = typeof body.title === 'string' ? body.title.trim().slice(0, 150) : '';
+      if (!category || !title) {
+        return res.status(400).json({ success: false, error: 'Add a little more information about your item for a better description.' });
+      }
+
+      const input: ListingDescriptionInput = {
+        category,
+        title,
+        condition: typeof body.condition === 'string' ? body.condition.trim().slice(0, 60) || undefined : undefined,
+        price: (typeof body.price === 'string' || typeof body.price === 'number') ? String(body.price).trim().slice(0, 30) || undefined : undefined,
+        location: typeof body.location === 'string' ? body.location.trim().slice(0, 120) || undefined : undefined,
+        brand: typeof body.brand === 'string' ? body.brand.trim().slice(0, 60) || undefined : undefined,
+        negotiable: body.negotiable === true,
+        isExchangeable: body.isExchangeable === true,
+        existingDescription: typeof body.existingDescription === 'string' ? body.existingDescription.trim().slice(0, 2000) || undefined : undefined,
+      };
+
+      const promptContent = buildListingDescriptionPrompt(input);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), AI_GENERATION_TIMEOUT_MS);
+
+      try {
+        const response = await client.models.generateContent({
+          model: AI_LISTING_MODEL,
+          contents: promptContent,
+          config: {
+            systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
+            temperature: 0.8,
+            maxOutputTokens: 350,
+            abortSignal: controller.signal,
+          },
+        });
+        clearTimeout(timeoutId);
+
+        const rawText = response?.text;
+        if (!rawText || !rawText.trim()) {
+          console.warn('[AI Listing Description] Provider returned no text. Full response:', JSON.stringify(response)?.slice(0, 500));
+          return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+        }
+
+        return res.json({ success: true, description: sanitizeAiDescription(rawText) });
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        const isAbort = err?.name === 'AbortError' || controller.signal.aborted;
+        console.warn('[AI Listing Description] Generation failed:', isAbort ? 'timeout' : (err?.stack || err?.message || err));
+        if (isAbort) {
+          return res.status(504).json({ success: false, error: 'That took too long. Please try again.' });
+        }
         return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
       }
-
-      return res.json({ success: true, description: sanitizeAiDescription(rawText) });
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      const isAbort = err?.name === 'AbortError' || controller.signal.aborted;
-      console.warn('[AI Listing Description] Generation failed:', isAbort ? 'timeout' : (err?.message || err));
-      if (isAbort) {
-        return res.status(504).json({ success: false, error: 'That took too long. Please try again.' });
+    } catch (outerErr: any) {
+      console.error('[AI Listing Description] Unexpected error outside generation try/catch:', outerErr?.stack || outerErr?.message || outerErr);
+      if (!res.headersSent) {
+        return res.status(500).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
       }
-      return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
     }
   }
 );
