@@ -1087,6 +1087,23 @@ export async function activateBoost(
   return data.product;
 }
 
+/** Starts a real Paystack transaction server-side (mobile has no browser to
+ * run web's inline.js popup) and returns a hosted checkout URL to open in a
+ * WebView, plus the real reference to verify afterward via activateBoost. */
+export async function initializeBoostPayment(
+  productId: string,
+  planId: string
+): Promise<{ success: boolean; authorizationUrl?: string; reference?: string; error?: string }> {
+  const data = await apiFetch('/api/paystack/initialize-boost', {
+    method: 'POST',
+    body: { productId, planId },
+  });
+  if (!data.success) {
+    return { success: false, error: data.error || 'Could not start payment. Please try again.' };
+  }
+  return { success: true, authorizationUrl: data.authorizationUrl, reference: data.reference };
+}
+
 /** Matches web's followSeller/unfollowSeller (src/context/AppContext.tsx) —
  * routed through a dedicated server endpoint (rather than a generic profile
  * sync) so the seller also gets a 'new_follower' notification on a new

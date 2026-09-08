@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, Modal, ActivityIndicator, StyleSheet, ScrollView, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView, WebViewNavigation } from 'react-native-webview';
 import { Check, Phone, CreditCard, ShieldCheck, AlertCircle, Clock, X } from 'lucide-react-native';
 import { Product } from '../types';
 import { BOOST_PLANS, getBoostEndDate, isBoostActive } from '../utils/boost';
-import { activateBoost } from '../firebase';
+import { activateBoost, initializeBoostPayment } from '../firebase';
 import { colors, fonts, radius, spacing } from '../theme';
 
 interface BoostModalProps {
@@ -14,26 +16,33 @@ interface BoostModalProps {
   isAdmin?: boolean;
 }
 
-type CheckoutStep = 'plan-select' | 'verifying' | 'success' | 'error';
+type CheckoutStep = 'plan-select' | 'starting' | 'verifying' | 'success' | 'error';
 
-/** Matches web's BoostModal (src/components/BoostModal.tsx). Web currently
- * runs boost checkout in demo mode (no live Paystack keys configured in this
- * environment), so this mirrors that same simulated momo/card confirmation
- * flow against the real /api/verify-payment endpoint, rather than inventing
- * a native payment-gateway integration the web app itself doesn't have yet.
- * Web also gives admins a third "Free Admin Boost" payment method that skips
- * straight to verification (same real /api/verify-payment call, just with a
- * distinct reference prefix and amountGHS:0) — was missing on mobile. */
+const PAYSTACK_CALLBACK_MARKER = '/api/paystack/callback';
+
+/** Matches web's BoostModal (src/components/BoostModal.tsx) for the "Free
+ * Admin Boost" path (a real zero-payment path, gated server-side by
+ * verifyUser()'s own admin check — never a client-claimed flag). For a real
+ * momo/card payment, mobile has no browser to run web's Paystack inline.js
+ * popup, so it starts a real transaction via /api/paystack/initialize-boost
+ * and opens Paystack's own hosted checkout in a WebView; once that
+ * navigates to the callback URL, it verifies with the real reference
+ * through the same /api/verify-payment web uses. */
 export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, product, onSuccess, isAdmin }) => {
   const [selectedPlanId, setSelectedPlanId] = useState('7days');
   const [paymentMethod, setPaymentMethod] = useState<'momo' | 'card' | 'admin'>('momo');
   const [step, setStep] = useState<CheckoutStep>('plan-select');
   const [error, setError] = useState('');
   const [reference, setReference] = useState('');
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   // Synchronous guard — the Pay buttons below have no `disabled` prop, and
   // `step` only unmounts them after the next render, leaving a brief window
   // where a fast double-tap could fire two payment/boost verifications.
   const isPayingRef = useRef(false);
+  // Prevents onNavigationStateChange from firing the callback handler more
+  // than once — WebView can report the same URL across several navigation
+  // events (redirect, then the callback page's own load, etc.).
+  const checkoutHandledRef = useRef(false);
 
   useEffect(() => {
     if (visible) {
@@ -41,6 +50,8 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
       setSelectedPlanId('7days');
       setError('');
       setReference('');
+      setCheckoutUrl(null);
+      checkoutHandledRef.current = false;
     }
   }, [visible]);
 
@@ -50,17 +61,10 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
   const currentlyBoosted = isBoostActive(product);
   const boostEnd = getBoostEndDate(product);
 
-  const handlePay = async () => {
-    if (isPayingRef.current) return;
-    isPayingRef.current = true;
-    const isFreeAdminBoost = paymentMethod === 'admin';
-    const ref = isFreeAdminBoost
-      ? `ADMIN_FREE_BOOST_${Date.now()}`
-      : `TEDBUY_MOBILE_${paymentMethod.toUpperCase()}_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-    setReference(ref);
+  const finishVerification = async (ref: string, method: string, amountGHS: number) => {
     setStep('verifying');
     try {
-      const updated = await activateBoost(product.id, selectedPlanId, paymentMethod, isFreeAdminBoost ? 0 : activePlan.priceGHS, ref);
+      const updated = await activateBoost(product.id, selectedPlanId, method, amountGHS, ref);
       setStep('success');
       if (onSuccess) onSuccess(updated);
     } catch (err: any) {
@@ -71,7 +75,48 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
     }
   };
 
+  const handlePay = async () => {
+    if (isPayingRef.current) return;
+    isPayingRef.current = true;
+
+    if (paymentMethod === 'admin') {
+      const ref = `ADMIN_FREE_BOOST_${Date.now()}`;
+      setReference(ref);
+      await finishVerification(ref, 'admin', 0);
+      return;
+    }
+
+    setStep('starting');
+    setError('');
+    try {
+      const init = await initializeBoostPayment(product.id, selectedPlanId);
+      if (!init.success || !init.authorizationUrl || !init.reference) {
+        setStep('error');
+        setError(init.error || 'Could not start payment. Please try again.');
+        isPayingRef.current = false;
+        return;
+      }
+      setReference(init.reference);
+      checkoutHandledRef.current = false;
+      setCheckoutUrl(init.authorizationUrl);
+      setStep('plan-select'); // WebView modal renders on top; underlying step is irrelevant until it closes
+    } catch (err: any) {
+      setStep('error');
+      setError(err.message || 'Could not start payment. Please try again.');
+      isPayingRef.current = false;
+    }
+  };
+
+  const handleCheckoutNavigation = (navState: WebViewNavigation) => {
+    if (checkoutHandledRef.current) return;
+    if (!navState.url || !navState.url.includes(PAYSTACK_CALLBACK_MARKER)) return;
+    checkoutHandledRef.current = true;
+    setCheckoutUrl(null);
+    finishVerification(reference, paymentMethod, activePlan.priceGHS);
+  };
+
   return (
+    <>
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
@@ -186,6 +231,14 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
               </>
             )}
 
+            {step === 'starting' && (
+              <View style={styles.stepCenter}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={styles.stepTitle}>Starting Secure Checkout</Text>
+                <Text style={styles.stepText}>Connecting to Paystack...</Text>
+              </View>
+            )}
+
             {step === 'verifying' && (
               <View style={styles.stepCenter}>
                 <ActivityIndicator size="large" color={colors.primary} />
@@ -233,6 +286,48 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
         </View>
       </View>
     </Modal>
+
+    <Modal
+      visible={!!checkoutUrl}
+      animationType="slide"
+      onRequestClose={() => {
+        // User closed the checkout themselves before completing payment —
+        // no reference to verify, just return to plan selection.
+        setCheckoutUrl(null);
+        isPayingRef.current = false;
+        setStep('plan-select');
+      }}
+    >
+      <SafeAreaView style={styles.checkoutContainer} edges={['top', 'bottom']}>
+        <View style={styles.checkoutHeader}>
+          <Pressable
+            onPress={() => {
+              setCheckoutUrl(null);
+              isPayingRef.current = false;
+              setStep('plan-select');
+            }}
+            hitSlop={10}
+          >
+            <X size={20} color={colors.textMuted} />
+          </Pressable>
+          <Text style={styles.checkoutHeaderTitle}>Secure Checkout</Text>
+          <View style={{ width: 20 }} />
+        </View>
+        {checkoutUrl && (
+          <WebView
+            source={{ uri: checkoutUrl }}
+            onNavigationStateChange={handleCheckoutNavigation}
+            startInLoadingState
+            renderLoading={() => (
+              <View style={styles.checkoutLoading}>
+                <ActivityIndicator size="large" color={colors.primary} />
+              </View>
+            )}
+          />
+        )}
+      </SafeAreaView>
+    </Modal>
+    </>
   );
 };
 
@@ -281,4 +376,17 @@ const styles = StyleSheet.create({
   refBoxText: { fontFamily: fonts.bold, fontSize: 10, color: colors.textMuted },
   successIcon: { width: 56, height: 56, borderRadius: 999, backgroundColor: '#d1fae5', alignItems: 'center', justifyContent: 'center' },
   errorIcon: { width: 56, height: 56, borderRadius: 999, backgroundColor: '#ffe4e6', alignItems: 'center', justifyContent: 'center' },
+
+  checkoutContainer: { flex: 1, backgroundColor: '#ffffff' },
+  checkoutHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  checkoutHeaderTitle: { fontFamily: fonts.extrabold, fontSize: 14, color: colors.textStrong },
+  checkoutLoading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

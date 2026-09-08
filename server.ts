@@ -4016,6 +4016,91 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
   }
 });
 
+// Mobile has no browser to run Paystack's inline.js popup (that's what web
+// uses) — so it starts a real transaction here via Paystack's own hosted
+// checkout, gets back a URL to open in a WebView, and once the seller pays
+// there, verifies it through the same /api/verify-payment above with the
+// real reference Paystack issued.
+app.post('/api/paystack/initialize-boost', serverRateLimiter(60 * 1000, 10, 'paystack-initialize'), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Please sign in to boost a listing.' });
+  }
+
+  const secretKey = process.env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) {
+    return res.status(503).json({ success: false, error: 'Card/Mobile Money payments are not available right now.' });
+  }
+
+  const { productId, planId } = req.body || {};
+  if (!productId || typeof productId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing productId.' });
+  }
+
+  let existingProduct: any = null;
+  if (backendSupabase) {
+    try {
+      const { data } = await backendSupabase.from('products').select('id, sellerId').eq('id', productId).maybeSingle();
+      existingProduct = data;
+    } catch (e) {
+      console.warn('[Paystack Initialize] Could not fetch product:', e);
+    }
+  }
+  if (!existingProduct) {
+    return res.status(404).json({ success: false, error: 'Product not found.' });
+  }
+  const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+  if (existingProduct.sellerId !== verified.uid && !isAdmin) {
+    return res.status(403).json({ success: false, error: 'You can only boost your own listing.' });
+  }
+
+  const priceGHS = BOOST_PLAN_PRICE_GHS[planId] || BOOST_PLAN_PRICE_GHS['7days'];
+  const reference = `TEDBUY_MOBILE_PS_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const initRes = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: verified.email || 'asumaduvincent7@gmail.com',
+        amount: Math.round(priceGHS * 100),
+        currency: 'GHS',
+        reference,
+        callback_url: 'https://www.tedbuy.store/api/paystack/callback',
+        metadata: { productId, planId: planId || '7days', purpose: 'boost' },
+      }),
+      signal: controller.signal,
+    });
+    const json: any = await initRes.json().catch(() => null);
+
+    if (!initRes.ok || !json?.status || !json?.data?.authorization_url) {
+      console.warn('[Paystack Initialize] Failed:', json?.message || initRes.status);
+      return res.status(502).json({ success: false, error: json?.message || 'Could not start payment. Please try again.' });
+    }
+
+    return res.json({ success: true, authorizationUrl: json.data.authorization_url, reference });
+  } catch (err: any) {
+    const isAbort = err?.name === 'AbortError';
+    console.error('[Paystack Initialize] Error:', isAbort ? 'timeout' : (err?.message || err));
+    return res.status(502).json({ success: false, error: 'Could not start payment. Please try again.' });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+});
+
+// Landing page Paystack's hosted checkout redirects to after payment — the
+// mobile WebView intercepts navigation to this URL before it even loads
+// (see mobile BoostModal), so this only matters as a harmless fallback if
+// that interception is ever missed.
+app.get('/api/paystack/callback', (_req: express.Request, res: express.Response) => {
+  res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><title>Payment Complete</title></head><body style="font-family:sans-serif;text-align:center;padding:60px 20px;color:#0f172a;"><h2>Payment received</h2><p>You can close this window and return to the TedBuy app.</p></body></html>`);
+});
+
 app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boost-control"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyAdmin(req.headers.authorization);
   if (!verified) {
