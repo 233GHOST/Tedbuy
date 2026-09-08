@@ -685,9 +685,13 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
           >
             <View style={styles.sellerRow}>
               <View style={styles.sellerAvatar}>
-                <Text style={styles.sellerAvatarText}>
-                  {String(seller?.username || product.sellerName || 'M').substring(0, 2).toUpperCase()}
-                </Text>
+                {(seller?.photoUrl || product.sellerPhoto) ? (
+                  <Image source={{ uri: seller?.photoUrl || product.sellerPhoto }} style={styles.sellerAvatarImg} />
+                ) : (
+                  <Text style={styles.sellerAvatarText}>
+                    {String(seller?.username || product.sellerName || 'M').substring(0, 2).toUpperCase()}
+                  </Text>
+                )}
               </View>
               <View style={styles.sellerInfo}>
                 <View style={styles.sellerHeaderBadgeRow}>
@@ -1305,7 +1309,8 @@ const styles = StyleSheet.create({
   /* Seller tease styling */
   sellerBox: { marginTop: 16, backgroundColor: '#f8fafc', borderRadius: 18, padding: 14, borderWidth: 1, borderColor: '#e2e8f0' },
   sellerRow: { flexDirection: 'row', alignItems: 'center' },
-  sellerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: '#1e293b' },
+  sellerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: '#1e293b', overflow: 'hidden' },
+  sellerAvatarImg: { width: 44, height: 44, borderRadius: 22 },
   sellerAvatarText: { color: '#ffffff', fontSize: 16, fontFamily: fonts.extrabold },
   sellerInfo: { flex: 1 },
   sellerHeaderBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },

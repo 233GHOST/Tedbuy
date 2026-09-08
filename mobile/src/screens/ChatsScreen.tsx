@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal, PanResponder, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal, PanResponder, TouchableWithoutFeedback, Keyboard, Image } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, fetchChatsApi, fetchMessagesApi, sendMessageApi, markChatReadApi, markAsDelivered, markAsPickedUp, fetchUserById, sendTypingStatus, watchTypingStatus, fetchReviewsForSeller, addReview, isRetryableApiError } from '../firebase';
@@ -946,6 +946,7 @@ export function ChatsScreen() {
             renderItem={({ item }) => {
               const isPeerSeller = item.buyerId === currentUser.uid;
               const displayPeerName = (isPeerSeller ? item.sellerName : item.buyerName) || 'User';
+              const displayPeerPhoto = isPeerSeller ? item.sellerPhoto : item.buyerPhoto;
 
               return (
                 <Pressable
@@ -954,9 +955,13 @@ export function ChatsScreen() {
                   style={styles.chatCard}
                 >
                   <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {String(displayPeerName).slice(0, 2).toUpperCase()}
-                    </Text>
+                    {displayPeerPhoto ? (
+                      <Image source={{ uri: displayPeerPhoto }} style={styles.avatarImg} />
+                    ) : (
+                      <Text style={styles.avatarText}>
+                        {String(displayPeerName).slice(0, 2).toUpperCase()}
+                      </Text>
+                    )}
                   </View>
                   <View style={styles.chatBody}>
                     <View style={styles.rowBetween}>
@@ -1126,7 +1131,8 @@ const styles = StyleSheet.create({
   retryChatsBtnText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13 },
 
   chatCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10, shadowColor: '#0f172a', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, borderWidth: 1, borderColor: '#e2e8f0' },
-  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#1e293b' },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#1e293b', overflow: 'hidden' },
+  avatarImg: { width: 48, height: 48, borderRadius: 24 },
   avatarText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 15 },
   chatBody: { flex: 1, marginLeft: 12 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
