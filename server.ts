@@ -849,7 +849,7 @@ Rules you must follow exactly:
 
 app.post(
   '/api/ai/generate-listing-description',
-  serverRateLimiter(60 * 1000, 8, 'ai-generate-description'),
+  serverRateLimiter(60 * 1000, 3, 'ai-generate-description'),
   async (req: express.Request, res: express.Response) => {
     // Outer safety net: guarantees this endpoint can never respond with
     // anything but valid JSON, no matter what throws below (a malformed
