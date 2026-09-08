@@ -806,35 +806,46 @@ function sanitizeAiDescription(raw: string): string {
 }
 
 function buildListingDescriptionPrompt(input: ListingDescriptionInput): string {
-  const lines: string[] = [
+  const facts: string[] = [
     `Category: ${input.category}`,
     `Title: ${input.title}`,
   ];
-  if (input.brand) lines.push(`Brand: ${input.brand}`);
-  if (input.condition) lines.push(`Condition: ${input.condition}`);
-  if (input.price) lines.push(`Price: GH₵${input.price}`);
-  if (input.negotiable) lines.push('Price is negotiable.');
-  if (input.isExchangeable) lines.push('Seller is open to exchange/swap.');
-  if (input.location) lines.push(`Location: ${input.location}`);
+  if (input.brand) facts.push(`Brand: ${input.brand}`);
+  if (input.condition) facts.push(`Condition: ${input.condition}`);
+  if (input.price) facts.push(`Price: GH₵${input.price}`);
+  if (input.negotiable) facts.push('Price is negotiable.');
+  if (input.isExchangeable) facts.push('Seller is open to exchange/swap.');
+  if (input.location) facts.push(`Location: ${input.location}`);
   if (input.existingDescription) {
-    lines.push(`Seller's own notes so far (use as extra context, do not just repeat verbatim): ${input.existingDescription}`);
+    facts.push(`Seller's own notes so far (use as extra context, do not just repeat verbatim): ${input.existingDescription}`);
   }
-  return lines.join('\n');
+
+  // Restating the requirement right next to the facts (not just in the
+  // system instruction) measurably improves compliance on smaller/faster
+  // models that otherwise default to a single lazy sentence.
+  const reminder = `Remember: mention every one of the facts above somewhere in the description, and write at least 50 words.`;
+
+  return `${facts.join('\n')}\n\n${reminder}`;
 }
 
 // Business/prompt logic lives entirely here, server-side, so web and mobile
 // get byte-identical generation behavior through the one shared endpoint.
 const AI_LISTING_SYSTEM_INSTRUCTION = `You write short product listing descriptions for TedBuy, a Ghanaian online marketplace (like a local Craigslist/OLX equivalent).
 
+You work with two different kinds of facts:
+A) SELLER-GIVEN FACTS — the category, title, condition, price, brand, location, negotiability, exchange, and the seller's own notes given to you below.
+B) WELL-KNOWN PUBLIC SPECS — if the title/brand clearly identifies a specific, well-known retail product (e.g. a named phone, games console, or laptop model), you may add that PRODUCT LINE's genuinely well-known, official manufacturer specs as general background (e.g. what a PS5 Pro's GPU or an iPhone 13 Pro Max's screen size is).
+
 Rules you must follow exactly:
-1. ONLY use facts given to you below. Never invent specifications, condition details, accessories, warranty, battery health, exact age, ownership history, defects, authenticity, or delivery availability that were not explicitly provided.
-2. Do not claim things like "brand new", "100% genuine", "best price in Ghana", "perfect condition", or "guaranteed" unless that exact fact was given to you.
-3. You MUST work every single fact given to you below into the description — category/item type, condition, price, brand, location, negotiability, exchange-possible, and the seller's own notes, whichever of these were provided. Do not silently drop a provided fact just to keep the text short. If information is missing, simply don't mention it — do not guess or hedge with phrases like "likely" or "probably".
-4. Write naturally for a Ghanaian marketplace buyer: concise, honest, persuasive without being misleading, easy to skim.
-5. Write at least 50 words and up to 120 words — even when only a few facts were given, expand on what you do have (what the item is, its condition, why a buyer would want it) instead of writing one short sentence. A one-line description is not acceptable unless literally only a title and category were provided and nothing else.
-6. Do not repeat the title verbatim as the first sentence. Do not repeat the price more than once.
-7. No emojis. No markdown formatting, no HTML, no code fences — plain text only, short paragraphs or a short bullet list if helpful.
-8. Output ONLY the description text itself — no preamble like "Here's a description:", no labels, no quotes around it.`;
+1. Anything about THIS SPECIFIC UNIT for sale — its actual condition/defects, what accessories are included, warranty, battery health, exact age, ownership history, authenticity, or delivery availability — may ONLY come from the seller-given facts below. Never invent unit-specific claims.
+2. Only state a well-known public spec (category B) when you are genuinely confident it's correct for the exact model named in the title, AND it doesn't vary between common configurations of that model. If a spec varies by configuration (storage size, RAM, color) and the title doesn't say which one this is, leave that spec out rather than guessing a number.
+3. Do not claim things like "brand new", "100% genuine", "best price in Ghana", "perfect condition", or "guaranteed" unless that exact fact was given to you as a seller-given fact.
+4. You MUST work every single seller-given fact into the description — category/item type, condition, price, brand, location, negotiability, exchange-possible, and the seller's own notes, whichever were provided. Do not silently drop a provided fact just to keep the text short.
+5. Write naturally for a Ghanaian marketplace buyer: concise, honest, persuasive without being misleading, easy to skim.
+6. Write at least 50 words and up to 120 words — even when only a few facts were given, expand on what you do have (what the item is, its condition, why a buyer would want it, relevant well-known specs) instead of writing one short sentence. A one-line description is not acceptable.
+7. Do not repeat the title verbatim as the first sentence. Do not repeat the price more than once.
+8. No emojis. No markdown formatting, no HTML, no code fences — plain text only, short paragraphs or a short bullet list if helpful.
+9. Output ONLY the description text itself — no preamble like "Here's a description:", no labels, no quotes around it.`;
 
 app.post(
   '/api/ai/generate-listing-description',
@@ -894,8 +905,12 @@ app.post(
           contents: promptContent,
           config: {
             systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
-            temperature: 0.8,
-            maxOutputTokens: 350,
+            // Lower than a typical "creative writing" temperature on purpose —
+            // this endpoint needs reliable instruction-following (use every
+            // given fact, hit the word-count floor) far more than creative
+            // variety, and higher temperatures measurably hurt compliance.
+            temperature: 0.5,
+            maxOutputTokens: 450,
             abortSignal: controller.signal,
           },
         });
