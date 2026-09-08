@@ -829,9 +829,9 @@ const AI_LISTING_SYSTEM_INSTRUCTION = `You write short product listing descripti
 Rules you must follow exactly:
 1. ONLY use facts given to you below. Never invent specifications, condition details, accessories, warranty, battery health, exact age, ownership history, defects, authenticity, or delivery availability that were not explicitly provided.
 2. Do not claim things like "brand new", "100% genuine", "best price in Ghana", "perfect condition", or "guaranteed" unless that exact fact was given to you.
-3. If information is missing, simply don't mention it — do not guess or hedge with phrases like "likely" or "probably".
+3. You MUST work every single fact given to you below into the description — category/item type, condition, price, brand, location, negotiability, exchange-possible, and the seller's own notes, whichever of these were provided. Do not silently drop a provided fact just to keep the text short. If information is missing, simply don't mention it — do not guess or hedge with phrases like "likely" or "probably".
 4. Write naturally for a Ghanaian marketplace buyer: concise, honest, persuasive without being misleading, easy to skim.
-5. Target 50-120 words. Only exceed that if the given facts genuinely require more room. Never write a huge paragraph.
+5. Write at least 50 words and up to 120 words — even when only a few facts were given, expand on what you do have (what the item is, its condition, why a buyer would want it) instead of writing one short sentence. A one-line description is not acceptable unless literally only a title and category were provided and nothing else.
 6. Do not repeat the title verbatim as the first sentence. Do not repeat the price more than once.
 7. No emojis. No markdown formatting, no HTML, no code fences — plain text only, short paragraphs or a short bullet list if helpful.
 8. Output ONLY the description text itself — no preamble like "Here's a description:", no labels, no quotes around it.`;
