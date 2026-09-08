@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { Chat, Message, User } from '../types';
-import { ArrowLeft, Send, ShoppingBag, Eye, MessageSquare, ShieldAlert, Star, CheckCircle, Trash2, Check, CheckCheck, Search, X, Copy, ChevronDown, Sparkles } from 'lucide-react';
+import { Chat, Message, User, isUserVerified } from '../types';
+import { ArrowLeft, Send, ShoppingBag, Eye, MessageSquare, ShieldAlert, Star, CheckCircle, Trash2, Check, CheckCheck, Search, X, Copy, ChevronDown, Sparkles, Phone, MessageCircle } from 'lucide-react';
 import { ReviewModal } from './ReviewModal';
 import { getVisibleChats } from '../utils/chatStateUtils';
 import { formatTedbuyTenure, formatMessageDateGroup } from '../utils/dateParser';
@@ -530,11 +530,11 @@ export const ChatInterface: React.FC = () => {
   }, []);
 
   return (
-    <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8 py-0 sm:py-6">
-      <div className="bg-white border-0 sm:border border-slate-200 sm:rounded-3xl shadow-xs sm:shadow-md overflow-hidden flex flex-col md:grid md:grid-cols-12 h-[calc(100vh-125px)] sm:h-[calc(100vh-160px)] md:h-[calc(100vh-220px)] h-[calc(100dvh-125px)] min-h-[380px] sm:min-h-[500px] md:min-h-[550px]">
+    <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8 py-0 sm:py-6 h-full flex-1 flex flex-col">
+      <div className="bg-white border-0 sm:border border-slate-200 sm:rounded-3xl shadow-none sm:shadow-md overflow-hidden flex flex-col md:grid md:grid-cols-12 h-full flex-1 min-h-0 md:h-[calc(100vh-220px)] md:min-h-[550px]">
         
         {/* Left Side: Inbox List (4 cols) */}
-        <div className={`${viewingChatOnMobile ? 'hidden md:flex' : 'flex'} md:col-span-4 border-r border-slate-150 flex flex-col h-full bg-slate-50`}>
+        <div className={`${viewingChatOnMobile ? 'hidden md:flex' : 'flex'} md:col-span-4 border-r border-slate-150 flex flex-col h-full min-h-0 bg-slate-50 flex-1`}>
           <div className="p-3.5 border-b border-slate-150 bg-white sticky top-0 z-10 space-y-2.5">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-slate-900 font-sans flex items-center gap-2">
@@ -837,7 +837,7 @@ export const ChatInterface: React.FC = () => {
         )}
 
         {/* Right Side: Chat Panel log (8 cols) */}
-        <div className={`${viewingChatOnMobile ? 'flex' : 'hidden md:flex'} md:col-span-8 flex flex-col h-full bg-slate-100 relative`}>
+        <div className={`${viewingChatOnMobile ? 'fixed inset-0 z-50 flex flex-col bg-slate-100 md:static md:z-auto md:h-full md:col-span-8' : 'hidden md:flex md:col-span-8 flex flex-col h-full bg-slate-100 relative'}`}>
           {activeChat ? (
             <>
               {/* Product Info / Chat Header banner */}
@@ -857,7 +857,7 @@ export const ChatInterface: React.FC = () => {
                     <div className="flex items-center gap-2.5 sm:gap-3 text-left min-w-0">
                       <button
                         onClick={() => setViewingChatOnMobile(false)}
-                        className="md:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0"
+                        className="p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0 cursor-pointer"
                         title="Back to inbox list"
                       >
                         <ArrowLeft className="w-5 h-5 text-slate-900" />
@@ -881,103 +881,140 @@ export const ChatInterface: React.FC = () => {
                   </div>
                 );
               })() : (
-                <div className="bg-white border-b border-slate-200 p-3.5 flex items-center justify-between shadow-xs sticky top-0 z-25">
-                  <div className="flex items-center gap-2 sm:gap-3 text-left min-w-0">
-                    <button
-                      onClick={() => setViewingChatOnMobile(false)}
-                      className="md:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 active:scale-95 transition shrink-0"
-                      title="Back to inbox list"
-                    >
-                      <ArrowLeft className="w-5 h-5 text-slate-900" />
-                    </button>
+                <div className="bg-white border-b border-slate-200 p-2.5 sm:p-3.5 flex flex-col gap-2 shadow-xs sticky top-0 z-25">
+                  {/* Top Row: Back button, Peer Profile Identity, Quick Call/WhatsApp, and Delete */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+                      <button
+                        onClick={() => setViewingChatOnMobile(false)}
+                        className="p-1.5 -ml-1 rounded-xl text-slate-700 hover:bg-slate-100 active:scale-95 transition shrink-0 cursor-pointer"
+                        title="Back to inbox list"
+                      >
+                        <ArrowLeft className="w-5 h-5 text-slate-900" />
+                      </button>
 
-                    {(() => {
-                      const activeAdId = activeChat.adId || activeChat.productId;
-                      const associatedProduct = products.find(p => p.id === activeAdId);
-                      
-                      const isActiveAdDeleted = !associatedProduct && activeAdId !== 'support_welcome';
-
-                      let activeThumbnail = "";
-                      const activeAdType = activeChat.adType || (associatedProduct ? (associatedProduct.videos && associatedProduct.videos.length > 0 ? 'video' : 'image') : (activeChat.productImage && isVideo(activeChat.productImage) ? 'video' : 'image'));
-                      const activeVideoPoster = activeChat.videoPoster || (associatedProduct ? (associatedProduct.videos?.[0] || '') : (activeAdType === 'video' ? activeChat.productImage : ''));
-                      const activeAdImage = activeChat.adImage || (associatedProduct ? (associatedProduct.images?.[0] || '') : (activeAdType === 'image' ? activeChat.productImage : ''));
-                      const activeAdThumbnail = activeChat.adThumbnail || activeVideoPoster || activeAdImage;
-
-                      const activeConversation = {
-                        ...activeChat,
-                        adType: activeAdType,
-                        videoPoster: activeVideoPoster,
-                        adImage: activeAdImage,
-                        adThumbnail: activeAdThumbnail
-                      };
-
-                      if (isActiveAdDeleted) {
-                        activeThumbnail = "DELETED_PLACEHOLDER";
-                      } else if (activeConversation.productId === "support_welcome") {
-                        activeThumbnail = "/favicon.svg";
-                      } else {
-                        // Strict validation requirement
-                        if (activeConversation.adType === "video") {
-                          activeThumbnail = activeConversation.adThumbnail || activeConversation.videoPoster;
-                        } else {
-                          activeThumbnail = activeConversation.adImage;
-                        }
-                      }
-
-                      if (activeThumbnail === "DELETED_PLACEHOLDER") {
-                        return <DeletedPlaceholder className="w-10 h-10 cursor-pointer" />;
-                      }
-
-                      if (activeConversation.adType === "video") {
-                        return (
-                          <div 
-                            onClick={viewProductDetails}
-                            className="w-10 h-10 rounded-xl border border-slate-200 shrink-0 overflow-hidden bg-black flex items-center justify-center cursor-pointer hover:opacity-85"
-                          >
-                            <VideoThumbnail
-                              videoUrl={activeThumbnail}
-                              alt={activeChat.productTitle}
-                              className="w-full h-full object-cover"
-                            />
+                      <div className="relative shrink-0">
+                        {otherUser?.photoUrl ? (
+                          <img
+                            src={otherUser.photoUrl}
+                            alt={otherUserName}
+                            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover border border-slate-200"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-900 text-white font-black text-xs flex items-center justify-center border border-slate-200">
+                            {otherUserName.slice(0, 2).toUpperCase()}
                           </div>
-                        );
-                      }
+                        )}
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
+                      </div>
 
-                      return (
-                        <img
-                          src={activeThumbnail || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
-                          alt={activeChat.productTitle}
-                          onClick={viewProductDetails}
-                          className="w-10 h-10 rounded-xl object-cover cursor-pointer hover:opacity-85 border border-slate-200 shrink-0"
-                        />
-                      );
-                    })()}
-                    <div className="min-w-0">
-                      <h3 onClick={viewProductDetails} className="text-xs font-bold text-slate-900 cursor-pointer hover:text-slate-950 transition truncate">
-                        {activeChat.productTitle}
-                      </h3>
-                      <p className="text-sm font-bold text-slate-900 font-sans">
-                        GHS {activeChat.productPrice.toLocaleString()}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <h3 className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                            {otherUserName}
+                          </h3>
+                          {otherUser && isUserVerified(otherUser) && (
+                            <CheckCircle className="w-3.5 h-3.5 text-orange-500 fill-orange-500/20 shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-medium truncate">
+                          {activeChat.buyerId === currentUser?.id ? 'Seller' : 'Buyer'} • Active Trader
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Call button if phone exists */}
+                      {(otherUser?.phoneNumber || otherUser?.whatsAppNumber) && (
+                        <a
+                          href={`tel:${otherUser?.phoneNumber || otherUser?.whatsAppNumber}`}
+                          className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition flex items-center justify-center shrink-0 cursor-pointer"
+                          title="Call Trader"
+                        >
+                          <Phone className="w-4 h-4" />
+                        </a>
+                      )}
+                      {/* WhatsApp button if whatsapp exists */}
+                      {(otherUser?.whatsAppNumber || otherUser?.phoneNumber) && (
+                        <a
+                          href={`https://wa.me/${(otherUser?.whatsAppNumber || otherUser?.phoneNumber || '').replace(/[^0-9]/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition flex items-center justify-center shrink-0 shadow-2xs cursor-pointer"
+                          title="Open WhatsApp"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </a>
+                      )}
+                      <button
+                        id="btn-delete-chat"
+                        onClick={() => void handleDeleteChat(activeChat?.id)}
+                        className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition flex items-center justify-center shrink-0 cursor-pointer"
+                        title="Delete Chat"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400 text-xs hidden sm:inline">Negotiating with: <strong className="text-slate-700">{otherUserName}</strong></span>
+
+                  {/* Sub-bar: Compact Product Card / Ad Pill */}
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2 flex items-center justify-between gap-2">
+                    <div 
+                      onClick={viewProductDetails}
+                      className="flex items-center gap-2 min-w-0 cursor-pointer hover:opacity-85 transition"
+                    >
+                      {(() => {
+                        const activeAdId = activeChat.adId || activeChat.productId;
+                        const associatedProduct = products.find(p => p.id === activeAdId);
+                        const isActiveAdDeleted = !associatedProduct && activeAdId !== 'support_welcome';
+                        let activeThumbnail = "";
+                        const activeAdType = activeChat.adType || (associatedProduct ? (associatedProduct.videos && associatedProduct.videos.length > 0 ? 'video' : 'image') : (activeChat.productImage && isVideo(activeChat.productImage) ? 'video' : 'image'));
+                        const activeVideoPoster = activeChat.videoPoster || (associatedProduct ? (associatedProduct.videos?.[0] || '') : (activeAdType === 'video' ? activeChat.productImage : ''));
+                        const activeAdImage = activeChat.adImage || (associatedProduct ? (associatedProduct.images?.[0] || '') : (activeAdType === 'image' ? activeChat.productImage : ''));
+                        const activeAdThumbnail = activeChat.adThumbnail || activeVideoPoster || activeAdImage;
+
+                        if (isActiveAdDeleted) {
+                          return <DeletedPlaceholder className="w-8 h-8 rounded-lg cursor-pointer" />;
+                        }
+
+                        if (activeAdType === 'video') {
+                          return (
+                            <div className="w-8 h-8 rounded-lg border border-slate-200 shrink-0 overflow-hidden bg-black flex items-center justify-center">
+                              <VideoThumbnail
+                                videoUrl={activeAdThumbnail || activeThumbnail}
+                                alt={activeChat.productTitle}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <img
+                            src={activeAdThumbnail || activeThumbnail || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}
+                            alt={activeChat.productTitle}
+                            className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0"
+                          />
+                        );
+                      })()}
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-900 truncate">
+                          {activeChat.productTitle}
+                        </p>
+                        <p className="text-[11px] font-black text-slate-800">
+                          GHS {activeChat.productPrice.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+
                     <button
                       id="btn-chat-view-product"
                       onClick={viewProductDetails}
-                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 font-bold text-xs text-white rounded-xl transition flex items-center gap-1"
+                      className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] rounded-lg transition flex items-center gap-1 shrink-0 cursor-pointer shadow-3xs"
                     >
-                      <Eye className="w-3.5 h-3.5" />
+                      <Eye className="w-3 h-3" />
                       <span>View Ad</span>
-                    </button>
-                    <button
-                      id="btn-delete-chat"
-                      onClick={() => void handleDeleteChat(activeChat?.id)}
-                      className="hidden md:flex px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-xl transition items-center gap-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete Chat</span>
                     </button>
                   </div>
                 </div>

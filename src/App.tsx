@@ -112,7 +112,8 @@ const MarketplaceContent: React.FC = () => {
     isBottomNavVisible,
     setIsBottomNavVisible,
     deletedChatIds,
-    deletedMessageIds
+    deletedMessageIds,
+    viewingChatOnMobile
   } = useApp();
 
   // Hide bottom navigation on scroll down, show on scroll up for mobile devices
@@ -692,9 +693,15 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       <main 
-        className={`flex-1 flex flex-col w-full min-h-[calc(100vh-80px)] md:min-h-[calc(100vh-140px)] pb-16 md:pb-0 ${currentView === 'browse' && homeViewMode === 'video-feed' ? 'overflow-hidden flex flex-col h-full pb-0' : ''}`}
+        className={`flex-1 flex flex-col w-full min-h-[calc(100vh-80px)] md:min-h-[calc(100vh-140px)] ${
+          (currentView === 'browse' && homeViewMode === 'video-feed') || (currentView === 'chats' && viewingChatOnMobile)
+            ? 'overflow-hidden flex flex-col h-full pb-0'
+            : currentView === 'chats'
+            ? 'pb-16 md:pb-0 h-[calc(100dvh-64px)] min-h-0'
+            : 'pb-16 md:pb-0'
+        }`}
         style={
-          currentView === 'browse' && homeViewMode === 'video-feed'
+          (currentView === 'browse' && homeViewMode === 'video-feed') || (currentView === 'chats' && viewingChatOnMobile)
             ? {
                 paddingTop: 'env(safe-area-inset-top, 0px)',
                 paddingBottom: 'env(safe-area-inset-bottom, 0px)'
@@ -1672,7 +1679,7 @@ const MarketplaceContent: React.FC = () => {
 
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
       <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around transition-all duration-300 transform ${
-        isBottomNavVisible ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
+        (isBottomNavVisible && !(currentView === 'chats' && viewingChatOnMobile)) ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
       } ${
         isVideoFeedMobile
           ? 'bg-slate-900/95 border-t border-slate-950/80 text-white'
