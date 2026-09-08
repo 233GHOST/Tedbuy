@@ -182,10 +182,11 @@ function handleSessionExpired() {
 // non-hanging behavior with zero changes required at the call site. An
 // `errorCode` field is also attached for any caller that wants to react to a
 // specific failure kind (e.g. SESSION_EXPIRED) without parsing message text.
-async function apiFetch(path: string, options: { method?: string; body?: any } = {}): Promise<any> {
+async function apiFetch(path: string, options: { method?: string; body?: any; timeoutMs?: number } = {}): Promise<any> {
   const authHeaders = await getAuthHeaderMobile();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const effectiveTimeoutMs = options.timeoutMs ?? API_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
   let res: Response;
   try {
@@ -198,7 +199,7 @@ async function apiFetch(path: string, options: { method?: string; body?: any } =
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err?.name === 'AbortError') {
-      console.warn(`[apiFetch] Timed out after ${API_TIMEOUT_MS}ms: ${path}`);
+      console.warn(`[apiFetch] Timed out after ${effectiveTimeoutMs}ms: ${path}`);
       return { success: false, error: 'That took too long. Please check your connection and try again.', errorCode: 'TIMEOUT' as ApiErrorCode };
     }
     console.warn(`[apiFetch] Network error on ${path}:`, err?.message || err);
@@ -367,20 +368,24 @@ export interface ListingDescriptionInputMobile {
   negotiable?: boolean;
   isExchangeable?: boolean;
   existingDescription?: string;
+  /** Up to 3 entries — each either an already-uploaded Cloudinary URL (typical case, since photos upload on pick) or a `data:image/jpeg;base64,...` fallback for one not yet uploaded. */
+  images?: string[];
 }
 
 // Thin client for POST /api/ai/generate-listing-description — all prompt
 // building and provider logic lives server-side so this behaves identically
 // to the web app's generator. Never throws: mirrors apiFetch's own contract
-// so SellScreen can just check `.success`.
+// so SellScreen can just check `.success`. Uses a longer timeout than the
+// app's other API calls — multimodal (image) generation genuinely takes
+// longer than pure text.
 export async function generateListingDescriptionMobile(
   input: ListingDescriptionInputMobile
-): Promise<{ success: boolean; description?: string; error?: string }> {
-  const data = await apiFetch('/api/ai/generate-listing-description', { method: 'POST', body: input });
+): Promise<{ success: boolean; description?: string; warning?: string; error?: string }> {
+  const data = await apiFetch('/api/ai/generate-listing-description', { method: 'POST', body: input, timeoutMs: 35000 });
   if (!data.success) {
     return { success: false, error: data.error || "Couldn't generate a description right now. You can write your description manually." };
   }
-  return { success: true, description: data.description as string };
+  return { success: true, description: data.description as string, warning: typeof data.warning === 'string' ? data.warning : undefined };
 }
 
 export async function deleteProductMobile(productId: string) {

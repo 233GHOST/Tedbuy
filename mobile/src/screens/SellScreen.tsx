@@ -312,6 +312,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   const [description, setDescription] = useState('');
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [aiDescriptionError, setAiDescriptionError] = useState('');
+  const [aiDescriptionWarning, setAiDescriptionWarning] = useState('');
   const lastAiGeneratedTextRef = useRef('');
   const [descHeight, setDescHeight] = useState(DESC_MIN_HEIGHT);
   // Auto-grows as the user types (onContentSizeChange below) so nothing they
@@ -1343,9 +1344,34 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
 
     const runGeneration = async () => {
       setAiDescriptionError('');
+      setAiDescriptionWarning('');
       setIsGeneratingDescription(true);
       try {
         const compiledLocationForAi = adNeighborhood.trim() ? `${adNeighborhood.trim()}, ${adCity}` : adCity;
+
+        // Up to 3 images: prefer the already-uploaded Cloudinary URL (the
+        // normal case — photos upload to Cloudinary immediately on pick,
+        // well before Generate is ever tapped, so this reuses that same
+        // asset rather than uploading a second copy). Only for a photo
+        // that's still mid-upload do we fall back to reading it locally.
+        const imagesForAi: string[] = [];
+        for (const img of images.slice(0, 3)) {
+          if (img.remoteUrl) {
+            imagesForAi.push(img.remoteUrl);
+            continue;
+          }
+          try {
+            const manipulated = await ImageManipulator.manipulateAsync(
+              img.localUri,
+              [{ resize: { width: 768 } }],
+              { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+            );
+            if (manipulated.base64) imagesForAi.push(`data:image/jpeg;base64,${manipulated.base64}`);
+          } catch {
+            // Skip this one image — generation still proceeds without it.
+          }
+        }
+
         const result = await generateListingDescriptionMobile({
           category: selectedCategory,
           title: title.trim(),
@@ -1356,10 +1382,12 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           negotiable,
           isExchangeable,
           existingDescription: description.trim() || undefined,
+          images: imagesForAi.length > 0 ? imagesForAi : undefined,
         });
         if (result.success && result.description) {
           setDescription(result.description);
           lastAiGeneratedTextRef.current = result.description;
+          if (result.warning) setAiDescriptionWarning(result.warning);
         } else {
           setAiDescriptionError(result.error || "Couldn't generate a description right now. You can write your description manually.");
         }
@@ -1576,6 +1604,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                   setDescription('');
                   lastAiGeneratedTextRef.current = '';
                   setAiDescriptionError('');
+                  setAiDescriptionWarning('');
                 }}
               >
                 <Text style={styles.conditionClearText}>Clear</Text>
@@ -1629,6 +1658,8 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         />
         {aiDescriptionError ? (
           <Text style={styles.aiErrorText}>{aiDescriptionError}</Text>
+        ) : aiDescriptionWarning ? (
+          <Text style={styles.aiWarningText}>⚠ {aiDescriptionWarning}</Text>
         ) : !hasMinimumInfoForAi ? (
           <Text style={styles.aiHintText}>Add a little more information about your item (at least a title) for a better AI-generated description.</Text>
         ) : null}
@@ -2275,6 +2306,7 @@ const styles = StyleSheet.create({
   aiGenerateButtonTextDisabled: { color: '#cbd5e1' },
   aiHintText: { fontSize: 11, color: '#94a3b8', fontFamily: fonts.medium, marginTop: 6 },
   aiErrorText: { fontSize: 11, color: '#e11d48', fontFamily: fonts.semibold, marginTop: 6 },
+  aiWarningText: { fontSize: 11, color: '#b45309', fontFamily: fonts.semibold, marginTop: 6 },
   boostOptionCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 16, padding: 14, marginBottom: 14 },
   boostOptionCardActive: { borderColor: '#fbbf24', backgroundColor: '#fffbeb' },
   boostOptionTitle: { fontSize: 13, color: '#92400e', fontFamily: fonts.extrabold },

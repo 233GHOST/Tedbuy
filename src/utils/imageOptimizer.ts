@@ -82,6 +82,45 @@ export const compressImage = async (file: File, maxWidth = 900, maxHeight = 900,
 };
 
 /**
+ * Re-compresses an already-in-memory image (a data URL, typically one of
+ * the listing's own `images[]` entries) down to a small copy specifically
+ * for AI vision analysis. Deliberately separate from `compressImage` above:
+ * the listing photo itself (1200px/q0.8) is more detail than an AI call
+ * needs, and this must never touch/replace the original that will actually
+ * be submitted with the listing — callers pass in a data URL and get a new,
+ * independent one back.
+ */
+export const downscaleDataUrlForAI = (dataUrl: string, maxDim = 768, quality = 0.6): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let { width, height } = img;
+      if (width > height) {
+        if (width > maxDim) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        }
+      } else if (height > maxDim) {
+        width = Math.round((width * maxDim) / height);
+        height = maxDim;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+};
+
+/**
  * Validates and ensures that a Cloudinary image or video URL includes the essential optimization
  * parameters ('f_auto' and 'q_auto') for consistent cross-browser format support and optimal load speed.
  * Returns information about validation status, missing parameters, and the updated transformed URL.

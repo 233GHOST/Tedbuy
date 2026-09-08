@@ -4,7 +4,7 @@ import { Category, Product, normalizeCategory, CATEGORY_ICONS } from '../types';
 import { BoostModal } from './BoostModal';
 import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Loader2, ArrowRight } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
-import { compressImage } from '../utils/imageOptimizer';
+import { compressImage, downscaleDataUrlForAI } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
 import { toUserFriendlyError } from '../utils/authErrorHelper';
 import { uploadToCloudinary, uploadVideoDirectToCloudinary, cleanupOrphanedCloudinaryAssets, getCloudinaryVideoPoster } from '../utils/cloudinary';
@@ -47,6 +47,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [aiDescriptionError, setAiDescriptionError] = useState('');
+  const [aiDescriptionWarning, setAiDescriptionWarning] = useState('');
   const lastAiGeneratedTextRef = useRef('');
 
   // Auto-resize description textarea as user types
@@ -799,9 +800,22 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     }
 
     setAiDescriptionError('');
+    setAiDescriptionWarning('');
     setIsGeneratingDescription(true);
     try {
       const compiledLocationForAi = adNeighborhood.trim() ? `${adNeighborhood.trim()}, ${adCity}` : adCity;
+
+      // Derive small AI-only copies of up to 3 already-selected images —
+      // never the originals that'll actually be submitted with the listing.
+      // `images[]` here is already a compressed data URL (1200px/q0.8) from
+      // upload time, so this is a second, smaller re-compression purely for
+      // the AI call.
+      const imagesForAi = (
+        await Promise.all(
+          images.slice(0, 3).map((img) => downscaleDataUrlForAI(img).catch(() => null))
+        )
+      ).filter((v): v is string => !!v);
+
       const result = await generateListingDescription({
         category,
         title: title.trim(),
@@ -812,11 +826,13 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         negotiable,
         isExchangeable,
         existingDescription: description.trim() || undefined,
+        images: imagesForAi.length > 0 ? imagesForAi : undefined,
       });
 
       if (result.success && result.description) {
         setDescription(result.description);
         lastAiGeneratedTextRef.current = result.description;
+        if (result.warning) setAiDescriptionWarning(result.warning);
       } else {
         setAiDescriptionError(result.error || "Couldn't generate a description right now. You can write your description manually.");
       }
@@ -1468,6 +1484,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         setDescription('');
                         lastAiGeneratedTextRef.current = '';
                         setAiDescriptionError('');
+                        setAiDescriptionWarning('');
                       }}
                       className="text-[11px] text-slate-400 hover:text-slate-600 underline font-medium"
                     >
@@ -1514,6 +1531,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
               />
               {aiDescriptionError ? (
                 <p className="mt-1.5 text-[11px] text-rose-500 font-medium">{aiDescriptionError}</p>
+              ) : aiDescriptionWarning ? (
+                <p className="mt-1.5 text-[11px] text-amber-600 font-medium">⚠ {aiDescriptionWarning}</p>
               ) : !hasMinimumInfoForAi ? (
                 <p className="mt-1.5 text-[11px] text-slate-400">Add a little more information about your item (at least a title) for a better AI-generated description.</p>
               ) : null}

@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import compression from "compression";
 import { v2 as cloudinary } from "cloudinary";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp as initAdminApp, cert as adminCert, getApps as getAdminApps } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
@@ -777,7 +777,12 @@ function getGenAIClient(): GoogleGenAI | null {
 }
 
 const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-const AI_GENERATION_TIMEOUT_MS = 20000;
+// Multimodal (image) processing genuinely needs more headroom than pure
+// text generation — measured from the start of the Gemini call only; image
+// fetching (for the Cloudinary-URL path) has its own separate, shorter
+// budget below.
+const AI_GENERATION_TIMEOUT_MS = 25000;
+const AI_LISTING_MAX_IMAGES = 3;
 
 interface ListingDescriptionInput {
   category: string;
@@ -789,6 +794,109 @@ interface ListingDescriptionInput {
   negotiable?: boolean;
   isExchangeable?: boolean;
   existingDescription?: string;
+}
+
+// --- Image input handling -------------------------------------------------
+// Each requested image arrives as either:
+//  - a `data:image/...;base64,...` URL — what the web app sends, since it
+//    already keeps images as locally-compressed data URLs until final
+//    listing submission (no Cloudinary upload has happened yet at this
+//    point), or
+//  - a `https://res.cloudinary.com/<our-cloud-name>/image/upload/...` URL —
+//    what the mobile app sends, since it uploads each picked photo to
+//    Cloudinary immediately on pick, well before "Generate" is ever tapped.
+//    This reuses that same asset (the one that'll end up on the listing
+//    anyway) rather than uploading a second, temporary, eventually-orphaned
+//    copy just for AI analysis.
+// Both are normalized here into inline base64 bytes, since the Gemini API
+// only accepts image bytes (or a Google-hosted file URI) — there is no way
+// to just hand it an arbitrary external URL to fetch itself.
+interface InlineImagePart {
+  mimeType: string;
+  data: string; // base64, no "data:" prefix
+}
+
+const ALLOWED_AI_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const AI_IMAGE_MAX_BASE64_CHARS = 1_500_000; // ~1.1MB decoded, per image
+const AI_IMAGE_FETCH_TIMEOUT_MS = 6000;
+const AI_IMAGE_FETCH_MAX_BYTES = 3_000_000;
+const CLOUDINARY_IMAGE_CLOUD_NAME = process.env.VITE_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME || 'dfm3g2qvg';
+
+function parseDataUrlImage(raw: string): InlineImagePart | null {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(raw.trim());
+  if (!match) return null;
+  const [, mimeType, data] = match;
+  if (!ALLOWED_AI_IMAGE_MIME_TYPES.has(mimeType)) return null;
+  if (!data || data.length > AI_IMAGE_MAX_BASE64_CHARS) return null;
+  return { mimeType, data };
+}
+
+// Only ever fetches a URL that is demonstrably one of TedBuy's own
+// Cloudinary uploads (exact configured cloud name, /image/upload/ path) —
+// never an arbitrary client-supplied URL. This is what keeps this from
+// being an SSRF vector: the server never fetches anything a client just
+// hands it, only assets that already went through our own authenticated
+// upload pipeline under our own cloud account.
+function isOwnCloudinaryImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.hostname !== 'res.cloudinary.com') return false;
+    return parsed.pathname.startsWith(`/${CLOUDINARY_IMAGE_CLOUD_NAME}/image/upload/`);
+  } catch {
+    return false;
+  }
+}
+
+// Rewrites to a small, forced-JPEG delivery transformation so the server
+// downloads an already-downsized copy for AI analysis rather than the
+// original full-resolution listing photo, regardless of whatever
+// transform (if any) was already present in the URL.
+function toSmallAiJpegUrl(url: string): string {
+  const marker = '/image/upload/';
+  const idx = url.indexOf(marker);
+  if (idx === -1) return url;
+  const insertAt = idx + marker.length;
+  return `${url.slice(0, insertAt)}w_768,c_limit,q_60,f_jpg/${url.slice(insertAt)}`;
+}
+
+async function fetchOwnCloudinaryImageAsInline(url: string): Promise<InlineImagePart | null> {
+  if (!isOwnCloudinaryImageUrl(url)) {
+    console.warn('[AI Listing Description] Rejected an image URL that is not a TedBuy Cloudinary upload.');
+    return null;
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_IMAGE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(toSmallAiJpegUrl(url), { signal: controller.signal });
+    if (!res.ok) return null;
+    const contentLength = Number(res.headers.get('content-length') || '0');
+    if (contentLength && contentLength > AI_IMAGE_FETCH_MAX_BYTES) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength > AI_IMAGE_FETCH_MAX_BYTES) return null;
+    return { mimeType: 'image/jpeg', data: buf.toString('base64') };
+  } catch (err: any) {
+    console.warn('[AI Listing Description] Failed to fetch Cloudinary image for AI analysis:', err?.message || err);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Invalid/oversized/unreachable entries are silently dropped rather than
+// failing the whole request — a photo materially improves the result but
+// was never a hard requirement (text-only generation must keep working).
+async function normalizeRequestImages(raw: any): Promise<InlineImagePart[]> {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const candidates = raw.slice(0, AI_LISTING_MAX_IMAGES).filter((v): v is string => typeof v === 'string');
+
+  const results = await Promise.all(candidates.map(async (entry) => {
+    if (entry.startsWith('data:image/')) return parseDataUrlImage(entry);
+    if (entry.startsWith('https://res.cloudinary.com/')) return fetchOwnCloudinaryImageAsInline(entry);
+    return null;
+  }));
+
+  return results.filter((v): v is InlineImagePart => v !== null);
 }
 
 // Descriptions are only ever rendered as plain JSX text (React auto-escapes)
@@ -805,7 +913,7 @@ function sanitizeAiDescription(raw: string): string {
   return text;
 }
 
-function buildListingDescriptionPrompt(input: ListingDescriptionInput): string {
+function buildListingDescriptionPrompt(input: ListingDescriptionInput, imageCount: number): string {
   const facts: string[] = [
     `Category: ${input.category}`,
     `Title: ${input.title}`,
@@ -819,33 +927,57 @@ function buildListingDescriptionPrompt(input: ListingDescriptionInput): string {
   if (input.existingDescription) {
     facts.push(`Seller's own notes so far (use as extra context, do not just repeat verbatim): ${input.existingDescription}`);
   }
+  if (imageCount > 0) {
+    facts.push(imageCount === 1
+      ? 'One product photo is attached below.'
+      : `${imageCount} product photos are attached below, all of the same item for sale — the first is the primary photo.`);
+  }
 
   // Restating the requirement right next to the facts (not just in the
   // system instruction) measurably improves compliance on smaller/faster
   // models that otherwise default to a single lazy sentence.
-  const reminder = `Remember: mention every one of the facts above somewhere in the description, and write at least 50 words.`;
+  const reminder = `Remember: mention every one of the seller-given facts above somewhere in the description, and write at least 50 words.`;
 
   return `${facts.join('\n')}\n\n${reminder}`;
 }
 
 // Business/prompt logic lives entirely here, server-side, so web and mobile
 // get byte-identical generation behavior through the one shared endpoint.
-const AI_LISTING_SYSTEM_INSTRUCTION = `You write short product listing descriptions for TedBuy, a Ghanaian online marketplace (like a local Craigslist/OLX equivalent).
+const AI_LISTING_SYSTEM_INSTRUCTION = `You write short product listing descriptions for TedBuy, a Ghanaian online marketplace (like a local Craigslist/OLX equivalent). You may be given product photo(s) alongside the structured listing data below — when photos are attached, reason over both together rather than treating them separately.
 
-You work with two different kinds of facts:
-A) SELLER-GIVEN FACTS — the category, title, condition, price, brand, location, negotiability, exchange, and the seller's own notes given to you below.
-B) WELL-KNOWN PUBLIC SPECS — if the title/brand clearly identifies a specific, well-known retail product (e.g. a named phone, games console, or laptop model), you may add that PRODUCT LINE's genuinely well-known, official manufacturer specs as general background (e.g. what a PS5 Pro's GPU or an iPhone 13 Pro Max's screen size is).
+You work with three kinds of information, in this priority order:
+A) SELLER-GIVEN FACTS (authoritative) — the category, title, condition, price, brand, location, negotiability, exchange, and the seller's own notes given to you below. These always win over anything else.
+B) VISUAL OBSERVATIONS — things genuinely visible in the attached photo(s), if any: apparent product type, visible brand/logo, visible color, visible accessories, general visible appearance, clearly visible cosmetic marks. State these conservatively ("appears to be", "visible in the photo") whenever there's real uncertainty, and never turn an uncertain visual impression into a definite claim.
+C) WELL-KNOWN PUBLIC SPECS — if the title/brand clearly identifies a specific, well-known retail product (e.g. a named phone, games console, or laptop model), you may add that PRODUCT LINE's genuinely well-known, official manufacturer specs as general background (e.g. what a PS5 Pro's GPU is).
 
 Rules you must follow exactly:
-1. Anything about THIS SPECIFIC UNIT for sale — its actual condition/defects, what accessories are included, warranty, battery health, exact age, ownership history, authenticity, or delivery availability — may ONLY come from the seller-given facts below. Never invent unit-specific claims.
-2. Only state a well-known public spec (category B) when you are genuinely confident it's correct for the exact model named in the title, AND it doesn't vary between common configurations of that model. If a spec varies by configuration (storage size, RAM, color) and the title doesn't say which one this is, leave that spec out rather than guessing a number.
-3. Do not claim things like "brand new", "100% genuine", "best price in Ghana", "perfect condition", or "guaranteed" unless that exact fact was given to you as a seller-given fact.
-4. You MUST work every single seller-given fact into the description — category/item type, condition, price, brand, location, negotiability, exchange-possible, and the seller's own notes, whichever were provided. Do not silently drop a provided fact just to keep the text short.
-5. Write naturally for a Ghanaian marketplace buyer: concise, honest, persuasive without being misleading, easy to skim.
-6. Write at least 50 words and up to 120 words — even when only a few facts were given, expand on what you do have (what the item is, its condition, why a buyer would want it, relevant well-known specs) instead of writing one short sentence. A one-line description is not acceptable.
-7. Do not repeat the title verbatim as the first sentence. Do not repeat the price more than once.
-8. No emojis. No markdown formatting, no HTML, no code fences — plain text only, short paragraphs or a short bullet list if helpful.
-9. Output ONLY the description text itself — no preamble like "Here's a description:", no labels, no quotes around it.`;
+1. Anything about THIS SPECIFIC UNIT for sale — its actual condition/defects, what accessories are included, warranty, battery health, exact age, ownership history, authenticity, repair history, or delivery availability — may ONLY come from seller-given facts (A). A photo is never proof of working condition: never say "fully functional", "works perfectly", "no faults", "no scratches", or "like new" unless the seller actually said so.
+2. From a photo you may only describe what is genuinely visible — do not guess the exact product variant/edition/storage/capacity from an image alone (e.g. do not decide "PS5 Pro" vs "PS5 Slim" vs "Digital Edition" just because a console is visible) unless the seller's own title/fields already say which one it is.
+3. Only state a well-known public spec (C) when you are genuinely confident it's correct for the exact model named in the title, AND it doesn't vary between common configurations of that model. If a spec varies by configuration (storage size, RAM, color) and neither the title nor the photo clearly disambiguates it, leave that spec out rather than guessing a number.
+4. If a seller-given fact and a visual observation appear to conflict (e.g. seller says the item is black but it looks white in the photo), the seller-given fact is the authoritative listing data — do not restate the conflicting visual detail as fact, and do not dwell on the conflict in the description text. Instead, set the "warning" field to one short sentence flagging that a review is worthwhile (e.g. "The photo's color may not match the stated color — please double-check before publishing."). Leave "warning" unset when there is no such conflict.
+5. Do not claim things like "brand new", "100% genuine", "best price in Ghana", "perfect condition", or "guaranteed" unless that exact fact was given to you as a seller-given fact.
+6. You MUST work every single seller-given fact into the description — category/item type, condition, price, brand, location, negotiability, exchange-possible, and the seller's own notes, whichever were provided. Do not silently drop a provided fact just to keep the text short.
+7. If more than one photo is attached, they are different views/angles of the same single item for sale — consider them together, do not describe them as separate items.
+8. Write naturally for a Ghanaian marketplace buyer: concise, honest, persuasive without being misleading, easy to skim.
+9. Write at least 50 words and up to 150 words for the "description" field — even when only a few facts were given, expand on what you do have (what the item is, its condition, why a buyer would want it, relevant well-known specs, genuinely visible characteristics) instead of writing one short sentence. A one-line description is not acceptable.
+10. Do not repeat the title verbatim as the first sentence. Do not repeat the price more than once.
+11. No emojis. No markdown formatting, no HTML, no code fences — plain text only, short paragraphs or a short bullet list if helpful.
+12. Respond with the required JSON object only — "description" holds the description text itself with no preamble/labels/quotes, and "warning" is included only per rule 4 above.`;
+
+const AI_LISTING_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    description: {
+      type: Type.STRING,
+      description: 'The marketplace description, 50-150 words, plain text, per the system instructions.',
+    },
+    warning: {
+      type: Type.STRING,
+      description: 'ONLY set when a seller-given fact and a visual observation genuinely conflict in a way that could mislead a buyer. One short sentence. Omit entirely otherwise.',
+    },
+  },
+  required: ['description'],
+};
 
 app.post(
   '/api/ai/generate-listing-description',
@@ -868,12 +1000,12 @@ app.post(
 
       const body = req.body || {};
 
-      // This endpoint only ever needs a handful of short listing fields —
-      // reject anything anywhere near the global 25mb JSON limit used
-      // elsewhere for image/video payloads.
+      // This endpoint needs room for up to 3 compressed images on top of the
+      // usual short listing fields — still far below the global 25mb JSON
+      // limit used elsewhere for full-resolution image/video payloads.
       let bodySize = 0;
       try { bodySize = Buffer.byteLength(JSON.stringify(body)); } catch { bodySize = Infinity; }
-      if (bodySize > 8000) {
+      if (bodySize > 3_000_000) {
         return res.status(400).json({ success: false, error: 'Request too large.' });
       }
 
@@ -895,23 +1027,38 @@ app.post(
         existingDescription: typeof body.existingDescription === 'string' ? body.existingDescription.trim().slice(0, 2000) || undefined : undefined,
       };
 
-      const promptContent = buildListingDescriptionPrompt(input);
+      const images = await normalizeRequestImages(body.images);
+      const promptContent = buildListingDescriptionPrompt(input, images.length);
+
+      // Multimodal parts: the text facts first, then each image with a
+      // short label so the model can refer to "the primary photo" etc.
+      // With zero images this collapses to just the text part, identical in
+      // effect to the original text-only request shape.
+      const parts: any[] = [{ text: promptContent }];
+      images.forEach((img, idx) => {
+        parts.push({ text: idx === 0 ? 'Primary product photo:' : `Additional product photo ${idx + 1}:` });
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+      });
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), AI_GENERATION_TIMEOUT_MS);
 
       try {
         const response = await client.models.generateContent({
           model: AI_LISTING_MODEL,
-          contents: promptContent,
+          contents: parts,
           config: {
             systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
             // Lower than a typical "creative writing" temperature on purpose —
             // this endpoint needs reliable instruction-following (use every
-            // given fact, hit the word-count floor) far more than creative
-            // variety, and higher temperatures measurably hurt compliance.
+            // given fact, hit the word-count floor, stay conservative about
+            // the image) far more than creative variety, and higher
+            // temperatures measurably hurt compliance.
             temperature: 0.5,
-            maxOutputTokens: 450,
+            maxOutputTokens: 650,
             abortSignal: controller.signal,
+            responseMimeType: 'application/json',
+            responseSchema: AI_LISTING_RESPONSE_SCHEMA,
           },
         });
         clearTimeout(timeoutId);
@@ -922,7 +1069,20 @@ app.post(
           return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
         }
 
-        return res.json({ success: true, description: sanitizeAiDescription(rawText) });
+        let parsed: { description?: unknown; warning?: unknown } | null = null;
+        try { parsed = JSON.parse(rawText); } catch { parsed = null; }
+
+        if (!parsed || typeof parsed.description !== 'string' || !parsed.description.trim()) {
+          console.warn('[AI Listing Description] Provider returned unparseable/empty structured output:', rawText.slice(0, 300));
+          return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+        }
+
+        const description = sanitizeAiDescription(parsed.description);
+        const warning = typeof parsed.warning === 'string' && parsed.warning.trim()
+          ? sanitizeAiDescription(parsed.warning).slice(0, 300)
+          : undefined;
+
+        return res.json({ success: true, description, ...(warning ? { warning } : {}) });
       } catch (err: any) {
         clearTimeout(timeoutId);
         const isAbort = err?.name === 'AbortError' || controller.signal.aborted;
