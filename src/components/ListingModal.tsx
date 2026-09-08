@@ -1614,7 +1614,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
                   {/* Upload Trigger Square */}
                   {images.length < 10 && (
-                    <label className="aspect-square border-2 border-dashed border-slate-250 hover:border-slate-400 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 hover:bg-slate-100 transition-all group">
+                    <label className="aspect-square border border-slate-200 hover:border-emerald-400 rounded-2xl flex flex-col items-center justify-center cursor-pointer bg-slate-50 hover:bg-emerald-50/60 shadow-sm hover:shadow-md transition-all group">
                       <input
                         type="file"
                         multiple
@@ -1622,8 +1622,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                         onChange={handleImageUpload}
                         className="hidden"
                       />
-                      <Upload className="w-5 h-5 text-slate-400 group-hover:text-slate-800 group-hover:-translate-y-0.5 transition" />
-                      <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-slate-900">
+                      <div className="w-9 h-9 rounded-full bg-emerald-50 group-hover:bg-emerald-100 flex items-center justify-center mb-1 transition-colors">
+                        <Upload className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <span className="text-[10px] text-slate-450 font-semibold group-hover:text-slate-900">
                         {category === 'Jobs & Employment' ? 'Add Flyer/Logo' : 'Add Photos'}
                       </span>
                     </label>
@@ -1688,15 +1690,17 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
                   {/* Video Trigger Square */}
                   {videos.length < 1 && !oversizedVideoFile && (
-                    <label className="aspect-square border-2 border-dashed border-slate-250 hover:border-slate-400 rounded-xl flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 hover:bg-slate-100 transition-all group">
+                    <label className="aspect-square border border-slate-200 hover:border-emerald-400 rounded-2xl flex flex-col items-center justify-center cursor-pointer bg-slate-50 hover:bg-emerald-50/60 shadow-sm hover:shadow-md transition-all group">
                       <input
                         type="file"
                         accept="video/*"
                         onChange={handleVideoUpload}
                         className="hidden"
                       />
-                      <Video className="w-5 h-5 text-slate-400 group-hover:text-slate-800 group-hover:-translate-y-0.5 transition" />
-                      <span className="text-[10px] text-slate-450 mt-1 font-semibold group-hover:text-slate-900">Add Video</span>
+                      <div className="w-9 h-9 rounded-full bg-emerald-50 group-hover:bg-emerald-100 flex items-center justify-center mb-1 transition-colors">
+                        <Video className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <span className="text-[10px] text-slate-450 font-semibold group-hover:text-slate-900">Add Video</span>
                     </label>
                   )}
                 </div>

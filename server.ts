@@ -3839,28 +3839,65 @@ app.post('/api/cache/clear', serverRateLimiter(60 * 1000, 5, "cache-clear"), (re
 // -------------------------------------------------------------
 // PAYMENT VERIFICATION & BOOST CONTROL ENDPOINTS
 // -------------------------------------------------------------
+const BOOST_PLAN_DURATION_DAYS: Record<string, number> = {
+  '3days': 3,
+  '7days': 7,
+  '14days': 14,
+  '21days': 21,
+  '1month': 30
+};
+// Mirrors BOOST_PLANS' priceGHS (mobile/src/utils/boost.ts, src/components/BoostModal.tsx) —
+// the server-side source of truth actually charged against, never the client-supplied amount.
+const BOOST_PLAN_PRICE_GHS: Record<string, number> = {
+  '3days': 1,
+  '7days': 3,
+  '14days': 5,
+  '21days': 7,
+  '1month': 10
+};
+
+async function verifyPaystackTransaction(reference: string): Promise<{ ok: boolean; amountPesewas?: number; error?: string }> {
+  const secretKey = process.env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) return { ok: false, error: 'Paystack is not configured on this server.' };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: { Authorization: `Bearer ${secretKey}` },
+      signal: controller.signal,
+    });
+    const json: any = await res.json().catch(() => null);
+    if (!res.ok || !json?.status || json?.data?.status !== 'success') {
+      return { ok: false, error: json?.data?.gateway_response || json?.message || 'Payment could not be verified.' };
+    }
+    return { ok: true, amountPesewas: Number(json.data.amount) || 0 };
+  } catch (err: any) {
+    return { ok: false, error: err?.name === 'AbortError' ? 'Payment gateway verification timed out.' : (err?.message || 'Payment gateway verification failed.') };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to activate a boost' });
   }
 
-  const { paymentReference, productId, planId, paymentMethod, amountGHS } = req.body || {};
+  const { paymentReference, productId, planId, paymentMethod } = req.body || {};
 
-  if (!productId) {
+  if (!productId || typeof productId !== 'string') {
     return res.status(400).json({ success: false, error: 'Missing required parameter: productId' });
   }
+  if (!paymentReference || typeof paymentReference !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing payment reference.' });
+  }
+
+  const durationDays = BOOST_PLAN_DURATION_DAYS[planId] || 7;
+  const expectedPriceGHS = BOOST_PLAN_PRICE_GHS[planId] || BOOST_PLAN_PRICE_GHS['7days'];
 
   try {
-    const planDurationMap: Record<string, number> = {
-      '3days': 3,
-      '7days': 7,
-      '14days': 14,
-      '21days': 21,
-      '1month': 30
-    };
-    const durationDays = planDurationMap[planId] || 7;
-
     let existingProduct: any = null;
     if (backendSupabase) {
       try {
@@ -3877,6 +3914,49 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
     if (existingProduct.sellerId !== verified.uid && !isAdmin) {
       return res.status(403).json({ success: false, error: 'You can only boost your own listing.' });
+    }
+
+    // "admin" is a real, intentional zero-payment path — but only ever
+    // trusted because verifyUser() itself already confirmed this identity
+    // is an admin (never because the client merely claimed paymentMethod
+    // === 'admin').
+    const isAdminFreeBoost = paymentMethod === 'admin';
+    if (isAdminFreeBoost && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'Only an administrator can activate a free boost.' });
+    }
+
+    let verifiedAmountGHS = 0;
+
+    if (!isAdminFreeBoost) {
+      if (process.env.PAYSTACK_SECRET_KEY) {
+        // Real credentials are configured — every non-admin boost must
+        // genuinely clear Paystack's own verify endpoint, and the amount
+        // actually paid must meet the selected plan's real price. This is
+        // also what makes a demo/simulated reference (used while no live
+        // Paystack keys exist yet) safely and automatically stop
+        // "succeeding" the moment real keys are put in place, since a
+        // fake client-generated reference simply won't exist in
+        // Paystack's system.
+        const verifyResult = await verifyPaystackTransaction(paymentReference);
+        if (!verifyResult.ok) {
+          return res.status(402).json({ success: false, error: verifyResult.error || 'Payment could not be verified with Paystack.' });
+        }
+        const paidGHS = (verifyResult.amountPesewas || 0) / 100;
+        if (paidGHS + 0.01 < expectedPriceGHS) {
+          console.warn(`[Verify Payment API] Amount mismatch for ${paymentReference}: paid GH₵${paidGHS}, expected GH₵${expectedPriceGHS}`);
+          return res.status(402).json({ success: false, error: 'The verified payment amount does not match the selected plan.' });
+        }
+        verifiedAmountGHS = paidGHS;
+      } else {
+        // No live Paystack credentials configured on this server yet — the
+        // client's checkout flow itself already fell back to a simulated
+        // confirmation (see BoostModal on both platforms) rather than a
+        // real charge, so there is nothing to verify against here. This is
+        // an interim, explicitly-logged allowance for pre-launch
+        // testing, not a permanent bypass.
+        console.warn(`[Verify Payment API] PAYSTACK_SECRET_KEY not configured — accepting unverified reference ${paymentReference} (demo/dev mode).`);
+        verifiedAmountGHS = expectedPriceGHS;
+      }
     }
 
     let startTime = Date.now();
@@ -3898,35 +3978,36 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
       boostStartDate,
       boostEndDate,
       boostExpiry: boostEndDate,
-      boostAmount: Number(amountGHS) || 0,
-      boostPackagePrice: Number(amountGHS) || 0,
+      boostAmount: verifiedAmountGHS,
+      boostPackagePrice: verifiedAmountGHS,
       boostPriority: 10,
       boostPriorityLevel: 10,
       updatedAt: new Date().toISOString()
     };
 
-    let finalProduct: any = boostFields;
-
-    if (backendSupabase && existingProduct) {
+    // No more silent fallback-and-swallow: if this write fails, the seller
+    // needs to actually be told the boost didn't activate, not shown a
+    // false "success" (upsertProductToSupabase already retries around
+    // schema-drift errors internally and only throws on a genuine failure).
+    let finalProduct: any;
+    try {
       const merged = { ...existingProduct, ...boostFields };
-      try {
-        const saved = await upsertProductToSupabase(merged);
-        if (saved) finalProduct = saved;
-      } catch (upsertErr: any) {
-        console.warn('[Verify Payment API] Upsert helper failed, falling back to direct update:', upsertErr?.message);
-        await safeBackendSupabaseUpsert('products', boostFields, { onConflict: 'id' }).catch(() => {});
-      }
-    } else if (backendSupabase) {
-      await safeBackendSupabaseUpsert('products', boostFields, { onConflict: 'id' }).catch(() => {});
+      finalProduct = await upsertProductToSupabase(merged);
+    } catch (upsertErr: any) {
+      console.error(`[Verify Payment API] Failed to persist boost for product ${productId}:`, upsertErr?.message || upsertErr);
+      return res.status(500).json({
+        success: false,
+        error: `Payment was verified but the boost couldn't be saved. Please contact support with reference ${paymentReference}.`
+      });
     }
 
     clearSitemapCache();
-    console.log(`[Verify Payment API] Successfully verified payment ref ${paymentReference} for product ${productId}. Boost active until ${boostEndDate}.`);
+    console.log(`[Verify Payment API] Boost activated for product ${productId} (ref ${paymentReference}). Active until ${boostEndDate}.`);
 
     return res.json({
       success: true,
       message: 'Payment verified and boost activated successfully.',
-      reference: paymentReference || `REF_${Date.now()}`,
+      reference: paymentReference,
       product: finalProduct
     });
   } catch (err: any) {

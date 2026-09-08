@@ -747,26 +747,15 @@ export async function fetchChatsForUser(userId: string) {
 // "this listing has expired/been sold" for what might just be a dropped
 // connection.
 export async function fetchProductById(productId: string) {
-  const apiUrl = typeof window !== 'undefined' && window.location?.origin
-    ? `${window.location.origin}/api/products/${productId}`
-    : `https://www.tedbuy.store/api/products/${productId}`;
-
-  let res: Response;
-  try {
-    res = await fetch(apiUrl);
-  } catch (err) {
-    console.warn('[mobile fetchProductById] Network error:', err);
-    throw new Error("You're offline. Check your internet connection and try again.");
+  // Previously a raw, un-timed-out fetch() — unlike every other request in
+  // this file, which goes through apiFetch()'s AbortController. On a slow
+  // or dropped connection this could hang forever with no way to recover,
+  // which is exactly what made "Mark Sold" (built on updateProduct below,
+  // which calls this first) spin indefinitely instead of ever erroring out.
+  const data = await apiFetch(`/api/products/${productId}`);
+  if (data.errorCode === 'NETWORK' || data.errorCode === 'TIMEOUT' || data.errorCode === 'PARSE') {
+    throw new Error(data.error);
   }
-
-  let data: any;
-  try {
-    data = await res.json();
-  } catch (err) {
-    console.warn('[mobile fetchProductById] Malformed response:', err);
-    throw new Error('TedBuy sent back an unexpected response. Please try again.');
-  }
-
   return data.success && data.product ? data.product : null;
 }
 

@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { RefreshCw } from 'lucide-react-native';
+import { RefreshCw, Plus, Video, FolderOpen } from 'lucide-react-native';
 // SDK 57 made the bare 'expo-media-library' entrypoint default to a new
 // class-based API backed by a native module ('ExpoMediaLibraryNext') that
 // this Expo Go build doesn't have registered — crashed the whole app at
@@ -1238,12 +1238,11 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           exchangePossible: finalIsExchangeable,
         });
         setLoading(false);
-        const editedProductId = editProduct.id;
         setEditProduct(null);
         Alert.alert('Ad Updated', 'Your listing was updated successfully!', [
           {
             text: 'OK',
-            onPress: () => navigation.navigate('ProductDetail', { productId: editedProductId }),
+            onPress: () => navigation.navigate('Profile'),
           },
         ]);
         return;
@@ -1748,7 +1747,9 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                     ))}
                     {images.length < MAX_IMAGES && (
                       <Pressable onPress={handlePickImages} style={styles.addPhotoBtn}>
-                        <Text style={styles.addPhotoBtnIcon}>+</Text>
+                        <View style={styles.addPhotoBtnIconWrap}>
+                          <Plus size={16} color="#059669" strokeWidth={2.5} />
+                        </View>
                         <Text style={styles.addPhotoBtnText}>Add Photo</Text>
                       </Pressable>
                     )}
@@ -1789,11 +1790,15 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                         onPress={() => openCamera('video', false, (kind, uri) => { if (kind === 'video') uploadPickedVideo(uri, MAX_VIDEO_DURATION_SECONDS, 0, MAX_VIDEO_DURATION_SECONDS); })}
                         style={styles.videoActionBtn}
                       >
-                        <Text style={styles.videoActionBtnIcon}>🎥</Text>
+                        <View style={styles.videoActionBtnIconWrap}>
+                          <Video size={17} color="#059669" strokeWidth={2} />
+                        </View>
                         <Text style={styles.videoActionBtnText}>Record Video</Text>
                       </Pressable>
                       <Pressable onPress={handlePickVideoFromLibrary} style={styles.videoActionBtn}>
-                        <Text style={styles.videoActionBtnIcon}>📁</Text>
+                        <View style={styles.videoActionBtnIconWrap}>
+                          <FolderOpen size={17} color="#059669" strokeWidth={2} />
+                        </View>
                         <Text style={styles.videoActionBtnText}>Choose from Library</Text>
                       </Pressable>
                     </View>
@@ -1972,7 +1977,9 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                         ))}
                         {images.length < MAX_IMAGES && !video && (
                           <Pressable onPress={() => setPostFlow('select')} style={styles.addPhotoBtn}>
-                            <Text style={styles.addPhotoBtnIcon}>+</Text>
+                            <View style={styles.addPhotoBtnIconWrap}>
+                              <Plus size={16} color="#059669" strokeWidth={2.5} />
+                            </View>
                             <Text style={styles.addPhotoBtnText}>Add More</Text>
                           </Pressable>
                         )}
@@ -2418,30 +2425,54 @@ const styles = StyleSheet.create({
   addPhotoBtn: {
     width: 84,
     height: 84,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#cbd5e1',
-    borderStyle: 'dashed',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f8fafc',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  addPhotoBtnIcon: { fontSize: 22, color: '#64748b', fontFamily: fonts.regular },
+  addPhotoBtnIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#ecfdf5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   addPhotoBtnText: { fontSize: 9.5, color: '#64748b', fontFamily: fonts.bold, marginTop: 2 },
 
   videoActionRow: { flexDirection: 'row', gap: 10 },
   videoActionBtn: {
     flex: 1,
     height: 84,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#cbd5e1',
-    borderStyle: 'dashed',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f8fafc',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  videoActionBtnIcon: { fontSize: 22 },
+  videoActionBtnIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#ecfdf5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
   videoActionBtnText: { fontSize: 10.5, color: '#64748b', fontFamily: fonts.bold, marginTop: 4, textAlign: 'center', paddingHorizontal: 6 },
 
   cameraModalContainer: { flex: 1, backgroundColor: '#000000' },
