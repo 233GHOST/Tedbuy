@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { RefreshCw, Sparkles } from 'lucide-react-native';
+import { RefreshCw } from 'lucide-react-native';
 // SDK 57 made the bare 'expo-media-library' entrypoint default to a new
 // class-based API backed by a native module ('ExpoMediaLibraryNext') that
 // this Expo Go build doesn't have registered — crashed the whole app at
@@ -1588,16 +1588,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             >
               {isGeneratingDescription ? (
                 <>
-                  <ActivityIndicator size="small" color="#047857" />
+                  <ActivityIndicator size="small" color="#ffffff" />
                   <Text style={styles.aiGenerateButtonText}>Generating...</Text>
                 </>
               ) : (
-                <>
-                  <Sparkles size={13} color={hasMinimumInfoForAi ? '#047857' : '#cbd5e1'} />
-                  <Text style={[styles.aiGenerateButtonText, !hasMinimumInfoForAi && styles.aiGenerateButtonTextDisabled]}>
-                    {description.trim().length > 0 ? 'Regenerate' : 'Generate with AI'}
-                  </Text>
-                </>
+                <Text style={[styles.aiGenerateButtonText, !hasMinimumInfoForAi && styles.aiGenerateButtonTextDisabled]}>
+                  {description.trim().length > 0 ? 'Regenerate with AI' : 'Generate with AI'}
+                </Text>
               )}
             </Pressable>
           </View>
@@ -2265,16 +2262,16 @@ const styles = StyleSheet.create({
   aiGenerateButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#ecfdf5',
-    borderWidth: 1,
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#10b981',
+    borderWidth: 1.5,
     borderColor: '#10b981',
   },
   aiGenerateButtonDisabled: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
-  aiGenerateButtonText: { fontSize: 11, fontFamily: fonts.bold, color: '#047857' },
+  aiGenerateButtonText: { fontSize: 13.5, fontFamily: fonts.extrabold, color: '#ffffff' },
   aiGenerateButtonTextDisabled: { color: '#cbd5e1' },
   aiHintText: { fontSize: 11, color: '#94a3b8', fontFamily: fonts.medium, marginTop: 6 },
   aiErrorText: { fontSize: 11, color: '#e11d48', fontFamily: fonts.semibold, marginTop: 6 },

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Category, Product, normalizeCategory, CATEGORY_ICONS } from '../types';
 import { BoostModal } from './BoostModal';
-import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Sparkles, Loader2, ArrowRight } from 'lucide-react';
+import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Loader2, ArrowRight } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -1479,24 +1479,21 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                     onClick={handleGenerateDescription}
                     disabled={!hasMinimumInfoForAi || isGeneratingDescription || isSubmitting}
                     title={!hasMinimumInfoForAi ? 'Add a little more information about your item for a better description.' : undefined}
-                    className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition ${
+                    className={`inline-flex items-center gap-2 text-sm font-extrabold px-4 py-2.5 rounded-xl border transition ${
                       !hasMinimumInfoForAi || isSubmitting
                         ? 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'
                         : isGeneratingDescription
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-600 cursor-wait'
-                        : 'bg-emerald-50 border-emerald-500 text-emerald-700 hover:bg-emerald-100 cursor-pointer'
+                        ? 'bg-emerald-600 border-emerald-600 text-white cursor-wait'
+                        : 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700 cursor-pointer'
                     }`}
                   >
                     {isGeneratingDescription ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 className="w-4 h-4 animate-spin" />
                         Generating...
                       </>
                     ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5" />
-                        {description.trim().length > 0 ? 'Regenerate' : 'Generate with AI'}
-                      </>
+                      description.trim().length > 0 ? 'Regenerate with AI' : 'Generate with AI'
                     )}
                   </button>
                 </div>
