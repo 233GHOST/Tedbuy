@@ -776,7 +776,7 @@ function getGenAIClient(): GoogleGenAI | null {
   return genAI;
 }
 
-const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const AI_GENERATION_TIMEOUT_MS = 20000;
 
 interface ListingDescriptionInput {
