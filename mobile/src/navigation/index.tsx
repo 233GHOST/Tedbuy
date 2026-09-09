@@ -99,6 +99,17 @@ function MainTabs() {
             </View>
           ),
         }}
+        listeners={({ navigation }) => ({
+          // Tapping the Home tab should always land on the standard product
+          // grid — not leave the user wherever they last were (e.g. the
+          // video feed) as bare navigation.navigate('Home') otherwise would,
+          // since HomeScreen stays mounted across tab switches and its
+          // viewMode state just carries over untouched. Fires on every tap,
+          // including when Home is already the focused tab.
+          tabPress: () => {
+            navigation.navigate('Home', { resetToGridNonce: Date.now() });
+          },
+        })}
       />
       <Tab.Screen
         name="Search"

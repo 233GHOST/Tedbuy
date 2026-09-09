@@ -706,6 +706,16 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchText, setSearchText] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'video'>('grid');
+  // Home tab press always resets to the standard grid, regardless of
+  // whichever mode was showing — see the Home Tab.Screen's tabPress
+  // listener in navigation/index.tsx, which stamps a fresh nonce on every
+  // tap (HomeScreen stays mounted across tab switches, so viewMode would
+  // otherwise just carry over untouched).
+  useEffect(() => {
+    if (route?.params?.resetToGridNonce) {
+      setViewMode('grid');
+    }
+  }, [route?.params?.resetToGridNonce]);
   // Bring the tab bar back whenever this screen loses focus (so it's not
   // left hidden on another tab) or the grid/video toggle changes (each
   // starts its own scroll position, so a leftover hidden state would be
