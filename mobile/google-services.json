@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "735307724523-dt29rdd8sc7s8orncovs1an01qifr5c5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tedbuy.app",
+            "certificate_hash": "a696d1d183a18d39dd6f08a9ad260174b69e256d"
+          }
+        },
+        {
           "client_id": "735307724523-hojhs1sp150gvfccokckvclbs3a230gh.apps.googleusercontent.com",
           "client_type": 3
         }
