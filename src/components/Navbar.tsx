@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Search, ShoppingBag, MessageSquare, PlusCircle, LayoutDashboard, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff, CheckCheck, ExternalLink, X, Download } from 'lucide-react';
+import { Search, ShoppingBag, MessageSquare, PlusCircle, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff, CheckCheck, ExternalLink, X, Download } from 'lucide-react';
 import { compressImage } from '../utils/imageOptimizer';
 import { SearchSuggestions } from './SearchSuggestions';
 import { validateImageFile } from '../utils/fileValidation';
@@ -534,22 +534,6 @@ export const Navbar: React.FC = () => {
                       {unreadCount}
                     </span>
                   )}
-                </button>
-
-                <button
-                  id="nav-btn-dashboard"
-                  onClick={() => {
-                    setDashboardTab('listings');
-                    setCurrentView('my-dashboard');
-                  }}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
-                    currentView === 'my-dashboard' && dashboardTab === 'listings'
-                      ? 'bg-slate-800 border border-slate-700 text-white font-extrabold shadow-sm'
-                      : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
-                  }`}
-                >
-                  <LayoutDashboard className="w-4 h-4" />
-                  <span className="hidden sm:inline">My Listings</span>
                 </button>
               </>
             )}
