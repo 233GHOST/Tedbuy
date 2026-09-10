@@ -64,7 +64,7 @@ export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, se
       {/* Header Bar */}
       <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2.5 font-sans">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-600 text-white flex items-center justify-center shadow-xs shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-[#ea580c] text-white flex items-center justify-center shadow-xs shrink-0">
             <Sparkles className="w-4 h-4 fill-white text-white" />
           </div>
           <div>
@@ -95,7 +95,7 @@ export const ForYouSection: React.FC<ForYouSectionProps> = ({ selectedRegion, se
 
           <button
             onClick={handleViewAll}
-            className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1 whitespace-nowrap"
+            className="text-[#ea580c] font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1 whitespace-nowrap"
           >
             View all
             <ChevronRight className="w-4 h-4 stroke-[2.5]" />

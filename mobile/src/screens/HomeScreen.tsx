@@ -3431,7 +3431,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   carouselViewAllText: {
-    color: '#f97316',
+    color: '#ea580c',
     fontSize: 13,
     fontFamily: fonts.extrabold,
   },
@@ -3469,7 +3469,7 @@ const styles = StyleSheet.create({
     width: 20,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#f97316',
+    backgroundColor: '#ea580c',
   },
   horizontalCarouselContainerSmall: {
     gap: 10,
