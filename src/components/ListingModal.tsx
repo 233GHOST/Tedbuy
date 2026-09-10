@@ -1699,10 +1699,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                       }
                     }}
                     onClick={() => imageInputRef.current?.click()}
-                    className={`relative rounded-3xl border-2 border-dashed transition-all duration-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center cursor-pointer group select-none ${
+                    className={`relative rounded-3xl border transition-all duration-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center cursor-pointer group select-none ${
                       isDraggingImages
                         ? 'border-slate-900 bg-slate-100/90 shadow-md scale-[1.005]'
-                        : 'border-slate-300 hover:border-slate-900 bg-white hover:bg-slate-50/80 shadow-2xs'
+                        : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/60 shadow-xs'
                     }`}
                   >
                     <input
@@ -1804,7 +1804,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
                       {/* Add More card if less than 10 */}
                       {images.length < 10 && (
-                        <label className="aspect-square rounded-2xl border-2 border-dashed border-slate-300 hover:border-slate-900 bg-white hover:bg-slate-50 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group p-3 text-center shadow-2xs">
+                        <label className="aspect-square rounded-2xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group p-3 text-center shadow-xs">
                           <input
                             type="file"
                             multiple
@@ -1873,10 +1873,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                       }
                     }}
                     onClick={() => videoInputRef.current?.click()}
-                    className={`relative rounded-3xl border-2 border-dashed transition-all duration-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center cursor-pointer group select-none ${
+                    className={`relative rounded-3xl border transition-all duration-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center cursor-pointer group select-none ${
                       isDraggingVideos
                         ? 'border-slate-900 bg-slate-100/90 shadow-md scale-[1.005]'
-                        : 'border-slate-300 hover:border-slate-900 bg-white hover:bg-slate-50/80 shadow-2xs'
+                        : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/60 shadow-xs'
                     }`}
                   >
                     <input
