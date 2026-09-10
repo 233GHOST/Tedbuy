@@ -1640,7 +1640,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           }}
           onBlur={() => setIsDescFocused(false)}
           onContentSizeChange={(e) => {
-            const nextH = Math.max(DESC_FOCUSED_MIN_HEIGHT, e.nativeEvent.contentSize.height);
+            const nextH = Math.max(isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT, e.nativeEvent.contentSize.height);
             if (isDescFocused && nextH > descHeight && scrollRef?.current) {
               requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
             }
@@ -1655,7 +1655,6 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             { height: Math.max(isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT, descHeight) },
           ]}
           multiline
-          numberOfLines={4}
           scrollEnabled={false}
           placeholderTextColor="#94a3b8"
           textAlignVertical="top"
