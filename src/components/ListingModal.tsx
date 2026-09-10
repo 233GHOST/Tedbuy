@@ -1500,8 +1500,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                       !hasMinimumInfoForAi || isSubmitting
                         ? 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'
                         : isGeneratingDescription
-                        ? 'bg-emerald-600 border-emerald-600 text-white cursor-wait'
-                        : 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700 cursor-pointer'
+                        ? 'bg-slate-900 border-slate-900 text-white cursor-wait'
+                        : 'bg-slate-900 border-slate-900 text-white hover:bg-slate-800 cursor-pointer'
                     }`}
                   >
                     {isGeneratingDescription ? (

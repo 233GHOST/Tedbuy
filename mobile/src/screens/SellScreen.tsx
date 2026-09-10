@@ -1647,7 +1647,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             setDescHeight(nextH);
           }}
           placeholder={selectedCategory === 'Jobs & Employment' ? 'Describe job responsibilities, candidate requirements, work schedule, compensation, and how to apply...' : 'Describe your item condition, specifications, and if price is negotiable...'}
-          style={[styles.input, styles.textArea, { height: Math.max(isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT, descHeight) }]}
+          style={[
+            styles.input,
+            styles.textArea,
+            styles.descriptionInput,
+            isDescFocused && styles.descriptionInputFocused,
+            { height: Math.max(isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT, descHeight) },
+          ]}
           multiline
           numberOfLines={4}
           scrollEnabled={false}
@@ -2304,9 +2310,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 10,
-    backgroundColor: '#10b981',
+    backgroundColor: '#0f172a',
     borderWidth: 1.5,
-    borderColor: '#10b981',
+    borderColor: '#0f172a',
   },
   aiGenerateButtonDisabled: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
   aiGenerateButtonText: { fontSize: 13.5, fontFamily: fonts.extrabold, color: '#ffffff' },
@@ -2335,6 +2341,14 @@ const styles = StyleSheet.create({
   chipText: { color: '#475569', fontSize: 12, fontFamily: fonts.semibold },
   chipTextActive: { color: '#ffffff', fontFamily: fonts.bold },
   textArea: { height: 120, paddingTop: 10, paddingBottom: 10 },
+  // Matches web's description textarea look (white background, rounded-xl,
+  // slate-200 border) instead of the same flat slate-tinted fill every
+  // other input on this screen uses — this field specifically should read
+  // the same on both platforms. descriptionInputFocused emulates web's
+  // focus:ring-2 focus:ring-slate-500 (RN has no outer ring, so a thicker,
+  // darker border stands in for it).
+  descriptionInput: { backgroundColor: '#ffffff', borderRadius: 12, borderColor: '#e2e8f0' },
+  descriptionInputFocused: { borderColor: '#64748b', borderWidth: 1.5 },
   toggleRowContainer: {
     flexDirection: 'row',
     alignItems: 'center',
