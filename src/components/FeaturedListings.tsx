@@ -190,7 +190,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
         {/* Header Bar */}
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2 font-sans">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-[#ea580c] text-white flex items-center justify-center shadow-xs">
               <Flame className="w-4 h-4 fill-white" />
             </div>
             <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
@@ -219,7 +219,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
 
             <button
               onClick={handleViewAllClick}
-              className="text-orange-500 font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1"
+              className="text-[#ea580c] font-bold text-sm sm:text-base flex items-center gap-0.5 hover:underline cursor-pointer ml-1"
             >
               View all
               <ChevronRight className="w-4 h-4 stroke-[2.5]" />
@@ -265,7 +265,7 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
                 }}
                 className={`transition-all duration-300 rounded-full cursor-pointer ${
                   activeIndex === i
-                    ? 'w-7 h-2.5 bg-orange-500'
+                    ? 'w-7 h-2.5 bg-[#ea580c]'
                     : 'w-2.5 h-2.5 bg-slate-200 hover:bg-slate-300'
                 }`}
                 aria-label={`Go to featured slide ${i + 1}`}

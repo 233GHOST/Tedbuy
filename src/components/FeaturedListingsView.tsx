@@ -74,7 +74,7 @@ export const FeaturedListingsView: React.FC = () => {
             <span>Back to Marketplace</span>
           </button>
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-[#ea580c] text-white flex items-center justify-center shadow-xs">
               <Flame className="w-5 h-5 fill-white" />
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight font-sans">

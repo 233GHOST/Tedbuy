@@ -908,7 +908,7 @@ CEO, Tedbuy Inc`;
                     e.stopPropagation();
                     handleAvatarClick();
                   }}
-                  className="absolute -bottom-1 -right-1 w-6 h-6 bg-orange-500 hover:bg-orange-600 active:scale-90 rounded-full text-white ring-2 ring-white shadow-md flex items-center justify-center cursor-pointer transition z-20"
+                  className="absolute -bottom-1 -right-1 w-6 h-6 bg-slate-900 hover:bg-slate-800 active:scale-90 rounded-full text-white ring-2 ring-white shadow-md flex items-center justify-center cursor-pointer transition z-20"
                   title="Change profile photo"
                   aria-label="Change profile photo"
                 >
@@ -954,7 +954,7 @@ CEO, Tedbuy Inc`;
               }}
               className={`p-2 rounded-xl border transition cursor-pointer shrink-0 ${
                 mobileProfileTab === 'settings'
-                  ? 'bg-orange-500 border-orange-400 text-white shadow-xs'
+                  ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
                   : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200'
               }`}
               title="Settings"
@@ -1016,7 +1016,7 @@ CEO, Tedbuy Inc`;
                   setMobileProfileTab('settings');
                   setActiveMobileSubSetting('profile');
                 }}
-                className="text-orange-600 hover:text-orange-700 text-[10px] font-bold shrink-0 not-italic cursor-pointer"
+                className="text-slate-900 hover:text-slate-700 text-[10px] font-bold shrink-0 not-italic cursor-pointer"
               >
                 Edit
               </button>
@@ -1029,7 +1029,7 @@ CEO, Tedbuy Inc`;
                   setMobileProfileTab('settings');
                   setActiveMobileSubSetting('profile');
                 }}
-                className="text-orange-600 hover:text-orange-700 text-[10px] font-bold cursor-pointer"
+                className="text-slate-900 hover:text-slate-700 text-[10px] font-bold cursor-pointer"
               >
                 + Add Bio
               </button>
@@ -1043,7 +1043,7 @@ CEO, Tedbuy Inc`;
               className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 border border-slate-200 cursor-pointer"
               title="Preview public storefront"
             >
-              <Store className="w-4 h-4 text-orange-500" />
+              <Store className="w-4 h-4 text-slate-900" />
               <span>View Storefront</span>
             </button>
 
@@ -1630,7 +1630,7 @@ CEO, Tedbuy Inc`;
                     e.stopPropagation();
                     handleAvatarClick();
                   }}
-                  className="absolute -bottom-1 -right-1 w-8 h-8 bg-orange-500 hover:bg-orange-600 rounded-full text-white ring-2 ring-white shadow-md flex items-center justify-center cursor-pointer transition z-20 active:scale-95"
+                  className="absolute -bottom-1 -right-1 w-8 h-8 bg-slate-900 hover:bg-slate-800 rounded-full text-white ring-2 ring-white shadow-md flex items-center justify-center cursor-pointer transition z-20 active:scale-95"
                   title="Change profile photo"
                   aria-label="Change profile photo"
                 >
@@ -1678,7 +1678,7 @@ CEO, Tedbuy Inc`;
                 ) : (
                   <button
                     onClick={() => setSettingsTab('profile')}
-                    className="text-xs text-orange-600 hover:text-orange-700 mt-2 flex items-center gap-1 font-semibold cursor-pointer"
+                    className="text-xs text-slate-900 hover:text-slate-700 mt-2 flex items-center gap-1 font-semibold cursor-pointer"
                   >
                     <Edit2 className="w-3 h-3" />
                     <span>Add store bio & delivery locations</span>
@@ -1694,7 +1694,7 @@ CEO, Tedbuy Inc`;
                 className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer"
                 title="Preview public storefront as viewed by buyers in Ghana"
               >
-                <Store className="w-4 h-4 text-orange-500" />
+                <Store className="w-4 h-4 text-slate-900" />
                 <span>Storefront</span>
               </button>
 
