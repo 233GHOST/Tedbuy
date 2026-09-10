@@ -195,8 +195,8 @@ interface AppContextType {
   setSearchQuery: (q: string) => void;
   selectedCategory: Category | null;
   setSelectedCategory: (cat: Category | null) => void;
-  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery';
-  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery') => void;
+  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad';
+  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad') => void;
   homeViewMode: 'grid' | 'video-feed';
   setHomeViewMode: (mode: 'grid' | 'video-feed') => void;
   updateUserProfile: (profileData: {
@@ -661,6 +661,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { view: 'profile-settings' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
+    // /post-ad or /sell or /post
+    if (pathname === '/post-ad' || pathname === '/sell' || pathname === '/post') {
+      return { view: 'post-ad' as const, selectedProductId: null, selectedSellerId: null, category: null };
+    }
+
     // Check if it matches category slug lists
     const categorySlugs = [
       'phones',
@@ -713,7 +718,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return parseUrlState().category;
   });
 
-  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery'>(() => {
+  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad'>(() => {
     return parseUrlState().view;
   });
   const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');

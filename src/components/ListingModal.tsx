@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Category, Product, normalizeCategory, CATEGORY_ICONS } from '../types';
 import { BoostModal } from './BoostModal';
-import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Loader2, ArrowRight } from 'lucide-react';
+import { X, Image, Upload, AlertCircle, Plus, Video, Scissors, Loader2, ArrowRight, ArrowLeft, Camera, Star, Check, Sparkles } from 'lucide-react';
 import { GHANA_REGIONS } from '../regions';
 import { compressImage, downscaleDataUrlForAI } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
@@ -73,6 +73,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   // NEW videos selected this session — editing an existing listing's video (already
   // an https:// URL) never populates this.
   const [pendingVideoFile, setPendingVideoFile] = useState<File | Blob | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const [isDraggingVideos, setIsDraggingVideos] = useState(false);
 
   const convertBase64ToBlobUrl = (base64Str: string): string => {
     if (!base64Str) return '';
@@ -381,18 +385,27 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
   if (!isOpen) return null;
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCancelOrBack = () => {
+    const hasData = title.trim() || description.trim() || images.length > 0 || videos.length > 0;
+    if (hasData && !productToEdit) {
+      if (!window.confirm("You have unsaved changes in your listing. Are you sure you want to leave?")) {
+        return;
+      }
+    }
+    onClose();
+  };
+
+  const handleImageFiles = (filesList: File[]) => {
     setErrorMsg('');
-    const files = e.target.files;
-    if (!files) return;
+    if (!filesList || filesList.length === 0) return;
 
     const remainingSpots = 10 - images.length;
-    if (files.length > remainingSpots) {
+    if (filesList.length > remainingSpots) {
       setErrorMsg(`You can only upload up to 10 images. You have ${images.length} uploaded, meaning you can add ${remainingSpots} more.`);
       return;
     }
 
-    (Array.from(files) as File[]).forEach(async file => {
+    filesList.forEach(async (file) => {
       const validation = validateImageFile(file);
       if (!validation.isValid) {
         setErrorMsg(validation.error || 'Invalid image file.');
@@ -401,19 +414,35 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
       try {
         const compressed = await compressImage(file, 1200, 1200, 0.80);
-        setImages(prev => [...prev, compressed]);
+        setImages((prev) => [...prev, compressed]);
       } catch (err) {
         console.error('Failed to compress image:', err);
-        // Fallback to standard reader
         const reader = new FileReader();
         reader.onloadend = () => {
           if (typeof reader.result === 'string') {
-            setImages(prev => [...prev, reader.result as string]);
+            setImages((prev) => [...prev, reader.result as string]);
           }
         };
         reader.readAsDataURL(file);
       }
     });
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      handleImageFiles(Array.from(e.target.files));
+    }
+  };
+
+  const makePrimaryImage = (indexToPromote: number) => {
+    if (indexToPromote <= 0 || indexToPromote >= images.length) return;
+    setImages((prev) => {
+      const updated = [...prev];
+      const [selected] = updated.splice(indexToPromote, 1);
+      updated.unshift(selected);
+      return updated;
+    });
+    showToast("Cover photo set as primary!", "success");
   };
 
   const removeImage = (indexToRemove: number) => {
@@ -491,41 +520,31 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     }
   };
 
-  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processVideoFile = (file: File) => {
     setErrorMsg('');
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (!file) return;
 
-    const remainingSpots = 1 - videos.length;
-    if (files.length > remainingSpots) {
+    if (videos.length >= 1) {
       setErrorMsg(`You can only upload 1 video. Please remove the existing video first.`);
       return;
     }
-
-    const file = files[0];
-    if (!file) return;
 
     const isVideoExtension = /\.(mp4|webm|mov|m4v|3gp|mkv|avi|quicktime)$/i.test(file.name);
     if (!file.type.startsWith('video/') && !isVideoExtension) {
       setErrorMsg('Only video files (MP4, WEBM, MOV) are supported.');
       return;
     }
-    
-    // Every newly selected video opens the trim/edit step below before being
-    // finalized — gives sellers a chance to trim to the best moment before
-    // posting, reusing the same editor previously shown only for oversized
-    // videos. Duration/trim-range setup happens generically in the effect
-    // keyed on oversizedVideoFile, so no separate metadata pre-check is
-    // needed here.
-    //
-    // 18MB is the real hard ceiling, not an arbitrary number: videos are
-    // base64-encoded before upload (~33% larger) and must fit under the
-    // server's 25MB JSON body limit — flagged clearly so sellers know
-    // trimming/compressing isn't optional for a file this size.
+
     if (file.size > 18 * 1024 * 1024) {
       setErrorMsg(`"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)}MB. Videos larger than 18MB must be trimmed/optimized below before posting.`);
     }
     setOversizedVideoFile(file);
+  };
+
+  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    processVideoFile(files[0]);
   };
 
   const compressVideoFile = async (file: File) => {
@@ -1198,30 +1217,84 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-      <div className="bg-white rounded-3xl border border-slate-100 max-w-2xl w-full shadow-2xl relative flex flex-col max-h-[92vh] text-left">
-        {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-3xl">
-          <h2 className="text-lg font-bold text-slate-950 font-sans tracking-tight">
-            {productToEdit ? 'Edit Live Advertisement' : 'Post Free Ad on Tedbuy'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-slate-200 rounded-xl transition text-slate-500 hover:text-slate-900"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50 text-slate-900 font-sans">
+      <div className="min-h-screen flex flex-col bg-slate-50">
+        {/* Full-Page Sticky Header */}
+        <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleCancelOrBack}
+                className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition flex items-center gap-1.5 font-bold text-sm cursor-pointer"
+                title="Back to Marketplace"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                <span className="hidden sm:inline">Back</span>
+              </button>
+
+              <div className="border-l border-slate-200 pl-3">
+                <h1 className="text-base sm:text-lg font-black text-slate-950 font-sans tracking-tight">
+                  {productToEdit ? 'Edit Live Advertisement' : 'Post Free Ad on Tedbuy'}
+                </h1>
+                <p className="text-[11px] sm:text-xs text-slate-500 font-medium hidden xs:block">
+                  Reach thousands of verified buyers across Ghana
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={handleCancelOrBack}
+                className="px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const submitBtn = document.getElementById('listing-submit-btn');
+                  if (submitBtn) submitBtn.click();
+                }}
+                disabled={isSubmitting || isCompressing}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs sm:text-sm transition duration-200 flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {isCompressing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>Encoding...</span>
+                  </>
+                ) : isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : oversizedVideoFile ? (
+                  <>
+                    <span>Next</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                ) : productToEdit ? (
+                  'Save Changes'
+                ) : (
+                  'Post Ad Now'
+                )}
+              </button>
+            </div>
+          </div>
+        </header>
 
         {/* Content body */}
-        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+        <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 pb-32">
           {errorMsg && (
-            <div className="bg-red-50 text-red-700 p-4 rounded-xl text-xs flex items-start gap-2 border border-red-100">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-2xl text-xs sm:text-sm flex items-start gap-3 border border-red-200 shadow-2xs">
+              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-600" />
               <div className="flex-1 space-y-1">
-                <span>{errorMsg}</span>
+                <span className="font-semibold">{errorMsg}</span>
                 {rateLimitWaitSeconds !== null && rateLimitWaitSeconds > 0 && (
-                  <div className="font-medium">
+                  <div className="font-medium text-red-600">
                     You can try again in {rateLimitWaitSeconds} second{rateLimitWaitSeconds === 1 ? '' : 's'}.
                   </div>
                 )}
@@ -1229,7 +1302,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             </div>
           )}
 
-          <form id="listing-creation-form" onSubmit={handleSubmit} className="space-y-4">
+          <form id="listing-creation-form" onSubmit={handleSubmit} className="space-y-6">
             {/* Category selection first, then conditionally Title */}
             <div className={`grid grid-cols-1 ${category !== 'Services' ? 'md:grid-cols-2' : ''} gap-4`}>
               <div>
@@ -1612,125 +1685,300 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
             {/* Product Images (Rendered only for image ads) */}
             {mediaType === 'image' && (
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-705">
-                    {category === 'Jobs & Employment' ? 'Company Logo / Flyer Images (Optional)' : 'Product Images (1 to 10 images)'}
-                  </label>
-                  <span className="text-[11px] text-slate-400 font-mono">{images.length}/10 files uploaded</span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                  {/* Thumbnail Previews */}
-                  {images.map((imgStr, idx) => (
-                    <div key={idx} className="relative aspect-square rounded-xl bg-slate-50 border border-slate-200 group overflow-hidden">
-                      <img src={imgStr} alt="Preview" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => removeImage(idx)}
-                        className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all opacity-90 hover:scale-105"
-                        title="Delete Image"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="absolute bottom-1 left-1 bg-slate-900/70 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-sm">
-                        {idx === 0 ? 'Primary' : `Ad #${idx + 1}`}
-                      </span>
-                    </div>
-                  ))}
-
-                  {/* Upload Trigger Square */}
-                  {images.length < 10 && (
-                    <label className="aspect-square border border-slate-200 hover:border-emerald-400 rounded-2xl flex flex-col items-center justify-center cursor-pointer bg-slate-50 hover:bg-emerald-50/60 shadow-sm hover:shadow-md transition-all group">
-                      <input
-                        type="file"
-                        multiple
-                        accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                      />
-                      <div className="w-9 h-9 rounded-full bg-emerald-50 group-hover:bg-emerald-100 flex items-center justify-center mb-1 transition-colors">
-                        <Upload className="w-4 h-4 text-emerald-600" />
-                      </div>
-                      <span className="text-[10px] text-slate-450 font-semibold group-hover:text-slate-900">
-                        {category === 'Jobs & Employment' ? 'Add Flyer/Logo' : 'Add Photos'}
-                      </span>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-900">
+                      {category === 'Jobs & Employment' ? 'Company Logo / Recruitment Flyer' : 'Product & Item Photos'}
                     </label>
+                    <p className="text-xs text-slate-500">
+                      {category === 'Jobs & Employment'
+                        ? 'Upload up to 10 company logos, brand flyers, or office photos'
+                        : 'Upload up to 10 photos. Clear, bright photos get sold 3x faster'}
+                    </p>
+                  </div>
+                  {images.length > 0 && (
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                      {images.length}/10 uploaded
+                    </span>
                   )}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-2">
-                  <strong className="font-semibold text-slate-500">Tip</strong>: {category === 'Jobs & Employment' ? 'Recruitment flyers and company logo images help candidates recognize your brand.' : 'Click "Add Photos" to browse file directory (up to 10 images). High quality landscape JPEG, PNG, or WEBP photos work best to attract buyers.'}
-                </p>
+
+                {/* Modernized studio dropzone when 0 photos uploaded */}
+                {images.length === 0 ? (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingImages(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingImages(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingImages(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleImageFiles(Array.from(e.dataTransfer.files));
+                      }
+                    }}
+                    onClick={() => imageInputRef.current?.click()}
+                    className={`relative rounded-3xl border transition-all duration-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center cursor-pointer group select-none ${
+                      isDraggingImages
+                        ? 'border-slate-900 bg-slate-100/90 shadow-md scale-[1.005]'
+                        : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/60 shadow-xs'
+                    }`}
+                  >
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      multiple
+                      accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+
+                    {/* Camera icon badge in signature TedBuy dark slate */}
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-100 group-hover:bg-slate-900 text-slate-700 group-hover:text-white flex items-center justify-center mb-4 transition-all duration-200 group-hover:scale-105 shadow-2xs">
+                      <Camera className="w-8 h-8 sm:w-10 sm:h-10 stroke-[1.8] transition-colors" />
+                    </div>
+
+                    <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1 font-sans tracking-tight">
+                      {category === 'Jobs & Employment' ? 'Upload company logo or flyer' : 'Upload item photos'}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-500 max-w-sm sm:max-w-md mx-auto mb-5 leading-relaxed">
+                      Drag &amp; drop photos here, or click to choose from your gallery or computer
+                    </p>
+
+                    {/* Modern Action Pill Button */}
+                    <div className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-xs transition group-hover:shadow-md">
+                      <Upload className="w-4 h-4" />
+                      <span>Choose Photos</span>
+                    </div>
+
+                    {/* Specifications & Feature Pills */}
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-6 text-[11px] font-medium text-slate-500">
+                      <span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">JPG, PNG, WEBP, HEIC</span>
+                      <span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">Up to 10 photos</span>
+                      <span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">Max 20MB per photo</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-slate-500">
+                        {images.length === 10 ? 'Maximum 10 photos reached' : `You can add ${10 - images.length} more photo${10 - images.length === 1 ? '' : 's'}`}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setImages([])}
+                        className="text-xs font-semibold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                      >
+                        Clear All Photos
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5">
+                      {images.map((imgStr, idx) => (
+                        <div
+                          key={idx}
+                          className={`relative aspect-square rounded-2xl bg-slate-100 border overflow-hidden group shadow-2xs transition-all ${
+                            idx === 0 ? 'border-slate-900 ring-2 ring-slate-900/15' : 'border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <img
+                            src={imgStr}
+                            alt={`Product photo ${idx + 1}`}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+
+                          {/* Cover badge on photo 0 */}
+                          {idx === 0 ? (
+                            <div className="absolute top-2 left-2 bg-slate-900/90 backdrop-blur-xs text-white text-[10px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+                              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                              <span>Cover</span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => makePrimaryImage(idx)}
+                              className="absolute top-2 left-2 bg-white/95 hover:bg-slate-900 hover:text-white backdrop-blur-xs text-slate-800 text-[10px] font-bold px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-all shadow-sm cursor-pointer"
+                              title="Set as Cover Photo"
+                            >
+                              Set Cover
+                            </button>
+                          )}
+
+                          {/* Delete button */}
+                          <button
+                            type="button"
+                            onClick={() => removeImage(idx)}
+                            className="absolute top-2 right-2 p-1.5 bg-slate-900/80 hover:bg-rose-600 text-white rounded-full transition-all opacity-90 hover:opacity-100 shadow-sm cursor-pointer"
+                            title="Delete Photo"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Index badge */}
+                          <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
+                            {idx + 1} of {images.length}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Add More card if less than 10 */}
+                      {images.length < 10 && (
+                        <label className="aspect-square rounded-2xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 group p-3 text-center shadow-xs">
+                          <input
+                            type="file"
+                            multiple
+                            accept=".webp, .jfif, .jpg, .jpeg, .png, .heic, .heif, .avif, image/jpeg, image/png, image/webp, image/heic, image/heif, image/avif"
+                            onChange={handleImageUpload}
+                            className="hidden"
+                          />
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-slate-900 text-slate-700 group-hover:text-white flex items-center justify-center mb-1.5 transition-colors shadow-2xs">
+                            <Plus className="w-5 h-5 stroke-[2.2]" />
+                          </div>
+                          <span className="text-xs font-bold text-slate-800 group-hover:text-slate-900">Add More</span>
+                          <span className="text-[10px] text-slate-400 font-medium">{10 - images.length} left</span>
+                        </label>
+                      )}
+                    </div>
+
+                    {/* Pro Tip banner */}
+                    <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/70 text-xs text-amber-900">
+                      <Star className="w-4 h-4 text-amber-500 fill-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="font-bold">Cover Photo:</strong> The first photo is your main ad cover shown across the marketplace and search results. Click &ldquo;Set Cover&rdquo; on any image to make it the primary display.
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Product Videos (Rendered only for video ads) */}
             {mediaType === 'video' && (
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-705">
-                    {category === 'Jobs & Employment' ? 'Job / Company Video (Optional - Max 1)' : 'Product Video (Max 1 video)'}
-                  </label>
-                  <span className="text-[11px] text-slate-400 font-mono">{videos.length}/1 file uploaded</span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                  {/* Video Previews */}
-                  {videos.map((vidStr, idx) => (
-                    <div 
-                      key={idx} 
-                      onClick={() => handleReeditVideo(vidStr)}
-                      className="relative aspect-square rounded-xl bg-slate-50 border border-slate-200 group overflow-hidden cursor-pointer hover:ring-2 hover:ring-emerald-500 transition-all shadow-xs"
-                      title="Click to Edit / Re-trim Video"
-                    >
-                      <video 
-                        src={videoPreviewUrl || vidStr} 
-                        className="w-full h-full object-cover pointer-events-none" 
-                        autoPlay 
-                        muted 
-                        loop 
-                        playsInline 
-                        webkit-playsinline="true"
-                        disablePictureInPicture
-                      />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeVideo(idx);
-                        }}
-                        className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all opacity-95 hover:scale-105 z-20 shadow-sm"
-                        title="Delete Video"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-1 z-10">
-                        <Scissors className="w-4 h-4 text-white animate-bounce" />
-                        <span className="text-[9px] text-white font-extrabold tracking-wider uppercase">Re-trim Video</span>
-                      </div>
-                      <div className="absolute bottom-1.5 left-1.5 bg-slate-900/80 backdrop-blur-xs text-white text-[8px] font-black px-1.5 py-0.5 rounded-md z-10 flex items-center gap-1 shadow-sm">
-                        <Scissors className="w-2.5 h-2.5" />
-                        <span>Edit Video</span>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Video Trigger Square */}
-                  {videos.length < 1 && !oversizedVideoFile && (
-                    <label className="aspect-square border border-slate-200 hover:border-emerald-400 rounded-2xl flex flex-col items-center justify-center cursor-pointer bg-slate-50 hover:bg-emerald-50/60 shadow-sm hover:shadow-md transition-all group">
-                      <input
-                        type="file"
-                        accept="video/*"
-                        onChange={handleVideoUpload}
-                        className="hidden"
-                      />
-                      <div className="w-9 h-9 rounded-full bg-emerald-50 group-hover:bg-emerald-100 flex items-center justify-center mb-1 transition-colors">
-                        <Video className="w-4 h-4 text-emerald-600" />
-                      </div>
-                      <span className="text-[10px] text-slate-450 font-semibold group-hover:text-slate-900">Add Video</span>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-900">
+                      {category === 'Jobs & Employment' ? 'Job / Company Video (Optional)' : 'Product Video'}
                     </label>
+                    <p className="text-xs text-slate-500">
+                      Showcase your item with an immersive 15–30 second dynamic video
+                    </p>
+                  </div>
+                  {videos.length > 0 && (
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                      1/1 video uploaded
+                    </span>
                   )}
                 </div>
+
+                {videos.length === 0 && !oversizedVideoFile ? (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingVideos(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingVideos(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingVideos(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        processVideoFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    onClick={() => videoInputRef.current?.click()}
+                    className={`relative rounded-3xl border transition-all duration-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center cursor-pointer group select-none ${
+                      isDraggingVideos
+                        ? 'border-slate-900 bg-slate-100/90 shadow-md scale-[1.005]'
+                        : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/60 shadow-xs'
+                    }`}
+                  >
+                    <input
+                      ref={videoInputRef}
+                      type="file"
+                      accept="video/*"
+                      onChange={handleVideoUpload}
+                      className="hidden"
+                    />
+
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-100 group-hover:bg-slate-900 text-slate-700 group-hover:text-white flex items-center justify-center mb-4 transition-all duration-200 group-hover:scale-105 shadow-2xs">
+                      <Video className="w-8 h-8 sm:w-10 sm:h-10 stroke-[1.8] transition-colors" />
+                    </div>
+
+                    <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1 font-sans tracking-tight">
+                      {category === 'Jobs & Employment' ? 'Upload job or brand video' : 'Upload dynamic product video'}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-500 max-w-sm sm:max-w-md mx-auto mb-5 leading-relaxed">
+                      Showcase your product in action. Ads with real video demos receive up to 5x more buyer inquiries!
+                    </p>
+
+                    <div className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-xs transition group-hover:shadow-md">
+                      <Video className="w-4 h-4" />
+                      <span>Choose Video File</span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-6 text-[11px] font-medium text-slate-500">
+                      <span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">MP4, WebM, MOV</span>
+                      <span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">Max 1 video</span>
+                      <span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">Max 18MB (Trimmer included)</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Video Previews */}
+                    {videos.map((vidStr, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => handleReeditVideo(vidStr)}
+                        className="relative aspect-video sm:aspect-square rounded-2xl bg-slate-900 border border-slate-200 group overflow-hidden cursor-pointer hover:ring-2 hover:ring-slate-900 transition-all shadow-xs"
+                        title="Click to Edit / Re-trim Video"
+                      >
+                        <video 
+                          src={videoPreviewUrl || vidStr} 
+                          className="w-full h-full object-cover pointer-events-none" 
+                          autoPlay 
+                          muted 
+                          loop 
+                          playsInline 
+                          webkit-playsinline="true"
+                          disablePictureInPicture
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeVideo(idx);
+                          }}
+                          className="absolute top-2 right-2 p-1.5 bg-slate-900/80 hover:bg-rose-600 text-white rounded-full transition-all opacity-95 hover:scale-105 z-20 shadow-sm"
+                          title="Delete Video"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                        <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center gap-1 z-10">
+                          <Scissors className="w-5 h-5 text-white animate-bounce" />
+                          <span className="text-[10px] text-white font-extrabold tracking-wider uppercase">Re-trim Video</span>
+                        </div>
+                        <div className="absolute bottom-2 left-2 bg-slate-900/90 backdrop-blur-xs text-white text-[10px] font-black px-2 py-1 rounded-lg z-10 flex items-center gap-1.5 shadow-sm">
+                          <Scissors className="w-3 h-3" />
+                          <span>Edit Video</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Video Edit/Compressor Prompt Card — styled in Tedbuy's signature dark aesthetic, edge-to-edge on mobile for maximum editing workspace */}
                 {oversizedVideoFile && (
@@ -1939,11 +2187,11 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             )}
 
             {/* Form actions */}
-            <div className="border-t border-slate-100 pt-5 flex items-center justify-end gap-3 bg-slate-50 p-4 -mx-6 -mb-6 rounded-b-3xl">
+            <div className="border border-slate-200/90 pt-5 pb-5 px-6 flex items-center justify-between gap-4 bg-white rounded-2xl shadow-xs">
               <button
                 type="button"
-                onClick={onClose}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                onClick={handleCancelOrBack}
+                className="px-5 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -1951,7 +2199,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 type="submit"
                 id="listing-submit-btn"
                 disabled={isSubmitting || isCompressing}
-                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition duration-200 flex items-center gap-2 disabled:opacity-50 cursor-pointer shadow-xs"
               >
                 {isCompressing ? (
                   <>
@@ -1978,7 +2226,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
               </button>
             </div>
           </form>
-        </div>
+        </main>
       </div>
 
       {/* Boost modal triggered right after creation if selected */}

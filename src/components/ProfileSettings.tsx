@@ -1965,10 +1965,10 @@ CEO, Tedbuy Inc`;
                   setProductToEdit(null);
                   setIsListingModalOpen(true);
                 }}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ Post New Ad</span>
+                <span>Post New Ad</span>
               </button>
             </div>
 
@@ -1990,7 +1990,7 @@ CEO, Tedbuy Inc`;
                       setProductToEdit(null);
                       setIsListingModalOpen(true);
                     }}
-                    className="mt-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs rounded-xl transition shadow-xs inline-flex items-center gap-2 cursor-pointer"
+                    className="mt-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition shadow-xs inline-flex items-center gap-2 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                     <span>Create First Listing</span>
