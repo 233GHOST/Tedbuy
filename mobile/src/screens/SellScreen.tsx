@@ -314,7 +314,6 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   const [aiDescriptionError, setAiDescriptionError] = useState('');
   const [aiDescriptionWarning, setAiDescriptionWarning] = useState('');
   const lastAiGeneratedTextRef = useRef('');
-  const [descHeight, setDescHeight] = useState(DESC_MIN_HEIGHT);
   // Auto-grows as the user types (onContentSizeChange below) so nothing they
   // type is ever hidden below the visible box — while focused, growth also
   // scrolls the enclosing form down to keep the cursor above the keyboard.
@@ -1639,12 +1638,21 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             requestAnimationFrame(() => scrollRef?.current?.scrollToEnd({ animated: true }));
           }}
           onBlur={() => setIsDescFocused(false)}
-          onContentSizeChange={(e) => {
-            const nextH = Math.max(isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT, e.nativeEvent.contentSize.height);
-            if (isDescFocused && nextH > descHeight && scrollRef?.current) {
+          onContentSizeChange={() => {
+            // Only used to keep the cursor visible above the keyboard as
+            // the box grows — NOT to drive the box's own height (see
+            // minHeight in style below). Driving height off this event's
+            // measured size used to silently truncate large pastes: on
+            // Android, onContentSizeChange can fire with a stale/incomplete
+            // height for a big bulk paste (unlike incremental typing), so a
+            // box sized purely from it would stop growing partway through
+            // pasted text while still reporting success. minHeight-only
+            // sizing sidesteps that entirely — the native view just grows
+            // to fit whatever's actually there, regardless of how it got
+            // typed in.
+            if (isDescFocused && scrollRef?.current) {
               requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
             }
-            setDescHeight(nextH);
           }}
           placeholder={selectedCategory === 'Jobs & Employment' ? 'Describe job responsibilities, candidate requirements, work schedule, compensation, and how to apply...' : 'Describe your item condition, specifications, and if price is negotiable...'}
           style={[
@@ -1652,7 +1660,12 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             styles.textArea,
             styles.descriptionInput,
             isDescFocused && styles.descriptionInputFocused,
-            { height: Math.max(isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT, descHeight) },
+            // height:'auto' is required, not optional — styles.input sets a
+            // fixed height:44 (correct for every other single-line field
+            // that shares it) which minHeight alone can't override; only an
+            // explicit 'auto' resets it back to organic, content-driven
+            // sizing so the box can actually grow past its floor.
+            { height: 'auto', minHeight: isDescFocused ? DESC_FOCUSED_MIN_HEIGHT : DESC_MIN_HEIGHT },
           ]}
           multiline
           scrollEnabled={false}
@@ -2339,7 +2352,10 @@ const styles = StyleSheet.create({
   },
   chipText: { color: '#475569', fontSize: 12, fontFamily: fonts.semibold },
   chipTextActive: { color: '#ffffff', fontFamily: fonts.bold },
-  textArea: { height: 120, paddingTop: 10, paddingBottom: 10 },
+  // No fixed `height` here on purpose — see the description TextInput's
+  // inline style, which needs a genuine height:'auto' (not just a bigger
+  // minHeight) to actually grow past whatever this component sets.
+  textArea: { minHeight: 120, paddingTop: 10, paddingBottom: 10 },
   // Matches web's description textarea look (white background, rounded-xl,
   // slate-200 border) instead of the same flat slate-tinted fill every
   // other input on this screen uses — this field specifically should read
