@@ -21,7 +21,7 @@ import { RefreshCw, Plus, Video, FolderOpen } from 'lucide-react-native';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
-import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, generateListingDescriptionMobile } from '../firebase';
+import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile } from '../firebase';
 import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
@@ -341,22 +341,32 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   // Prefill the form from an existing listing — matches web's ListingModal
   // productToEdit useEffect (back-parses region/city/neighborhood from the
   // compiled location string, and restores the Service Type picker choice).
-  useEffect(() => {
-    if (!editProduct) return;
-    setTitle(editProduct.title || '');
-    setDescription(editProduct.description || '');
-    let editPrice = String(editProduct.price ?? '');
+  //
+  // editProduct as passed in from a listings grid (Profile's "My Classified
+  // Listings") is only ever the feed-summary shape (serializeProductSummary
+  // server-side) — it never carries description at all, and only a single
+  // displayImage rather than the full images[] array, by design, to keep
+  // feed payloads small. Editing with that object directly meant the
+  // description and photo fields opened empty even though the listing
+  // genuinely had both — and worse, saving from that state would have
+  // overwritten the real description/photos with nothing. This always
+  // fetches the full record by id before seeding those two fields
+  // specifically; everything else seeds immediately from editProduct so the
+  // form doesn't sit blank while that fetch is in flight.
+  const seedFormFrom = (product: any) => {
+    setTitle(product.title || '');
+    let editPrice = String(product.price ?? '');
     if (editPrice.trim().toLowerCase() === 'contact for price') editPrice = 'Inquire';
     setPrice(editPrice === 'Inquire' ? '' : editPrice);
-    const cat = editProduct.category || 'Phones';
+    const cat = product.category || 'Phones';
     setSelectedCategory(cat);
-    setBrand(editProduct.brand || '');
-    setCondition(editProduct.condition || '');
-    setNegotiable(editProduct.negotiable !== false);
-    setIsExchangeable(!!(editProduct.isExchangeable || editProduct.exchangePossible));
+    setBrand(product.brand || '');
+    setCondition(product.condition || '');
+    setNegotiable(product.negotiable !== false);
+    setIsExchangeable(!!(product.isExchangeable || product.exchangePossible));
 
     if (cat === 'Services') {
-      const bd = editProduct.brand || '';
+      const bd = product.brand || '';
       const standardServices = ['Photography and Video Services', 'Computer or IT Services', 'Fashion Services'];
       if (standardServices.includes(bd)) {
         setServiceSubCategory(bd);
@@ -367,7 +377,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       }
     }
 
-    const locVal = String(editProduct.location || '');
+    const locVal = String(product.location || '');
     let foundRegion = 'Greater Accra';
     let foundCity = 'Accra';
     let foundNeighborhood = '';
@@ -388,10 +398,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     setAdRegion(foundRegion);
     setAdCity(foundCity);
     setAdNeighborhood(foundNeighborhood);
+  };
 
-    const existingImages: string[] = Array.isArray(editProduct.images) && editProduct.images.length > 0
-      ? editProduct.images
-      : (editProduct.image ? [editProduct.image] : []);
+  const seedMediaAndDescriptionFrom = (product: any) => {
+    setDescription(product.description || '');
+    const existingImages: string[] = Array.isArray(product.images) && product.images.length > 0
+      ? product.images
+      : (product.image ? [product.image] : (product.displayImage ? [product.displayImage] : []));
     setImages(existingImages.map((url: string, idx: number) => ({
       id: `existing_${idx}_${url}`,
       localUri: url,
@@ -401,10 +414,29 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       progress: 100,
       remoteUrl: url,
     })));
-    const existingVideos: string[] = Array.isArray(editProduct.videos) ? editProduct.videos : [];
+    const existingVideos: string[] = Array.isArray(product.videos) ? product.videos : [];
     if (existingVideos.length > 0) {
       setVideo({ localUri: existingVideos[0], durationSec: 0, trimStart: 0, trimEnd: 0, status: 'done', progress: 100, remoteUrl: existingVideos[0] });
     }
+  };
+
+  useEffect(() => {
+    if (!editProduct) return;
+    let active = true;
+    seedFormFrom(editProduct);
+    // Optimistic immediate seed in case editProduct already happened to be
+    // a full record (e.g. re-opening edit within the same session) — the
+    // fetch below still runs regardless, since there's no cheap way to tell
+    // a genuinely-empty description apart from a summary object that never
+    // had the field.
+    seedMediaAndDescriptionFrom(editProduct);
+    fetchProductById(editProduct.id).then((full) => {
+      if (active && full) {
+        seedFormFrom(full);
+        seedMediaAndDescriptionFrom(full);
+      }
+    }).catch(() => {});
+    return () => { active = false; };
   }, [editProduct?.id]);
 
   useEffect(() => {

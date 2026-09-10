@@ -210,11 +210,22 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   }, [adRegion]);
 
   // Initialize form if editing
+  //
+  // productToEdit, as passed in from a listing grid (Seller Dashboard),
+  // only ever carries the feed-summary shape (serializeProductSummary
+  // server-side) — it never has description at all, and only a single
+  // displayImage rather than the full images[] array, by design, to keep
+  // feed payloads small. Seeding directly from that object opened the edit
+  // form with description and photos genuinely missing even though the
+  // listing had both — and worse, saving from that state would have
+  // overwritten the real values with nothing. seedFrom below always runs
+  // once immediately (so the form isn't blank while a fetch is in flight),
+  // then again once the full record has been fetched by id.
   useEffect(() => {
-    if (productToEdit) {
+    const seedFrom = (productToEdit: Product) => {
       setTitle(productToEdit.title);
       setDescription(productToEdit.description);
-      
+
       let editPrice = productToEdit.price.toString();
       if (editPrice.trim().toLowerCase() === 'contact for price') {
         editPrice = 'Inquire';
@@ -303,6 +314,22 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       } else {
         setMediaType('image');
       }
+    };
+
+    if (productToEdit) {
+      seedFrom(productToEdit);
+      let active = true;
+      fetch(`/api/products/${productToEdit.id}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (active && data?.success && data.product) {
+            seedFrom(data.product);
+          }
+        })
+        .catch(() => {});
+      // active just guards against a stale fetch resolving after a newer
+      // productToEdit (or the modal closing) has already re-run this effect.
+      return () => { active = false; };
     } else {
       // Clear fields
       setTitle('');
