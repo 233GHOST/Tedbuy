@@ -1633,8 +1633,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 <p className="mt-1.5 text-[11px] text-rose-500 font-medium">{aiDescriptionError}</p>
               ) : aiDescriptionWarning ? (
                 <p className="mt-1.5 text-[11px] text-amber-600 font-medium">⚠ {aiDescriptionWarning}</p>
-              ) : !hasMinimumInfoForAi ? (
-                <p className="mt-1.5 text-[11px] text-slate-400">Add a little more information about your item (at least a title) for a better AI-generated description.</p>
               ) : null}
             </div>
 
@@ -1676,11 +1674,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   <span>{category === 'Jobs & Employment' ? 'Video Intro' : 'Dynamic Video Ad'}</span>
                 </button>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1.5">
-                {category === 'Jobs & Employment' 
-                  ? '💡 You can post this job vacancy without uploading media, or optionally add a company logo, recruitment poster, or video.'
-                  : '💡 Select Dynamic Video Ad to showcase your product or services with a fully immersive video feed displayed prominently on the Home screen!'}
-              </p>
             </div>
 
             {/* Product Images (Rendered only for image ads) */}
