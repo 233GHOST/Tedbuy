@@ -1295,29 +1295,17 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         return;
       }
 
-      // A video listing has somewhere real to jump to (Watch Video Ads,
-      // scrolled to this exact post) — bare navigation.navigate('Home')
-      // used to just land on whatever grid/video state Home already had,
-      // which for a seller who just posted read as "nothing happened" since
-      // their new post wasn't visibly anywhere near what was already on
-      // screen. See the openVideoNonce effect in HomeScreen.tsx. A
-      // photo-only listing has no video feed to open, so it still goes to
-      // the plain grid.
-      const hasVideo = Array.isArray(created.videos) && created.videos.length > 0;
+      // Goes straight to the product's own detail page — bare
+      // navigation.navigate('Home') used to just land on whatever
+      // grid/video state Home already had, which for a seller who just
+      // posted read as "nothing happened" since their new post wasn't
+      // visibly anywhere near what was already on screen.
       Alert.alert('Success', 'Your listing was successfully published on TedBuy Ghana!', [
         {
           text: 'View Feed',
           onPress: () => {
             resetForm();
-            if (hasVideo) {
-              navigation.navigate('Home', {
-                openVideoProductId: created.id,
-                openVideoProduct: created,
-                openVideoNonce: Date.now(),
-              });
-            } else {
-              navigation.navigate('Home');
-            }
+            navigation.navigate('ProductDetail', { productId: created.id });
           },
         },
       ]);
