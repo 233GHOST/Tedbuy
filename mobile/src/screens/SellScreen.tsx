@@ -2089,6 +2089,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
 
               <ScrollView
                 ref={commonFieldsScrollRef}
+                style={styles.wizardDetailsScroll}
                 contentContainerStyle={[styles.contentContainer, { paddingBottom: 32 + TAB_BAR_HEIGHT + insets.bottom }]}
                 keyboardShouldPersistTaps="handled"
               >
@@ -2564,6 +2565,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#020617',
   },
+  // The root safeArea is dark navy (shared with the camera-capture step,
+  // which wants that), so without its own background this step's scroll
+  // area let that dark navy show through around formCard's rounded top
+  // corners and anywhere content was shorter than the screen. flex:1 so it
+  // covers the full remaining height, not just wherever content reaches.
+  wizardDetailsScroll: { flex: 1, backgroundColor: '#ffffff' },
   wizardBackBtn: { minWidth: 50 },
   wizardBackBtnText: { color: '#ffffff', fontSize: 13, fontFamily: fonts.bold },
   wizardStepLabel: { color: '#94a3b8', fontSize: 11, fontFamily: fonts.extrabold, textTransform: 'uppercase', letterSpacing: 0.5 },
