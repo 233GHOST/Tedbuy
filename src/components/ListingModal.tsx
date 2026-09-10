@@ -1222,18 +1222,18 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         {/* Full-Page Sticky Header */}
         <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 sm:py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 w-full">
               <button
                 type="button"
                 onClick={handleCancelOrBack}
-                className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition flex items-center gap-1.5 font-bold text-sm cursor-pointer"
+                className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition flex items-center gap-1.5 font-bold text-sm cursor-pointer shrink-0"
                 title="Back to Marketplace"
               >
                 <ArrowLeft className="w-5 h-5" />
                 <span className="hidden sm:inline">Back</span>
               </button>
 
-              <div className="border-l border-slate-200 pl-3">
+              <div className="border-l border-slate-200 pl-3 flex-1 min-w-0">
                 <h1 className="text-base sm:text-lg font-black text-slate-950 font-sans tracking-tight">
                   {productToEdit ? 'Edit Live Advertisement' : 'Post Free Ad on Tedbuy'}
                 </h1>
@@ -1241,47 +1241,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                   Reach thousands of verified buyers across Ghana
                 </p>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2 sm:gap-3">
-              <button
-                type="button"
-                onClick={handleCancelOrBack}
-                className="px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const submitBtn = document.getElementById('listing-submit-btn');
-                  if (submitBtn) submitBtn.click();
-                }}
-                disabled={isSubmitting || isCompressing}
-                className="px-4 sm:px-5 py-2 sm:py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs sm:text-sm transition duration-200 flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
-              >
-                {isCompressing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                    <span>Encoding...</span>
-                  </>
-                ) : isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Processing...</span>
-                  </>
-                ) : oversizedVideoFile ? (
-                  <>
-                    <span>Next</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                ) : productToEdit ? (
-                  'Save Changes'
-                ) : (
-                  'Post Ad Now'
-                )}
-              </button>
             </div>
           </div>
         </header>
