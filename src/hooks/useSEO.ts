@@ -96,6 +96,10 @@ export function useSEO({
         "description": description,
         "url": canonical
       };
+    } else if (currentView === 'post-ad') {
+      title = "Post Free Ad | TedBuy Ghana Marketplace";
+      description = "List your item for sale for free on TedBuy Ghana. Reach verified buyers in Accra, Kumasi, and across Ghana.";
+      canonical = `${origin}/#/post-ad`;
     } else if (searchQuery && searchQuery.trim()) {
       title = `Search results for "${searchQuery.trim()}" | TedBuy Ghana`;
       description = `Find deals matching "${searchQuery.trim()}" on TedBuy Ghana marketplace. Verified sellers & direct chat.`;

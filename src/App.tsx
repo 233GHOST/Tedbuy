@@ -377,6 +377,13 @@ const MarketplaceContent: React.FC = () => {
   }, [recentlyViewedIds, products]);
 
   const [isPostAdOpen, setIsPostAdOpen] = useState(false);
+
+  useEffect(() => {
+    if (isPostAdOpen) {
+      setCurrentView('post-ad');
+      setIsPostAdOpen(false);
+    }
+  }, [isPostAdOpen]);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
 
   // Password reset state for tedbuy.store custom URL flow
@@ -651,7 +658,7 @@ const MarketplaceContent: React.FC = () => {
       setIsVerificationBlockOpen(true);
       return;
     }
-    setIsPostAdOpen(true);
+    setCurrentView('post-ad');
   };
 
   const unreadCount = useMemo(() => {
@@ -668,9 +675,9 @@ const MarketplaceContent: React.FC = () => {
         : 'bg-slate-50 min-h-screen pb-0'
     }`}>
       <ImpersonationBanner />
-      <Navbar />
+      {currentView !== 'post-ad' && <Navbar />}
 
-      {currentUser && !currentUser.emailVerified && (
+      {currentView !== 'post-ad' && currentUser && !currentUser.emailVerified && (
         <div id="unverified-email-banner" className="bg-amber-500 text-amber-950 px-4 py-2.5 text-xs font-semibold flex flex-col md:flex-row items-center justify-between gap-3 shadow-inner border-b border-amber-600/35 relative z-30">
           <div className="flex items-center gap-2 text-center md:text-left">
             <span className="text-sm">📧</span>
@@ -1441,6 +1448,12 @@ const MarketplaceContent: React.FC = () => {
           {currentView === 'my-dashboard' && <SellerDashboard />}
           {currentView === 'seller-profile' && <SellerProfilePage />}
           {currentView === 'profile-settings' && <ProfileSettings />}
+          {currentView === 'post-ad' && (
+            <ListingModal
+              isOpen={true}
+              onClose={() => setCurrentView('browse')}
+            />
+          )}
         </Suspense>
       </main>
 
@@ -1665,21 +1678,9 @@ const MarketplaceContent: React.FC = () => {
         </footer>
       )}
 
-      {/* Floating Create Listings form */}
-      {isPostAdOpen && (
-        <Suspense fallback={null}>
-          <ListingModal
-            isOpen={isPostAdOpen}
-            onClose={() => setIsPostAdOpen(false)}
-          />
-        </Suspense>
-      )}
-
-      {/* Floating Modern Toast Notification has been removed */}
-
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
       <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around transition-all duration-300 transform ${
-        (isBottomNavVisible && !(currentView === 'chats' && viewingChatOnMobile)) ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
+        (isBottomNavVisible && !(currentView === 'chats' && viewingChatOnMobile) && currentView !== 'post-ad') ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
       } ${
         isVideoFeedMobile
           ? 'bg-slate-900/95 border-t border-slate-950/80 text-white'
