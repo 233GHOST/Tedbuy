@@ -2163,7 +2163,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                       <ActivityIndicator size="small" color="#ffffff" />
                     ) : (
                       <Text style={styles.publishButtonText}>
-                        {anyMediaBusy ? 'UPLOADING MEDIA…' : selectedCategory === 'Jobs & Employment' ? 'POST JOB VACANCY' : 'PUBLISH CLASSIFIED AD'}
+                        {anyMediaBusy ? 'UPLOADING MEDIA…' : selectedCategory === 'Jobs & Employment' ? 'POST JOB VACANCY' : 'Post Ad Now'}
                       </Text>
                     )}
                   </Pressable>
