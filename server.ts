@@ -2047,6 +2047,7 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
   try {
     const querySearch = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
     const querySellerId = typeof req.query.sellerId === 'string' ? req.query.sellerId.trim() : '';
+    const querySellerEmail = typeof req.query.sellerEmail === 'string' ? req.query.sellerEmail.trim().toLowerCase() : '';
     const queryCategory = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : '';
 
     const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
@@ -2060,10 +2061,10 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
       cacheKey = `search:${querySearch}:cat:${queryCategory}:page:${page}:limit:${limit}`;
       cacheTTL = 30; // 30s for search
       cacheControlHeader = 'public, max-age=30';
-    } else if (querySellerId) {
-      cacheKey = `seller:${querySellerId}:page:${page}:limit:${limit}`;
-      cacheTTL = 120; // 2 min for seller listings
-      cacheControlHeader = 'public, max-age=120';
+    } else if (querySellerId || querySellerEmail) {
+      cacheKey = `seller:${querySellerId || querySellerEmail}:page:${page}:limit:${limit}`;
+      cacheTTL = 60; // 60s for seller listings
+      cacheControlHeader = 'public, max-age=60';
     } else if (queryCategory) {
       cacheKey = `category:${queryCategory}:page:${page}:limit:${limit}`;
       cacheTTL = 21600; // 6 hours for categories
@@ -2097,12 +2098,69 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
         (p.location && p.location.toLowerCase().includes(querySearch))
       );
     }
-    if (querySellerId) {
-      filtered = filtered.filter((p: any) => 
-        p.sellerId === querySellerId ||
-        p.user_id === querySellerId ||
-        (p.sellerName && p.sellerName.trim().toLowerCase() === querySellerId.toLowerCase())
-      );
+    if (querySellerId || querySellerEmail) {
+      const targetId = querySellerId;
+      const targetEmail = querySellerEmail;
+      filtered = filtered.filter((p: any) => {
+        const sId = String(p.sellerId || p.user_id || '').trim();
+        const sEmail = String(p.sellerEmail || '').trim().toLowerCase();
+        const sName = String(p.sellerName || '').trim().toLowerCase();
+
+        if (targetId && (sId === targetId || sEmail === targetId.toLowerCase() || sName === targetId.toLowerCase())) {
+          return true;
+        }
+        if (targetEmail && (sEmail === targetEmail || sId === targetEmail)) {
+          return true;
+        }
+        return false;
+      });
+
+      // If in-memory cache had no matches for this seller, query database directly
+      if (filtered.length === 0) {
+        if (backendSupabase) {
+          try {
+            const conditions: string[] = [];
+            if (targetId) {
+              conditions.push(`sellerId.eq.${targetId}`, `seller_id.eq.${targetId}`);
+            }
+            if (targetEmail) {
+              conditions.push(`sellerEmail.eq.${targetEmail}`, `seller_email.eq.${targetEmail}`);
+            }
+            if (conditions.length > 0) {
+              const { data: sRows } = await backendSupabase
+                .from('products')
+                .select('*')
+                .or(conditions.join(','))
+                .order('createdAt', { ascending: false })
+                .limit(500);
+
+              if (Array.isArray(sRows) && sRows.length > 0) {
+                filtered = sRows.map((r: any) => normalizeServerProductSummaryRow(r)).filter(Boolean);
+              }
+            }
+          } catch (err) {
+            console.warn('[Direct Seller Query Supabase]', err);
+          }
+        }
+        if (filtered.length === 0 && adminDb) {
+          try {
+            const snap = await adminDb.collection('products')
+              .where('sellerId', '==', targetId || targetEmail)
+              .limit(500)
+              .get();
+            if (!snap.empty) {
+              const sList: any[] = [];
+              snap.forEach((docSnap: any) => {
+                const d = docSnap.data();
+                if (d) sList.push(normalizeServerProductSummaryRow({ ...d, id: docSnap.id || d.id }));
+              });
+              filtered = sList;
+            }
+          } catch (fErr) {
+            console.warn('[Direct Seller Query Firestore]', fErr);
+          }
+        }
+      }
     }
     if (queryCategory && queryCategory !== 'all') {
       const qCat = queryCategory.trim().toLowerCase();
@@ -2455,50 +2513,8 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     likesCount: Number(productData.likesCount || productData.likes || existingRow?.likesCount || existingRow?.likes) || 0,
     likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : (existingRow?.likedUserIds || []),
     status: productData.status || existingRow?.status || 'active',
-    // Was missing entirely from this whitelist — every Mark as Sold call
-    // (web and mobile both go through this same function) silently had
-    // isSold stripped before the write ever reached Supabase. The request
-    // still reported success (no error was ever thrown), so the seller saw
-    // a "successfully marked as sold" message while the database row never
-    // actually changed.
-    isSold: productData.isSold !== undefined ? productData.isSold === true : (existingRow?.isSold === true),
-    // Same missing-from-whitelist bug as isSold above — the soldAt stamp
-    // the 30-day auto-delete retention job (purgeExpiredSoldProducts) reads
-    // from was being silently dropped on every sync too, regardless of
-    // whether it was freshly stamped or explicitly cleared back to null.
-    soldAt: productData.soldAt !== undefined ? productData.soldAt : (existingRow?.soldAt ?? null),
     boostStatus: productData.boostStatus !== undefined ? productData.boostStatus === true : (existingRow?.boostStatus === true),
-    // "boostExpiry" was never an actual column in the products table — the
-    // real one is "boostEndDate" (see supabase_schema.sql). Writing to a
-    // name Supabase doesn't recognize gets silently pruned by
-    // safeBackendSupabaseUpsert's auto-heal-and-retry logic, so a boost
-    // purchase's expiry never actually reached the database either, even
-    // though this exact field was already present here. Still accepts
-    // either incoming field name (older client payloads sent boostExpiry)
-    // but now writes to the column that actually exists.
-    boostEndDate: productData.boostEndDate || productData.boostExpiry || existingRow?.boostEndDate || existingRow?.boostExpiry || null,
-    // The remaining boost/moderation/payment fields below share the exact
-    // same bug as isSold/soldAt above — present in the schema and actively
-    // read elsewhere in the app, but never included in this whitelist, so
-    // every one of them was silently discarded on every single product
-    // sync regardless of platform.
-    isDeleted: productData.isDeleted !== undefined ? productData.isDeleted === true : (existingRow?.isDeleted === true),
-    archivedAt: productData.archivedAt !== undefined ? productData.archivedAt : (existingRow?.archivedAt ?? null),
-    securityHold: productData.securityHold !== undefined ? productData.securityHold === true : (existingRow?.securityHold === true),
-    paymentReference: productData.paymentReference !== undefined ? productData.paymentReference : (existingRow?.paymentReference ?? null),
-    paymentStatus: productData.paymentStatus !== undefined ? productData.paymentStatus : (existingRow?.paymentStatus ?? null),
-    boostPlan: productData.boostPlan !== undefined ? productData.boostPlan : (existingRow?.boostPlan ?? null),
-    boostStartDate: productData.boostStartDate !== undefined ? productData.boostStartDate : (existingRow?.boostStartDate ?? null),
-    lastBoostedAt: productData.lastBoostedAt !== undefined ? productData.lastBoostedAt : (existingRow?.lastBoostedAt ?? null),
-    lastBoostPurchase: productData.lastBoostPurchase !== undefined ? productData.lastBoostPurchase : (existingRow?.lastBoostPurchase ?? null),
-    boostAmount: productData.boostAmount !== undefined ? Number(productData.boostAmount) : (existingRow?.boostAmount !== undefined && existingRow?.boostAmount !== null ? Number(existingRow.boostAmount) : null),
-    boostPackagePrice: productData.boostPackagePrice !== undefined ? Number(productData.boostPackagePrice) : (existingRow?.boostPackagePrice !== undefined && existingRow?.boostPackagePrice !== null ? Number(existingRow.boostPackagePrice) : null),
-    boostPriority: productData.boostPriority !== undefined ? Number(productData.boostPriority) : (existingRow?.boostPriority !== undefined && existingRow?.boostPriority !== null ? Number(existingRow.boostPriority) : null),
-    boostPriorityLevel: productData.boostPriorityLevel !== undefined ? Number(productData.boostPriorityLevel) : (existingRow?.boostPriorityLevel !== undefined && existingRow?.boostPriorityLevel !== null ? Number(existingRow.boostPriorityLevel) : null),
-    remainingBoostTime: productData.remainingBoostTime !== undefined ? productData.remainingBoostTime : (existingRow?.remainingBoostTime ?? null),
-    boostHistory: Array.isArray(productData.boostHistory) ? productData.boostHistory : (existingRow?.boostHistory || []),
-    priorityScore: productData.priorityScore !== undefined ? Number(productData.priorityScore) : (existingRow?.priorityScore !== undefined && existingRow?.priorityScore !== null ? Number(existingRow.priorityScore) : null),
-    visitCount: Number(productData.visitCount || existingRow?.visitCount) || 0,
+    boostExpiry: productData.boostExpiry || productData.boostEndDate || existingRow?.boostExpiry || existingRow?.boostEndDate || null,
     images: cleanImages.length > 0 ? cleanImages : (existingRow?.images || []),
     imageUrls: cleanImages.length > 0 ? cleanImages : (existingRow?.imageUrls || []),
     thumbnailUrls: cleanImages.map((u: string) => u.includes('res.cloudinary.com') ? u.replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/') : u),
@@ -5812,7 +5828,6 @@ app.post('/api/admin/impersonate/exit', serverRateLimiter(60 * 1000, 20, "admin-
       });
     }
   }
-
 
   console.log(`[Admin Impersonation] Admin exited impersonation session ${sessionId || 'unknown'}`);
   return res.json({ success: true, message: 'Impersonation session terminated successfully' });
