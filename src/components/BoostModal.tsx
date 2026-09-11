@@ -194,11 +194,20 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
     }, 1800);
   };
 
-  const handleVerifyPaymentBackend = async (overrideRef?: any) => {
+  const handleVerifyPaymentBackend = async (overrideRef?: any, overrideMethod?: string) => {
     setCheckoutStep('verifying');
     const refToVerify = (overrideRef && typeof overrideRef === 'string') ? overrideRef : (paymentReference || `TEDBUY_DEMO_BYPASS_${Date.now()}`);
+    const resolvedMethod = overrideMethod || paymentMethod;
+    const isFreeAdmin = resolvedMethod === 'admin' || (typeof refToVerify === 'string' && refToVerify.startsWith('ADMIN_FREE_BOOST_'));
+    const finalPaymentMethod = isFreeAdmin
+      ? 'admin'
+      : (resolvedMethod === 'momo' ? `momo_${momoProvider}` : 'card');
+
     try {
-      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      if (!idToken) {
+        idToken = localStorage.getItem('tedbuy_custom_auth_token') || '';
+      }
       const headers: any = {
         'Content-Type': 'application/json'
       };
@@ -214,9 +223,9 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
           paymentReference: refToVerify,
           productId: product.id,
           planId: selectedPlanId,
-          paymentMethod: paymentMethod === 'momo' ? `momo_${momoProvider}` : 'card',
+          paymentMethod: finalPaymentMethod,
           email: currentUser?.email || 'asumaduvincent7@gmail.com',
-          amountGHS: activePlan.priceGHS
+          amountGHS: isFreeAdmin ? 0 : activePlan.priceGHS
         })
       });
 
@@ -516,7 +525,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
                       onClick={() => {
                         const ref = `ADMIN_FREE_BOOST_${Date.now()}`;
                         setPaymentReference(ref);
-                        handleVerifyPaymentBackend(ref);
+                        handleVerifyPaymentBackend(ref, 'admin');
                       }}
                       className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs tracking-wider uppercase rounded-xl transition duration-200 cursor-pointer shadow-md flex items-center justify-center gap-1.5"
                     >

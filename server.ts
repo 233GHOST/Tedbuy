@@ -3953,7 +3953,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     if (!existingProduct) {
       return res.status(404).json({ success: false, error: 'Product not found' });
     }
-    const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+    const isAdmin = verified.isAdmin || (verified.email && verified.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com');
     if (existingProduct.sellerId !== verified.uid && !isAdmin) {
       return res.status(403).json({ success: false, error: 'You can only boost your own listing.' });
     }
@@ -3962,8 +3962,9 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     // trusted because verifyUser() itself already confirmed this identity
     // is an admin (never because the client merely claimed paymentMethod
     // === 'admin').
-    const isAdminFreeBoost = paymentMethod === 'admin';
-    if (isAdminFreeBoost && !isAdmin) {
+    const isReferenceAdminFree = typeof paymentReference === 'string' && paymentReference.startsWith('ADMIN_FREE_BOOST_');
+    const isAdminFreeBoost = (paymentMethod === 'admin' || isReferenceAdminFree) && isAdmin;
+    if ((paymentMethod === 'admin' || isReferenceAdminFree) && !isAdmin) {
       return res.status(403).json({ success: false, error: 'Only an administrator can activate a free boost.' });
     }
 
@@ -4012,6 +4013,35 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     const boostStartDate = new Date().toISOString();
     const boostEndDate = new Date(startTime + durationDays * 24 * 60 * 60 * 1000).toISOString();
 
+    let boostPriorityLevel = 1;
+    if (planId === '1month' || planId === '90days') boostPriorityLevel = 5;
+    else if (planId === '21days' || planId === '30days') boostPriorityLevel = 4;
+    else if (planId === '14days') boostPriorityLevel = 3;
+    else if (planId === '7days') boostPriorityLevel = 2;
+    else if (planId === '3days') boostPriorityLevel = 1;
+
+    const boostBase = boostPriorityLevel * 10000000;
+    const remainingMs = durationDays * 24 * 60 * 60 * 1000;
+    const remainingTimeFactor = remainingMs / 10000;
+    const engagementScore = Number(existingProduct?.viewsCount || 0);
+    const engagementFactor = engagementScore / 10;
+    const createdAtMs = existingProduct?.createdAt ? new Date(existingProduct.createdAt).getTime() : Date.now();
+    const freshnessFactor = createdAtMs / 1e12;
+    const priorityScore = boostBase + remainingTimeFactor + engagementFactor + freshnessFactor;
+
+    const currentHistory = Array.isArray(existingProduct?.boostHistory) ? [...existingProduct.boostHistory] : [];
+    currentHistory.push({
+      planId: planId || '7days',
+      planName: `${durationDays} Days Boost${isAdminFreeBoost ? ' (Admin Free)' : ''}`,
+      startDate: boostStartDate,
+      endDate: boostEndDate,
+      paymentReference,
+      amount: verifiedAmountGHS,
+      gateway: isAdminFreeBoost ? 'admin-override' : 'paystack',
+      paymentMethod: isAdminFreeBoost ? 'admin' : (paymentMethod || 'paystack'),
+      createdAt: boostStartDate
+    });
+
     const boostFields: any = {
       id: productId,
       boostStatus: true,
@@ -4022,19 +4052,28 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
       boostExpiry: boostEndDate,
       boostAmount: verifiedAmountGHS,
       boostPackagePrice: verifiedAmountGHS,
-      boostPriority: 10,
-      boostPriorityLevel: 10,
+      boostPriority: boostBase,
+      boostPriorityLevel,
+      priorityScore,
+      paymentStatus: 'success',
+      paymentReference,
+      lastBoostedAt: boostStartDate,
+      lastBoostPurchase: boostStartDate,
+      remainingBoostTime: remainingMs,
+      boostHistory: currentHistory,
       updatedAt: new Date().toISOString()
     };
 
-    // No more silent fallback-and-swallow: if this write fails, the seller
-    // needs to actually be told the boost didn't activate, not shown a
-    // false "success" (upsertProductToSupabase already retries around
-    // schema-drift errors internally and only throws on a genuine failure).
+    // Persist boost to database
     let finalProduct: any;
     try {
       const merged = { ...existingProduct, ...boostFields };
-      finalProduct = await upsertProductToSupabase(merged);
+      finalProduct = await upsertProductToSupabase(merged, verified);
+      if (adminDb) {
+        await adminDb.collection('products').doc(productId).set(cleanObject(merged), { merge: true }).catch((fErr: any) => {
+          console.warn('[Verify Payment API] Firestore sync note:', fErr?.message);
+        });
+      }
     } catch (upsertErr: any) {
       console.error(`[Verify Payment API] Failed to persist boost for product ${productId}:`, upsertErr?.message || upsertErr);
       return res.status(500).json({
