@@ -303,8 +303,11 @@ export function ProfileScreen() {
     );
   };
 
-  // Filter products for Dashboard
+  // Filter products for Dashboard with batch-14 pagination & infinite scroll
+  const BATCH_SIZE = 14;
+  const [visibleListingCount, setVisibleListingCount] = useState(BATCH_SIZE);
   const myListings = user ? products.filter((p) => p.sellerId === user.uid) : [];
+  const displayedListings = myListings.slice(0, visibleListingCount);
   // Matches web's real bookmark model (currentUser.savedProductIds) — was
   // reading product.likedUserIds, an unrelated field the bookmark button
   // never actually wrote to (see firebase.ts's toggleSaveProductRemote).
@@ -543,9 +546,21 @@ export function ProfileScreen() {
               via the header gear icon; Settings content below carries its
               own "Back to Dashboard" row instead of a toggle). */}
           {activeTab === 'dashboard' ? (
-            <ScrollView contentContainerStyle={[styles.dashboardContent, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom }]}>
+            <ScrollView
+              contentContainerStyle={[styles.dashboardContent, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom }]}
+              onScroll={({ nativeEvent }) => {
+                const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+                const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 250;
+                if (isCloseToBottom && visibleListingCount < myListings.length) {
+                  setVisibleListingCount((prev) => prev + BATCH_SIZE);
+                }
+              }}
+              scrollEventThrottle={400}
+            >
               {/* My Classified Ads Section */}
-              <Text style={styles.sectionHeading}>My Classified Listings ({myListings.length})</Text>
+              <Text style={styles.sectionHeading}>
+                My Classified Listings ({Math.min(displayedListings.length, myListings.length)} of {myListings.length})
+              </Text>
               {myListings.length === 0 ? (
                 <View style={styles.emptyContentCard}>
                   <Text style={styles.emptyCardText}>You haven't listed any classified products yet.</Text>
@@ -557,7 +572,8 @@ export function ProfileScreen() {
                   </Pressable>
                 </View>
               ) : (
-                myListings.map((item) => {
+                <>
+                  {displayedListings.map((item) => {
                   const isServices = !!(item.category && (item.category.toLowerCase() === 'services' || item.category.toLowerCase().includes('service')));
                   return (
                     <View key={item.id} style={styles.dashboardListingCard}>
@@ -679,8 +695,28 @@ export function ProfileScreen() {
                       </View>
                     </View>
                   );
-                })
-              )}
+                })}
+
+                {visibleListingCount < myListings.length && (
+                  <Pressable
+                    onPress={() => setVisibleListingCount((prev) => prev + BATCH_SIZE)}
+                    style={{
+                      backgroundColor: '#f1f5f9',
+                      borderRadius: 14,
+                      paddingVertical: 12,
+                      alignItems: 'center',
+                      marginBottom: 16,
+                      borderWidth: 1,
+                      borderColor: '#e2e8f0',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontFamily: fonts.bold, color: '#334155' }}>
+                      Load More Ads ({displayedListings.length} of {myListings.length})
+                    </Text>
+                  </Pressable>
+                )}
+              </>
+            )}
 
               {/* Saved Bookmarks Section */}
               <Text style={styles.sectionHeading}>Saved Bookmarked Deals ({savedBookmarks.length})</Text>

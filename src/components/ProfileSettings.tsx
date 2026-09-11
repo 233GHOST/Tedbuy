@@ -463,19 +463,106 @@ CEO, Tedbuy Inc`;
   const [productToBoost, setProductToBoost] = useState<Product | null>(null);
   const [deletingListingId, setDeletingListingId] = useState<string | null>(null);
 
-  // Derive user listings and saved deals
-  const myProducts = currentUser?.isAdmin
-    ? products
-    : products.filter(p => 
-        p.sellerId === currentUser?.id || 
-        (currentUser?.email && (p.sellerEmail === currentUser.email || p.sellerId === currentUser.email)) ||
-        (currentUser?.username && p.sellerName && p.sellerName.toLowerCase() === currentUser.username.toLowerCase())
-      );
+  // Dedicated seller listings fetched from server to guarantee ALL user listings appear
+  const [sellerFetchedProducts, setSellerFetchedProducts] = useState<Product[]>([]);
+  const [isSellerProductsLoading, setIsSellerProductsLoading] = useState(false);
+  const [adminListingViewMode, setAdminListingViewMode] = useState<'mine' | 'all'>('mine');
+
+  // Batch loading configuration: 14 listings per batch, loading more on scroll
+  const BATCH_SIZE = 14;
+  const [visibleCount, setVisibleCount] = useState<number>(BATCH_SIZE);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const mobileSentinelRef = useRef<HTMLDivElement | null>(null);
+  const desktopSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Fetch all user listings directly whenever currentUser is available
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    let isMounted = true;
+    setIsSellerProductsLoading(true);
+
+    const fetchUserListings = async () => {
+      try {
+        const queryParams = new URLSearchParams({
+          sellerId: currentUser.id,
+          sellerEmail: currentUser.email || '',
+          limit: '1000',
+          nocache: 'true'
+        });
+        const res = await fetch(`/api/products?${queryParams.toString()}`);
+        if (!res.ok) throw new Error(`Status ${res.status}`);
+        const data = await res.json();
+        if (isMounted && data && Array.isArray(data.products)) {
+          setSellerFetchedProducts(data.products);
+        }
+      } catch (err) {
+        console.warn('[ProfileSettings] Could not fetch user listings:', err);
+      } finally {
+        if (isMounted) setIsSellerProductsLoading(false);
+      }
+    };
+
+    fetchUserListings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.id, currentUser?.email]);
+
+  // Helper to check if a product belongs to the current user
+  const isProductMine = React.useCallback((p: Product) => {
+    if (!currentUser) return false;
+    const uid = String(currentUser.id || '').trim();
+    const uemail = String(currentUser.email || '').trim().toLowerCase();
+    const uname = String(currentUser.username || '').trim().toLowerCase();
+
+    const pSellerId = String(p.sellerId || '').trim();
+    const pSellerEmail = String(p.sellerEmail || '').trim().toLowerCase();
+    const pSellerName = String(p.sellerName || '').trim().toLowerCase();
+
+    if (uid && pSellerId === uid) return true;
+    if (uemail && (pSellerId === uemail || pSellerEmail === uemail)) return true;
+    if (uname && pSellerName && pSellerName === uname) return true;
+    return false;
+  }, [currentUser]);
+
+  // Merge products from context and dedicated seller fetch, deduplicating by ID
+  const myOwnProducts = React.useMemo(() => {
+    const map = new Map<string, Product>();
+
+    // 1. From products loaded into context
+    products.forEach(p => {
+      if (isProductMine(p)) {
+        map.set(p.id, p);
+      }
+    });
+
+    // 2. From dedicated seller products fetch
+    sellerFetchedProducts.forEach(p => {
+      if (isProductMine(p) || !currentUser?.isAdmin) {
+        map.set(p.id, p);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+  }, [products, sellerFetchedProducts, isProductMine, currentUser?.isAdmin]);
+
+  // Under My Ads, default strictly to the user's own listings (with admin toggle option if admin)
+  const myProducts = React.useMemo(() => {
+    if (currentUser?.isAdmin && adminListingViewMode === 'all') {
+      return products;
+    }
+    return myOwnProducts;
+  }, [currentUser?.isAdmin, adminListingViewMode, products, myOwnProducts]);
 
   const savedProducts = products.filter(p => currentUser?.savedProductIds?.includes(p.id) || false);
 
   // Performance metrics across user's listings
-  const totalViews = myProducts.reduce((sum, p) => sum + (p.views || 0), 0);
+  const totalViews = myProducts.reduce((sum, p) => sum + (p.views || p.viewsCount || 0), 0);
   const boostedCount = myProducts.filter(p => isBoostActive(p)).length;
 
   const handleShareStore = () => {
@@ -510,12 +597,71 @@ CEO, Tedbuy Inc`;
     return true;
   });
 
+  // Batch slicing: 14 items per batch
+  const displayedMyProducts = React.useMemo(() => {
+    return filteredMyProducts.slice(0, visibleCount);
+  }, [filteredMyProducts, visibleCount]);
+
+  const hasMoreToLoad = visibleCount < filteredMyProducts.length;
+
+  const loadMoreBatches = React.useCallback(() => {
+    if (!hasMoreToLoad || isLoadingMore) return;
+    setIsLoadingMore(true);
+    setTimeout(() => {
+      setVisibleCount(prev => Math.min(prev + BATCH_SIZE, filteredMyProducts.length));
+      setIsLoadingMore(false);
+    }, 250);
+  }, [hasMoreToLoad, isLoadingMore, filteredMyProducts.length]);
+
+  // Reset to initial batch of 14 whenever the filter, search query, or view mode changes
+  useEffect(() => {
+    setVisibleCount(BATCH_SIZE);
+  }, [listingFilter, listingSearchQuery, adminListingViewMode]);
+
+  // Infinite scroll trigger on window scrolling
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!hasMoreToLoad || isLoadingMore) return;
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const threshold = document.documentElement.offsetHeight - 450;
+      if (scrollPosition >= threshold) {
+        loadMoreBatches();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [hasMoreToLoad, isLoadingMore, loadMoreBatches]);
+
+  // IntersectionObserver on sentinel elements
+  useEffect(() => {
+    const mobileSentinel = mobileSentinelRef.current;
+    const desktopSentinel = desktopSentinelRef.current;
+
+    if (!hasMoreToLoad) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some(entry => entry.isIntersecting)) {
+          loadMoreBatches();
+        }
+      },
+      { rootMargin: '300px' }
+    );
+
+    if (mobileSentinel) observer.observe(mobileSentinel);
+    if (desktopSentinel) observer.observe(desktopSentinel);
+
+    return () => observer.disconnect();
+  }, [hasMoreToLoad, loadMoreBatches]);
+
   const handleDeleteListing = async (productId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (window.confirm('Are you sure you want to permanently delete this listing?')) {
       try {
         setDeletingListingId(productId);
         await deleteProduct(productId);
+        setSellerFetchedProducts(prev => prev.filter(p => p.id !== productId));
         showToast('Listing deleted successfully', 'success');
       } catch (err: any) {
         showToast(err.message || 'Failed to delete listing', 'error');
@@ -1112,9 +1258,35 @@ CEO, Tedbuy Inc`;
             <div className="flex items-center justify-between px-0.5">
               <div>
                 <h3 className="text-xs font-black text-slate-900 uppercase tracking-wide">My Classified Listings</h3>
-                <p className="text-[10.5px] text-slate-500">{filteredMyProducts.length} of {myProducts.length} ads • {totalViews} views</p>
+                <p className="text-[10.5px] text-slate-500">
+                  {isSellerProductsLoading ? 'Loading ads...' : `Showing ${Math.min(displayedMyProducts.length, filteredMyProducts.length)} of ${filteredMyProducts.length} ads • ${totalViews} views`}
+                </p>
               </div>
             </div>
+
+            {/* Admin view toggle (if current user is admin) */}
+            {currentUser?.isAdmin && (
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setAdminListingViewMode('mine')}
+                  className={`flex-1 py-1 px-2 rounded-lg text-[10.5px] font-black transition cursor-pointer ${
+                    adminListingViewMode === 'mine' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  My Own Ads ({myOwnProducts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminListingViewMode('all')}
+                  className={`flex-1 py-1 px-2 rounded-lg text-[10.5px] font-black transition cursor-pointer ${
+                    adminListingViewMode === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  All System Ads ({products.length})
+                </button>
+              </div>
+            )}
 
             {/* Mobile Search & Filter Bar */}
             {myProducts.length > 0 && (
@@ -1197,7 +1369,7 @@ CEO, Tedbuy Inc`;
               </div>
             ) : (
               <div className="space-y-2.5">
-                {filteredMyProducts.map((item) => (
+                {displayedMyProducts.map((item) => (
                   <div key={item.id} className="bg-white border border-slate-200 rounded-2xl p-3 shadow-xs space-y-2.5">
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleViewProduct(item.id)}>
                       <img
@@ -1276,6 +1448,29 @@ CEO, Tedbuy Inc`;
                     </div>
                   </div>
                 ))}
+
+                {/* Batch pagination / Infinite scroll sentinel for mobile */}
+                {hasMoreToLoad ? (
+                  <div ref={mobileSentinelRef} className="py-3 text-center space-y-2">
+                    {isLoadingMore ? (
+                      <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-500 py-1">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-500" />
+                        <span>Loading next 14 ads...</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={loadMoreBatches}
+                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 active:scale-98 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-3xs"
+                      >
+                        <span>Load more ads ({displayedMyProducts.length} of {filteredMyProducts.length})</span>
+                      </button>
+                    )}
+                  </div>
+                ) : filteredMyProducts.length > BATCH_SIZE ? (
+                  <div className="py-3 text-center text-[11px] font-bold text-slate-400">
+                    ✓ All {filteredMyProducts.length} listings loaded
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -1902,6 +2097,38 @@ CEO, Tedbuy Inc`;
         {/* Tab: My Listings */}
         {settingsTab === 'my-ads' && (
           <div className="space-y-6 animate-fade-in text-left">
+            {/* Admin view toggle (if current user is admin) */}
+            {currentUser?.isAdmin && (
+              <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-slate-200 shadow-3xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Listing Scope:</span>
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setAdminListingViewMode('mine')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        adminListingViewMode === 'mine' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      My Own Ads ({myOwnProducts.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdminListingViewMode('all')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        adminListingViewMode === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      All Platform Ads ({products.length})
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 font-medium">
+                  {isSellerProductsLoading ? 'Syncing listings...' : `Showing ${Math.min(displayedMyProducts.length, filteredMyProducts.length)} of ${filteredMyProducts.length} ads`}
+                </p>
+              </div>
+            )}
+
             {/* Filter and search controls bar */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-3xs">
               {/* Search input */}
@@ -1999,7 +2226,7 @@ CEO, Tedbuy Inc`;
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredMyProducts.map((item) => {
+                {displayedMyProducts.map((item) => {
                   const boosted = isBoostActive(item);
                   return (
                     <div
@@ -2108,6 +2335,29 @@ CEO, Tedbuy Inc`;
                     </div>
                   );
                 })}
+
+                {/* Batch pagination / Infinite scroll sentinel for desktop */}
+                {hasMoreToLoad ? (
+                  <div ref={desktopSentinelRef} className="col-span-full py-6 text-center space-y-3">
+                    {isLoadingMore ? (
+                      <div className="flex items-center justify-center gap-2 text-xs font-bold text-slate-500 py-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                        <span>Loading next 14 listings...</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={loadMoreBatches}
+                        className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-98 text-slate-800 text-xs font-bold rounded-xl transition cursor-pointer shadow-3xs inline-flex items-center gap-2"
+                      >
+                        <span>Show more ads ({displayedMyProducts.length} of {filteredMyProducts.length})</span>
+                      </button>
+                    )}
+                  </div>
+                ) : filteredMyProducts.length > BATCH_SIZE ? (
+                  <div className="col-span-full py-4 text-center text-xs font-bold text-slate-400">
+                    ✓ All {filteredMyProducts.length} listings loaded
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
