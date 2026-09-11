@@ -48,6 +48,7 @@ export const ProfileSettings: React.FC = () => {
     reviews,
     notifications,
     deleteProduct,
+    updateProduct,
     toggleSaveProduct,
     setSelectedProductId
   } = useApp();
@@ -668,6 +669,27 @@ CEO, Tedbuy Inc`;
       } finally {
         setDeletingListingId(null);
       }
+    }
+  };
+
+  const [togglingSoldId, setTogglingSoldId] = useState<string | null>(null);
+
+  const handleToggleSold = async (item: Product, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (togglingSoldId === item.id) return;
+    setTogglingSoldId(item.id);
+    const newSoldState = !item.isSold;
+    try {
+      await updateProduct(item.id, { isSold: newSoldState });
+      setSellerFetchedProducts(prev =>
+        prev.map(p => p.id === item.id ? { ...p, isSold: newSoldState } : p)
+      );
+      showToast(newSoldState ? 'Listing marked as Sold' : 'Listing marked as Available', 'success');
+    } catch (err: any) {
+      console.error('Failed to toggle sold status', err);
+      showToast(err?.message || 'Could not update listing status', 'error');
+    } finally {
+      setTogglingSoldId(null);
     }
   };
 
@@ -1411,11 +1433,21 @@ CEO, Tedbuy Inc`;
                     {/* Actions row */}
                     <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-100">
                       <button
-                        onClick={() => handleViewProduct(item.id)}
-                        className="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg transition flex items-center justify-center gap-1 cursor-pointer"
+                        onClick={(e) => handleToggleSold(item, e)}
+                        disabled={togglingSoldId === item.id}
+                        className={`py-1.5 px-1 text-[11px] font-bold rounded-lg transition flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 ${
+                          item.isSold
+                            ? 'bg-rose-100 hover:bg-rose-200 text-rose-700 border border-rose-200'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                        title={item.isSold ? 'Mark as Available' : 'Mark as Sold'}
                       >
-                        <Eye className="w-3 h-3" />
-                        <span>Specs</span>
+                        {togglingSoldId === item.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-slate-600" />
+                        ) : (
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.isSold ? 'bg-rose-600 animate-pulse' : 'bg-slate-400'}`} />
+                        )}
+                        <span className="truncate">{item.isSold ? 'Sold' : 'Mark Sold'}</span>
                       </button>
                       <button
                         onClick={() => {
@@ -2284,12 +2316,21 @@ CEO, Tedbuy Inc`;
                       {/* Action buttons */}
                       <div className="grid grid-cols-3 gap-1.5 mt-3.5 pt-3 border-t border-slate-100 text-xs">
                         <button
-                          onClick={() => handleViewProduct(item.id)}
-                          className="py-1.5 px-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-center transition cursor-pointer flex items-center justify-center gap-1"
-                          title="View live ad"
+                          onClick={(e) => handleToggleSold(item, e)}
+                          disabled={togglingSoldId === item.id}
+                          className={`py-1.5 px-2 rounded-lg font-bold text-center transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                            item.isSold
+                              ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                              : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
+                          }`}
+                          title={item.isSold ? 'Mark as Available' : 'Mark as Sold'}
                         >
-                          <Eye className="w-3.5 h-3.5 text-slate-500" />
-                          <span>Specs</span>
+                          {togglingSoldId === item.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
+                          ) : (
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${item.isSold ? 'bg-rose-600 animate-pulse' : 'bg-slate-400'}`} />
+                          )}
+                          <span>{item.isSold ? 'Sold' : 'Mark Sold'}</span>
                         </button>
 
                         <button
