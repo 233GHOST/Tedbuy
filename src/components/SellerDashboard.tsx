@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ListingModal } from './ListingModal';
 import { BoostModal } from './BoostModal';
 import { Product, Category } from '../types';
-import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play, Sparkles, Clock, Flame, Users } from 'lucide-react';
+import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play, Sparkles, Clock, Flame, Users, Loader2 } from 'lucide-react';
 import { isBoostActive, parseDate, getBoostEndDate } from '../utils/dateParser';
 import { isVideoAsset } from './MediaRenderer';
 
@@ -22,8 +22,15 @@ export const SellerDashboard: React.FC = () => {
     isAuthLoading,
     users,
     setShowAuthModal,
+    showToast,
   } = useApp();
   const [showModal, setShowModal] = useState(false);
+  // Matches mobile's ProfileScreen "My Classified Listings" toggle: a
+  // visible loading state per-listing while the request is in flight, and
+  // an actual user-facing error if it fails. Web previously had neither —
+  // the button stayed clickable the whole time and a failure only ever hit
+  // console.error, invisible to the seller.
+  const [togglingSoldId, setTogglingSoldId] = useState<string | null>(null);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [boostingProduct, setBoostingProduct] = useState<Product | null>(null);
@@ -446,22 +453,36 @@ export const SellerDashboard: React.FC = () => {
                   <div className="col-span-1 md:col-span-2 flex items-center justify-end gap-2 text-right relative z-35">
                     <button
                       id={`btn-toggle-sold-${prod.id}`}
+                      disabled={togglingSoldId === prod.id}
                       onClick={async (e) => {
                         e.stopPropagation();
+                        if (togglingSoldId) return;
+                        const nextSold = !prod.isSold;
+                        setTogglingSoldId(prod.id);
                         try {
-                          await updateProduct(prod.id, { isSold: !prod.isSold });
-                        } catch (err) {
-                          console.error("Failed to toggle sold status", err);
+                          await updateProduct(prod.id, { isSold: nextSold });
+                          showToast(
+                            nextSold ? `"${prod.title}" marked as sold.` : `"${prod.title}" is active again.`,
+                            'success'
+                          );
+                        } catch (err: any) {
+                          showToast(err?.message || 'Could not update listing status.', 'error');
+                        } finally {
+                          setTogglingSoldId(null);
                         }
                       }}
-                      className={`p-1.5 border rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-3xs text-[10px] font-black uppercase tracking-wider gap-1.5 px-3 select-none shrink-0 ${
+                      className={`p-1.5 border rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-3xs text-[10px] font-black uppercase tracking-wider gap-1.5 px-3 select-none shrink-0 disabled:opacity-60 disabled:cursor-wait ${
                         prod.isSold
                           ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
                           : 'bg-white border-slate-200 text-slate-600 hover:text-slate-905 hover:bg-slate-50'
                       }`}
                       title={prod.isSold ? "Mark as Available" : "Mark as Sold"}
                     >
-                      <span className={`w-2 h-2 rounded-full ${prod.isSold ? 'bg-rose-600 animate-pulse' : 'bg-slate-350'}`}></span>
+                      {togglingSoldId === prod.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <span className={`w-2 h-2 rounded-full ${prod.isSold ? 'bg-rose-600 animate-pulse' : 'bg-slate-350'}`}></span>
+                      )}
                       <span>{prod.isSold ? 'Sold' : 'Mark Sold'}</span>
                     </button>
 
