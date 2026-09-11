@@ -2455,8 +2455,50 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     likesCount: Number(productData.likesCount || productData.likes || existingRow?.likesCount || existingRow?.likes) || 0,
     likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : (existingRow?.likedUserIds || []),
     status: productData.status || existingRow?.status || 'active',
+    // Was missing entirely from this whitelist — every Mark as Sold call
+    // (web and mobile both go through this same function) silently had
+    // isSold stripped before the write ever reached Supabase. The request
+    // still reported success (no error was ever thrown), so the seller saw
+    // a "successfully marked as sold" message while the database row never
+    // actually changed.
+    isSold: productData.isSold !== undefined ? productData.isSold === true : (existingRow?.isSold === true),
+    // Same missing-from-whitelist bug as isSold above — the soldAt stamp
+    // the 30-day auto-delete retention job (purgeExpiredSoldProducts) reads
+    // from was being silently dropped on every sync too, regardless of
+    // whether it was freshly stamped or explicitly cleared back to null.
+    soldAt: productData.soldAt !== undefined ? productData.soldAt : (existingRow?.soldAt ?? null),
     boostStatus: productData.boostStatus !== undefined ? productData.boostStatus === true : (existingRow?.boostStatus === true),
-    boostExpiry: productData.boostExpiry || productData.boostEndDate || existingRow?.boostExpiry || existingRow?.boostEndDate || null,
+    // "boostExpiry" was never an actual column in the products table — the
+    // real one is "boostEndDate" (see supabase_schema.sql). Writing to a
+    // name Supabase doesn't recognize gets silently pruned by
+    // safeBackendSupabaseUpsert's auto-heal-and-retry logic, so a boost
+    // purchase's expiry never actually reached the database either, even
+    // though this exact field was already present here. Still accepts
+    // either incoming field name (older client payloads sent boostExpiry)
+    // but now writes to the column that actually exists.
+    boostEndDate: productData.boostEndDate || productData.boostExpiry || existingRow?.boostEndDate || existingRow?.boostExpiry || null,
+    // The remaining boost/moderation/payment fields below share the exact
+    // same bug as isSold/soldAt above — present in the schema and actively
+    // read elsewhere in the app, but never included in this whitelist, so
+    // every one of them was silently discarded on every single product
+    // sync regardless of platform.
+    isDeleted: productData.isDeleted !== undefined ? productData.isDeleted === true : (existingRow?.isDeleted === true),
+    archivedAt: productData.archivedAt !== undefined ? productData.archivedAt : (existingRow?.archivedAt ?? null),
+    securityHold: productData.securityHold !== undefined ? productData.securityHold === true : (existingRow?.securityHold === true),
+    paymentReference: productData.paymentReference !== undefined ? productData.paymentReference : (existingRow?.paymentReference ?? null),
+    paymentStatus: productData.paymentStatus !== undefined ? productData.paymentStatus : (existingRow?.paymentStatus ?? null),
+    boostPlan: productData.boostPlan !== undefined ? productData.boostPlan : (existingRow?.boostPlan ?? null),
+    boostStartDate: productData.boostStartDate !== undefined ? productData.boostStartDate : (existingRow?.boostStartDate ?? null),
+    lastBoostedAt: productData.lastBoostedAt !== undefined ? productData.lastBoostedAt : (existingRow?.lastBoostedAt ?? null),
+    lastBoostPurchase: productData.lastBoostPurchase !== undefined ? productData.lastBoostPurchase : (existingRow?.lastBoostPurchase ?? null),
+    boostAmount: productData.boostAmount !== undefined ? Number(productData.boostAmount) : (existingRow?.boostAmount !== undefined && existingRow?.boostAmount !== null ? Number(existingRow.boostAmount) : null),
+    boostPackagePrice: productData.boostPackagePrice !== undefined ? Number(productData.boostPackagePrice) : (existingRow?.boostPackagePrice !== undefined && existingRow?.boostPackagePrice !== null ? Number(existingRow.boostPackagePrice) : null),
+    boostPriority: productData.boostPriority !== undefined ? Number(productData.boostPriority) : (existingRow?.boostPriority !== undefined && existingRow?.boostPriority !== null ? Number(existingRow.boostPriority) : null),
+    boostPriorityLevel: productData.boostPriorityLevel !== undefined ? Number(productData.boostPriorityLevel) : (existingRow?.boostPriorityLevel !== undefined && existingRow?.boostPriorityLevel !== null ? Number(existingRow.boostPriorityLevel) : null),
+    remainingBoostTime: productData.remainingBoostTime !== undefined ? productData.remainingBoostTime : (existingRow?.remainingBoostTime ?? null),
+    boostHistory: Array.isArray(productData.boostHistory) ? productData.boostHistory : (existingRow?.boostHistory || []),
+    priorityScore: productData.priorityScore !== undefined ? Number(productData.priorityScore) : (existingRow?.priorityScore !== undefined && existingRow?.priorityScore !== null ? Number(existingRow.priorityScore) : null),
+    visitCount: Number(productData.visitCount || existingRow?.visitCount) || 0,
     images: cleanImages.length > 0 ? cleanImages : (existingRow?.images || []),
     imageUrls: cleanImages.length > 0 ? cleanImages : (existingRow?.imageUrls || []),
     thumbnailUrls: cleanImages.map((u: string) => u.includes('res.cloudinary.com') ? u.replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/') : u),
@@ -5731,6 +5773,7 @@ app.post('/api/admin/impersonate/exit', serverRateLimiter(60 * 1000, 20, "admin-
       });
     }
   }
+
 
   console.log(`[Admin Impersonation] Admin exited impersonation session ${sessionId || 'unknown'}`);
   return res.json({ success: true, message: 'Impersonation session terminated successfully' });
