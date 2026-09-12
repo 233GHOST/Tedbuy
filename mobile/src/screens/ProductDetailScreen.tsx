@@ -565,7 +565,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                       {product.isSold && <Text style={styles.ownerCheckboxMark}>✓</Text>}
                     </View>
                   )}
-                  <Text style={styles.ownerSoldRowText}>Mark as Sold</Text>
+                  <Text style={styles.ownerSoldRowText}>{product.isSold ? 'Sold' : 'Mark as Sold'}</Text>
                 </View>
               </Pressable>
               <View style={styles.ownerActionsRow}>

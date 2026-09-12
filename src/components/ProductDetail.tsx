@@ -118,6 +118,7 @@ export const ProductDetail: React.FC = () => {
   const [deleteCheckboxConfirmed, setDeleteCheckboxConfirmed] = useState(true);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isTogglingSold, setIsTogglingSold] = useState(false);
   const [isAdminBoosting, setIsAdminBoosting] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [selectedFreePlan, setSelectedFreePlan] = useState('7days');
@@ -1600,16 +1601,23 @@ export const ProductDetail: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={!!product.isSold}
+                        disabled={isTogglingSold}
                         onChange={async (e) => {
+                          const nextSold = e.target.checked;
+                          setIsTogglingSold(true);
                           try {
-                            await updateProduct(product.id, { isSold: e.target.checked });
-                          } catch (err) {
+                            await updateProduct(product.id, { isSold: nextSold });
+                            showToast(nextSold ? 'Listing marked as Sold' : 'Listing marked as Available', 'success');
+                          } catch (err: any) {
                             console.error("Failed to update product isSold flag", err);
+                            showToast(err?.message || 'Could not update listing status.', 'error');
+                          } finally {
+                            setIsTogglingSold(false);
                           }
                         }}
-                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
+                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
                       />
-                      <span>Mark as Sold</span>
+                      <span>{product.isSold ? 'Sold' : 'Mark as Sold'}</span>
                     </label>
                   </div>
 
@@ -1739,16 +1747,23 @@ export const ProductDetail: React.FC = () => {
                       <input
                         type="checkbox"
                         checked={!!product.isSold}
+                        disabled={isTogglingSold}
                         onChange={async (e) => {
+                          const nextSold = e.target.checked;
+                          setIsTogglingSold(true);
                           try {
-                            await updateProduct(product.id, { isSold: e.target.checked });
-                          } catch (err) {
+                            await updateProduct(product.id, { isSold: nextSold });
+                            showToast(nextSold ? 'Listing marked as Sold' : 'Listing marked as Available', 'success');
+                          } catch (err: any) {
                             console.error("Failed to update product isSold flag", err);
+                            showToast(err?.message || 'Could not update listing status.', 'error');
+                          } finally {
+                            setIsTogglingSold(false);
                           }
                         }}
-                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
+                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
                       />
-                      <span>Mark as Sold</span>
+                      <span>{product.isSold ? 'Sold' : 'Mark as Sold'}</span>
                     </label>
                   </div>
 
