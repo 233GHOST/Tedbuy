@@ -8,6 +8,7 @@ import { initializeAuth, onAuthStateChanged, signInWithEmailAndPassword, createU
 // gap (firebase-js-sdk#9316, #8332, #7584) — this is a types-only miss.
 import { getReactNativePersistence } from 'firebase/auth';
 import { getFirestore, collection, getDocs, query, orderBy, limit, where, onSnapshot, doc, getDoc, addDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { Product } from './types';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDddmRJVV3ywN5AeLsT7iZ4E2K329StfVA',
