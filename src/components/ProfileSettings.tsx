@@ -527,20 +527,32 @@ CEO, Tedbuy Inc`;
     return false;
   }, [currentUser]);
 
-  // Merge products from context and dedicated seller fetch, deduplicating by ID
+  // Merge products from context and dedicated seller fetch, deduplicating by
+  // ID. Order matters here: sellerFetchedProducts is a one-time snapshot
+  // from mount, never updated again — while `products` (context) gets kept
+  // live by updateProduct's optimistic setProducts() call every time
+  // anything (Mark as Sold, edit, boost, etc.) changes a listing, anywhere
+  // in the app. sellerFetchedProducts must go in FIRST so products's fresher
+  // entry overwrites it when both have the same id — previously this was
+  // reversed, so the stale one-time snapshot always won, showing "Mark
+  // Sold" here even right after the product's own detail page had already
+  // confirmed "Sold".
   const myOwnProducts = React.useMemo(() => {
     const map = new Map<string, Product>();
 
-    // 1. From products loaded into context
-    products.forEach(p => {
-      if (isProductMine(p)) {
+    // 1. From dedicated seller products fetch (baseline — has pagination
+    // reach beyond whatever's currently loaded into context, but goes stale
+    // the moment anything changes elsewhere in the app)
+    sellerFetchedProducts.forEach(p => {
+      if (isProductMine(p) || !currentUser?.isAdmin) {
         map.set(p.id, p);
       }
     });
 
-    // 2. From dedicated seller products fetch
-    sellerFetchedProducts.forEach(p => {
-      if (isProductMine(p) || !currentUser?.isAdmin) {
+    // 2. From products loaded into context (kept live by updateProduct) —
+    // intentionally overwrites the seller-fetch entry above when both exist
+    products.forEach(p => {
+      if (isProductMine(p)) {
         map.set(p.id, p);
       }
     });

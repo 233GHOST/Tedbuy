@@ -212,6 +212,23 @@ export function ProfileScreen() {
     };
   }, []);
 
+  // watchProducts is a one-shot fetch, not a live subscription — so
+  // "My Classified Listings" only ever reflected whatever the state was at
+  // the moment this screen first mounted. ProductDetailScreen's own Mark as
+  // Sold toggle only updates its own local product state, not this screen's
+  // — and since ProductDetailScreen is pushed on top of this one (this
+  // screen stays mounted underneath, never remounting), navigating back
+  // here after toggling sold status elsewhere showed the exact same stale
+  // "Mark Sold" state the list had on first load, even though the product's
+  // own detail page had already confirmed "Sold". Re-running the fetch on
+  // focus keeps this list honest whenever the user actually looks at it.
+  useEffect(() => {
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      watchProducts((result) => setProducts(result));
+    });
+    return unsubscribeFocus;
+  }, [navigation]);
+
   const handleSendPasswordReset = async () => {
     if (isSendingReset) return;
     try {
