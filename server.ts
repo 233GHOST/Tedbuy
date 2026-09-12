@@ -1851,10 +1851,12 @@ function normalizeServerProductSummaryRow(row: any): any {
     user_id: row.sellerId || row.seller_id || row.user_id || '',
     sellerVerified: row.sellerVerified === true || row.seller_verified === true || true,
     createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+    updatedAt: row.updatedAt || row.updated_at || row.createdAt || row.created_at || new Date().toISOString(),
     viewsCount: Number(row.viewsCount || row.views_count || 0),
     likesCount: Number(row.likesCount || row.likes_count || 0),
     status: row.status || 'active',
     isSold: row.isSold === true || row.is_sold === true || false,
+    soldAt: row.soldAt || row.sold_at || null,
     negotiable: row.negotiable === true,
     isExchangeable: row.isExchangeable === true || row.exchangePossible === true,
     exchangePossible: row.exchangePossible === true || row.isExchangeable === true
