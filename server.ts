@@ -1870,8 +1870,13 @@ async function getProductsListData(forceRefresh = false): Promise<{ products: an
   let products: any[] = [];
   if (backendSupabase) {
     try {
-      // Explicit column selection with double quotes for camelCase Postgres identifiers
-      const summaryColumns = 'id, title, price, category, location, brand, condition, negotiable, "sellerId", "sellerName", "createdAt", "viewsCount", "likesCount", "boostStatus", "boostPlan", "boostStartDate", "boostEndDate", "lastBoostedAt", "isApproved", images, videos';
+      // Explicit column selection with double quotes for camelCase Postgres identifiers.
+      // "isSold", "soldAt", status, "isDeleted" and "updatedAt" were missing —
+      // PostgREST only returns columns you explicitly ask for, so every row from
+      // this query (home feed, search, seller-listings fetch) had these as
+      // undefined, silently breaking both the Mark as Sold state here and the
+      // soft-delete/archived-listing exclusion filter below.
+      const summaryColumns = 'id, title, price, category, location, brand, condition, negotiable, "sellerId", "sellerName", "createdAt", "updatedAt", "viewsCount", "likesCount", "boostStatus", "boostPlan", "boostStartDate", "boostEndDate", "lastBoostedAt", "isApproved", "isSold", "soldAt", status, "isDeleted", images, videos';
       let { data, error } = await backendSupabase
         .from('products')
         .select(summaryColumns)
