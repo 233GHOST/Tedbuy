@@ -1792,10 +1792,12 @@ export function serializeProductSummary(row: any): any {
     sellerName: normalized.sellerName,
     sellerVerified: normalized.sellerVerified !== false,
     createdAt: normalized.createdAt,
+    updatedAt: normalized.updatedAt,
     viewsCount: normalized.viewsCount || 0,
     likesCount: normalized.likesCount || 0,
     status: normalized.status || 'active',
     isSold: !!normalized.isSold || normalized.status === 'sold',
+    soldAt: normalized.soldAt || null,
     negotiable: !!normalized.negotiable,
     isExchangeable: !!normalized.isExchangeable || !!normalized.exchangePossible,
     exchangePossible: !!normalized.exchangePossible || !!normalized.isExchangeable
