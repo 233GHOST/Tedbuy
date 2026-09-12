@@ -112,7 +112,11 @@ export function ProductCard({
     const nextSoldState = !(product as any).isSold;
     try {
       setUpdatingSold(true);
-      await updateProduct(product.id, { isSold: nextSoldState });
+      await updateProduct(product.id, {
+        isSold: nextSoldState,
+        status: nextSoldState ? 'sold' : 'active',
+        soldAt: nextSoldState ? new Date().toISOString() : null
+      });
       Alert.alert(
         nextSoldState ? 'Listing Sold! 🎉' : 'Listing Restored',
         nextSoldState 

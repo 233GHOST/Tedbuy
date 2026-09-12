@@ -37,7 +37,11 @@ export const SellerDashboard: React.FC = () => {
     setTogglingSoldId(prod.id);
     const nextSoldState = !prod.isSold;
     try {
-      await updateProduct(prod.id, { isSold: nextSoldState });
+      await updateProduct(prod.id, {
+        isSold: nextSoldState,
+        status: nextSoldState ? 'sold' : 'active',
+        soldAt: nextSoldState ? new Date().toISOString() : null
+      });
       showToast(
         nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
         'success'

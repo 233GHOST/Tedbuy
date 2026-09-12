@@ -167,9 +167,21 @@ export function ProfileScreen() {
   // Matches web's SellerDashboard "Mark as Sold" / "Mark as Available" toggle.
   const handleToggleSold = async (item: any) => {
     setTogglingSoldId(item.id);
+    const nextSold = !item.isSold;
     try {
-      const updated = await updateProduct(item.id, { isSold: !item.isSold });
-      setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, ...(updated || { isSold: !item.isSold }) } : p)));
+      const updated = await updateProduct(item.id, {
+        isSold: nextSold,
+        status: nextSold ? 'sold' : 'active',
+        soldAt: nextSold ? new Date().toISOString() : null
+      });
+      setProducts((prev) => prev.map((p) => (p.id === item.id ? {
+        ...p,
+        ...(updated || {
+          isSold: nextSold,
+          status: nextSold ? 'sold' : 'active',
+          soldAt: nextSold ? new Date().toISOString() : null
+        })
+      } : p)));
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Could not update listing status.');
     } finally {

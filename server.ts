@@ -1740,7 +1740,11 @@ function normalizeServerProductRow(row: any): any {
     viewsCount: Number(row.views || row.viewsCount) || 0,
     likes: Number(row.likes || row.likesCount) || 0,
     likesCount: Number(row.likes || row.likesCount) || 0,
-    status: row.status || 'active',
+    status: (row.isSold === false || row.is_sold === false) && row.status === 'sold'
+      ? 'active'
+      : (row.status || (row.isSold || row.is_sold ? 'sold' : 'active')),
+    isSold: row.isSold !== undefined ? row.isSold === true : (row.is_sold !== undefined ? row.is_sold === true : row.status === 'sold'),
+    soldAt: (row.isSold === false || row.is_sold === false) ? null : (row.soldAt || row.sold_at || null),
     boostStatus: activeBoost,
     isBoosted: activeBoost,
     boostPlan: boostPlan || (activeBoost ? '7days' : undefined),
@@ -1795,9 +1799,11 @@ export function serializeProductSummary(row: any): any {
     updatedAt: normalized.updatedAt,
     viewsCount: normalized.viewsCount || 0,
     likesCount: normalized.likesCount || 0,
-    status: normalized.status || 'active',
-    isSold: !!normalized.isSold || normalized.status === 'sold',
-    soldAt: normalized.soldAt || null,
+    status: (normalized.isSold === false) && normalized.status === 'sold'
+      ? 'active'
+      : (normalized.status || (normalized.isSold ? 'sold' : 'active')),
+    isSold: normalized.isSold !== undefined ? normalized.isSold === true : (normalized.status === 'sold'),
+    soldAt: normalized.isSold === false ? null : (normalized.soldAt || null),
     negotiable: !!normalized.negotiable,
     isExchangeable: !!normalized.isExchangeable || !!normalized.exchangePossible,
     exchangePossible: !!normalized.exchangePossible || !!normalized.isExchangeable
@@ -1856,9 +1862,11 @@ function normalizeServerProductSummaryRow(row: any): any {
     updatedAt: row.updatedAt || row.updated_at || row.createdAt || row.created_at || new Date().toISOString(),
     viewsCount: Number(row.viewsCount || row.views_count || 0),
     likesCount: Number(row.likesCount || row.likes_count || 0),
-    status: row.status || 'active',
-    isSold: row.isSold === true || row.is_sold === true || false,
-    soldAt: row.soldAt || row.sold_at || null,
+    status: (row.isSold === false || row.is_sold === false) && row.status === 'sold'
+      ? 'active'
+      : (row.status || (row.isSold || row.is_sold ? 'sold' : 'active')),
+    isSold: row.isSold !== undefined ? row.isSold === true : (row.is_sold !== undefined ? row.is_sold === true : row.status === 'sold'),
+    soldAt: (row.isSold === false || row.is_sold === false) ? null : (row.soldAt || row.sold_at || null),
     negotiable: row.negotiable === true,
     isExchangeable: row.isExchangeable === true || row.exchangePossible === true,
     exchangePossible: row.exchangePossible === true || row.isExchangeable === true
@@ -2522,16 +2530,19 @@ app.get('/api/products/:productId', serverRateLimiter(60 * 1000, 200, "product-d
     return res.status(400).json({ success: false, error: 'Missing product ID' });
   }
 
+  const bypassCache = req.query.nocache === 'true' || req.headers['cache-control'] === 'no-cache';
   const cacheKey = `product:${productId}`;
-  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('Cache-Control', 'no-cache, private');
 
-  const cached = serverCache.get<any>(cacheKey);
-  if (cached) {
-    res.setHeader('ETag', cached.etag);
-    if (req.headers['if-none-match'] === cached.etag) {
-      return res.status(304).end();
+  if (!bypassCache) {
+    const cached = serverCache.get<any>(cacheKey);
+    if (cached) {
+      res.setHeader('ETag', cached.etag);
+      if (req.headers['if-none-match'] === cached.etag) {
+        return res.status(304).end();
+      }
+      return res.json({ success: true, product: cached.value, cached: true });
     }
-    return res.json({ success: true, product: cached.value, cached: true });
   }
 
   if (!backendSupabase) {
@@ -2713,9 +2724,75 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     viewsCount: Number(productData.viewsCount || productData.views || existingRow?.viewsCount || existingRow?.views) || 0,
     likesCount: Number(productData.likesCount || productData.likes || existingRow?.likesCount || existingRow?.likes) || 0,
     likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : (existingRow?.likedUserIds || []),
-    status: productData.status || (productData.isSold ? 'sold' : (existingRow?.status || 'active')),
-    isSold: productData.isSold !== undefined ? productData.isSold === true : (existingRow?.isSold === true || existingRow?.is_sold === true || false),
-    soldAt: productData.soldAt !== undefined ? productData.soldAt : (existingRow?.soldAt || existingRow?.sold_at || null),
+    status: (() => {
+      if (productData.isSold === false) {
+        return (productData.status && productData.status !== 'sold') ? productData.status : 'active';
+      }
+      if (productData.isSold === true) {
+        return 'sold';
+      }
+      if (productData.status === 'sold') {
+        return 'sold';
+      }
+      if (productData.status === 'active') {
+        return 'active';
+      }
+      return productData.status || (existingRow?.status || 'active');
+    })(),
+    isSold: (() => {
+      if (productData.isSold !== undefined) {
+        return productData.isSold === true;
+      }
+      if (productData.status === 'sold') {
+        return true;
+      }
+      if (productData.status === 'active') {
+        return false;
+      }
+      return existingRow?.isSold === true || existingRow?.is_sold === true || existingRow?.status === 'sold' || false;
+    })(),
+    is_sold: (() => {
+      if (productData.isSold !== undefined) {
+        return productData.isSold === true;
+      }
+      if (productData.status === 'sold') {
+        return true;
+      }
+      if (productData.status === 'active') {
+        return false;
+      }
+      return existingRow?.isSold === true || existingRow?.is_sold === true || existingRow?.status === 'sold' || false;
+    })(),
+    soldAt: (() => {
+      if (productData.isSold === false) {
+        return null;
+      }
+      if (productData.isSold === true) {
+        return productData.soldAt || existingRow?.soldAt || existingRow?.sold_at || new Date().toISOString();
+      }
+      if (productData.status === 'sold') {
+        return productData.soldAt || existingRow?.soldAt || existingRow?.sold_at || new Date().toISOString();
+      }
+      if (productData.status === 'active') {
+        return null;
+      }
+      return productData.soldAt !== undefined ? productData.soldAt : (existingRow?.soldAt || existingRow?.sold_at || null);
+    })(),
+    sold_at: (() => {
+      if (productData.isSold === false) {
+        return null;
+      }
+      if (productData.isSold === true) {
+        return productData.soldAt || existingRow?.soldAt || existingRow?.sold_at || new Date().toISOString();
+      }
+      if (productData.status === 'sold') {
+        return productData.soldAt || existingRow?.soldAt || existingRow?.sold_at || new Date().toISOString();
+      }
+      if (productData.status === 'active') {
+        return null;
+      }
+      return productData.soldAt !== undefined ? productData.soldAt : (existingRow?.soldAt || existingRow?.sold_at || null);
+    })(),
     boostStatus: productData.boostStatus !== undefined ? productData.boostStatus === true : (existingRow?.boostStatus === true),
     boostExpiry: productData.boostExpiry || productData.boostEndDate || existingRow?.boostExpiry || existingRow?.boostEndDate || null,
     images: cleanImages.length > 0 ? cleanImages : (existingRow?.images || []),
@@ -2849,13 +2926,14 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
   // a real clock to measure against — never reset on a later edit while
   // already sold (a seller tweaking the description of a sold listing must
   // not restart its countdown), and cleared if it's marked available again.
-  const wasSold = existingRow?.isSold === true || existingRow?.is_sold === true;
-  const isNowSold = product.isSold === true;
-  let soldAtPatch: { soldAt?: string | null } = {};
+  const wasSold = existingRow?.isSold === true || existingRow?.is_sold === true || existingRow?.status === 'sold';
+  const isNowSold = product.isSold === true || product.status === 'sold';
+  let soldAtPatch: { soldAt?: string | null; sold_at?: string | null; isSold?: boolean; is_sold?: boolean; status?: string } = {};
   if (isNowSold && !wasSold) {
-    soldAtPatch = { soldAt: new Date().toISOString() };
+    const stamp = new Date().toISOString();
+    soldAtPatch = { soldAt: stamp, sold_at: stamp, isSold: true, is_sold: true, status: 'sold' };
   } else if (!isNowSold && wasSold) {
-    soldAtPatch = { soldAt: null };
+    soldAtPatch = { soldAt: null, sold_at: null, isSold: false, is_sold: false, status: 'active' };
   }
 
   const cleanProduct = {

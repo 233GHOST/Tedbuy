@@ -29,6 +29,10 @@ export interface Product {
   condition?: string;
   createdAt?: string;
   isSold?: boolean;
+  is_sold?: boolean;
+  status?: string;
+  soldAt?: string | null;
+  sold_at?: string | null;
   boostStatus?: string;
   boostEndDate?: string;
   boostStartDate?: string;

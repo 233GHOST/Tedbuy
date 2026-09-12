@@ -750,13 +750,14 @@ export async function fetchChatsForUser(userId: string) {
 // lets ProductDetailScreen show "check your connection, try again" instead of
 // "this listing has expired/been sold" for what might just be a dropped
 // connection.
-export async function fetchProductById(productId: string) {
+export async function fetchProductById(productId: string, noCache = false) {
   // Previously a raw, un-timed-out fetch() — unlike every other request in
   // this file, which goes through apiFetch()'s AbortController. On a slow
   // or dropped connection this could hang forever with no way to recover,
   // which is exactly what made "Mark Sold" (built on updateProduct below,
   // which calls this first) spin indefinitely instead of ever erroring out.
-  const data = await apiFetch(`/api/products/${productId}`);
+  const url = noCache ? `/api/products/${productId}?nocache=true` : `/api/products/${productId}`;
+  const data = await apiFetch(url);
   if (data.errorCode === 'NETWORK' || data.errorCode === 'TIMEOUT' || data.errorCode === 'PARSE') {
     throw new Error(data.error);
   }
@@ -1394,10 +1395,38 @@ export async function updateProduct(id: string, data: Partial<any>) {
   // Products are canonically stored in Supabase (synced via /api/products/sync),
   // not Firestore — a raw Firestore write here would never reach the record
   // fetchProducts/fetchProductById actually read.
-  const product = await fetchProductById(id);
+  const product = await fetchProductById(id, true);
   if (!product) return;
 
-  const updated = { ...product, ...data };
+  const patchData = { ...data };
+  if (patchData.isSold !== undefined) {
+    const nextSold = patchData.isSold === true;
+    patchData.isSold = nextSold;
+    if (nextSold) {
+      patchData.status = 'sold';
+      if (!patchData.soldAt) patchData.soldAt = new Date().toISOString();
+    } else {
+      patchData.status = 'active';
+      patchData.soldAt = null;
+    }
+  } else if (patchData.status === 'sold') {
+    patchData.isSold = true;
+    if (!patchData.soldAt) patchData.soldAt = new Date().toISOString();
+  } else if (patchData.status === 'active') {
+    patchData.isSold = false;
+    patchData.soldAt = null;
+  }
+
+  const updated = { ...product, ...patchData };
+  if (patchData.isSold === false) {
+    updated.status = 'active';
+    updated.isSold = false;
+    updated.soldAt = null;
+  } else if (patchData.isSold === true) {
+    updated.status = 'sold';
+    updated.isSold = true;
+  }
+
   const resData = await apiFetch('/api/products/sync', { method: 'POST', body: { product: updated } });
   if (!resData.success) {
     throw new Error(resData.error || 'Failed to update product');

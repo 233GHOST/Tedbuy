@@ -699,9 +699,18 @@ CEO, Tedbuy Inc`;
     setTogglingSoldId(item.id);
     const newSoldState = !item.isSold;
     try {
-      await updateProduct(item.id, { isSold: newSoldState });
+      await updateProduct(item.id, {
+        isSold: newSoldState,
+        status: newSoldState ? 'sold' : 'active',
+        soldAt: newSoldState ? new Date().toISOString() : null
+      });
       setSellerFetchedProducts(prev =>
-        prev.map(p => p.id === item.id ? { ...p, isSold: newSoldState } : p)
+        prev.map(p => p.id === item.id ? {
+          ...p,
+          isSold: newSoldState,
+          status: newSoldState ? 'sold' : 'active',
+          soldAt: newSoldState ? new Date().toISOString() : null
+        } : p)
       );
       showToast(newSoldState ? 'Listing marked as Sold' : 'Listing marked as Available', 'success');
     } catch (err: any) {

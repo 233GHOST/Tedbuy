@@ -224,6 +224,9 @@ export interface Product {
   likedUserIds?: string[];
   status?: "active" | "sold" | "hidden" | "archived" | "deleted";
   isSold?: boolean;
+  is_sold?: boolean;
+  soldAt?: string | null;
+  sold_at?: string | null;
   isDeleted?: boolean;
   archivedAt?: string;
   securityHold?: boolean;

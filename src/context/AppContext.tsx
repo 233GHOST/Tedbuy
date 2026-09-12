@@ -3678,6 +3678,25 @@ CEO, Tedbuy Inc`;
         updatedData.category = normalizeCategory(updatedData.category);
       }
 
+      // Harmonize isSold, status, and soldAt
+      if (updatedData.isSold !== undefined) {
+        const nextSold = updatedData.isSold === true;
+        updatedData.isSold = nextSold;
+        if (nextSold) {
+          updatedData.status = 'sold';
+          if (!updatedData.soldAt) updatedData.soldAt = new Date().toISOString();
+        } else {
+          updatedData.status = 'active';
+          updatedData.soldAt = null;
+        }
+      } else if (updatedData.status === 'sold') {
+        updatedData.isSold = true;
+        if (!updatedData.soldAt) updatedData.soldAt = new Date().toISOString();
+      } else if (updatedData.status === 'active') {
+        updatedData.isSold = false;
+        updatedData.soldAt = null;
+      }
+
       // Optimistically update local memory state
       // Stamping updatedAt here (not just spreading updatedData) matters:
       // components that merge this context's products against their own
@@ -3749,6 +3768,14 @@ CEO, Tedbuy Inc`;
             createdAt: finalCreatedAt,
             updatedAt: new Date().toISOString()
           };
+          if (updatedData.isSold === false) {
+            fullProductUpdate.status = 'active';
+            fullProductUpdate.isSold = false;
+            fullProductUpdate.soldAt = null;
+          } else if (updatedData.isSold === true) {
+            fullProductUpdate.status = 'sold';
+            fullProductUpdate.isSold = true;
+          }
 
           // Optimistically update local memory state with full merged fields
           setProducts(prev => {
@@ -3852,11 +3879,19 @@ CEO, Tedbuy Inc`;
         }
       } else {
         // Local product wasn't found in memory state - perform atomic update and sync while preserving existing seller
-        const safeData = {
+        const safeData: any = {
           ...updatedData,
           id,
           updatedAt: new Date().toISOString()
         };
+        if (updatedData.isSold === false) {
+          safeData.status = 'active';
+          safeData.isSold = false;
+          safeData.soldAt = null;
+        } else if (updatedData.isSold === true) {
+          safeData.status = 'sold';
+          safeData.isSold = true;
+        }
 
         updateDoc(productRef, cleanObject(safeData))
           .catch(() => {

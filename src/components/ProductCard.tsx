@@ -129,7 +129,11 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
     const nextSoldState = !product.isSold;
     try {
       setUpdatingSold(true);
-      await onUpdateProduct(product.id, { isSold: nextSoldState });
+      await onUpdateProduct(product.id, {
+        isSold: nextSoldState,
+        status: nextSoldState ? 'sold' : 'active',
+        soldAt: nextSoldState ? new Date().toISOString() : null
+      });
       showToast?.(
         nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
         'success'

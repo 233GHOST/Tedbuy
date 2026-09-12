@@ -70,7 +70,9 @@ export const ProductDetail: React.FC = () => {
 
     const fetchDirectItem = async () => {
       try {
-        const res = await fetch(`/api/products/${selectedProductId}`);
+        const res = await fetch(`/api/products/${selectedProductId}?nocache=true`, {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
         if (!res.ok) {
           if (res.status === 404 && isSubscribed) {
             setFetchNotFound(true);
@@ -129,7 +131,11 @@ export const ProductDetail: React.FC = () => {
     if (isTogglingSold || !product) return;
     try {
       setIsTogglingSold(true);
-      await updateProduct(product.id, { isSold: nextSoldState });
+      await updateProduct(product.id, {
+        isSold: nextSoldState,
+        status: nextSoldState ? 'sold' : 'active',
+        soldAt: nextSoldState ? new Date().toISOString() : null
+      });
       showToast(
         nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
         'success'

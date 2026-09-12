@@ -106,7 +106,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     setLoadError(null);
 
     // Single-entry subscription and loader
-    fetchProductById(productId).then((result) => {
+    fetchProductById(productId, true).then((result) => {
       if (!active) return;
       setProduct(result);
       if (result?.sellerId) {
@@ -400,12 +400,30 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   };
 
   const handleToggleSold = async () => {
-    if (isTogglingSold) return;
+    if (isTogglingSold || !product) return;
+    const nextSold = !product.isSold;
     try {
       setIsTogglingSold(true);
-      const updated = await updateProduct(product.id, { isSold: !product.isSold });
-      setProduct((prev: any) => ({ ...prev, ...(updated || { isSold: !prev.isSold }) }));
+      setProduct((prev: any) => ({
+        ...prev,
+        isSold: nextSold,
+        status: nextSold ? 'sold' : 'active',
+        soldAt: nextSold ? new Date().toISOString() : null,
+      }));
+      const updated = await updateProduct(product.id, {
+        isSold: nextSold,
+        status: nextSold ? 'sold' : 'active',
+        soldAt: nextSold ? new Date().toISOString() : null,
+      });
+      if (updated) {
+        setProduct((prev: any) => ({ ...prev, ...updated }));
+      }
     } catch (err: any) {
+      setProduct((prev: any) => ({
+        ...prev,
+        isSold: !nextSold,
+        status: !nextSold ? 'sold' : 'active',
+      }));
       Alert.alert('Error', err.message || 'Could not update listing status.');
     } finally {
       setIsTogglingSold(false);
@@ -954,7 +972,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                       // failing here just keeps the current listing on screen
                       // with a dismissible alert instead of a mismatched retry.
                       setLoading(true);
-                      fetchProductById(otherItem.id).then((result) => {
+                      fetchProductById(otherItem.id, true).then((result) => {
                         setProduct(result);
                         setCurrentImageIndex(0);
                         setLoading(false);
