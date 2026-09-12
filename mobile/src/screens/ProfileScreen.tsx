@@ -224,7 +224,11 @@ export function ProfileScreen() {
   // focus keeps this list honest whenever the user actually looks at it.
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', () => {
-      watchProducts((result) => setProducts(result));
+      // noCache: true — this refresh exists specifically to catch a change
+      // that just happened elsewhere (e.g. Mark as Sold on the product's own
+      // detail page); trusting the ordinary ~60s server cache here would
+      // defeat the point on a focus that lands within that window.
+      watchProducts((result) => setProducts(result), true);
     });
     return unsubscribeFocus;
   }, [navigation]);

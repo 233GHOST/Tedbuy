@@ -528,31 +528,38 @@ CEO, Tedbuy Inc`;
   }, [currentUser]);
 
   // Merge products from context and dedicated seller fetch, deduplicating by
-  // ID. Order matters here: sellerFetchedProducts is a one-time snapshot
-  // from mount, never updated again — while `products` (context) gets kept
-  // live by updateProduct's optimistic setProducts() call every time
-  // anything (Mark as Sold, edit, boost, etc.) changes a listing, anywhere
-  // in the app. sellerFetchedProducts must go in FIRST so products's fresher
-  // entry overwrites it when both have the same id — previously this was
-  // reversed, so the stale one-time snapshot always won, showing "Mark
-  // Sold" here even right after the product's own detail page had already
-  // confirmed "Sold".
+  // ID. Neither source is unconditionally fresher than the other:
+  // - sellerFetchedProducts is a one-time nocache=true fetch from mount —
+  //   always accurate at the time it ran, but never updated again, so it
+  //   goes stale the moment anything changes elsewhere in the app.
+  // - `products` (context) gets kept live by updateProduct's optimistic
+  //   setProducts() call on every change anywhere in the app, BUT its own
+  //   initial load (fetchProductsOnce in AppContext, and the SSR-injected
+  //   window.__INITIAL_PRODUCTS__) goes through the ordinary 60s server
+  //   cache, not nocache — so right after a fresh page load it can just as
+  //   easily be the stale one.
+  // Comparing updatedAt (stamped server-side on every real write) and
+  // taking whichever entry is actually newer is the only version of this
+  // that's correct in both directions, instead of blindly trusting one
+  // source over the other.
   const myOwnProducts = React.useMemo(() => {
     const map = new Map<string, Product>();
+    const isNewer = (a?: Product, b?: Product) => {
+      if (!a) return false;
+      if (!b) return true;
+      const tA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const tB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return tA >= tB;
+    };
 
-    // 1. From dedicated seller products fetch (baseline — has pagination
-    // reach beyond whatever's currently loaded into context, but goes stale
-    // the moment anything changes elsewhere in the app)
     sellerFetchedProducts.forEach(p => {
       if (isProductMine(p) || !currentUser?.isAdmin) {
         map.set(p.id, p);
       }
     });
 
-    // 2. From products loaded into context (kept live by updateProduct) —
-    // intentionally overwrites the seller-fetch entry above when both exist
     products.forEach(p => {
-      if (isProductMine(p)) {
+      if (isProductMine(p) && isNewer(p, map.get(p.id))) {
         map.set(p.id, p);
       }
     });

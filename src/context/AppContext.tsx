@@ -3679,7 +3679,13 @@ CEO, Tedbuy Inc`;
       }
 
       // Optimistically update local memory state
-      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updatedData } : p));
+      // Stamping updatedAt here (not just spreading updatedData) matters:
+      // components that merge this context's products against their own
+      // separately-fetched copy (e.g. ProfileSettings' My Classified
+      // Listings) use updatedAt to decide which copy is actually newer —
+      // without a fresh stamp here, an optimistic update look identical in
+      // age to a stale copy fetched before it, and lose that comparison.
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updatedData, updatedAt: new Date().toISOString() } : p));
 
       // Step C: Try updating standard database document, but in a completely non-blocking asynchronous way
       if (localOnly) {

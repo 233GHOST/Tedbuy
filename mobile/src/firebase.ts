@@ -656,7 +656,7 @@ export function observeAuthState(callback: (user: any) => void) {
 // and watchProducts (which does distinguish, so the feed can tell a real
 // network failure apart from a genuinely empty catalog instead of both
 // silently rendering as "no products").
-export async function fetchProductsWithStatus(limitCount = 24, searchQuery?: string, category?: string): Promise<{ products: any[]; failed: boolean }> {
+export async function fetchProductsWithStatus(limitCount = 24, searchQuery?: string, category?: string, noCache = false): Promise<{ products: any[]; failed: boolean }> {
   try {
     const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://www.tedbuy.store';
     let apiUrl = `${origin}/api/products?page=1&limit=${limitCount}`;
@@ -665,6 +665,9 @@ export async function fetchProductsWithStatus(limitCount = 24, searchQuery?: str
     }
     if (category && category !== 'All' && category !== 'all') {
       apiUrl += `&category=${encodeURIComponent(category.trim())}`;
+    }
+    if (noCache) {
+      apiUrl += '&nocache=true';
     }
     const res = await fetch(apiUrl);
     const data = await res.json();
@@ -805,10 +808,10 @@ export async function fetchUserById(userId: string) {
 // show "Couldn't load listings, try again" instead of a silent empty grid on
 // a real network failure (as opposed to a genuinely empty catalog) can read
 // it; everyone else keeps working exactly as before.
-export function watchProducts(callback: (products: any[], failed?: boolean) => void) {
+export function watchProducts(callback: (products: any[], failed?: boolean) => void, noCache = false) {
   let active = true;
   const load = async () => {
-    const { products, failed } = await fetchProductsWithStatus(200);
+    const { products, failed } = await fetchProductsWithStatus(200, undefined, undefined, noCache);
     if (active) callback(products, failed);
   };
   load();
