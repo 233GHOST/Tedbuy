@@ -1436,3 +1436,37 @@ export async function trackProductView(productId: string) {
     console.warn('[trackProductView Error]', err);
   }
 }
+
+export async function fetchSellerListingCounts(): Promise<Record<string, number>> {
+  try {
+    const res = await fetch(`${apiOrigin()}/api/sellers/counts?nocache=true`);
+    if (res.ok) {
+      const data = await res.json();
+      return data?.counts || {};
+    }
+  } catch (err) {
+    console.warn('[fetchSellerListingCounts] error:', err);
+  }
+  return {};
+}
+
+export async function fetchProductsForSeller(sellerId: string, sellerEmail?: string): Promise<Product[]> {
+  try {
+    const query = new URLSearchParams({
+      sellerId,
+      limit: '1000',
+      nocache: 'true',
+    });
+    if (sellerEmail) query.set('sellerEmail', sellerEmail);
+    const res = await fetch(`${apiOrigin()}/api/products?${query.toString()}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.products)) {
+        return data.products;
+      }
+    }
+  } catch (err) {
+    console.warn('[fetchProductsForSeller] error:', err);
+  }
+  return [];
+}

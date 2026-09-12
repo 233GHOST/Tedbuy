@@ -19,7 +19,7 @@ import { CategoryImagePlaceholder } from '../components/CategoryImagePlaceholder
 import { useSavedProducts } from '../context/SavedProducts';
 import { CATEGORY_FILTERS, getModelsForBrand } from '../utils/filterConfig';
 import { Product, isUserVerified, isUserAdmin } from '../types';
-import { auth, fetchProducts, fetchProductsWithStatus, fetchVideoAds, watchProducts, watchUsers, startChatApi, toggleFollowSeller } from '../firebase';
+import { auth, fetchProducts, fetchProductsWithStatus, fetchVideoAds, watchProducts, watchUsers, startChatApi, toggleFollowSeller, fetchSellerListingCounts } from '../firebase';
 import { EmailVerificationModal } from '../components/EmailVerificationModal';
 import { fonts } from '../theme';
 
@@ -978,6 +978,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const [isFeaturedPaused, setIsFeaturedPaused] = useState<boolean>(false);
   const featuredPauseTimeoutRef = useRef<any>(null);
   const FEATURED_CARD_STEP = 175 + 12;
+  const [sellerListingCounts, setSellerListingCounts] = useState<Record<string, number>>({});
 
   // Close filter dropdown on category change
   useEffect(() => {
@@ -1007,6 +1008,12 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
 
     const unsubUsers = watchUsers((result) => {
       setUsers(result);
+    });
+
+    fetchSellerListingCounts().then((counts) => {
+      if (counts && Object.keys(counts).length > 0) {
+        setSellerListingCounts(counts);
+      }
     });
 
     return () => {
@@ -1216,8 +1223,8 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // prop but never actually filters by it, so the same top sellers show
   // regardless of the active category filter. Not passing it here on purpose.
   const discoverSellers = useMemo(
-    () => computeDiscoverSellers(products, users, undefined, 12),
-    [users, products]
+    () => computeDiscoverSellers(products, users, undefined, 12, sellerListingCounts),
+    [users, products, sellerListingCounts]
   );
 
   // Only listings with a real video belong in the video ads feed — the

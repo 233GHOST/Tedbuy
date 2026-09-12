@@ -118,11 +118,29 @@ export const ProductDetail: React.FC = () => {
   const [deleteCheckboxConfirmed, setDeleteCheckboxConfirmed] = useState(true);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isTogglingSold, setIsTogglingSold] = useState(false);
   const [isAdminBoosting, setIsAdminBoosting] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [selectedFreePlan, setSelectedFreePlan] = useState('7days');
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
+  const handleToggleSold = async (nextSoldState: boolean) => {
+    if (isTogglingSold || !product) return;
+    try {
+      setIsTogglingSold(true);
+      await updateProduct(product.id, { isSold: nextSoldState });
+      showToast(
+        nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
+        'success'
+      );
+    } catch (err: any) {
+      console.error("Failed to update product isSold flag", err);
+      showToast(err?.message || 'Could not update listing status.', 'error');
+    } finally {
+      setIsTogglingSold(false);
+    }
+  };
   const [reportReason, setReportReason] = useState('spam');
   const [reportComment, setReportComment] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
@@ -1596,21 +1614,23 @@ export const ProductDetail: React.FC = () => {
                   
                   <div className="flex items-center justify-between py-2 px-3 bg-white rounded-2xl border border-rose-200/60 shadow-3xs">
                     <span className="font-bold text-slate-700">Item Status:</span>
-                    <label className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-xs text-rose-600 hover:text-rose-700">
-                      <input
-                        type="checkbox"
-                        checked={!!product.isSold}
-                        onChange={async (e) => {
-                          try {
-                            await updateProduct(product.id, { isSold: e.target.checked });
-                          } catch (err) {
-                            console.error("Failed to update product isSold flag", err);
-                          }
-                        }}
-                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
-                      />
-                      <span>Mark as Sold</span>
-                    </label>
+                    <button
+                      type="button"
+                      disabled={isTogglingSold}
+                      onClick={() => handleToggleSold(!product.isSold)}
+                      className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-xs text-rose-600 hover:text-rose-700 disabled:opacity-60"
+                    >
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                        product.isSold ? 'bg-rose-600 border-rose-600' : 'bg-white border-slate-350'
+                      }`}>
+                        {isTogglingSold ? (
+                          <Loader2 className="w-2.5 h-2.5 text-rose-600 animate-spin" />
+                        ) : (
+                          product.isSold && <Check className="w-2.5 h-2.5 text-white stroke-[3.5]" />
+                        )}
+                      </span>
+                      <span>{product.isSold ? 'Sold' : 'Mark as Sold'}</span>
+                    </button>
                   </div>
 
                   {/* Admin Boost Control Sub-Section */}
@@ -1735,21 +1755,23 @@ export const ProductDetail: React.FC = () => {
                   
                   <div className="flex items-center justify-between py-2 px-3 bg-white rounded-2xl border border-slate-200/60 shadow-3xs">
                     <span className="font-bold text-slate-700">Item Status:</span>
-                    <label className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-xs text-rose-600 hover:text-rose-700">
-                      <input
-                        type="checkbox"
-                        checked={!!product.isSold}
-                        onChange={async (e) => {
-                          try {
-                            await updateProduct(product.id, { isSold: e.target.checked });
-                          } catch (err) {
-                            console.error("Failed to update product isSold flag", err);
-                          }
-                        }}
-                        className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-350 cursor-pointer"
-                      />
-                      <span>Mark as Sold</span>
-                    </label>
+                    <button
+                      type="button"
+                      disabled={isTogglingSold}
+                      onClick={() => handleToggleSold(!product.isSold)}
+                      className="flex items-center gap-1.5 cursor-pointer select-none font-bold text-xs text-rose-600 hover:text-rose-700 disabled:opacity-60"
+                    >
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                        product.isSold ? 'bg-rose-600 border-rose-600' : 'bg-white border-slate-350'
+                      }`}>
+                        {isTogglingSold ? (
+                          <Loader2 className="w-2.5 h-2.5 text-rose-600 animate-spin" />
+                        ) : (
+                          product.isSold && <Check className="w-2.5 h-2.5 text-white stroke-[3.5]" />
+                        )}
+                      </span>
+                      <span>{product.isSold ? 'Sold' : 'Mark as Sold'}</span>
+                    </button>
                   </div>
 
                   <div className="flex gap-2">

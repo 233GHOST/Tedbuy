@@ -25,16 +25,30 @@ export const SellerDashboard: React.FC = () => {
     showToast,
   } = useApp();
   const [showModal, setShowModal] = useState(false);
-  // Matches mobile's ProfileScreen "My Classified Listings" toggle: a
-  // visible loading state per-listing while the request is in flight, and
-  // an actual user-facing error if it fails. Web previously had neither —
-  // the button stayed clickable the whole time and a failure only ever hit
-  // console.error, invisible to the seller.
-  const [togglingSoldId, setTogglingSoldId] = useState<string | null>(null);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [boostingProduct, setBoostingProduct] = useState<Product | null>(null);
   const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(true);
+  const [togglingSoldId, setTogglingSoldId] = useState<string | null>(null);
+
+  const handleToggleSold = async (prod: Product, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (togglingSoldId === prod.id) return;
+    setTogglingSoldId(prod.id);
+    const nextSoldState = !prod.isSold;
+    try {
+      await updateProduct(prod.id, { isSold: nextSoldState });
+      showToast(
+        nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
+        'success'
+      );
+    } catch (err: any) {
+      console.error("Failed to toggle sold status", err);
+      showToast(err?.message || 'Could not update listing status.', 'error');
+    } finally {
+      setTogglingSoldId(null);
+    }
+  };
 
   // Auto-dismissing reminder to add their WhatsApp number if it is missing
   const [showWhatsAppReminder, setShowWhatsAppReminder] = useState(() => {
@@ -454,24 +468,8 @@ export const SellerDashboard: React.FC = () => {
                     <button
                       id={`btn-toggle-sold-${prod.id}`}
                       disabled={togglingSoldId === prod.id}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (togglingSoldId) return;
-                        const nextSold = !prod.isSold;
-                        setTogglingSoldId(prod.id);
-                        try {
-                          await updateProduct(prod.id, { isSold: nextSold });
-                          showToast(
-                            nextSold ? `"${prod.title}" marked as sold.` : `"${prod.title}" is active again.`,
-                            'success'
-                          );
-                        } catch (err: any) {
-                          showToast(err?.message || 'Could not update listing status.', 'error');
-                        } finally {
-                          setTogglingSoldId(null);
-                        }
-                      }}
-                      className={`p-1.5 border rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-3xs text-[10px] font-black uppercase tracking-wider gap-1.5 px-3 select-none shrink-0 disabled:opacity-60 disabled:cursor-wait ${
+                      onClick={(e) => handleToggleSold(prod, e)}
+                      className={`p-1.5 border rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-3xs text-[10px] font-black uppercase tracking-wider gap-1.5 px-3 select-none shrink-0 disabled:opacity-60 ${
                         prod.isSold
                           ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
                           : 'bg-white border-slate-200 text-slate-600 hover:text-slate-905 hover:bg-slate-50'
@@ -479,11 +477,13 @@ export const SellerDashboard: React.FC = () => {
                       title={prod.isSold ? "Mark as Available" : "Mark as Sold"}
                     >
                       {togglingSoldId === prod.id ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <Loader2 className="w-3 h-3 text-rose-600 animate-spin" />
                       ) : (
-                        <span className={`w-2 h-2 rounded-full ${prod.isSold ? 'bg-rose-600 animate-pulse' : 'bg-slate-350'}`}></span>
+                        <>
+                          <span className={`w-2 h-2 rounded-full ${prod.isSold ? 'bg-rose-600 animate-pulse' : 'bg-slate-350'}`}></span>
+                          <span>{prod.isSold ? 'Sold' : 'Mark Sold'}</span>
+                        </>
                       )}
-                      <span>{prod.isSold ? 'Sold' : 'Mark Sold'}</span>
                     </button>
 
                     <button

@@ -7,24 +7,22 @@ interface SellersToDiscoverProps {
 }
 
 export function SellersToDiscover({ selectedCategory }: SellersToDiscoverProps) {
-  const { users, products, setSelectedSellerId, setCurrentView } = useApp();
+  const { users, products, setSelectedSellerId, setCurrentView, sellerListingCounts } = useApp();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Derive top active sellers in-memory with zero extra database egress
   const activeSellers = useMemo(() => {
-    if (!users || users.length === 0 || !products || products.length === 0) return [];
-
-    // Count active products per seller
-    const sellerListingCount: Record<string, number> = {};
+    // Count active products per seller from in-memory products
+    const sellerLocalListingCount: Record<string, number> = {};
     const sellerTopCategories: Record<string, Set<string>> = {};
     const sellerLocations: Record<string, string> = {};
 
-    products.forEach((p) => {
+    (products || []).forEach((p) => {
       if (!p || (p as any).status === 'hidden' || (p as any).isSold || (p as any).status === 'sold') return;
       const uid = p.sellerId || (p as any).user_id;
       if (!uid) return;
 
-      sellerListingCount[uid] = (sellerListingCount[uid] || 0) + 1;
+      sellerLocalListingCount[uid] = (sellerLocalListingCount[uid] || 0) + 1;
       if (!sellerTopCategories[uid]) {
         sellerTopCategories[uid] = new Set();
       }
@@ -36,15 +34,33 @@ export function SellersToDiscover({ selectedCategory }: SellersToDiscoverProps) 
       }
     });
 
-    // Map sellers
-    const list = users
+    const getRealCountForUser = (u: any): number => {
+      if (!u) return 0;
+      if (sellerListingCounts) {
+        if (u.id && sellerListingCounts[u.id] !== undefined) return sellerListingCounts[u.id];
+        if (u.uid && sellerListingCounts[u.uid] !== undefined) return sellerListingCounts[u.uid];
+        if (u.username && sellerListingCounts[u.username.trim().toLowerCase()] !== undefined) {
+          return sellerListingCounts[u.username.trim().toLowerCase()];
+        }
+        if (u.displayName && sellerListingCounts[u.displayName.trim().toLowerCase()] !== undefined) {
+          return sellerListingCounts[u.displayName.trim().toLowerCase()];
+        }
+        if (u.email && sellerListingCounts[u.email.trim().toLowerCase()] !== undefined) {
+          return sellerListingCounts[u.email.trim().toLowerCase()];
+        }
+      }
+      return sellerLocalListingCount[u.id] || 0;
+    };
+
+    // Map sellers from loaded users
+    const list = (users || [])
       .filter((u) => {
         if (!u || !u.id) return false;
-        // Only show sellers who have at least 1 active product
-        return (sellerListingCount[u.id] || 0) > 0;
+        const realCount = getRealCountForUser(u);
+        return realCount > 0;
       })
       .map((u) => {
-        const count = sellerListingCount[u.id] || 0;
+        const count = getRealCountForUser(u);
         const categoriesSet = sellerTopCategories[u.id] || new Set();
         const primaryCategory = Array.from(categoriesSet)[0] || 'Marketplace';
         const location = (u as any).region || (u as any).location || sellerLocations[u.id] || 'Ghana';
@@ -55,17 +71,41 @@ export function SellersToDiscover({ selectedCategory }: SellersToDiscoverProps) 
           primaryCategory,
           displayLocation: location,
         };
-      })
-      .sort((a, b) => {
-        // Prioritize verified merchants and higher active listing count
-        if (a.emailVerified && !b.emailVerified) return -1;
-        if (!a.emailVerified && b.emailVerified) return 1;
-        return b.listingCount - a.listingCount;
-      })
-      .slice(0, 12); // Display top 12 active sellers
+      });
 
-    return list;
-  }, [users, products]);
+    // Merge pre-cached top sellers from server SSR injection if any
+    const initialSellers: any[] = typeof window !== 'undefined' && Array.isArray((window as any).__INITIAL_DISCOVER_SELLERS__)
+      ? (window as any).__INITIAL_DISCOVER_SELLERS__
+      : [];
+
+    const existingIds = new Set(list.map(s => s.id));
+    initialSellers.forEach(s => {
+      if (s && s.id && !existingIds.has(s.id)) {
+        const count = getRealCountForUser(s) || s.listingCount || 0;
+        if (count > 0) {
+          list.push({
+            id: s.id,
+            username: s.username || s.name,
+            displayName: s.displayName || s.name,
+            emailVerified: s.isVerified,
+            photoUrl: s.photoUrl,
+            listingCount: count,
+            primaryCategory: s.primaryCategory || 'Marketplace',
+            displayLocation: s.location || 'Ghana',
+          } as any);
+          existingIds.add(s.id);
+        }
+      }
+    });
+
+    list.sort((a, b) => {
+      if (a.emailVerified && !b.emailVerified) return -1;
+      if (!a.emailVerified && b.emailVerified) return 1;
+      return b.listingCount - a.listingCount;
+    });
+
+    return list.slice(0, 12); // Display top 12 active sellers
+  }, [users, products, sellerListingCounts]);
 
   if (activeSellers.length === 0) return null;
 

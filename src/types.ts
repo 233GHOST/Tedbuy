@@ -46,6 +46,7 @@ export interface User {
   lastLogin?: string; // ISO string
   lastSeen?: string; // ISO string
   isOnline?: boolean;
+  listingCount?: number;
 }
 
 export interface AccountDeletionAudit {
