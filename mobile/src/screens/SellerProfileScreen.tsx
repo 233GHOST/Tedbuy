@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth, watchProducts, watchUsers, fetchUserById, startChatApi, toggleFollowSeller, fetchReviewsForSeller } from '../firebase';
+import { auth, watchProducts, watchUsers, fetchUserById, startChatApi, toggleFollowSeller, fetchReviewsForSeller, fetchProductsForSeller, fetchSellerListingCounts } from '../firebase';
 import { Users as UsersIcon, UserPlus, UserMinus, MessageCircle, MessageSquare, ShieldCheck, Flame, Shield } from 'lucide-react-native';
 import { ProductCard } from '../components/ProductCard';
 import { BackButton } from '../components/BackButton';
@@ -78,11 +78,18 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
   // mobile's listings tab. Matches web's local search/filter exactly.
   const [storeSearchQuery, setStoreSearchQuery] = useState('');
   const [storeSelectedCategory, setStoreSelectedCategory] = useState<string | null>(null);
+  const [sellerListingCounts, setSellerListingCounts] = useState<Record<string, number>>({});
 
   const currentUser = auth.currentUser;
 
   useEffect(() => {
     let isMounted = true;
+
+    fetchSellerListingCounts().then((counts) => {
+      if (isMounted && counts && Object.keys(counts).length > 0) {
+        setSellerListingCounts(counts);
+      }
+    });
 
     // Seller profile and (if signed in) the caller's own profile — both come
     // from the authenticated /api/users/get endpoint, not Firestore.
@@ -138,6 +145,14 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
       });
       setProducts(filtered);
       setLoading(false);
+    });
+
+    fetchProductsForSeller(sellerId, seller?.email).then((prods) => {
+      if (!isMounted) return;
+      if (prods && prods.length > 0) {
+        setProducts(prods);
+        setLoading(false);
+      }
     });
 
     return () => {
@@ -480,7 +495,16 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
             style={[styles.tabItem, activeTab === 'listings' && styles.tabItemActive]}
           >
             <Text style={[styles.tabItemText, activeTab === 'listings' && styles.tabItemTextActive]}>
-              Active Listings ({products.length})
+              Active Listings ({Math.max(
+                products.length,
+                (sellerListingCounts && (
+                  sellerListingCounts[sellerId] ||
+                  (seller?.id && sellerListingCounts[seller.id]) ||
+                  (seller?.uid && sellerListingCounts[seller.uid]) ||
+                  (seller?.username && sellerListingCounts[seller.username.trim().toLowerCase()]) ||
+                  (seller?.email && sellerListingCounts[seller.email.trim().toLowerCase()])
+                )) || 0
+              )})
             </Text>
           </Pressable>
           <Pressable

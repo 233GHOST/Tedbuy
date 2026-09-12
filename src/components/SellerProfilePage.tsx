@@ -28,7 +28,8 @@ export const SellerProfilePage: React.FC = () => {
     setActiveChatId,
     setShowAuthModal,
     setAuthMode,
-    updateUserProfile
+    updateUserProfile,
+    sellerListingCounts
   } = useApp();
 
   const handleGoBack = () => {
@@ -54,13 +55,28 @@ export const SellerProfilePage: React.FC = () => {
   const [serverSellerProducts, setServerSellerProducts] = useState<Product[]>([]);
   const [isLoadingStore, setIsLoadingStore] = useState<boolean>(false);
 
+  // 1. Resolve seller from users directory or fallback to existing products
+  const foundUser = users.find(u => 
+    u.id === selectedSellerId || 
+    (u as any).uid === selectedSellerId ||
+    (selectedSellerId && u.username && u.username.toLowerCase() === selectedSellerId.toLowerCase())
+  );
+
   useEffect(() => {
     if (!selectedSellerId) return;
     let active = true;
     const fetchAllSellerListings = async () => {
       setIsLoadingStore(true);
       try {
-        const res = await fetch(`/api/products?sellerId=${encodeURIComponent(selectedSellerId)}&limit=1000&nocache=true`);
+        const queryParams = new URLSearchParams({
+          sellerId: selectedSellerId,
+          limit: '1000',
+          nocache: 'true'
+        });
+        if (foundUser?.email) {
+          queryParams.set('sellerEmail', foundUser.email);
+        }
+        const res = await fetch(`/api/products?${queryParams.toString()}`);
         if (res.ok) {
           const data = await res.json();
           if (active && data && Array.isArray(data.products)) {
@@ -76,7 +92,7 @@ export const SellerProfilePage: React.FC = () => {
     };
     fetchAllSellerListings();
     return () => { active = false; };
-  }, [selectedSellerId]);
+  }, [selectedSellerId, foundUser?.email]);
 
   // Phase 4: Review submission modal state
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -88,13 +104,6 @@ export const SellerProfilePage: React.FC = () => {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewSuccessMessage, setReviewSuccessMessage] = useState<string | null>(null);
   const [reviewErrorMessage, setReviewErrorMessage] = useState<string | null>(null);
-
-  // 1. Resolve seller from users directory or fallback to existing products
-  const foundUser = users.find(u => 
-    u.id === selectedSellerId || 
-    (u as any).uid === selectedSellerId ||
-    (selectedSellerId && u.username && u.username.toLowerCase() === selectedSellerId.toLowerCase())
-  );
 
   // Combine products from context and server query
   const combinedAllProducts = useMemo(() => {
@@ -529,7 +538,16 @@ export const SellerProfilePage: React.FC = () => {
               </span>
               <span className="flex items-center gap-1">
                 <ShoppingBag className="w-4 h-4 text-slate-400" />
-                <b>{sellerProducts.length}</b> live listings
+                <b>{Math.max(
+                  sellerProducts.length,
+                  (sellerListingCounts && (
+                    (seller?.id && sellerListingCounts[seller.id]) ||
+                    ((seller as any)?.uid && sellerListingCounts[(seller as any).uid]) ||
+                    (seller?.username && sellerListingCounts[seller.username.trim().toLowerCase()]) ||
+                    (seller?.email && sellerListingCounts[seller.email.trim().toLowerCase()]) ||
+                    (selectedSellerId && sellerListingCounts[selectedSellerId.trim().toLowerCase()])
+                  )) || 0
+                )}</b> live listings
               </span>
               <button
                 type="button"

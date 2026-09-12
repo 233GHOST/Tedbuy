@@ -281,6 +281,8 @@ interface AppContextType {
   isStandalone: boolean;
   isBottomNavVisible: boolean;
   setIsBottomNavVisible: (visible: boolean) => void;
+  sellerListingCounts: Record<string, number>;
+  refreshSellerCounts: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -391,6 +393,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     optimisticDeletedProductIdsRef.current = optimisticDeletedProductIds;
   }, [optimisticDeletedProductIds]);
+
+  const [sellerListingCounts, setSellerListingCounts] = useState<Record<string, number>>(() => {
+    if (typeof window !== 'undefined' && (window as any).__INITIAL_SELLER_COUNTS__) {
+      return (window as any).__INITIAL_SELLER_COUNTS__;
+    }
+    try {
+      const stored = safeLocalStorage.getItem('tedbuy_seller_listing_counts');
+      if (stored) return JSON.parse(stored);
+    } catch (_) {}
+    return {};
+  });
+
+  const refreshSellerCounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sellers/counts?nocache=true');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.counts) {
+          setSellerListingCounts(data.counts);
+          try {
+            safeLocalStorage.setItem('tedbuy_seller_listing_counts', JSON.stringify(data.counts));
+          } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.warn('[AppContext] refreshSellerCounts error:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const fetchSellerCounts = async () => {
+      try {
+        const res = await fetch('/api/sellers/counts');
+        if (res.ok) {
+          const data = await res.json();
+          if (active && data && data.counts) {
+            setSellerListingCounts(data.counts);
+            try {
+              safeLocalStorage.setItem('tedbuy_seller_listing_counts', JSON.stringify(data.counts));
+            } catch (_) {}
+          }
+        }
+      } catch (err) {
+        console.warn('[AppContext] Failed to fetch seller counts:', err);
+      }
+    };
+
+    fetchSellerCounts();
+    const interval = setInterval(fetchSellerCounts, 3 * 60 * 1000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchSellerCounts();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
   const [chats, setChats] = useState<Chat[]>(() => {
     try {
       let uid = '';
@@ -3533,9 +3597,18 @@ CEO, Tedbuy Inc`;
 
   const updateProduct = async (id: string, productData: Partial<Product>, localOnly = false): Promise<string | undefined> => {
     try {
-      const localProduct = products.find(p => p.id === id);
+      let localProduct = products.find(p => p.id === id);
+      if (!localProduct) {
+        try {
+          const res = await fetch(`/api/products/${id}`);
+          if (res.ok) {
+            const data = await res.json();
+            localProduct = data.product || data;
+          }
+        } catch (_) {}
+      }
       const keys = Object.keys(productData);
-      const isSocialOnly = keys.every(k => ['likesCount', 'likedUserIds', 'viewsCount', 'isSold'].includes(k));
+      const isSocialOnly = keys.every(k => ['likesCount', 'likedUserIds', 'viewsCount'].includes(k));
 
       // Authorization Guard
       if (!isSocialOnly) {
@@ -3546,7 +3619,18 @@ CEO, Tedbuy Inc`;
           originalAdminUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' ||
           currentUser.isAdmin ||
           originalAdminUser?.isAdmin;
-        const isOwner = localProduct && (localProduct.sellerId === currentUser.id || (originalAdminUser && localProduct.sellerId === originalAdminUser.id));
+        const isOwner = localProduct && (
+          localProduct.sellerId === currentUser.id ||
+          localProduct.sellerId === `user_${currentUser.id}` ||
+          localProduct.sellerId === `phone_${currentUser.id}` ||
+          (originalAdminUser && (
+            localProduct.sellerId === originalAdminUser.id ||
+            localProduct.sellerId === `user_${originalAdminUser.id}` ||
+            localProduct.sellerId === `phone_${originalAdminUser.id}`
+          )) ||
+          (currentUser.email && localProduct.sellerEmail?.toLowerCase() === currentUser.email.toLowerCase()) ||
+          (originalAdminUser?.email && localProduct.sellerEmail?.toLowerCase() === originalAdminUser.email.toLowerCase())
+        );
         if (localProduct && !isOwner && !isSuperAdmin && !currentUser.isAdmin) {
           throw new Error('Unauthorized Access: You do not have permissions to modify this listing.');
         }
@@ -3608,7 +3692,7 @@ CEO, Tedbuy Inc`;
       if (localProduct) {
         const keys = Object.keys(updatedData);
         const silentKeys = [
-          'likesCount', 'likedUserIds', 'viewsCount', 'isSold',
+          'likesCount', 'likedUserIds', 'viewsCount',
           'boostStatus', 'boostPlan', 'boostEndDate', 'boostStartDate', 
           'boostPriority', 'priorityScore', 'boostHistory', 'paymentStatus', 
           'paymentReference', 'boostAmount', 'boostPackagePrice', 
@@ -3661,7 +3745,13 @@ CEO, Tedbuy Inc`;
           };
 
           // Optimistically update local memory state with full merged fields
-          setProducts(prev => prev.map(p => p.id === id ? { ...p, ...fullProductUpdate } : p));
+          setProducts(prev => {
+            const exists = prev.some(p => p.id === id);
+            if (exists) {
+              return prev.map(p => p.id === id ? { ...p, ...fullProductUpdate } : p);
+            }
+            return [fullProductUpdate as Product, ...prev];
+          });
 
           // Sync to backend API endpoint to ensure Supabase and server cache reflect full edits
           let serverSyncSucceeded = false;
@@ -3675,11 +3765,20 @@ CEO, Tedbuy Inc`;
             const syncJson = await syncRes.json();
             if (syncJson.success && syncJson.product) {
               serverSyncSucceeded = true;
-              setProducts(prev => prev.map(p => p.id === id ? { ...p, ...syncJson.product } : p));
+              setProducts(prev => {
+                const exists = prev.some(p => p.id === id);
+                if (exists) {
+                  return prev.map(p => p.id === id ? { ...p, ...syncJson.product } : p);
+                }
+                return [syncJson.product, ...prev];
+              });
+            } else if (!syncJson.success) {
+              throw new Error(syncJson.error || 'Failed to update listing on server');
             }
             fetch('/api/sitemap/clear', { method: 'POST', headers: authHeaders }).catch(() => {});
           } catch (syncErr) {
             console.warn('[updateProduct] Server sync error:', syncErr);
+            throw syncErr;
           }
 
           // Write merged document to client database
@@ -3763,10 +3862,11 @@ CEO, Tedbuy Inc`;
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders },
             body: JSON.stringify({ product: safeData })
-          }).catch(() => {});
+          }).then(() => refreshSellerCounts().catch(() => {})).catch(() => {});
         }).catch(() => {});
       }
 
+      refreshSellerCounts().catch(() => {});
       return id;
     } catch (err) {
       handleBackendError(err, OperationType.UPDATE, `products/${id}`);
@@ -3842,6 +3942,8 @@ CEO, Tedbuy Inc`;
       } catch (thrownErr) {
         console.warn('[Delete Product] Exception logged gracefully:', thrownErr);
       }
+    } finally {
+      refreshSellerCounts().catch(() => {});
     }
   };
 
@@ -5775,7 +5877,9 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       triggerPWAInstall,
       isStandalone,
       isBottomNavVisible,
-      setIsBottomNavVisible
+      setIsBottomNavVisible,
+      sellerListingCounts,
+      refreshSellerCounts
     }}>
       {children}
     </AppContext.Provider>

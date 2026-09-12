@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, isUserVerified, User, normalizeCategory } from '../types';
 import { useApp } from '../context/AppContext';
-import { MapPin, Bookmark, Flame, Star, Heart, TrendingUp, Check, Play, Pause } from 'lucide-react';
+import { MapPin, Bookmark, Flame, Star, Heart, TrendingUp, Check, Play, Pause, Loader2 } from 'lucide-react';
 import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 import { isBoostActive } from '../utils/dateParser';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
@@ -28,7 +28,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
     setShowAuthModal,
     setAuthMode,
     updateProduct,
-    registerProduct
+    registerProduct,
+    showToast
   } = useApp();
 
   const isSaved = currentUser?.savedProductIds?.includes(product.id) || false;
@@ -82,6 +83,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
       onSellerClick={handleSellerClick}
       onSaveClick={handleSaveClick}
       onUpdateProduct={updateProduct}
+      showToast={showToast}
     />
   );
 };
@@ -100,6 +102,7 @@ interface ProductCardInnerProps {
   onSellerClick: (sellerId: string, e: React.MouseEvent) => void;
   onSaveClick: (e: React.MouseEvent) => void;
   onUpdateProduct: (productId: string, data: Partial<Product>) => Promise<any>;
+  showToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 const ProductCardInner: React.FC<ProductCardInnerProps> = ({
@@ -114,9 +117,30 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
   onDetailsClick,
   onSellerClick,
   onSaveClick,
-  onUpdateProduct
+  onUpdateProduct,
+  showToast
 }) => {
   const [cardRef, isVisible] = useIntersectionObserver({ rootMargin: '400px', initialIsVisible: priority });
+  const [updatingSold, setUpdatingSold] = React.useState(false);
+
+  const handleSoldToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (updatingSold) return;
+    const nextSoldState = !product.isSold;
+    try {
+      setUpdatingSold(true);
+      await onUpdateProduct(product.id, { isSold: nextSoldState });
+      showToast?.(
+        nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Failed to update product isSold state', err);
+      showToast?.(err?.message || 'Could not update listing status.', 'error');
+    } finally {
+      setUpdatingSold(false);
+    }
+  };
 
   const formatProductPrice = (priceVal: string | number) => {
     if (typeof priceVal === 'string') {
@@ -477,25 +501,21 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Status</span>
             <button
               type="button"
-              onClick={async () => {
-                try {
-                  await onUpdateProduct(product.id, { isSold: !product.isSold });
-                } catch (err) {
-                  console.error("Failed to update product isSold state", err);
-                }
-              }}
-              className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700"
+              disabled={updatingSold}
+              onClick={handleSoldToggle}
+              className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-bold text-rose-600 hover:text-rose-700 disabled:opacity-60"
             >
-              {/* Custom checkbox — a native <input type="checkbox"> here has no
-                  appearance override, so some mobile browsers/OS themes (e.g.
-                  Samsung Internet's forced dark theme) reskin it into an
-                  oversized switch instead of a small checkbox. */}
+              {/* Custom checkbox with loading spinner matching mobile pattern */}
               <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
                 product.isSold ? 'bg-rose-600 border-rose-600' : 'bg-white border-slate-350'
               }`}>
-                {product.isSold && <Check className="w-2.5 h-2.5 text-white stroke-[3.5]" />}
+                {updatingSold ? (
+                  <Loader2 className="w-2.5 h-2.5 text-rose-600 animate-spin" />
+                ) : (
+                  product.isSold && <Check className="w-2.5 h-2.5 text-white stroke-[3.5]" />
+                )}
               </span>
-              <span>Mark Sold</span>
+              <span>{product.isSold ? 'Sold' : 'Mark Sold'}</span>
             </button>
           </div>
         )}

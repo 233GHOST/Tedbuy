@@ -23,7 +23,8 @@ export function computeDiscoverSellers(
   products: Product[],
   users: any[],
   selectedCategory?: string,
-  limit?: number
+  limit?: number,
+  sellerListingCounts?: Record<string, number>
 ): DiscoverSeller[] {
   if (!users || users.length === 0 || !products || products.length === 0) return [];
 
@@ -84,7 +85,13 @@ export function computeDiscoverSellers(
       // No fabricated fallback — web's SellersToDiscover doesn't show a
       // rating at all; if this is ever wired into UI, 0 must mean "unrated."
       const rating = Number(user?.rating || user?.sellerRating || 0);
-      const count = sellerListingCount[id] || 0;
+      const count = (sellerListingCounts && (
+        sellerListingCounts[id] ||
+        (user?.id && sellerListingCounts[user.id]) ||
+        (user?.uid && sellerListingCounts[user.uid]) ||
+        (user?.username && sellerListingCounts[user.username.trim().toLowerCase()]) ||
+        (user?.email && sellerListingCounts[user.email.trim().toLowerCase()])
+      )) || sellerListingCount[id] || 0;
       const totalViews = sellerListings.reduce((sum, p) => sum + (Number((p as any).viewsCount) || 0), 0);
 
       return {

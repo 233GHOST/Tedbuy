@@ -131,11 +131,16 @@ export const serverCache = new TTLMemoryCache();
 let rawProductsListCache: { products: any[]; timestamp: number } | null = null;
 const RAW_PRODUCTS_CACHE_TTL_MS = 60000; // 60 seconds memory cache
 
+let sellersSummaryCache: { sellers: any[]; counts: Record<string, number>; timestamp: number } | null = null;
+const SELLERS_CACHE_TTL_MS = 60000; // 60 seconds memory cache
+
 export function invalidateProductCache(productId?: string, sellerId?: string, category?: string): void {
   rawProductsListCache = null;
+  sellersSummaryCache = null;
   serverCache.deletePattern('homepage');
   serverCache.delete('featured');
   serverCache.deletePattern('search:');
+  serverCache.deletePattern('sellers:');
   if (productId) {
     serverCache.delete(`product:${productId}`);
   }
@@ -1842,6 +1847,8 @@ function normalizeServerProductSummaryRow(row: any): any {
     boostEndDate: computedBoostEndDate ? computedBoostEndDate.toISOString() : null,
     sellerId: row.sellerId || row.seller_id || '',
     sellerName: row.sellerName || row.seller_name || 'Seller',
+    sellerEmail: row.sellerEmail || row.seller_email || '',
+    user_id: row.sellerId || row.seller_id || row.user_id || '',
     sellerVerified: row.sellerVerified === true || row.seller_verified === true || true,
     createdAt: row.createdAt || row.created_at || new Date().toISOString(),
     viewsCount: Number(row.viewsCount || row.views_count || 0),
@@ -2212,6 +2219,191 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
   }
 });
 
+// Sellers Aggregated Summary and Real Listing Counts
+async function getSellersSummaryData(forceRefresh = false): Promise<{ sellers: any[]; counts: Record<string, number> }> {
+  const now = Date.now();
+  if (!forceRefresh && sellersSummaryCache && (now - sellersSummaryCache.timestamp) < SELLERS_CACHE_TTL_MS) {
+    return { sellers: sellersSummaryCache.sellers, counts: sellersSummaryCache.counts };
+  }
+
+  const { products } = await getProductsListData(forceRefresh);
+
+  let usersList: any[] = [];
+  if (backendSupabase) {
+    try {
+      const { data: uData } = await backendSupabase
+        .from('users')
+        .select('id, username, displayName, email, photoUrl, location, region, emailVerified, role')
+        .limit(2000);
+      if (Array.isArray(uData)) usersList = uData;
+    } catch (uErr) {
+      console.warn('[getSellersSummaryData] Supabase users query failed:', uErr);
+    }
+  }
+  if (usersList.length === 0 && adminDb) {
+    try {
+      const snap = await adminDb.collection('users').limit(2000).get();
+      if (!snap.empty) {
+        snap.forEach((d: any) => {
+          const data = d.data();
+          if (data) usersList.push({ ...data, id: d.id || data.id });
+        });
+      }
+    } catch (fErr) {
+      console.warn('[getSellersSummaryData] Firestore users query failed:', fErr);
+    }
+  }
+
+  const userById = new Map<string, any>();
+  const userByName = new Map<string, any>();
+  const userByEmail = new Map<string, any>();
+
+  usersList.forEach(u => {
+    if (!u) return;
+    if (u.id) userById.set(String(u.id).trim(), u);
+    if (u.uid) userById.set(String(u.uid).trim(), u);
+    const uname = String(u.username || u.displayName || '').trim().toLowerCase();
+    if (uname) userByName.set(uname, u);
+    const uemail = String(u.email || '').trim().toLowerCase();
+    if (uemail) userByEmail.set(uemail, u);
+  });
+
+  const sellerProductsMap = new Map<string, any[]>();
+  const canonicalKeyToUser = new Map<string, any>();
+
+  products.forEach(p => {
+    if (!p || p.isDeleted === true || p.status === 'deleted' || p.status === 'archived') return;
+
+    const sId = String(p.sellerId || p.seller_id || p.user_id || '').trim();
+    const sEmail = String(p.sellerEmail || p.seller_email || '').trim().toLowerCase();
+    const sName = String(p.sellerName || p.seller_name || '').trim();
+    const sNameLower = sName.toLowerCase();
+
+    // Match to existing user if possible
+    const matchedUser = (sId && userById.get(sId)) ||
+      (sEmail && userByEmail.get(sEmail)) ||
+      (sNameLower && userByName.get(sNameLower)) ||
+      null;
+
+    const canonicalKey = matchedUser ? String(matchedUser.id) : (sId || sNameLower || sEmail || 'unknown');
+    if (matchedUser && !canonicalKeyToUser.has(canonicalKey)) {
+      canonicalKeyToUser.set(canonicalKey, matchedUser);
+    }
+
+    if (!sellerProductsMap.has(canonicalKey)) {
+      sellerProductsMap.set(canonicalKey, []);
+    }
+    sellerProductsMap.get(canonicalKey)!.push(p);
+  });
+
+  const sellers: any[] = [];
+  const counts: Record<string, number> = {};
+
+  sellerProductsMap.forEach((sellerProducts, canonicalKey) => {
+    if (!sellerProducts || sellerProducts.length === 0) return;
+
+    const matchedUser = canonicalKeyToUser.get(canonicalKey);
+    const firstProd = sellerProducts[0] || {};
+
+    const rawUsername = matchedUser?.username || matchedUser?.displayName || firstProd.sellerName || 'Verified Merchant';
+    const rawPhoto = matchedUser?.photoUrl || matchedUser?.avatar || firstProd.displayImage || (firstProd.images && firstProd.images[0]) || '';
+    const rawLocation = matchedUser?.location || matchedUser?.region || firstProd.location || 'Ghana';
+    const isVerified = Boolean(
+      matchedUser?.emailVerified ||
+      matchedUser?.isVerified ||
+      matchedUser?.verified ||
+      matchedUser?.badge === 'verified' ||
+      firstProd.sellerVerified ||
+      true
+    );
+
+    const totalCount = sellerProducts.length;
+    const activeCount = sellerProducts.filter(p => !p.isSold && p.status !== 'hidden' && p.status !== 'sold').length;
+    const soldCount = totalCount - activeCount;
+
+    const catFreq: Record<string, number> = {};
+    sellerProducts.forEach(p => {
+      const cat = p.category ? String(p.category).trim() : 'Marketplace';
+      catFreq[cat] = (catFreq[cat] || 0) + 1;
+    });
+    const sortedCats = Object.entries(catFreq).sort((a, b) => b[1] - a[1]);
+    const primaryCategory = sortedCats[0]?.[0] || 'Marketplace';
+    const categories = sortedCats.map(c => c[0]);
+
+    const totalViews = sellerProducts.reduce((sum, p) => sum + (Number(p.viewsCount) || 0), 0);
+
+    const sellerObj = {
+      id: matchedUser?.id || canonicalKey,
+      name: rawUsername,
+      username: rawUsername,
+      displayName: matchedUser?.displayName || rawUsername,
+      email: matchedUser?.email || firstProd.sellerEmail || '',
+      photoUrl: rawPhoto,
+      location: rawLocation,
+      isVerified,
+      listingCount: totalCount,
+      activeListingCount: activeCount,
+      soldListingCount: soldCount,
+      primaryCategory,
+      categories,
+      totalViews
+    };
+
+    sellers.push(sellerObj);
+
+    // Register all aliases in counts dictionary
+    const keysToRegister = new Set<string>();
+    if (matchedUser?.id) keysToRegister.add(String(matchedUser.id));
+    if (matchedUser?.uid) keysToRegister.add(String(matchedUser.uid));
+    if (matchedUser?.username) keysToRegister.add(String(matchedUser.username).trim().toLowerCase());
+    if (matchedUser?.displayName) keysToRegister.add(String(matchedUser.displayName).trim().toLowerCase());
+    if (matchedUser?.email) keysToRegister.add(String(matchedUser.email).trim().toLowerCase());
+    if (canonicalKey) keysToRegister.add(canonicalKey.toLowerCase());
+    if (firstProd.sellerId) keysToRegister.add(String(firstProd.sellerId));
+    if (firstProd.sellerName) keysToRegister.add(String(firstProd.sellerName).trim().toLowerCase());
+    if (firstProd.sellerEmail) keysToRegister.add(String(firstProd.sellerEmail).trim().toLowerCase());
+
+    keysToRegister.forEach(k => {
+      counts[k] = totalCount;
+    });
+  });
+
+  sellers.sort((a, b) => {
+    if (a.isVerified && !b.isVerified) return -1;
+    if (!a.isVerified && b.isVerified) return 1;
+    return (b.activeListingCount * 5 + b.totalViews) - (a.activeListingCount * 5 + a.totalViews);
+  });
+
+  sellersSummaryCache = { sellers, counts, timestamp: now };
+  return { sellers, counts };
+}
+
+// Sellers Summary API (returns top sellers and exact listing count sync)
+app.get(['/api/sellers', '/api/sellers/summary'], serverRateLimiter(60 * 1000, 600, "sellers-summary"), async (req, res) => {
+  try {
+    const forceRefresh = req.query.nocache === 'true' || req.query.refresh === 'true';
+    const data = await getSellersSummaryData(forceRefresh);
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    return res.json({ success: true, ...data });
+  } catch (err: any) {
+    console.error('[Sellers Summary API Error]:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to retrieve sellers summary' });
+  }
+});
+
+// Sellers Counts API (fast dictionary lookup for real listing counts by user/seller id)
+app.get('/api/sellers/counts', serverRateLimiter(60 * 1000, 600, "sellers-counts"), async (req, res) => {
+  try {
+    const forceRefresh = req.query.nocache === 'true' || req.query.refresh === 'true';
+    const { counts } = await getSellersSummaryData(forceRefresh);
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    return res.json({ success: true, counts });
+  } catch (err: any) {
+    console.error('[Sellers Counts API Error]:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to retrieve sellers counts' });
+  }
+});
+
 // Dynamic Video Ads Batching API (fetches in dynamic, non-ordered batches of 5)
 app.get(['/api/video-ads', '/api/products/video-ads'], serverRateLimiter(60 * 1000, 600, "video-ads"), async (req, res) => {
   try {
@@ -2512,7 +2704,9 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     viewsCount: Number(productData.viewsCount || productData.views || existingRow?.viewsCount || existingRow?.views) || 0,
     likesCount: Number(productData.likesCount || productData.likes || existingRow?.likesCount || existingRow?.likes) || 0,
     likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : (existingRow?.likedUserIds || []),
-    status: productData.status || existingRow?.status || 'active',
+    status: productData.status || (productData.isSold ? 'sold' : (existingRow?.status || 'active')),
+    isSold: productData.isSold !== undefined ? productData.isSold === true : (existingRow?.isSold === true || existingRow?.is_sold === true || false),
+    soldAt: productData.soldAt !== undefined ? productData.soldAt : (existingRow?.soldAt || existingRow?.sold_at || null),
     boostStatus: productData.boostStatus !== undefined ? productData.boostStatus === true : (existingRow?.boostStatus === true),
     boostExpiry: productData.boostExpiry || productData.boostEndDate || existingRow?.boostExpiry || existingRow?.boostEndDate || null,
     images: cleanImages.length > 0 ? cleanImages : (existingRow?.images || []),
@@ -2607,7 +2801,13 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
   // If editing an existing product, caller must be owner OR an Admin
   // (unless this is a social-only like/view update — see above).
   if (isExistingProduct && !isSocialOnlyChange) {
-    const isOwner = existingSellerId === user.uid;
+    const isOwner = existingSellerId === user.uid ||
+      existingSellerId === `user_${user.uid}` ||
+      existingSellerId === `phone_${user.uid}` ||
+      (user.email && (
+        existingRow?.sellerEmail?.toLowerCase() === user.email.toLowerCase() ||
+        existingRow?.seller_email?.toLowerCase() === user.email.toLowerCase()
+      ));
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ success: false, error: 'Forbidden: You do not have permission to modify this listing' });
     }
@@ -2640,7 +2840,7 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
   // a real clock to measure against — never reset on a later edit while
   // already sold (a seller tweaking the description of a sold listing must
   // not restart its countdown), and cleared if it's marked available again.
-  const wasSold = existingRow?.isSold === true;
+  const wasSold = existingRow?.isSold === true || existingRow?.is_sold === true;
   const isNowSold = product.isSold === true;
   let soldAtPatch: { soldAt?: string | null } = {};
   if (isNowSold && !wasSold) {
@@ -7485,6 +7685,11 @@ async function startServer() {
             const topSummaries = products.slice(0, 50).map(serializeProductSummary);
             const scriptTag = `<script>window.__INITIAL_PRODUCTS__ = ${JSON.stringify(topSummaries)};</script>`;
             html = html.replace('</head>', `${scriptTag}</head>`);
+          }
+          const { counts: sellerCounts, sellers: topSellers } = await getSellersSummaryData(false);
+          if (sellerCounts && Object.keys(sellerCounts).length > 0) {
+            const sellersScript = `<script>window.__INITIAL_SELLER_COUNTS__ = ${JSON.stringify(sellerCounts)};window.__INITIAL_DISCOVER_SELLERS__ = ${JSON.stringify(topSellers.slice(0, 15))};</script>`;
+            html = html.replace('</head>', `${sellersScript}</head>`);
           }
         } catch (_) {}
 

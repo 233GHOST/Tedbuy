@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Store, ArrowLeft, CheckCircle2, ShieldCheck, MapPin, Search, X, UserPlus, UserCheck } from 'lucide-react';
 
 export const SellersDiscoveryView: React.FC = () => {
-  const { users, products, currentUser, setCurrentView, setSelectedSellerId, followSeller, unfollowSeller, setShowAuthModal, showToast } = useApp();
+  const { users, products, currentUser, setCurrentView, setSelectedSellerId, followSeller, unfollowSeller, setShowAuthModal, showToast, sellerListingCounts } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -11,7 +11,7 @@ export const SellersDiscoveryView: React.FC = () => {
     const sellerProductCounts = new Map<string, number>();
     const sellerCategories = new Map<string, Set<string>>();
 
-    products.forEach((p) => {
+    (products || []).forEach((p) => {
       if (p && p.sellerId && p.status !== 'hidden' && !p.isSold) {
         sellerProductCounts.set(p.sellerId, (sellerProductCounts.get(p.sellerId) || 0) + 1);
         if (p.category) {
@@ -23,21 +23,65 @@ export const SellersDiscoveryView: React.FC = () => {
       }
     });
 
-    const sellersWithProducts = users.filter((u) => {
-      const count = sellerProductCounts.get(u.id) || 0;
+    const getRealCountForUser = (u: any): number => {
+      if (!u) return 0;
+      if (sellerListingCounts) {
+        if (u.id && sellerListingCounts[u.id] !== undefined) return sellerListingCounts[u.id];
+        if (u.uid && sellerListingCounts[u.uid] !== undefined) return sellerListingCounts[u.uid];
+        if (u.username && sellerListingCounts[u.username.trim().toLowerCase()] !== undefined) {
+          return sellerListingCounts[u.username.trim().toLowerCase()];
+        }
+        if (u.displayName && sellerListingCounts[u.displayName.trim().toLowerCase()] !== undefined) {
+          return sellerListingCounts[u.displayName.trim().toLowerCase()];
+        }
+        if (u.email && sellerListingCounts[u.email.trim().toLowerCase()] !== undefined) {
+          return sellerListingCounts[u.email.trim().toLowerCase()];
+        }
+      }
+      return sellerProductCounts.get(u.id) || 0;
+    };
+
+    const sellersWithProducts = (users || []).filter((u) => {
+      const count = getRealCountForUser(u);
       return count > 0;
     });
 
-    return sellersWithProducts.sort((a, b) => {
-      const countA = sellerProductCounts.get(a.id) || 0;
-      const countB = sellerProductCounts.get(b.id) || 0;
-      return countB - countA;
-    }).map((seller) => ({
+    const list = sellersWithProducts.map((seller) => ({
       ...seller,
-      listingCount: sellerProductCounts.get(seller.id) || 0,
+      listingCount: getRealCountForUser(seller),
       categories: Array.from(sellerCategories.get(seller.id) || [])
     }));
-  }, [users, products]);
+
+    // Merge pre-cached top sellers from server SSR injection if any
+    const initialSellers: any[] = typeof window !== 'undefined' && Array.isArray((window as any).__INITIAL_DISCOVER_SELLERS__)
+      ? (window as any).__INITIAL_DISCOVER_SELLERS__
+      : [];
+
+    const existingIds = new Set(list.map(s => s.id));
+    initialSellers.forEach(s => {
+      if (s && s.id && !existingIds.has(s.id)) {
+        const count = getRealCountForUser(s) || s.listingCount || 0;
+        if (count > 0) {
+          list.push({
+            id: s.id,
+            username: s.username || s.name,
+            displayName: s.displayName || s.name,
+            emailVerified: s.isVerified,
+            photoUrl: s.photoUrl,
+            listingCount: count,
+            categories: s.categories || [s.primaryCategory || 'Marketplace'],
+          } as any);
+          existingIds.add(s.id);
+        }
+      }
+    });
+
+    return list.sort((a, b) => {
+      const countA = a.listingCount || 0;
+      const countB = b.listingCount || 0;
+      return countB - countA;
+    });
+  }, [users, products, sellerListingCounts]);
 
   const filteredSellers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

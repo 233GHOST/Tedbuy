@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextIn
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Store, Search, X } from 'lucide-react-native';
 import { BackButton } from '../components/BackButton';
-import { auth, watchProducts, watchUsers, fetchUserById, toggleFollowSeller } from '../firebase';
+import { auth, watchProducts, watchUsers, fetchUserById, toggleFollowSeller, fetchSellerListingCounts } from '../firebase';
 import { Product } from '../types';
 import { fonts } from '../theme';
 import { computeDiscoverSellers } from '../utils/discoverSellers';
@@ -21,6 +21,7 @@ export function DiscoverSellersScreen({ onBack, navigation }: DiscoverSellersScr
   const [usersLoaded, setUsersLoaded] = useState(false);
   const loading = !productsLoaded || !usersLoaded;
   const [searchQuery, setSearchQuery] = useState('');
+  const [sellerListingCounts, setSellerListingCounts] = useState<Record<string, number>>({});
   // Store-name search + inline follow — was previously only a static
   // ranked grid with no way to find a specific store or follow it without
   // opening its full profile page first.
@@ -35,6 +36,11 @@ export function DiscoverSellersScreen({ onBack, navigation }: DiscoverSellersScr
     const unsubUsers = watchUsers((result) => {
       setUsers(result);
       setUsersLoaded(true);
+    });
+    fetchSellerListingCounts().then((counts) => {
+      if (counts && Object.keys(counts).length > 0) {
+        setSellerListingCounts(counts);
+      }
     });
     return () => {
       unsubProducts();
@@ -52,7 +58,7 @@ export function DiscoverSellersScreen({ onBack, navigation }: DiscoverSellersScr
     }
   }, []);
 
-  const sellers = useMemo(() => computeDiscoverSellers(products, users), [products, users]);
+  const sellers = useMemo(() => computeDiscoverSellers(products, users, undefined, undefined, sellerListingCounts), [products, users, sellerListingCounts]);
 
   const filteredSellers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
