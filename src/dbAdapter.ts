@@ -260,13 +260,27 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     'emailVerified', 'isGoogleAuth', 'authProvider', 'welcomeSent', 'createdAt'
   ]),
   products: new Set([
-    'id', 'title', 'description', 'price', 'currency', 'category', 'subcategory', 'location', 
-    'images', 'imageUrls', 'thumbnailUrls', 'videos', 'videoUrls', 'videoPoster', 'brand', 'condition', 'negotiable', 'isExchangeable', 'exchangePossible', 'sellerId', 
-    'sellerName', 'sellerEmail', 'sellerPhoto', 'sellerJoinDate', 'createdAt', 'updatedAt', 'viewsCount', 'likesCount', 'likedUserIds', 
-    'status', 'isDeleted', 'archivedAt', 'securityHold', 'boostStatus', 'boostExpiry', 'boostPlan', 'boostStartDate', 'boostEndDate', 
-    'boostPriority', 'priorityScore', 'boostPriorityLevel', 'boostPackagePrice', 
-    'remainingBoostTime', 'boostAmount', 'lastBoostedAt', 'lastBoostPurchase', 
-    'paymentStatus', 'paymentReference', 'boostHistory', 'visitCount', 'isApproved',
+    // P0 security fix: every boost-related field, plus paymentStatus/
+    // paymentReference, deliberately excluded from this write allow-list.
+    // With RLS disabled and this generic path having no per-row ownership
+    // check at all, any of these being client-writable meant a seller
+    // (or, since there's no ownership check, potentially anyone) could
+    // directly set boostStatus/boostExpiry/boostPlan/boostAmount/etc. on
+    // any listing -- a free, ranking-relevant, arbitrarily-long boost,
+    // completely bypassing Paystack and /api/verify-payment. This was
+    // real: the equivalent server-side gap (upsertProductToSupabase
+    // trusting these same fields from an untrusted /api/products/sync
+    // request body) has been fixed the same session this was found -- see
+    // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §15. Boost activation
+    // now only ever happens server-side, via /api/verify-payment (after a
+    // real, verified, non-replayable Paystack transaction) or
+    // /api/admin/boost-control (admin-only). Reads are unaffected --
+    // getDoc/getDocs still select('*') for this table, so these fields
+    // still display correctly everywhere they're read.
+    'id', 'title', 'description', 'price', 'currency', 'category', 'subcategory', 'location',
+    'images', 'imageUrls', 'thumbnailUrls', 'videos', 'videoUrls', 'videoPoster', 'brand', 'condition', 'negotiable', 'isExchangeable', 'exchangePossible', 'sellerId',
+    'sellerName', 'sellerEmail', 'sellerPhoto', 'sellerJoinDate', 'createdAt', 'updatedAt', 'viewsCount', 'likesCount', 'likedUserIds',
+    'status', 'isDeleted', 'archivedAt', 'securityHold', 'visitCount', 'isApproved',
     'thumbnailUrl', 'videoPosterUrl', 'primaryPicture'
   ]),
   chats: new Set([

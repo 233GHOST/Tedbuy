@@ -2652,7 +2652,24 @@ async function safeBackendSupabaseUpsert(table: string, payload: any, options: a
   return await backendSupabase.from(table).upsert(currentPayload, options);
 }
 
-async function upsertProductToSupabase(productData: any, actingUser?: { uid: string; email?: string; isAdmin?: boolean }) {
+// P0 fix: `trustBoostFields` gates whether boost-related fields on
+// `productData` are trusted at all. Before this fix, `cleanProduct` took
+// boostStatus/boostExpiry directly from `productData` regardless of caller
+// -- and this function is shared by /api/products/sync (client-supplied
+// body, reachable by any authenticated seller editing their own listing)
+// AND /api/verify-payment (server-computed boost fields, only ever correct
+// after a real, verified Paystack transaction). That meant any seller
+// could grant themselves a free, arbitrarily-long, ranking-relevant boost
+// via a completely ordinary "save my listing" API call -- no payment, no
+// RLS bypass needed, since this runs through the service-role Supabase
+// client regardless. Only call sites that have ALREADY independently
+// verified a real payment (or are admin-only) may pass true here:
+// /api/verify-payment and /api/admin/boost-control. Every other caller
+// (product create/sync) leaves this false, so boost fields are preserved
+// from the existing row and never taken from client input at all. See
+// .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §15 for the full exploit
+// chain this closes.
+async function upsertProductToSupabase(productData: any, actingUser?: { uid: string; email?: string; isAdmin?: boolean }, trustBoostFields: boolean = false) {
   if (!productData) {
     throw new Error("Invalid product data");
   }
@@ -2793,8 +2810,50 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
       }
       return productData.soldAt !== undefined ? productData.soldAt : (existingRow?.soldAt || existingRow?.sold_at || null);
     })(),
-    boostStatus: productData.boostStatus !== undefined ? productData.boostStatus === true : (existingRow?.boostStatus === true),
-    boostExpiry: productData.boostExpiry || productData.boostEndDate || existingRow?.boostExpiry || existingRow?.boostEndDate || null,
+    // Correctness note alongside the security fix: this previously only
+    // ever carried boostStatus/boostExpiry through -- every other boost
+    // field /api/verify-payment computes after a real payment (boostPlan,
+    // boostAmount, boostPriority, paymentReference, boostHistory, etc.)
+    // was silently dropped here, since this object never included them at
+    // all regardless of caller. Now included, still gated by
+    // trustBoostFields so an untrusted caller can't introduce them either.
+    ...(trustBoostFields ? {
+      boostStatus: productData.boostStatus === true,
+      isBoosted: productData.isBoosted === true || productData.boostStatus === true,
+      boostExpiry: productData.boostExpiry || productData.boostEndDate || null,
+      boostEndDate: productData.boostEndDate || productData.boostExpiry || null,
+      boostStartDate: productData.boostStartDate || null,
+      boostPlan: productData.boostPlan || null,
+      boostAmount: productData.boostAmount !== undefined ? Number(productData.boostAmount) : undefined,
+      boostPackagePrice: productData.boostPackagePrice !== undefined ? Number(productData.boostPackagePrice) : undefined,
+      boostPriority: productData.boostPriority !== undefined ? Number(productData.boostPriority) : undefined,
+      boostPriorityLevel: productData.boostPriorityLevel !== undefined ? Number(productData.boostPriorityLevel) : undefined,
+      priorityScore: productData.priorityScore !== undefined ? Number(productData.priorityScore) : undefined,
+      remainingBoostTime: productData.remainingBoostTime !== undefined ? Number(productData.remainingBoostTime) : undefined,
+      paymentStatus: productData.paymentStatus || undefined,
+      paymentReference: productData.paymentReference || undefined,
+      lastBoostedAt: productData.lastBoostedAt || undefined,
+      lastBoostPurchase: productData.lastBoostPurchase || undefined,
+      boostHistory: Array.isArray(productData.boostHistory) ? productData.boostHistory : undefined,
+    } : {
+      boostStatus: existingRow?.boostStatus === true,
+      isBoosted: existingRow?.isBoosted === true || existingRow?.boostStatus === true,
+      boostExpiry: existingRow?.boostExpiry || existingRow?.boostEndDate || null,
+      boostEndDate: existingRow?.boostEndDate || existingRow?.boostExpiry || null,
+      boostStartDate: existingRow?.boostStartDate || undefined,
+      boostPlan: existingRow?.boostPlan || undefined,
+      boostAmount: existingRow?.boostAmount !== undefined ? Number(existingRow.boostAmount) : undefined,
+      boostPackagePrice: existingRow?.boostPackagePrice !== undefined ? Number(existingRow.boostPackagePrice) : undefined,
+      boostPriority: existingRow?.boostPriority !== undefined ? Number(existingRow.boostPriority) : undefined,
+      boostPriorityLevel: existingRow?.boostPriorityLevel !== undefined ? Number(existingRow.boostPriorityLevel) : undefined,
+      priorityScore: existingRow?.priorityScore !== undefined ? Number(existingRow.priorityScore) : undefined,
+      remainingBoostTime: existingRow?.remainingBoostTime !== undefined ? Number(existingRow.remainingBoostTime) : undefined,
+      paymentStatus: existingRow?.paymentStatus || undefined,
+      paymentReference: existingRow?.paymentReference || undefined,
+      lastBoostedAt: existingRow?.lastBoostedAt || undefined,
+      lastBoostPurchase: existingRow?.lastBoostPurchase || undefined,
+      boostHistory: Array.isArray(existingRow?.boostHistory) ? existingRow.boostHistory : undefined,
+    }),
     images: cleanImages.length > 0 ? cleanImages : (existingRow?.images || []),
     imageUrls: cleanImages.length > 0 ? cleanImages : (existingRow?.imageUrls || []),
     thumbnailUrls: cleanImages.map((u: string) => u.includes('res.cloudinary.com') ? u.replace('/upload/', '/upload/c_thumb,w_200,h_200,g_auto,f_auto,q_auto/') : u),
@@ -4308,6 +4367,28 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
   const expectedPriceGHS = BOOST_PLAN_PRICE_GHS[planId] || BOOST_PLAN_PRICE_GHS['7days'];
 
   try {
+    // P0 fix: Paystack's verify endpoint is idempotent -- it just reports a
+    // transaction's historical status, and will happily keep reporting
+    // "success" for the same reference forever. Nothing here previously
+    // stopped a genuinely successful reference from being replayed through
+    // this endpoint an unlimited number of times, for the same product
+    // (indefinitely extending a boost that was only ever paid for once) or
+    // different ones (activating boosts on multiple listings from one
+    // payment). boost_purchases already existed in the schema for exactly
+    // this purpose but nothing ever wrote to it. Using paymentReference as
+    // its primary key gives a real, atomic-at-the-database-level
+    // uniqueness guarantee, not just an application-level check.
+    if (backendSupabase) {
+      const { data: existingPurchase } = await backendSupabase
+        .from('boost_purchases')
+        .select('id')
+        .eq('id', paymentReference)
+        .maybeSingle();
+      if (existingPurchase) {
+        return res.status(409).json({ success: false, error: 'This payment reference has already been used to activate a boost.' });
+      }
+    }
+
     let existingProduct: any = null;
     if (backendSupabase) {
       try {
@@ -4436,7 +4517,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     let finalProduct: any;
     try {
       const merged = { ...existingProduct, ...boostFields };
-      finalProduct = await upsertProductToSupabase(merged, verified);
+      finalProduct = await upsertProductToSupabase(merged, verified, true);
       if (adminDb) {
         await adminDb.collection('products').doc(productId).set(cleanObject(merged), { merge: true }).catch((fErr: any) => {
           console.warn('[Verify Payment API] Firestore sync note:', fErr?.message);
@@ -4448,6 +4529,30 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
         success: false,
         error: `Payment was verified but the boost couldn't be saved. Please contact support with reference ${paymentReference}.`
       });
+    }
+
+    // Claim the reference so it can never activate a second boost. The
+    // early SELECT above catches the overwhelming majority of replay
+    // attempts (a reference reused minutes/hours/days later); this INSERT
+    // is the actual atomic guarantee (id is the primary key) for the rare
+    // case of two near-simultaneous requests racing past that check --
+    // whichever loses this insert is logged as a detected replay attempt.
+    // The boost was already correctly activated once by this point, so a
+    // losing race here doesn't need to unwind that write, just record that
+    // a duplicate attempt occurred.
+    if (backendSupabase) {
+      const { error: purchaseInsertErr } = await backendSupabase.from('boost_purchases').insert({
+        id: paymentReference,
+        productId,
+        userId: verified.uid,
+        amount: verifiedAmountGHS,
+        currency: 'GHS',
+        status: 'used',
+        createdAt: new Date().toISOString()
+      });
+      if (purchaseInsertErr) {
+        console.warn(`[Verify Payment API] boost_purchases claim insert failed for ${paymentReference} (likely a concurrent replay of the same reference):`, purchaseInsertErr.message);
+      }
     }
 
     clearSitemapCache();
@@ -4685,7 +4790,7 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
     // 1. Sync to Supabase
     if (backendSupabase) {
       try {
-        const saved = await upsertProductToSupabase(mergedProduct);
+        const saved = await upsertProductToSupabase(mergedProduct, undefined, true);
         if (saved) {
           console.log(`[Admin Boost Control API] Saved product ${productId} to Supabase.`);
         }

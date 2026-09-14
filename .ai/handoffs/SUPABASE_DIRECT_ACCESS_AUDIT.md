@@ -453,6 +453,91 @@ Same honesty standard as §13.5 — no test framework exists in this repo.
 
 ---
 
+## 15. Boost/payment integrity audit — end-to-end (IMPLEMENTED)
+
+The flagged-but-unexamined item from §14.3 ("boost-related product fields... plausible next target for the same class of check") was confirmed **real and severe** — the most significant finding of this entire audit. Traced boost fields across web UI, mobile UI, `AppContext.tsx`, `dbAdapter.ts`, product create/update/sync, Paystack init/verify, boost activation, ranking, admin controls, and every server endpoint.
+
+### 15.1 Finding A (CRITICAL / P0) — `upsertProductToSupabase` trusted client-supplied boost fields
+
+`server.ts`'s `upsertProductToSupabase()` — called by `/api/products/sync`, the ordinary "save my listing" endpoint every seller already uses routinely — built its `cleanProduct` object with:
+
+```js
+boostStatus: productData.boostStatus !== undefined ? productData.boostStatus === true : (existingRow?.boostStatus === true),
+boostExpiry: productData.boostExpiry || productData.boostEndDate || existingRow?.boostExpiry || existingRow?.boostEndDate || null,
+```
+
+`productData` here is the client's request body. **Verified this is exactly what the real ranking computation reads**: `getServerBoostEndDate()` (`server.ts:1592`) checks `product.boostEndDate || product.boostExpiry` as its primary signal for whether a listing is actively boosted, with `boostStatus` as a secondary fallback. This is not a cosmetic field — it's the actual, live "is this listing boosted right now, ranked above others" computation.
+
+**This meant any authenticated seller could grant themselves a free, arbitrarily-long, ranking-relevant boost on their own listing via one ordinary API call** — e.g. `POST /api/products/sync` with `{product: {id: <own product>, boostStatus: true, boostExpiry: "2099-01-01", ...other required fields}}` — no Paystack, no payment, **and critically, no RLS bypass needed at all**, since `/api/products/sync` already runs through the service-role Supabase client regardless of RLS status. This is independent of, and more severe than, the RLS-disabled direct-Supabase vector, because it works through the app's own primary, already-authenticated listing-edit API — not a workaround.
+
+**Confirmed NOT exploitable via `/api/verify-payment` itself for setting the amount** — `verifiedAmountGHS` there is always derived from Paystack's own verify response or `BOOST_PLAN_PRICE_GHS` (a server-side constant), never client-supplied. The vulnerability was specifically in the *other* boost-writing path.
+
+**Correctness bug found alongside it**: `cleanProduct` only ever carried `boostStatus`/`boostExpiry` through — every other boost field `/api/verify-payment` computes after a real payment (`boostPlan`, `boostAmount`, `boostPriority`, `boostPriorityLevel`, `priorityScore`, `paymentReference`, `boostHistory`, etc.) was **silently dropped**, regardless of caller, since `cleanProduct` never included them at all. This means even genuinely paid boosts were losing their plan/amount/history metadata on every subsequent product sync. Not itself a security hole, but a real data-integrity bug, fixed in the same pass since the fix touches the same code.
+
+**Fix**: added a `trustBoostFields` parameter (default `false`) to `upsertProductToSupabase`. When `false` — the default, used by `/api/products/sync` and the product-create endpoint (both take untrusted client bodies) — every boost field is taken exclusively from the existing database row, never from client input. When `true` — passed only by `/api/verify-payment` (after real, verified payment) and `/api/admin/boost-control` (already `verifyAdmin()`-gated) — the full, correct set of boost fields is taken from the caller's already-trusted computed values. This also fixes the correctness bug: all boost fields are now properly carried through for the two legitimate call sites, not just `boostStatus`/`boostExpiry`.
+
+### 15.2 Finding B (CRITICAL / P0) — `/api/verify-payment` had no payment-reference replay protection
+
+Paystack's transaction-verify endpoint is idempotent — it reports a transaction's historical status and will report "success" for the same reference indefinitely. **`/api/verify-payment` never checked whether a `paymentReference` had already been used.** Concretely, this meant:
+
+- **Pay once, replay indefinitely on the same product**: resubmitting the same successful reference re-runs the whole activation flow; the existing "extend from current expiry if still active" logic (`server.ts`, `startTime` computation) would happily keep pushing the boost further into the future each time — an indefinitely-extendable boost from a single payment.
+- **Pay once, boost multiple products**: nothing tied a `paymentReference` to a specific `productId` at the Paystack level — the same reference could be resubmitted with a different (also self-owned) `productId` each time, activating a full boost on every listing from a single payment.
+- This affected the admin-free-boost path too (`ADMIN_FREE_BOOST_...`-prefixed references) — an admin-granted free boost reference could otherwise be replayed by whoever obtained it.
+
+**Root cause of the gap**: `public.boost_purchases` already existed in the schema (`id TEXT PRIMARY KEY, productId, userId, amount, currency, status, createdAt`) — evidently built for exactly this purpose — but nothing in the codebase ever wrote to or read from it. Confirmed via the earlier direct-access audit (§3) that no client code references this table either; it was simply unused, dead infrastructure.
+
+**Fix**: `/api/verify-payment` now checks `boost_purchases` for an existing row keyed by `paymentReference` *before* doing anything else (fast rejection for the dominant real-world case — a reference reused later, not a concurrent race), and inserts a claim row (using the reference as the primary key, a real atomic database-level guarantee) immediately after a successful activation. A losing insert in a genuine concurrency race is logged as a detected replay attempt rather than silently succeeding twice; the earlier product-boost write in that scenario is not unwound (accepted tradeoff — see §15.6).
+
+### 15.3 Finding C (P1, defense-in-depth) — direct-Supabase route was also open
+
+`dbAdapter.ts`'s `TABLE_COLUMNS.products` (the write allow-list gating every client-side `setDoc`/`updateDoc`) included every boost field plus `paymentStatus`/`paymentReference`. With RLS disabled and this generic path having zero per-row ownership checks (established throughout this audit), this was a second, independent route to the same outcome as Finding A — a direct Supabase write, bypassing the app's API entirely. **Fixed**: all boost/payment fields removed from this allow-list, same treatment as every prior fix this session. Confirmed zero legitimate functional impact: `BoostModal.tsx`'s own client code (`src/components/BoostModal.tsx:258`) only ever calls `updateProduct(product.id, data.product)` with the *server's own response* after a successful `/api/verify-payment` call — never client-invented boost values — so this path was never exercised for a legitimate purpose in the first place.
+
+### 15.4 Fallback behavior when `PAYSTACK_SECRET_KEY` is unavailable
+
+Re-inspected per the specific instruction, without requesting or exposing the secret's value. `server.ts` checks `process.env.PAYSTACK_SECRET_KEY` fresh, per-request, with a simple existence check (`if (process.env.PAYSTACK_SECRET_KEY) {...} else {...demo mode...}`) — no caching, no module-level constant that could go stale, no code path where this could differ between requests while the process is running. **Given Vincent's confirmation that the production key is configured, the demo-mode branch is deterministically unreachable in production today.** It only exists as an interim pre-launch allowance (already documented in the code's own comment) and would only ever engage again if the environment variable were later unset — a deployment/configuration change, not a code-level vulnerability. Worth noting as a genuine latent risk if that env var were ever accidentally removed (the demo-mode branch would silently start accepting unverified references again) — but this is operational/configuration risk, not something fixable in code beyond what's already there. **One relevant improvement from this pass**: the new payment-reference replay protection (§15.2) applies uniformly to *both* branches — even if demo mode were ever reactivated, a "demo" reference still couldn't be replayed for multiple boosts, which wasn't true before this fix.
+
+### 15.5 Abuse scenarios — explicit answers
+
+| Scenario | Before this pass | After |
+|---|---|---|
+| Obtain a free boost | **Yes** — via `/api/products/sync` (Finding A) | No — boost fields now server-preserved only |
+| Give themselves a larger boost than paid for | No — amount was always Paystack/server-derived | No change (was already safe) |
+| Extend a boost indefinitely | **Yes** — replay the same reference repeatedly (Finding B) | No — reference claimed after first use |
+| Reuse one payment for multiple boosts | **Yes** — same mechanism as above (Finding B) | No |
+| Boost another user's listing | No — `existingProduct.sellerId !== verified.uid && !isAdmin → 403` in `/api/verify-payment`, already sound | No change (was already safe) |
+| Manipulate ranking without payment | **Yes** — Finding A directly controls the field `getServerBoostEndDate()` reads | No |
+| Manipulate boost state directly via Supabase (RLS disabled) | **Yes** — Finding C | No |
+| Bypass boost expiry | No — `getServerBoostEndDate()` recomputes fresh from stored dates on every read; no separate "is expired" flag to tamper with | No change (was already safe by design) |
+| Cause a paid boost to attach to the wrong product/user | No — `productId` ownership-checked against the authenticated caller; a payer can only ever direct their own payment at their own products | No change (was already safe) |
+
+No real Paystack transactions were performed. All "before" conclusions are from direct code tracing (reading the actual vulnerable logic and the real `getServerBoostEndDate()` consumer), not live exploitation.
+
+### 15.6 Tests performed
+
+Same standard as §13.5/§14.5 — no test framework exists in this repo.
+
+**Executed against a local dev server** (rejection-path only):
+| Test | Result |
+|---|---|
+| `POST /api/verify-payment`, no auth | `401` ✓ |
+| `POST /api/verify-payment`, forged token | `401` ✓ |
+| `POST /api/products/sync`, no auth, body attempts `boostStatus: true, boostExpiry: "2099-01-01"` | `401` — rejected before reaching the now-fixed boost-field logic ✓ |
+| `POST /api/products/sync`, forged token, same payload | `401` ✓ |
+| `POST /api/admin/boost-control`, no auth | `403` ✓ |
+| `npm run build` | Succeeds, 0 errors |
+| `tsc --noEmit` | Clean, 0 errors |
+
+**Verified by code review, not live execution** (no real Firebase or Paystack test credentials available): the full `trustBoostFields: true` path for a genuine `/api/verify-payment` call after real payment verification; the `boost_purchases` duplicate-check actually rejecting a second real submission of the same reference; the race-condition INSERT-conflict logging path; a legitimate admin successfully using `/api/admin/boost-control`. These were traced line-by-line against the actual implemented code, not executed.
+
+### 15.7 Remaining risks / not fully covered
+
+- **The race-condition window in §15.2 is narrow but not eliminated** — two genuinely simultaneous requests with the same reference could both pass the early SELECT before either INSERT completes. The second INSERT will fail (real DB-level uniqueness), so no *second* boost activation persists incorrectly beyond what the first request already wrote, but this relies on the `id` primary key constraint being the real backstop, not the SELECT. A stricter fix would use a single atomic upsert-with-conflict-check inside a transaction; judged unnecessary additional complexity given Postgres's own primary key constraint already prevents the actually-damaging outcome (a *second* distinct successful activation).
+- **`products.status`/`isDeleted`/`securityHold` were left in `dbAdapter.ts`'s write allow-list** — not evaluated with the same rigor as `users`' equivalent fields in §14.3. A seller could plausibly self-clear a security hold or moderation status on their own listing via the same direct-Supabase route. Flagged, not fixed — out of this pass's specific boost/payment scope.
+- **`boost_purchases` now has real data flowing into it for the first time** — no read/reporting UI consumes it yet (admin dashboard, dispute lookup, etc.). Purely additive infrastructure from this fix; not a risk, just noting it's not yet surfaced anywhere.
+- Everything listed in §13.6/§14.6 that this pass didn't touch remains open.
+
+---
+
 ## Summary for the handoff
 
-Three real, distinct vulnerabilities closed this session, all sharing the same root cause (client-writable privilege/status fields, exploitable via either a legitimate-looking API call or the RLS-disabled direct-Supabase path): `isAdmin` self-promotion (§13), `isSuspended` self-clearing (§14.1), and chat `tradeStatus` fabrication enabling fraudulent reviews (§14.4) — plus a real, unauthenticated email-abuse endpoint (§14.2) and 308 lines of dead, misleading duplicate code removed. A full field-by-field classification (§14.3) confirmed several other fields are safely client-editable (no fix needed) and flagged two genuine open items (`emailVerified`, boost fields) for future, appropriately-scoped follow-up rather than folding them into this pass. RLS itself remains untouched and `BLOCKED_APPROVAL` — none of this session's fixes depend on or affect that decision.
+Four real, distinct vulnerabilities closed this session across three passes, all sharing the same underlying pattern (server-side or direct-Supabase trust of client-controlled privilege/financial fields): `isAdmin` self-promotion (§13), `isSuspended` self-clearing (§14.1), chat `tradeStatus` fabrication enabling fraudulent reviews (§14.4), and — the most severe — free/unlimited boost activation via both the primary product-sync API and the direct-Supabase route, plus unlimited payment-reference replay (§15). An unauthenticated email-abuse endpoint was also closed (§14.2), and 308 lines of dead code removed. RLS itself remains untouched and `BLOCKED_APPROVAL` throughout — none of these fixes depend on or affect that decision; each closes a vulnerability that existed independently of RLS's current state, in addition to closing the corresponding RLS-disabled direct-Supabase variant as defense-in-depth.
