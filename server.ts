@@ -4070,7 +4070,23 @@ app.get('/api/messages/:chatId', serverRateLimiter(60 * 1000, 300, "messages-lis
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
   }
 
-  const chat = await getChatIfParticipant(req.params.chatId, verified.uid);
+  let chat = await getChatIfParticipant(req.params.chatId, verified.uid);
+
+  // Admin-as-support-desk fallback, RLS-migration Phase 2: mirrors
+  // /api/messages/send's and /api/messages/mark-read's own fallbacks
+  // (same file) -- the CEO-support pseudo-account isn't a real chat
+  // participant per getChatIfParticipant, so an admin reading that
+  // thread's messages needs the same carve-out. Closes the direct
+  // onSnapshot/getDocs realtime subscription in ChatInterface.tsx used
+  // for exactly this case. Reachable only by a cryptographically-
+  // verified admin, only for the support account's own chat.
+  if (!chat && verified.isAdmin && backendSupabase) {
+    const { data: rawChat } = await backendSupabase.from('chats').select('*').eq('id', req.params.chatId).maybeSingle();
+    if (rawChat && rawChat.sellerId === 'user_ted_ceo_support') {
+      chat = rawChat;
+    }
+  }
+
   if (!chat) {
     return res.status(404).json({ success: false, error: 'Chat not found' });
   }
@@ -6698,6 +6714,43 @@ app.get('/api/admin/impersonate/logs', serverRateLimiter(60 * 1000, 30, "admin-i
   } catch (err: any) {
     console.error('[Impersonate Logs Error]:', err);
     return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch logs' });
+  }
+});
+
+// Admin support-desk inbox: RLS-migration Phase 2
+// (.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md §1.3/§1.4/§4). Replaces the
+// direct `onSnapshot(query(collection(null,'chats'),
+// where('sellerId','==','user_ted_ceo_support')))` realtime subscription
+// in AppContext.tsx -- that subscription's own comments already flagged
+// this as a known gap: with RLS disabled and no per-row ownership check
+// on the generic dbAdapter path, the same anon key that subscription used
+// could just as easily query with no filter at all and read the entire
+// chats table (every buyer/seller pair, last-message text, product/price),
+// admin-gate or not, since the filter was only ever app-chosen, never
+// enforced. This endpoint is real, `verifyAdmin()`-gated, and the only
+// legitimate path to this data going forward. Polling (matching the
+// notifications migration's own precedent of trading realtime push for a
+// poll -- audit doc §18.5) is sufficient; a support inbox does not need
+// live push updates the way active-conversation chat does.
+app.get('/api/admin/support/chats', serverRateLimiter(60 * 1000, 60, "admin-support-chats"), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyAdmin(req.headers.authorization);
+  if (!verified) {
+    return res.status(403).json({ success: false, error: 'Unauthorized: Admin authorization required' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+  try {
+    const { data, error } = await backendSupabase
+      .from('chats')
+      .select('*')
+      .eq('sellerId', 'user_ted_ceo_support')
+      .order('lastMessageTime', { ascending: false });
+    if (error) throw error;
+    return res.json({ success: true, chats: data || [] });
+  } catch (err: any) {
+    console.error('[Admin Support Chats API Error]:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch support chats' });
   }
 });
 

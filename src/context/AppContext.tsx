@@ -2554,34 +2554,48 @@ CEO, Tedbuy Inc`;
   }, [currentUserId]);
 
   // 4b. Admin-only: TedBuy Support inbox (sellerId === 'user_ted_ceo_support').
-  // This pseudo-account chat can't be expressed by the authenticated API's
-  // buyer/seller authorization rule — the admin's own uid is neither party —
-  // so extending that endpoint to allow it would mean adding an authorization
-  // bypass to a security-critical boundary. Left on the pre-existing direct
-  // Firestore/Supabase read instead: a narrow, already-privileged, admin-only
-  // path, unchanged from before this migration. Flagged for a dedicated
-  // support-ticket design in a future phase rather than forced into this API.
+  //
+  // Security fix (RLS-migration Phase 2, checkpoint 12): this used to be a
+  // direct `onSnapshot(query(collection(null,'chats'),
+  // where('sellerId','==','user_ted_ceo_support')))` -- flagged by its own
+  // prior comment as a known gap: with RLS disabled and no per-row
+  // ownership check on the generic dbAdapter path, the same anon key this
+  // subscription used could just as easily query with no filter at all and
+  // read the entire chats table, admin-gate or not, since the filter was
+  // only ever app-chosen, never enforced. Migrated to
+  // GET /api/admin/support/chats (new, real `verifyAdmin()`-gated
+  // endpoint), polled every 20s -- matching the notifications migration's
+  // own precedent of trading realtime push for a poll (audit doc §18.5); a
+  // support inbox doesn't need live push the way an open conversation does.
   useEffect(() => {
     const isAdminUser = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com' || currentUser?.isAdmin) && isAdminSessionVerified;
     if (!isAdminUser) return;
 
-    const qAdminSupport = query(collection(null, 'chats'), where('sellerId', '==', 'user_ted_ceo_support'));
-    const unsub = onSnapshot(qAdminSupport, (snap) => {
-      const supportChats: Chat[] = [];
-      snap.forEach(docSnap => {
-        const data = docSnap.data();
-        supportChats.push(normalizeChat({ ...data, id: docSnap.id || data.id }) as Chat);
-      });
-      setChats(prev => {
-        const map = new Map(prev.map(c => [c.id, c]));
-        supportChats.forEach(c => map.set(c.id, c));
-        return Array.from(map.values());
-      });
-    }, (error) => {
-      handleBackendError(error, OperationType.LIST, 'chats');
-    });
+    let active = true;
+    const pollSupportChats = async () => {
+      try {
+        const authHeaders = await getAuthHeader();
+        const res = await fetch('/api/admin/support/chats', { headers: authHeaders });
+        const json = await res.json().catch(() => ({}));
+        if (!active || !json.success || !Array.isArray(json.chats)) return;
+        const supportChats: Chat[] = json.chats.map((data: any) => normalizeChat(data) as Chat);
+        setChats(prev => {
+          const map = new Map(prev.map(c => [c.id, c]));
+          supportChats.forEach(c => map.set(c.id, c));
+          return Array.from(map.values());
+        });
+      } catch (error) {
+        handleBackendError(error, OperationType.LIST, 'chats');
+      }
+    };
 
-    return () => unsub();
+    pollSupportChats();
+    const interval = setInterval(pollSupportChats, 20000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [currentUser?.email, currentUser?.isAdmin, isAdminSessionVerified]);
 
   // 5. Active chat thread — polls GET /api/messages/:chatId (paginated,
@@ -2599,40 +2613,19 @@ CEO, Tedbuy Inc`;
       return;
     }
 
-    const activeChat = chats.find(c => c.id === activeChatId);
-    const isSupportChat = activeChat?.sellerId === 'user_ted_ceo_support' || activeChat?.buyerId === 'user_ted_ceo_support';
-
-    // Admin-only support-desk thread — same authorization gap as 4b above,
-    // same narrow exception, unchanged direct realtime path.
-    if (isSupportChat) {
-      console.log(`[Support Chat Listener] Subscribing directly to messages in support chat: ${activeChatId}`);
-      const q = query(collection(null, 'messages'), where('chatId', '==', activeChatId));
-
-      const syncSnapshot = (snap: any) => {
-        const sorted: Message[] = [];
-        snap.forEach((docSnap: any) => {
-          const data = docSnap.data();
-          sorted.push({ ...data, id: docSnap.id || data.id } as Message);
-        });
-        sorted.sort((a, b) => (typeof a?.createdAt === 'string' ? a.createdAt : '').localeCompare(typeof b?.createdAt === 'string' ? b.createdAt : ''));
-        setMessages(sorted);
-      };
-
-      const unsub = onSnapshot(q, syncSnapshot, (err) => {
-        console.warn('[Support Chat Listener] onSnapshot error:', err);
-      });
-      const interval = setInterval(async () => {
-        try {
-          const snap = await getDocs(q);
-          syncSnapshot(snap);
-        } catch (_) {}
-      }, 30000);
-
-      return () => {
-        unsub();
-        clearInterval(interval);
-      };
-    }
+    // Security fix (RLS-migration Phase 2, checkpoint 12): the CEO-support
+    // pseudo-account thread used to get a special-cased direct
+    // `onSnapshot`/`getDocs` realtime subscription here (both for the
+    // admin viewing the support inbox AND for a regular end-user viewing
+    // their own welcome/support chat -- this branch wasn't admin-only,
+    // since `isSupportChat` is true for either side of that specific
+    // conversation). Now unnecessary: GET /api/messages/:chatId (which
+    // `fetchMessagesFromApi` below already calls for every other chat) was
+    // extended in this same commit with the same admin-as-support-desk
+    // fallback already used by /api/messages/send and mark-read, so it now
+    // correctly serves both the normal-participant case (a real end-user
+    // reading their own chat) and the admin-fallback case through one
+    // unified, already-authenticated path -- no special branch needed.
 
     let active = true;
     const load = async () => {
@@ -2655,7 +2648,7 @@ CEO, Tedbuy Inc`;
       active = false;
       clearInterval(interval);
     };
-  }, [activeChatId, chats, currentUser?.id]);
+  }, [activeChatId, currentUser?.id]);
 
   // User Authentication Action APIs
   const registerUser = async (username: string, email?: string, phoneNumber?: string, password?: string, photoUrl?: string) => {
