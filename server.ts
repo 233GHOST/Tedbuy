@@ -3084,6 +3084,61 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
       })();
     }
 
+    // Notification security migration (see
+    // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §18): this is the
+    // server-authoritative replacement for a client-side direct-Supabase
+    // notification broadcast that used to fire on every listing edit,
+    // targeting users who saved this exact product or follow this seller.
+    // The event itself (a genuine, non-social-only edit to a listing this
+    // request has already verified the caller owns) is unambiguous and
+    // already verified above; only the recipient-targeting logic is new
+    // here, mirroring the new-listing block immediately above it rather
+    // than inventing a different pattern. Fire-and-forget, same as that
+    // block -- a notification-dispatch failure must never affect the
+    // seller's own edit response.
+    if (isExistingProduct && !isSocialOnlyChange && backendSupabase) {
+      (async () => {
+        try {
+          const { data: allUsers } = await backendSupabase!.from('users').select('id, followingSellers, savedProductIds').limit(5000);
+          const targetUsers = (allUsers || []).filter((u: any) =>
+            u.id !== existingSellerId && (
+              (Array.isArray(u.savedProductIds) && u.savedProductIds.includes(prodId)) ||
+              (Array.isArray(u.followingSellers) && u.followingSellers.includes(existingSellerId))
+            )
+          );
+          for (const targetUser of targetUsers) {
+            const isSaved = Array.isArray(targetUser.savedProductIds) && targetUser.savedProductIds.includes(prodId);
+            // Saving a product is a stronger, more explicit signal of
+            // interest than following a seller -- matches the original
+            // client-side behavior, which only gated the follow-driven
+            // case behind a notification preference and always notified
+            // savers.
+            if (!isSaved && !(await shouldNotifyUser(targetUser.id, 'followedSellerNewListing'))) continue;
+            await createNotification({
+              id: `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`,
+              userId: targetUser.id,
+              type: 'post_created',
+              title: isSaved ? 'Followed Ad Updated!' : 'New Update from Seller',
+              message: isSaved
+                ? `An ad you are following "${cleanProduct.title}" was updated by the seller.`
+                : `${targetSellerName || 'The seller'} updated their listing: "${cleanProduct.title}"`,
+              triggerUserId: existingSellerId,
+              triggerUsername: targetSellerName || 'Seller',
+              triggerUserPhoto: targetSellerPhoto || '',
+              productId: prodId,
+              productTitle: cleanProduct.title || '',
+              productPrice: cleanProduct.price ?? 'Inquire',
+              productImage: cleanProduct.image || (Array.isArray(cleanProduct.images) ? cleanProduct.images[0] : '') || '',
+              createdAt: new Date().toISOString(),
+              read: false
+            });
+          }
+        } catch (notifErr) {
+          console.warn('[Product Sync API] Listing-update notification dispatch failed:', notifErr);
+        }
+      })();
+    }
+
     return res.json({ success: true, product: saved });
   } catch (err: any) {
     console.error('[Product Sync API Error]:', err);
@@ -3859,14 +3914,35 @@ app.post('/api/messages/send', serverRateLimiter(60 * 1000, 30, "message-send"),
     return res.status(400).json({ success: false, error: 'Message cannot exceed 5000 characters.' });
   }
 
-  const chat = await getChatIfParticipant(chatId, verified.uid);
+  let chat = await getChatIfParticipant(chatId, verified.uid);
+  let sendAsSenderId = verified.uid;
+
+  // Admin-as-support-desk fallback: the CEO-support pseudo-account
+  // ('user_ted_ceo_support') isn't a real Firebase user, so an admin
+  // replying on its behalf is never a genuine chat participant per
+  // getChatIfParticipant's own buyerId/sellerId check above. This is the
+  // notification-security migration's completion of that path (see
+  // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §18) -- previously
+  // handled entirely client-side via a direct, unauthenticated Supabase
+  // write; this is the real server endpoint it migrates to. Reachable
+  // ONLY by a cryptographically-verified admin (verified.isAdmin, from
+  // verifyUser() -- never a client-supplied claim), and only for a chat
+  // that is genuinely the support pseudo-account's own chat.
+  if (!chat && verified.isAdmin && backendSupabase) {
+    const { data: rawChat } = await backendSupabase.from('chats').select('*').eq('id', chatId).maybeSingle();
+    if (rawChat && rawChat.sellerId === 'user_ted_ceo_support') {
+      chat = rawChat;
+      sendAsSenderId = 'user_ted_ceo_support';
+    }
+  }
+
   if (!chat) {
     return res.status(404).json({ success: false, error: 'Chat not found' });
   }
 
   try {
-    const recipientId = chat.buyerId === verified.uid ? chat.sellerId : chat.buyerId;
-    const message = await createChatMessage(chat, verified.uid, recipientId, cleanText);
+    const recipientId = chat.buyerId === sendAsSenderId ? chat.sellerId : chat.buyerId;
+    const message = await createChatMessage(chat, sendAsSenderId, recipientId, cleanText);
     return res.json({ success: true, message });
   } catch (err: any) {
     console.error('[Message Send API Error]:', err);

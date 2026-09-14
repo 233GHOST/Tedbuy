@@ -68,13 +68,24 @@ if (isSupabaseActive) {
   console.warn('[Supabase Adapter] Inactive. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable Supabase-backed app data storage.');
 }
 
-// Map legacy collection/table path names to Supabase table names
+// Map legacy collection/table path names to Supabase table names.
+// 'notifications' deliberately excluded as of the notification security
+// migration (.ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §18-19) -- every
+// legitimate read and write now goes through authenticated server
+// endpoints (GET/POST /api/notifications/*), so this generic,
+// ownership-check-free path has no remaining legitimate caller. Mapping it
+// here would let it silently reopen for any future code that starts
+// calling doc('notifications', ...)/collection('notifications') again,
+// exactly the mistake this migration closes -- getDocPathInfo/
+// getCollectionPathInfo already treat an unmapped table as `table: null`
+// and every CRUD function already no-ops safely on that (see their
+// `if (!table) { ... }` branches), so removing the mapping is a real,
+// enforced closure, not just documentation.
 const VALID_TABLE_MAP: Record<string, string> = {
   users: 'users',
   products: 'products',
   chats: 'chats',
   messages: 'messages',
-  notifications: 'notifications',
   reviews: 'reviews',
   reports: 'reports',
   storenames: 'store_names',
@@ -318,10 +329,10 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
   reviews: new Set([
     'id', 'buyerId', 'buyerName', 'sellerId', 'rating', 'comment', 'productTitle', 'createdAt'
   ]),
-  notifications: new Set([
-    'id', 'userId', 'title', 'message', 'type', 'read', 'createdAt', 'relatedId',
-    'triggerUserId', 'triggerUsername', 'triggerUserPhoto', 'productId', 'productTitle', 'productPrice', 'productImage', 'chatId'
-  ]),
+  // 'notifications' entry removed -- see the comment on VALID_TABLE_MAP
+  // above. This Set is now unreachable (mapPathToTable has no path to it)
+  // but was also removed outright rather than left as dead config, to
+  // avoid it being mistaken for a still-active allow-list.
   store_names: new Set([
     'id', 'userId', 'username', 'status', 'availableAfter', 'quarantinedAt'
   ]),

@@ -424,7 +424,10 @@ Object.defineProperty(CATEGORY_ICONS, 'Laptops', {
 export interface AppNotification {
   id: string;
   userId: string; // The user who receives the notification
-  type: 'post_created' | 'new_follower' | 'new_message';
+  // 'followed_seller_new_listing' was already a real type string the
+  // server has always created (server.ts's new-listing notification
+  // block) -- just missing from this union until now.
+  type: 'post_created' | 'new_follower' | 'new_message' | 'followed_seller_new_listing';
   title: string;
   message: string;
   triggerUserId: string; // The user who made the post or sent the message

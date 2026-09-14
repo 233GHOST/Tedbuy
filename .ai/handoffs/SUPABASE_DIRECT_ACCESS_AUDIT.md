@@ -641,6 +641,85 @@ Given the task's own instruction to fix only when "the intended secure behavior 
 
 ---
 
+## 18. Notification security layer — BUILT (revises §17's assessment)
+
+§17 concluded that closing the notifications vulnerability required building genuinely new server infrastructure, and deferred it. Re-investigating to actually build it surfaced something that materially changes that assessment: **most of the required server-side infrastructure already existed** — apparently built earlier in this repo's history (or by a concurrent session), just never adopted by the web client, which continued using the old, insecure direct-Supabase path in parallel. This turned a large chunk of the task from "design new business logic" into "migrate web to what mobile — and parts of the server's own product/follow/message flows — already correctly used."
+
+### 18.1 What was already there, verified by direct inspection before trusting it
+
+- `GET /api/notifications`, `POST /api/notifications/mark-read`, `POST /api/notifications/mark-all-read`, `POST /api/notifications/clear-all` (`server.ts`) — all four already `verifyUser()`-gated, and critically, mark-read/mark-all-read/clear-all all scope their Supabase mutation with `.eq('userId', verified.uid)` **at the database-query level** — a real ownership guarantee, not a client-side convention. **Mobile already called all four** (`mobile/src/firebase.ts`). Web had never adopted any of them.
+- `POST /api/users/follow` — already `verifyUser()`-gated, updates only the caller's own `followingSellers` (`.eq('id', verified.uid)`), and already creates the "new follower" notification server-side via a shared `createNotification()` helper, with the sender's username/photo read from the caller's own verified database row — never from the request body. **Mobile already called this too.** Web's `followSeller()`/`unfollowSeller()` still did the entire thing directly via `dbAdapter`, duplicating (insecurely) what this endpoint already did correctly.
+- `createChatMessage()` (`server.ts`, used by `/api/messages/send` and the mark-delivered/mark-picked-up endpoints) — already creates the "new message" notification server-side, with sender identity derived from the chat record itself, not the client. **Web's own `sendMessage()` already called `/api/messages/send`** for the normal case — its separate, direct-Supabase `sendNotification()` call afterward was pure redundancy, not a gap.
+- `/api/products/sync`'s existing new-listing branch — already creates the "followed seller posted a new listing" notification server-side, using real follower data fetched from the database and the verified seller identity (confirmed in the earlier boost/moderation audit passes, §15-16).
+
+None of this was assumed — each was read in full and traced before being relied on, per this document's standing verification discipline.
+
+### 18.2 What was genuinely new work
+
+- **Listing-update notifications**: no server equivalent existed for "notify users who saved this product or follow this seller when an *existing* listing is edited" (distinct from the new-listing case). The event itself is unambiguous — a genuine, non-social-only edit to a listing the request has already verified the caller owns, the same `isExistingProduct && !isSocialOnlyChange` gate `/api/products/sync` already uses elsewhere — so this was built, mirroring the new-listing block's exact pattern (real follower/saved-user data, verified seller identity, `shouldNotifyUser` preference check) rather than inventing a different one.
+- **Admin-support-desk message sending**: the one case with no existing endpoint to migrate to at all. The CEO-support pseudo-account (`user_ted_ceo_support`) isn't a real Firebase user, so an admin replying as it was never a genuine chat participant under `/api/messages/send`'s existing `getChatIfParticipant` check. Added a narrow fallback: if the caller isn't a participant but **is a cryptographically-verified admin** (`verified.isAdmin`, from `verifyUser()` — never client-supplied) and the chat's `sellerId` is genuinely the support pseudo-account, the send is allowed as that identity. This was the deciding factor in not leaving any direct-Supabase fallback in place (see §18.4) — without it, fully closing the vulnerability would have either left this one path open to anyone, or silently broken a live admin feature.
+
+### 18.3 Six-plus call sites, traced and classified
+
+Per-type server-side validation, as required:
+
+| Notification type | Event | Server-side proof required | Status |
+|---|---|---|---|
+| `new_follower` | Caller follows a seller | Caller's `followingSellers` update is scoped to `verified.uid`; sender identity read from caller's own DB row | Already existed (`/api/users/follow`) — web migrated to it |
+| `new_message` | Caller sends a chat message | `getChatIfParticipant(chatId, verified.uid)` — caller must be a genuine buyer/seller in that exact chat | Already existed (`createChatMessage`, used by `/api/messages/send`) — web's redundant direct write removed |
+| `followed_seller_new_listing` | Caller (a seller) publishes a genuinely new listing | `/api/products/sync`'s existing ownership + `!isExistingProduct` check; real follower list fetched server-side | Already existed — web's redundant, over-broad (bidirectional-follow) direct broadcast removed |
+| `post_created` (listing updated) | Caller (a seller) edits an existing listing | Same `/api/products/sync` ownership check, `isExistingProduct && !isSocialOnlyChange`; real saved/follower data fetched server-side | **Built this pass** — web's redundant direct broadcast removed, replaced by the new server logic |
+| `new_message` (admin-support-desk variant) | An admin replies as the CEO-support pseudo-account in a support chat | `verified.isAdmin` (cryptographic) + target chat's `sellerId` is genuinely the support account | **Built this pass** (`/api/messages/send`'s new fallback branch) — the two remaining client-side direct writes for this case migrated to it |
+| Mark-read / mark-all-read / clear-all | Caller has notifications of their own | `.eq('userId', verified.uid)` on every mutation | Already existed — web migrated to it |
+| Notification list (read) | Caller wants their own notifications | Recipient derived from `verified.uid`, never a client-supplied filter | Already existed (`GET /api/notifications`) — web migrated to it (from a live Supabase Realtime subscription to a 20s poll — see §18.5 for the UX tradeoff) |
+
+**No notification type was found with an ambiguous or unverifiable event.** Every one had a clear, checkable server-side proof, either already implemented or straightforward to add following an existing, precedented pattern in the same function. Nothing was invented; nothing was silently changed in meaning.
+
+### 18.4 Migration completeness — no dangerous fallback left behind
+
+Every one of the (more than six, once the offline-message-retry queue's duplicate code paths are counted) direct `dbAdapter` notification calls in `AppContext.tsx` was removed — confirmed via a final repository-wide grep returning zero results in `src/`. `dbAdapter.ts`'s `VALID_TABLE_MAP` no longer maps `'notifications'` to anything at all (not just an emptied write-allowlist, the entry is gone), which its own existing `if (!table) { ... }` handling in every CRUD function already treats as a safe no-op — confirmed by reading those branches, not assumed. This was the direct consequence of building the admin-support-desk endpoint (§18.2): without it, closing the table mapping entirely would have either broken that one live feature or required leaving a partial opening that — because `dbAdapter` has no per-row ownership check at all — would have reopened the *entire* vulnerability for every notification type, not just the support-desk case.
+
+### 18.5 UX tradeoff — real-time push → 20s poll
+
+The old implementation was a live Supabase Realtime subscription (instant delivery). The new implementation polls `GET /api/notifications` every 20 seconds. This is a genuine, deliberate UX change, not an oversight: mobile has no live-read UX to preserve here (its `fetchNotifications` exists but had zero callers at the time of this audit — no established polling interval to mirror), so 20s was chosen as consistent with this app's other near-real-time polling features (chat/message polling elsewhere in the codebase) rather than copied from a precedent. The "new notification" toast behavior (🎉 for a new follower, 📢 for a new listing/update) is preserved by diffing each poll's notification IDs against the previous poll's.
+
+### 18.6 Tests performed
+
+**Executed against a local dev server** (rejection-path only — every test below was actually run, not just reasoned about):
+
+| Test | Result |
+|---|---|
+| `GET /api/notifications`, no auth | `401` ✓ |
+| `GET /api/notifications`, forged token | `401` ✓ |
+| `POST /api/notifications/mark-read`, no auth, targeting an arbitrary/victim notification id | `401` ✓ |
+| `POST /api/notifications/mark-read`, forged token, same target | `401` ✓ |
+| `POST /api/notifications/mark-all-read`, no auth | `401` ✓ |
+| `POST /api/notifications/clear-all`, no auth | `401` ✓ |
+| `POST /api/notifications/clear-all`, forged token | `401` ✓ |
+| `POST /api/users/follow`, no auth, targeting an arbitrary seller (would-be forged follow notification) | `401` ✓ |
+| `POST /api/users/follow`, forged token, same target | `401` ✓ |
+| `POST /api/messages/send`, no auth (would-be forged message notification) | `401` ✓ |
+| `POST /api/messages/send`, forged token, attempting the admin-support-desk chat/impersonation path | `401` — rejected before the admin check is ever reached ✓ |
+| `POST /api/products/sync`, no auth (would-be forged listing-update notification) | `401` ✓ |
+| Static check: `'notifications'` absent from `dbAdapter.ts`'s `VALID_TABLE_MAP` | Confirmed via grep (0 matches) ✓ |
+| `tsc --noEmit` | Clean, 0 errors |
+| `npm run build` | Succeeds, 0 errors |
+
+**Explicitly NOT fabricated, per instruction** — the following requested test scenarios require a second real, distinguishable authenticated identity (a genuine non-admin user, a genuine admin, two real accounts to prove cross-user isolation) that no test-credential infrastructure exists to provide in this environment:
+- "Authenticated user attempting to target another user" — structurally, the *new* endpoints don't even expose a recipient/sender parameter for a client to manipulate (§18.1's ownership scoping is enforced by the query itself, not by validating a client-supplied target) — this is a stronger property than passing a validation check, but it means there is no live "attempt and get rejected" test to run for it; it's a design property, verified by reading the code, not an executed negative test.
+- "Forged sender identity" / "forged notification type/content" — same reasoning: these fields are no longer accepted from the client at all for any of the migrated creation paths, so there's nothing to forge into anymore. Verified by code inspection (grepping for any remaining client-supplied `triggerUserId`/`triggerUsername`/`type` reaching a notification write — none found).
+- "Mark-read/delete on another user's notification" (with two real accounts), "legitimate creation for each event," "legitimate mark-read/delete," "unauthorized (non-admin) admin/system notification creation" — all require real, distinguishable Firebase identities. Reasoned about via code tracing (the `.eq('userId', verified.uid)` scoping, the `verified.isAdmin` check) with the same confidence level as every other fix in this document that had the same limitation (§13.5, §14.5, §15.6, §16.4) — explicitly not claimed as executed.
+
+**Recommended follow-up**, same as noted previously: a Firebase Auth emulator would allow genuinely executing the identity-dependent cases above instead of relying on code-trace confidence.
+
+### 18.7 Remaining risks / not covered
+
+- Real-device/browser verification of the new poll-based notification UX (toast timing, no visible regression in the notification bell/list) has not been performed — this is a live-app UX check outside what a server-focused audit pass can verify. Recommend a manual pass in a running app before considering this fully done.
+- The `NotificationPrefKey` preference system (`'newFollower' | 'newMessage' | 'followedSellerNewListing'`) has no dedicated key for "listing update" specifically — the new server logic reuses `'followedSellerNewListing'` for the follow-driven case and never gates the saved-product-driven case behind any preference (matching the original client-side behavior exactly, not a new design decision).
+- Everything listed in §13.6/§14.6/§15.7/§16.5 that this pass didn't touch remains open.
+
+---
+
 ## Summary for the handoff
 
-Five real, distinct vulnerabilities closed this session across four passes, all sharing the same underlying pattern (server-side or direct-Supabase trust of client-controlled privilege/financial/moderation fields): `isAdmin` self-promotion (§13), `isSuspended` self-clearing (§14.1), chat `tradeStatus` fabrication enabling fraudulent reviews (§14.4), free/unlimited boost activation plus payment-reference replay (§15, the most severe), and moderation-status self-reinstatement (§16). An unauthenticated email-abuse endpoint was also closed (§14.2), and 308 lines of dead code removed. A sixth vulnerability (notifications — impersonation/phishing via arbitrary-target notification creation, plus cross-user mark-read/delete) was confirmed real but **not fixed**, since closing it properly requires building new server endpoints with per-type validation logic rather than patching existing logic (§17) — documented as a recommended next task instead of guessed at. RLS itself remains untouched and `BLOCKED_APPROVAL` throughout — none of these fixes depend on or affect that decision; each closes a vulnerability that existed independently of RLS's current state, in addition to closing the corresponding RLS-disabled direct-Supabase variant as defense-in-depth.
+Six real, distinct vulnerabilities closed this session across five passes, all sharing the same underlying pattern (server-side or direct-Supabase trust of client-controlled privilege/financial/moderation/identity fields): `isAdmin` self-promotion (§13), `isSuspended` self-clearing (§14.1), chat `tradeStatus` fabrication enabling fraudulent reviews (§14.4), free/unlimited boost activation plus payment-reference replay (§15, the most severe), moderation-status self-reinstatement (§16), and notification impersonation/phishing plus cross-user mark-read/delete (§18, built after §17 first confirmed it real and initially deferred it pending a proper design). An unauthenticated email-abuse endpoint was also closed (§14.2), and several hundred lines of dead/redundant/insecure code removed across passes. RLS itself remains untouched and `BLOCKED_APPROVAL` throughout — none of these fixes depend on or affect that decision; each closes a vulnerability that existed independently of RLS's current state, in addition to closing the corresponding RLS-disabled direct-Supabase variant as defense-in-depth.
