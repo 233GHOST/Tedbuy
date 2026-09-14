@@ -91,6 +91,7 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({
   hasUnlockedSpeedBefore,
   onLockedSpeedLearned,
   onUnlockedSpeedLearned,
+  onRetry,
 }: {
   uri: string;
   productId: string;
@@ -100,6 +101,7 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({
   hasUnlockedSpeedBefore: boolean;
   onLockedSpeedLearned: () => void;
   onUnlockedSpeedLearned: () => void;
+  onRetry: () => void;
 }) {
   const optimizedUri = useMemo(() => getOptimizedVideoUrlMobile(uri), [uri]);
   // Tapping the video to pause/resume it is a distinct gesture from
@@ -173,10 +175,20 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({
   // background, rather than blindly forcing an edge-to-edge fill that isn't
   // actually the better result for that video.
   const [contentFit, setContentFit] = useState<'cover' | 'contain'>('cover');
+  // Resilience gap: this listener previously only ever reacted to
+  // status === 'loading' (for the buffering spinner). An 'error' status
+  // (expired/deleted Cloudinary asset, corrupted upload, transient network
+  // failure mid-load) fell through silently — isBuffering just went back to
+  // false with no video ever appearing, no message, and no way to recover
+  // short of swiping away. Web's ReelItem already has a full error screen +
+  // Retry button for exactly this (see VideoAdsFeed.tsx); mobile had no
+  // equivalent. hasError now drives that same recovery affordance here.
+  const [hasError, setHasError] = useState(false);
   useEffect(() => {
     const sub = player.addListener('statusChange', ({ status }: { status: string }) => {
       console.log('VIDEO_TIMING status_' + status, productId, Date.now());
       setIsBuffering(status === 'loading');
+      setHasError(status === 'error');
     });
     const sub2 = player.addListener('playingChange', ({ isPlaying }: { isPlaying: boolean }) => {
       if (isPlaying) console.log('VIDEO_TIMING playing', productId, Date.now());
@@ -350,12 +362,27 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({
         contentFit={contentFit}
         pointerEvents="none"
       />
-      {isActive && isBuffering && !isPaused && (
+      {isActive && isBuffering && !isPaused && !hasError && (
         <View style={styles.videoBufferingOverlay} pointerEvents="none">
           <ActivityIndicator color="#ffffff" size="small" />
         </View>
       )}
-      {isPaused && (
+      {hasError && (
+        <View style={styles.videoErrorOverlay}>
+          <Text style={styles.videoErrorTitle}>Couldn't load this video</Text>
+          <Text style={styles.videoErrorSubtitle}>Network or format issue</Text>
+          <Pressable
+            style={styles.videoErrorRetryBtn}
+            onPress={() => {
+              setHasError(false);
+              onRetry();
+            }}
+          >
+            <Text style={styles.videoErrorRetryText}>Retry</Text>
+          </Pressable>
+        </View>
+      )}
+      {isPaused && !hasError && (
         <View style={styles.videoPauseOverlay} pointerEvents="none">
           <Play size={30} color="#ffffff" fill="#ffffff" strokeWidth={0} />
         </View>
@@ -530,6 +557,12 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
   // listing's "price" is frequently just a leftover 0 (no fixed price makes
   // sense for a service), so showing it read as a literal "GH₵0" price tag.
   const isServiceListing = item.category ? String(item.category).toLowerCase().includes('service') : false;
+  // Bumping this remounts VideoFeedPlayer fresh (via the key below) on
+  // Retry — the component's own comment explains why it never re-assigns a
+  // source after mounting (no replaceAsync dance), so recovering from a
+  // real playback error needs a clean new player+source attempt rather than
+  // trying to nurse the existing one back to life.
+  const [retryNonce, setRetryNonce] = useState(0);
 
   return (
     <View style={[styles.videoPlayerFrame, { height }]}>
@@ -547,6 +580,7 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
         // poster image VideoFeedPlayer would have shown anyway, so there's
         // no visible change when a cell crosses into the load window.
         <VideoFeedPlayer
+          key={retryNonce}
           uri={videoUri}
           productId={item.id}
           posterUri={videoFallbackImageUri}
@@ -555,6 +589,7 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
           hasUnlockedSpeedBefore={hasUnlockedSpeedBefore}
           onLockedSpeedLearned={onLockedSpeedLearned}
           onUnlockedSpeedLearned={onUnlockedSpeedLearned}
+          onRetry={() => setRetryNonce((n) => n + 1)}
         />
       ) : videoFallbackImageUri ? (
         <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} />
@@ -764,8 +799,33 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // because activeVideoIndex (state) just changed — a second state update
   // here would just be a redundant extra render.
   const visitedVideoIndicesRef = useRef<Set<number>>(new Set([0]));
+  // Bounded LRU-style retention, not unbounded for the life of the screen.
+  // Unbounded growth here meant shouldLoadVideo's "OR visited" branch below
+  // could keep a real native player+decoder alive for every mounted cell
+  // FlatList's windowSize={21} still held onto — up to ~21 simultaneous
+  // native video decoders in a long scroll session, on Android specifically,
+  // where hardware decoder instances are a scarce, shared system resource
+  // (many devices only guarantee a handful concurrently; exceeding that
+  // forces software decoding — far more CPU/battery-expensive — or can fail
+  // to allocate a decoder at all). Capping to the MAX_VISITED_RETAINED most
+  // recently visited indices keeps the actual desired behavior (scroll back
+  // a few videos replays instantly, no re-fetch) while bounding worst-case
+  // simultaneous players. An evicted index just falls back to the OS HTTP
+  // cache — Cloudinary's eager-transformed feed assets (w_480, q_auto) are
+  // small and cache-friendly, so this isn't a full re-download, only a
+  // fresh (but cheap) player mount.
+  const MAX_VISITED_RETAINED = 10;
+  const touchVisitedIndex = (idx: number) => {
+    const set = visitedVideoIndicesRef.current;
+    if (set.has(idx)) set.delete(idx);
+    set.add(idx); // re-adding moves it to the end (most-recent) in Set's insertion order
+    if (set.size > MAX_VISITED_RETAINED) {
+      const oldest = set.values().next().value;
+      if (oldest !== undefined) set.delete(oldest);
+    }
+  };
   useEffect(() => {
-    visitedVideoIndicesRef.current.add(activeVideoIndex);
+    touchVisitedIndex(activeVideoIndex);
   }, [activeVideoIndex]);
   const [videoFeedHeight, setVideoFeedHeight] = useState(0);
   // The bottom tab navigator keeps Home mounted when you switch to another
@@ -1346,12 +1406,12 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
       const existingIndex = prev.findIndex((p) => p.id === openId);
       if (existingIndex !== -1) {
         setActiveVideoIndex(existingIndex);
-        visitedVideoIndicesRef.current.add(existingIndex);
+        touchVisitedIndex(existingIndex);
         return prev;
       }
       if (openProduct) {
         setActiveVideoIndex(0);
-        visitedVideoIndicesRef.current.add(0);
+        touchVisitedIndex(0);
         return [openProduct, ...prev];
       }
       return prev;
@@ -3116,6 +3176,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  videoErrorOverlay: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 32,
+  },
+  videoErrorTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  videoErrorSubtitle: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  videoErrorRetryBtn: {
+    marginTop: 14,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  videoErrorRetryText: {
+    color: '#0f172a',
+    fontSize: 12,
+    fontWeight: '800',
   },
   speedHoldIndicator: {
     position: 'absolute',
