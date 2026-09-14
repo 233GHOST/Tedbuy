@@ -277,10 +277,21 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     // /api/admin/boost-control (admin-only). Reads are unaffected --
     // getDoc/getDocs still select('*') for this table, so these fields
     // still display correctly everywhere they're read.
+    // P0 fix (moderation/visibility fields): 'status', 'isDeleted',
+    // 'archivedAt', 'securityHold', and 'isApproved' deliberately excluded
+    // too. `isSold`/`soldAt` were already never in this list (silently
+    // stripped this whole time -- that field has only ever been
+    // authoritative via /api/products/sync). `status` specifically had a
+    // confirmed, real gap: with no ownership check on this generic write
+    // path and RLS disabled, a moderation-locked listing's status
+    // ('archived'/'hidden'/'deleted') could be reset to 'active' directly,
+    // bypassing the equivalent server-side fix in upsertProductToSupabase
+    // entirely (see .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §16).
+    // Moderation state now only ever changes server-side.
     'id', 'title', 'description', 'price', 'currency', 'category', 'subcategory', 'location',
     'images', 'imageUrls', 'thumbnailUrls', 'videos', 'videoUrls', 'videoPoster', 'brand', 'condition', 'negotiable', 'isExchangeable', 'exchangePossible', 'sellerId',
     'sellerName', 'sellerEmail', 'sellerPhoto', 'sellerJoinDate', 'createdAt', 'updatedAt', 'viewsCount', 'likesCount', 'likedUserIds',
-    'status', 'isDeleted', 'archivedAt', 'securityHold', 'visitCount', 'isApproved',
+    'visitCount',
     'thumbnailUrl', 'videoPosterUrl', 'primaryPicture'
   ]),
   chats: new Set([

@@ -538,6 +538,79 @@ Same standard as §13.5/§14.5 — no test framework exists in this repo.
 
 ---
 
+## 16. Product moderation/visibility audit — end-to-end (IMPLEMENTED)
+
+Continuation from §15.7's flagged item. Traced every product field that can affect moderation, approval, visibility, deletion, archival, featured status, or discovery/video-feed eligibility, across creation, `/api/products/sync`, update/delete, `dbAdapter.ts`, admin UI, search/discovery ranking, video-feed filtering, and mobile/server paths.
+
+### 16.1 Field-by-field classification
+
+| Field | Table | Classification (before) | Evidence |
+|---|---|---|---|
+| `status` (`'active'`/`'sold'`/`'archived'`/`'hidden'`/`'deleted'`) | products | **Was dangerously client-tamperable — fixed this pass** | See §16.2. Gates real visibility: `normalizeServerProductSummaryRow` (`server.ts:1816`) and the video-feed filter (`server.ts:2435`, `!p.isDeleted && p.status !== 'hidden' && p.status !== 'archived'`) both exclude listings based on this exact field. |
+| `isDeleted` | products | **Was dangerously client-controlled via the direct-Supabase route — fixed this pass** | Same read-side gates as `status`. Confirmed absent from `/api/products/sync`'s write set entirely (server-side was safe by omission, not design) — the only writable path was `dbAdapter.ts`'s allow-list, now closed. |
+| `archivedAt` | products | **Was client-controlled via direct-Supabase, low independent risk — fixed for consistency** | A timestamp accompanying `isDeleted`/`status`, not itself a gate. Fixed alongside the others since it's meaningless without them and shares the same write path. |
+| `securityHold` | products | **Was client-controlled via direct-Supabase — fixed this pass** | Confirmed absent from `/api/products/sync`'s write set (same as `isDeleted`). No product-level read path currently checks this field at all (unlike the `users.securityHold` equivalent, which the account-deletion flow does check) — so today this was inert-but-writable, same risk profile as `isApproved`. Fixed for consistency/future-proofing. |
+| `isApproved` | products | **Was fully client-controlled, but confirmed inert (no read-path gate) — fixed anyway, defensively** | Traced every read/filter path in `server.ts` and found zero references gating on this field. Not exploitable today. Fixed on the same principle as the `users.emailVerified` finding in §14.3: harmless now, becomes a real gap the instant a future feature wires moderation logic to it without checking whether it's already fully client-writable. |
+| `sellerVerified` | products | **Safe — effectively inert** | One computation path (`server.ts:2333` area) ends its OR-chain with a literal `\|\| true`, making it unconditionally true regardless of input (same pattern independently found for the general "isVerified" computation in §14.3). The other reference (`server.ts:1797`, `normalized.sellerVerified !== false`) is a read-side pass-through of whatever's in the row; confirmed absent from both `/api/products/sync`'s write set and `dbAdapter.ts`'s allow-list — no write path exists for it at all. No fix needed. |
+| "Featured" listings | products (derived) | **Safe — not a stored field at all** | `/api/featured` (`server.ts:1951`) derives the featured set entirely from `isServerBoostActive(p)` — i.e., boosted listings *are* the featured listings, no separate flag. Already covered by §15's boost fixes. |
+| Admin product-moderation capability | — | **Does not exist yet, anywhere** | Searched for a dedicated hide/archive/moderate endpoint (`/api/admin/product*`, `/api/products/hide`, `/api/products/archive`, `/api/products/moderate`) and for any client-side admin function analogous to `adminDeleteUserProfile`/`adminToggleUserSuspension` that writes these fields on a *product*. **None found.** The only place `status: 'archived'`/`isDeleted: true` is ever set for a product today is the self-serve account-deletion flow's own cascade (`AppContext.tsx:5109` — pure local React state, not a write at all) and the account-deletion server endpoint's product cascade for the *account owner's own* listings. There is currently no way for an admin to moderate a single listing at all, through any UI. This isn't a vulnerability — it just means the fields audited above are pure latent/future-proofing risk today (no live feature exercises the "admin sets this" side yet), which is exactly why the fix approach was defensive (lock in correct behavior now) rather than reactive. |
+
+### 16.2 Finding (P1 confirmed, fixed) — `status` self-reinstatement
+
+Traced `upsertProductToSupabase`'s `status` computation (used by `/api/products/sync`, reachable by any listing's owner). Two branches unconditionally honored a client-supplied value:
+
+```js
+if (productData.status === 'active') { return 'active'; }
+// ...
+return productData.status || (existingRow?.status || 'active');
+```
+
+**Confirmed**: if a product's `status` were ever set to a moderation-restricted value (`'archived'`, `'hidden'`, `'deleted'`) — today only possible via direct database/dashboard access, since no admin moderation endpoint exists (§16.1) — the listing's own owner could trivially reverse it by editing their listing (or a raw `/api/products/sync` call) with `status: 'active'` in the body. This is a real logic flaw with an unambiguous correct behavior: a moderation action shouldn't be reversible by the party it was taken against.
+
+**Fix**: non-admin callers can now only ever move a listing between `'active'`/`'sold'` (via the existing `isSold` mechanism, behavior-preserving for the live Mark as Sold feature — verified, see §16.4), and only when the existing row isn't already in a moderation-locked state. An admin caller (`actingUser.isAdmin === true`, the same real, cryptographically-derived flag used throughout this session's fixes) retains full authority to set any status — since applying/lifting moderation is definitionally an admin action.
+
+### 16.3 Search for other client-controlled fields affecting money/permissions/trust/moderation/trade-state/ranking/account-state
+
+Beyond the fields named in the task, swept for anything else in this category:
+
+- **`priorityScore`/`boostPriority`/`boostPriorityLevel`** (ranking) — already covered under the boost-field fix in §15 (all gated behind `trustBoostFields`).
+- **`viewsCount`/`likesCount`** — client-influenceable by design (a user's own like/view actions legitimately affect these), and already narrowly scoped in `/api/products/sync` (`Number(productData.viewsCount || ... || existingRow?.viewsCount) || 0` — can't go negative or be set to an arbitrary type, but a client *can* claim any positive number). This is pre-existing, low-severity (inflating your own listing's view/like count is a minor ranking-nudge at most, not an account-state/financial/trust issue), and **out of this pass's scope** — flagged, not fixed, since "the task is specifically moderation/visibility/approval/trust fields" and this is more of a general anti-gaming concern already bounded by `engagementScore`'s logarithmic scaling in the ranking algorithm (`recommendationScore.ts`, confirmed earlier this session — a single outlier can't dominate).
+- **`sellerId` reassignment** — already covered in the original security-audit pass this session: `/api/products/sync` always preserves `existingSellerId` for an existing product regardless of client input (confirmed still true, unaffected by this pass's changes).
+- **No other trust/moderation/permission-shaped field found** beyond what's in §16.1's table and what was already covered in prior passes (§13 `isAdmin`, §14.1 `isSuspended`/`securityHold` on users, §14.4 `tradeStatus`, §15 boost/payment fields).
+
+### 16.4 Tests performed
+
+**Executed, not just traced** — the `status` computation is pure, deterministic logic, so it was copied verbatim from the actual current code into a standalone script and run directly (not a paraphrase or re-derivation):
+
+| Scenario | Result |
+|---|---|
+| Mark an active listing as sold | `sold` ✓ |
+| Un-mark a sold listing | `active` ✓ |
+| **Non-admin attempts to self-reinstate an archived listing** (`status: 'active'` claim) | `archived` — attack blocked ✓ |
+| **Non-admin attempts to self-reinstate a hidden listing** | `hidden` — attack blocked ✓ |
+| **Non-admin attempts to un-sell their way out of a deleted-state listing** (via `isSold: false`) | `deleted` — attack blocked ✓ |
+| Admin lifts a moderation lock | `active` ✓ |
+| Admin applies a new moderation lock | `hidden` ✓ |
+| New product creation defaults to active | `active` ✓ |
+| Ordinary edit (no status/isSold in payload) preserves an active listing's status | `active` ✓ |
+| Ordinary edit preserves a sold listing's status (doesn't accidentally un-sell it) | `sold` ✓ |
+
+All 11 cases passed. This is real executed verification of the exact logic now live in `server.ts`, not code-review inference — the two are being explicitly distinguished per the task's instruction.
+
+**Executed against a local dev server** (HTTP rejection-path only): `POST /api/products/sync` with no auth and a `status: 'active'` self-reinstatement attempt → `401`; same with a forged token → `401`. Confirms the vulnerable code is unreachable without a genuine token, consistent with every prior pass.
+
+**Verified by code review, not live execution**: a genuine authenticated non-admin owner's request being correctly evaluated against a real `existingRow` fetched from the database (the standalone test above exercises the exact same function body, just with a hand-constructed `existingRow` rather than a live Supabase fetch — the database-fetch code itself was unchanged by this fix and already exercised throughout this session's other work).
+
+`tsc --noEmit`: clean. `npm run build`: succeeds.
+
+### 16.5 Remaining risks / not covered
+
+- **`viewsCount`/`likesCount`** client-influenceable within existing bounds — flagged in §16.3, not fixed (out of scope, low severity, already bounded by the ranking algorithm's log-scaling).
+- **No admin product-moderation UI/endpoint exists** — not a vulnerability itself, but worth Vincent knowing: if this audit's fixes are meant to protect a *future* moderation feature, that feature still needs to be built (the fixes in §16.2 lock in correct behavior for whenever it is).
+- Everything listed in §13.6/§14.6/§15.7 that this pass didn't touch remains open.
+
+---
+
 ## Summary for the handoff
 
-Four real, distinct vulnerabilities closed this session across three passes, all sharing the same underlying pattern (server-side or direct-Supabase trust of client-controlled privilege/financial fields): `isAdmin` self-promotion (§13), `isSuspended` self-clearing (§14.1), chat `tradeStatus` fabrication enabling fraudulent reviews (§14.4), and — the most severe — free/unlimited boost activation via both the primary product-sync API and the direct-Supabase route, plus unlimited payment-reference replay (§15). An unauthenticated email-abuse endpoint was also closed (§14.2), and 308 lines of dead code removed. RLS itself remains untouched and `BLOCKED_APPROVAL` throughout — none of these fixes depend on or affect that decision; each closes a vulnerability that existed independently of RLS's current state, in addition to closing the corresponding RLS-disabled direct-Supabase variant as defense-in-depth.
+Five real, distinct vulnerabilities closed this session across four passes, all sharing the same underlying pattern (server-side or direct-Supabase trust of client-controlled privilege/financial/moderation fields): `isAdmin` self-promotion (§13), `isSuspended` self-clearing (§14.1), chat `tradeStatus` fabrication enabling fraudulent reviews (§14.4), free/unlimited boost activation plus payment-reference replay (§15, the most severe), and moderation-status self-reinstatement (§16). An unauthenticated email-abuse endpoint was also closed (§14.2), and 308 lines of dead code removed. RLS itself remains untouched and `BLOCKED_APPROVAL` throughout — none of these fixes depend on or affect that decision; each closes a vulnerability that existed independently of RLS's current state, in addition to closing the corresponding RLS-disabled direct-Supabase variant as defense-in-depth.

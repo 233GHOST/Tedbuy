@@ -2741,9 +2741,34 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     viewsCount: Number(productData.viewsCount || productData.views || existingRow?.viewsCount || existingRow?.views) || 0,
     likesCount: Number(productData.likesCount || productData.likes || existingRow?.likesCount || existingRow?.likes) || 0,
     likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : (existingRow?.likedUserIds || []),
+    // P0 fix: a moderation-locked listing ('archived'/'hidden'/'deleted' --
+    // there's no dedicated admin product-moderation endpoint yet, so today
+    // this state could only ever be set via direct DB access, but the gap
+    // matters regardless of how it gets set) must not be escapable by its
+    // own owner through the ordinary edit-listing flow. Before this fix,
+    // `if (productData.status === 'active') return 'active';` and the final
+    // `productData.status || ...` fallback both honored ANY client-supplied
+    // status unconditionally -- a seller could self-reinstate a moderated
+    // listing simply by editing it (or via a raw /api/products/sync call)
+    // with status: 'active' in the body. Non-admin callers can now only
+    // ever move a listing between 'active'/'sold' (via isSold, matching
+    // the existing Mark as Sold feature exactly as before), and only when
+    // the existing row isn't already moderation-locked; an admin caller
+    // retains full authority to set any status, since moderation actions
+    // are what would set/clear this state in the first place.
     status: (() => {
+      const existingStatus = existingRow?.status;
+      const isModerationLocked = existingStatus === 'archived' || existingStatus === 'hidden' || existingStatus === 'deleted';
+      const isTrustedCaller = actingUser?.isAdmin === true;
+
+      if (isModerationLocked && !isTrustedCaller) {
+        return existingStatus;
+      }
+      if (isTrustedCaller && productData.status !== undefined) {
+        return productData.status;
+      }
       if (productData.isSold === false) {
-        return (productData.status && productData.status !== 'sold') ? productData.status : 'active';
+        return (productData.status === 'active' || productData.status === 'sold') ? 'active' : (existingStatus && existingStatus !== 'sold' ? existingStatus : 'active');
       }
       if (productData.isSold === true) {
         return 'sold';
@@ -2754,7 +2779,7 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
       if (productData.status === 'active') {
         return 'active';
       }
-      return productData.status || (existingRow?.status || 'active');
+      return existingStatus || 'active';
     })(),
     isSold: (() => {
       if (productData.isSold !== undefined) {
@@ -2866,7 +2891,15 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
       (cleanVideos[0] ? getServerVideoPoster(cleanVideos[0]) : (existingRow?.videoPoster || '')),
     displayImage: cleanImages[0] || (cleanVideos[0] ? getServerVideoPoster(cleanVideos[0]) : '') || existingRow?.displayImage || '',
     primaryPicture: cleanImages[0] || (cleanVideos[0] ? getServerVideoPoster(cleanVideos[0]) : '') || existingRow?.primaryPicture || '',
-    isApproved: productData.isApproved !== false,
+    // isApproved isn't currently read by any moderation/visibility filter
+    // (confirmed via a full trace -- see
+    // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §16), so this was never
+    // exploitable today, but it was still fully client-controlled, which
+    // would become a real gap the moment something starts gating on it.
+    // Same treatment as status above: only an admin (or a brand-new
+    // listing, which has no existingRow to preserve) can set it away from
+    // the default-approved state.
+    isApproved: actingUser?.isAdmin === true ? (productData.isApproved !== false) : (existingRow?.isApproved !== false),
     ...(actingUser && actingUser.isAdmin && actingUser.uid !== finalSellerId ? {
       modifiedBy: actingUser.uid,
       modifiedByAdmin: actingUser.email || 'Admin',
