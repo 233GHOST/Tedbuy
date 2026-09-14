@@ -1888,29 +1888,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // re-downloads the entire table to every connected client (O(users^2) egress).
   // A periodic pull keeps names/photos/online-status fresh enough for a
   // marketplace without that blowup.
+  //
+  // Security fix (RLS-migration Phase 0, checkpoint 1): this used to be a
+  // direct, fully unauthenticated `getDocs(collection(null, 'users'))` -- a
+  // `select('*')` against the entire users table, no auth, no column
+  // restriction. That returned every user's email/phoneNumber/
+  // whatsAppNumber/isAdmin/isSuspended/securityHold to any anonymous
+  // browser, for every user, in one request. GET /api/users/list already
+  // existed (built for mobile's equivalent feature) and was already
+  // PII-safe -- it deliberately omits contact info specifically because it
+  // returns everyone in one response; web had simply never been switched
+  // to it. This `users` state now only ever carries the safe fields that
+  // endpoint returns; the two features that legitimately need a specific
+  // user's contact info now fetch that one user's full profile directly
+  // instead (see SellerProfilePage.tsx's seller-contact lookup, and
+  // sendWelcomeEmailToAll's own admin-gated bulk fetch below) -- see
+  // .ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md §0.
   useEffect(() => {
     let active = true;
 
     const fetchUsersOnce = async () => {
       try {
-        const snapshot = await getDocs(collection(null, 'users'));
+        const res = await fetch('/api/users/list');
+        const json = await res.json().catch(() => ({}));
         if (!active) return;
-        const uList: User[] = [];
-        snapshot.forEach((docSnap: any) => {
-          const data = docSnap.data();
-          if (data) {
-            uList.push({
-              ...data,
-              id: docSnap.id || data.id
-            } as User);
-          }
-        });
+        if (!json.success || !Array.isArray(json.users)) {
+          console.warn('[Users Sync] /api/users/list did not return a user list:', json?.error);
+          return;
+        }
+        const uList: User[] = json.users;
         setUsers(uList);
         try {
           safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(uList));
         } catch (_) {}
       } catch (err) {
-        console.warn('[Users Sync] getDocs fetch error:', err);
+        console.warn('[Users Sync] /api/users/list fetch error:', err);
       }
     };
 
@@ -2852,7 +2864,16 @@ CEO, Tedbuy Inc`;
       // If user provided a username or phone number without '@', look up their email address
       if (!cleanIdentifier.includes('@')) {
         const cleanLower = cleanIdentifier.toLowerCase();
-        // Check local state users list first
+        // Fast-path cache check against the shared `users` state -- this
+        // will normally miss now (RLS-migration Phase 0 moved that state
+        // off a bulk read that included email/phoneNumber onto the
+        // PII-safe GET /api/users/list, which doesn't), always falling
+        // through to the direct Supabase lookup by username/phoneNumber
+        // below instead. That fallback already existed and needed no
+        // change -- it's a single targeted lookup, not a bulk PII dump,
+        // and login-by-username/phone keeps working exactly as before,
+        // just always taking this path instead of sometimes short-
+        // circuiting on a cache hit.
         const foundUser = users.find(
           u => (u.username && u.username.toLowerCase() === cleanLower) ||
                (u.phoneNumber && u.phoneNumber === cleanIdentifier)
@@ -5055,7 +5076,20 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       throw new Error("Unauthorized: Only administrators can trigger bulk onboarding emails.");
     }
 
-    const targets = users.filter(u => u.email && (!onlyUnsent || !u.welcomeSent));
+    // Security fix (RLS-migration Phase 0, checkpoint 1): this used to
+    // filter the shared `users` state, which came from an unauthenticated
+    // bulk table read and included email for that reason. Now that `users`
+    // only ever carries the safe fields GET /api/users/list returns (no
+    // email), this admin-only feature fetches its own admin-gated bulk
+    // list with contact info instead of relying on that shared state.
+    const authHeadersForList = await getAuthHeader();
+    const listRes = await fetch('/api/admin/users/list-full', { headers: authHeadersForList });
+    const listJson = await listRes.json().catch(() => ({}));
+    if (!listJson.success || !Array.isArray(listJson.users)) {
+      throw new Error(listJson.error || 'Failed to load the user list for bulk dispatch.');
+    }
+    const targets = (listJson.users as Array<{ id: string; email: string; username: string; welcomeSent: boolean }>)
+      .filter(u => u.email && (!onlyUnsent || !u.welcomeSent));
     const total = targets.length;
 
     if (total === 0) {
@@ -5140,15 +5174,16 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     const targetUser = users.find(u => u.id === userId);
 
-    // Crucial Security Guard: Block admin profile deletion from admin dashboard.
-    // Kept here as fast client-side UX feedback; the server independently
-    // enforces the same guard against the real database row regardless of
-    // what's in local state.
-    const targetEmail = targetUser?.email?.trim()?.toLowerCase();
-    if (targetEmail === 'asumaduvincent7@gmail.com') {
-      throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be deleted under any circumstances.');
-    }
-
+    // The fast client-side "can't delete the super-admin" pre-check that
+    // used to live here was removed as part of the RLS-migration Phase 0
+    // work (checkpoint 1): it relied on `targetUser.email`, which the
+    // shared `users` state no longer carries now that it's sourced from
+    // the PII-safe GET /api/users/list instead of an unauthenticated bulk
+    // table read (see the fix note on the `users`-fetching effect above).
+    // This was always documented as UX-only -- /api/admin/users/delete
+    // independently re-fetches the real row and re-checks the same guard
+    // server-side before doing anything, so removing the client-side copy
+    // has no security effect, just a slightly later error message.
     if (!forceDeleteActive) {
       throw new Error("ACTIVE_ACCOUNT_CONFIRM_REQUIRED");
     }
@@ -5197,10 +5232,11 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     const targetUser = users.find(u => u.id === userId);
 
-    const targetEmail = targetUser?.email?.trim()?.toLowerCase();
-    if (targetEmail === 'asumaduvincent7@gmail.com') {
-      throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be suspended.');
-    }
+    // Same removal, same reason as adminDeleteUserProfile above (checkpoint
+    // 1 of RLS-migration Phase 0): the client-side super-admin guard needed
+    // `targetUser.email`, which the shared `users` state no longer carries.
+    // /api/admin/users/suspend already independently re-verifies the same
+    // guard against the real row.
 
     const authHeaders = await getAuthHeader();
     const res = await fetch('/api/admin/users/suspend', {
@@ -5249,11 +5285,13 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       throw new Error("User profile not found in system.");
     }
 
-    const targetEmail = targetUser.email?.trim()?.toLowerCase();
-    if (targetEmail === 'asumaduvincent7@gmail.com') {
-      throw new Error('Crucial Security Guard: The super-administrator account cannot be placed on security hold.');
-    }
-
+    // Same removal, same reason as adminDeleteUserProfile above -- and this
+    // one used to be the ONLY check preventing a security hold on the
+    // super-admin account at all (unlike delete/suspend, the server
+    // endpoint had no independent re-check of its own). Fixed on the
+    // server side in this same checkpoint (see
+    // /api/admin/accounts/security-hold), so the real enforcement doesn't
+    // depend on this client-side copy either.
     console.log(`[Admin Security Hold] Setting hold=${hold} for ${targetUser.username} (${userId})`);
 
     const adminAuthHeader = await getAuthHeader();

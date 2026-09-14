@@ -56,11 +56,46 @@ export const SellerProfilePage: React.FC = () => {
   const [isLoadingStore, setIsLoadingStore] = useState<boolean>(false);
 
   // 1. Resolve seller from users directory or fallback to existing products
-  const foundUser = users.find(u => 
-    u.id === selectedSellerId || 
+  const foundUser = users.find(u =>
+    u.id === selectedSellerId ||
     (u as any).uid === selectedSellerId ||
     (selectedSellerId && u.username && u.username.toLowerCase() === selectedSellerId.toLowerCase())
   );
+
+  // Security fix (RLS-migration Phase 0, checkpoint 1): `users` (the shared
+  // directory state above) now comes from the PII-safe GET /api/users/list,
+  // which deliberately omits contact info since it returns everyone in one
+  // response. The "Contact via WhatsApp" feature below needs this one
+  // specific seller's phoneNumber/whatsAppNumber -- data a seller publishes
+  // specifically so buyers can reach them, unlike the rest of the (former)
+  // bulk PII exposure this migration closes -- so it's fetched as its own
+  // single, targeted lookup via the existing GET /api/users/get, which
+  // already includes contact info for exactly this reason (one user at a
+  // time, not a scrapable directory).
+  const [contactInfo, setContactInfo] = useState<{ email?: string; phoneNumber?: string; whatsAppNumber?: string } | null>(null);
+  useEffect(() => {
+    const lookupId = foundUser?.id || selectedSellerId;
+    if (!lookupId) {
+      setContactInfo(null);
+      return;
+    }
+    let active = true;
+    setContactInfo(null);
+    fetch(`/api/users/get?id=${encodeURIComponent(lookupId)}`)
+      .then(res => res.json())
+      .then(json => {
+        if (!active) return;
+        if (json.success && json.user) {
+          setContactInfo({
+            email: json.user.email,
+            phoneNumber: json.user.phoneNumber,
+            whatsAppNumber: json.user.whatsAppNumber
+          });
+        }
+      })
+      .catch(() => { /* seller contact info stays unavailable; non-fatal */ });
+    return () => { active = false; };
+  }, [foundUser?.id, selectedSellerId]);
 
   useEffect(() => {
     if (!selectedSellerId) return;
@@ -73,8 +108,11 @@ export const SellerProfilePage: React.FC = () => {
           limit: '1000',
           nocache: 'true'
         });
-        if (foundUser?.email) {
-          queryParams.set('sellerEmail', foundUser.email);
+        // foundUser.email is no longer populated (see the contactInfo fix
+        // above) -- contactInfo covers it once its own fetch resolves.
+        const sellerEmailForQuery = foundUser?.email || contactInfo?.email;
+        if (sellerEmailForQuery) {
+          queryParams.set('sellerEmail', sellerEmailForQuery);
         }
         const res = await fetch(`/api/products?${queryParams.toString()}`);
         if (res.ok) {
@@ -92,7 +130,7 @@ export const SellerProfilePage: React.FC = () => {
     };
     fetchAllSellerListings();
     return () => { active = false; };
-  }, [selectedSellerId, foundUser?.email]);
+  }, [selectedSellerId, foundUser?.email, contactInfo?.email]);
 
   // Phase 4: Review submission modal state
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -120,6 +158,11 @@ export const SellerProfilePage: React.FC = () => {
       if (foundUser) {
         if (p.sellerId === foundUser.id || (foundUser as any).uid === p.sellerId || (p as any).user_id === foundUser.id) return true;
         if (foundUser.username && p.sellerName && p.sellerName.trim().toLowerCase() === foundUser.username.trim().toLowerCase()) return true;
+        // foundUser.email is no longer populated (see the contactInfo fix
+        // above) -- this specific matching strategy is now a permanent
+        // no-op; the three other strategies above and below already cover
+        // the common cases, so left as-is rather than restructured to
+        // depend on the separately-fetched, asynchronous contactInfo.
         if (foundUser.email && p.sellerEmail && p.sellerEmail.trim().toLowerCase() === foundUser.email.trim().toLowerCase()) return true;
       }
       if (selectedSellerId && p.sellerName && p.sellerName.trim().toLowerCase() === selectedSellerId.trim().toLowerCase()) return true;
@@ -129,7 +172,7 @@ export const SellerProfilePage: React.FC = () => {
 
   // Synthesize seller profile if not in users table but listings exist
   const firstProd: any = allSellerMatchingProducts[0] || null;
-  const seller: any = foundUser || (firstProd ? {
+  const baseSeller: any = foundUser || (firstProd ? {
     id: selectedSellerId || firstProd.sellerId,
     username: firstProd.sellerName || 'Verified Merchant',
     email: firstProd.sellerEmail || '',
@@ -144,6 +187,11 @@ export const SellerProfilePage: React.FC = () => {
     photoUrl: firstProd.images?.[0] || '',
     bio: `Active merchant on TedBuy marketplace offering quality listings in ${firstProd.location || 'Ghana'}.`
   } : null);
+  // contactInfo (fetched above, targeted single-user lookup) takes
+  // priority when it's arrived -- it's the real, current row; baseSeller's
+  // own email/phoneNumber/whatsAppNumber are either stripped (foundUser
+  // case) or empty placeholders (synthesized-from-product case) otherwise.
+  const seller: any = baseSeller ? { ...baseSeller, ...(contactInfo || {}) } : null;
 
   const isSellerVerified = isUserVerified(seller);
 
