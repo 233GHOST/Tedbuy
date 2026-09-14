@@ -1,10 +1,10 @@
 # Supabase RLS Migration Plan
 
-**STATUS: BLOCKED_APPROVAL — design only, no implementation.**
+**STATUS: BLOCKED_APPROVAL — RLS itself (Phase 4) still requires explicit approval.** §0's finding is fixed as an isolated checkpoint (commit `94c3cc6`), pending live/manual verification. Everything else — Phases 1 through 5 — remains design-only. RLS, policies, grants, schema, and production config remain completely untouched.
 
-This document is a design artifact, not a change log. Nothing in this pass touched Supabase config, RLS, policies, grants, schema, `dbAdapter.ts`, `server.ts`, or client code. It builds on the completed read-only inventory in `.ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md` (§1-22) and the field-level fixes already shipped this session, and answers the next question: **what would it take to safely turn RLS back on, and in what order.**
+This document started as a design artifact and is being kept current as implementation proceeds in small, individually-reviewed checkpoints rather than as a static one-time snapshot. It builds on the completed read-only inventory in `.ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md` (§1-22) and the field-level fixes already shipped this session, and answers the question: **what would it take to safely turn RLS back on, and in what order.**
 
-One finding surfaced during this design pass that is **not** covered by the completed sweep and is flagged prominently rather than fixed — see [§0](#0-one-new-finding-surfaced-by-this-design-pass-not-fixed). Everything else in this document is design, not a vulnerability report.
+The finding in [§0](#0-one-new-finding-surfaced-by-this-design-pass-fixed-pending-live-verification-commit-94c3cc6-checkpoint-1) — surfaced during the original design pass and initially flagged rather than fixed — has since been implemented as its own isolated checkpoint; see that section for what changed and what's still pending review. Everything past §4's Phase 0 subsection remains design, not yet implemented.
 
 ---
 
@@ -18,13 +18,20 @@ One finding surfaced during this design pass that is **not** covered by the comp
 
 ---
 
-## 0. One new finding surfaced by this design pass (not fixed)
+## 0. One new finding surfaced by this design pass — FIXED, pending live verification (commit `94c3cc6`, checkpoint 1)
 
-**Building the inventory below surfaced a live PII exposure not covered by the completed sweep.** `AppContext.tsx`'s `fetchUsersOnce` (~line 1893) runs `getDocs(collection(null, 'users'))` — an unauthenticated, unfiltered, `select('*')` bulk read of the **entire `users` table**, polled periodically (explicitly *not* a realtime listener, by design, to avoid an O(n²) egress blowup — see the comment at `AppContext.tsx:1885-1890`). Because `getTableSelectColumns()` only restricts columns for `products`, this read returns every column for every user: `email`, `phoneNumber`, `whatsAppNumber`, plus `isAdmin`/`isSuspended`/`securityHold`/`status` and anything else on the row — to any anonymous browser, no login required.
+**Building the inventory below surfaced a live PII exposure not covered by the completed sweep.** `AppContext.tsx`'s `fetchUsersOnce` (~line 1893) ran `getDocs(collection(null, 'users'))` — an unauthenticated, unfiltered, `select('*')` bulk read of the **entire `users` table**, polled periodically (explicitly *not* a realtime listener, by design, to avoid an O(n²) egress blowup — see the comment at `AppContext.tsx:1885-1890`). Because `getTableSelectColumns()` only restricts columns for `products`, this read returned every column for every user: `email`, `phoneNumber`, `whatsAppNumber`, plus `isAdmin`/`isSuspended`/`securityHold`/`status` and anything else on the row — to any anonymous browser, no login required.
 
-A safe, purpose-built replacement **already exists and is already correct**: `GET /api/users/list` (`server.ts:3674`) was built specifically to solve this exact problem for mobile (its own comment explains it replaces a direct Firestore read for the same reason) and deliberately selects only `id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin` — no contact info. Web has simply never been switched to it, the same "mobile/server already had it right" pattern found repeatedly throughout the completed audit.
+A safe, purpose-built replacement **already existed and was already correct**: `GET /api/users/list` (`server.ts:3674`) was built specifically to solve this exact problem for mobile (its own comment explains it replaces a direct Firestore read for the same reason) and deliberately selects only `id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin` — no contact info. Web had simply never been switched to it, the same "mobile/server already had it right" pattern found repeatedly throughout the completed audit.
 
-This is scoped as **P0/P1 by the completed sweep's own severity bar** (bulk PII exposure, no auth required, live in production today). It is **not fixed in this pass** because this task is explicitly design-only and forbids client-code changes. Recommend treating this as either (a) a fast-follow fix authorized separately, immediately, outside the RLS migration timeline, or (b) the very first item of Phase 0 below if you'd rather bundle it. Flagging clearly rather than silently deferring it into a phase where it might sit for a while.
+This was scoped as **P0/P1 by the completed sweep's own severity bar** (bulk PII exposure, no auth required, live in production).
+
+**FIXED, as its own isolated, individually-reviewed checkpoint (commit `94c3cc6`)** — not bundled with the rest of Phase 0, per an explicit request for clean, individually bisectable/revertable security checkpoints rather than one large batch. `fetchUsersOnce` now calls `GET /api/users/list` instead. This turned out to require more than "zero new server work, a pure client-side swap" (the original estimate on Phase 0's item 1 below — corrected there too): two real features depended on the old bulk read's contact-info fields, and one previously-undocumented gap was found along the way —
+- `SellerProfilePage.tsx`'s "Contact seller via WhatsApp" feature now does a targeted lookup via `GET /api/users/get`, extended in the same commit to accept a `username` key (not just `id`/`email`).
+- `sendWelcomeEmailToAll` (admin-only bulk campaign) now calls a genuinely new endpoint, `GET /api/admin/users/list-full` (real `verifyAdmin()`-gated, not in this document's original endpoint map — added to §3 below).
+- `POST /api/admin/accounts/security-hold` had **no independent server-side check** protecting the super-admin account — the client-side check being removed by this fix was the *only* thing preventing a security hold from being placed on it. Found and fixed in the same commit (this also corrects §1.1's row 4 below, which had called this class of protection "already fully closed" — true for the write-blocking path, not true for this one endpoint's own logic).
+
+**Not yet live-verified.** Only rejection/validation-path behavior has been confirmed against a running server — the actual success path (real data returned, the three affected features working end-to-end in a browser) is still pending a manual check, blocked on the reviewer's own device access rather than anything in the code.
 
 ---
 
@@ -36,10 +43,10 @@ One subsection per table. Columns match the request: operation, web caller, `dbA
 
 | Operation | Web caller | `dbAdapter` method | Current auth | Sensitivity | Public-read / Auth'd / Private / Admin-only | Existing endpoint | New endpoint needed? | If RLS enabled today | Priority |
 |---|---|---|---|---|---|---|---|---|---|
-| Bulk read, all columns, polled | `AppContext.tsx` `fetchUsersOnce` (~1893) | `getDocs` | None — anon key, `select('*')`, no filter | **HIGH** — email/phone/whatsApp/isAdmin/isSuspended/securityHold all included | Currently acts as public; should be a restricted-column public-ish read | `GET /api/users/list` exists, already PII-safe, unused by web | No — migrate to existing endpoint | Read returns 0 rows (breaks the directory/presence feature entirely) | **P0 (see §0)** |
+| ~~Bulk read, all columns, polled~~ — **FIXED, commit `94c3cc6`** | `AppContext.tsx` `fetchUsersOnce` (~1893) now calls `GET /api/users/list` | *(none — server-mediated)* | Server-side, `verifyAdmin()` not required (public-safe by design — column-restricted) | LOW now (only `id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin` returned) | **A** now (was HIGH-sensitivity direct access) | `GET /api/users/list` | No — done | **No effect.** This no longer touches Supabase from the browser at all — it's server-mediated via `service_role`, which bypasses RLS unconditionally (foundational fact #4). Enabling RLS today would not change this row's behavior either way. | — (done) |
 | Single-doc realtime self-profile sync | `AppContext.tsx` `onSnapshot(doc('users', ownUid))` (~1340) | `onSnapshot` | None — reads by hardcoded own uid in normal use, but nothing stops reading any uid | HIGH (own data, but no enforcement) | Intended B (self); enforced only by convention | None realtime; `GET /api/users/get?id=` exists for one-shot pull | Yes — no realtime server API exists | Subscription returns nothing / errors; live profile sync breaks (e.g. suspension/role changes made elsewhere wouldn't reflect until next poll) | P1 |
 | Profile write: username, bio, phone, whatsApp, photoUrl, followingSellers, savedProductIds, notificationPreferences, role, createdAt, welcomeSent, authProvider, isGoogleAuth, originalUsername | `AppContext.tsx` — registration, profile save, save/unsave listing, migration flow (~15 call sites: `setDoc`/`updateDoc`/`writeBatch.set` on `doc('users', id)`) | `setDoc`, `updateDoc`, `writeBatch` | `TABLE_COLUMNS` field allow-list only — **zero row-ownership check**, any caller can write any other user's allowed fields | MEDIUM (PII fields present: phone/whatsApp/bio; no privilege fields — those are already excluded) | Intended B; currently enforced at field level only, not row level | `POST /api/users/sync` exists and already correctly handles the privilege-sensitive subset (`isAdmin`/`isSuspended`/`emailVerified`/username-quarantine) — but most of these "safe" fields still bypass it entirely via direct writes | Partially — extend `/api/users/sync` (it already has the ownership check shape) or add a lighter self-profile endpoint for the remainder | **Every one of these writes breaks**: registration, profile save, save/unsave a listing, visit tracking | **P1** (core app functionality depends on this path) |
-| `isAdmin`/`isSuspended`/`securityHold`/`isDeleted`/`deletedAt`/`deletionRequestedAt`/`status` writes | — | Blocked — not in `TABLE_COLUMNS` | Already fully closed (§13/§14.1/prior passes) | HIGH | C — already fully server-mediated | `/api/users/sync` (preserves from DB), `/api/admin/users/{suspend,delete}`, `/api/admin/accounts/security-hold` | No | No change — already blocked at the app layer; RLS would be pure defense-in-depth here | P3 |
+| `isAdmin`/`isSuspended`/`securityHold`/`isDeleted`/`deletedAt`/`deletionRequestedAt`/`status` writes | — | Blocked — not in `TABLE_COLUMNS` | Already fully closed *for the direct-write path* (§13/§14.1/prior passes) — **correction**: "fully closed" originally described the `TABLE_COLUMNS` write-block only; it did not account for `/api/admin/accounts/security-hold` lacking its own independent server-side re-check, a gap invisible until checkpoint 1 removed the client-side data (`targetUser.email`) that check was silently depending on. Fixed in the same commit — see §0. | HIGH | C — already fully server-mediated | `/api/users/sync` (preserves from DB), `/api/admin/users/{suspend,delete}`, `/api/admin/accounts/security-hold` (now with its own re-check too) | No | No change — already blocked at the app layer; RLS would be pure defense-in-depth here | P3 |
 
 ### 1.2 `products`
 
@@ -133,9 +140,10 @@ A one-time Firestore→Supabase data-migration utility, gated by an admin-only U
 
 | Vulnerable/direct operation | Existing secure endpoint | Status |
 |---|---|---|
-| `users` bulk read | `GET /api/users/list` | **Exists, unused by web** |
-| `users` single read | `GET /api/users/get` | Exists, used in places already |
-| `users` profile write (most fields) | `POST /api/users/sync` | **Exists, partially used** — privilege-sensitive fields already routed correctly; ordinary profile fields still bypass it via direct writes |
+| `users` bulk read | `GET /api/users/list` | **Fixed — now used** (commit `94c3cc6`, checkpoint 1) |
+| `users` single read | `GET /api/users/get` | Exists, used in places already — extended in checkpoint 1 to also accept a `username` lookup key (was `id`/`email` only), now also backs `SellerProfilePage.tsx`'s seller-contact lookup |
+| `users` admin bulk read WITH contact info | `GET /api/admin/users/list-full` | **New, added in checkpoint 1** — not in this document's original endpoint inventory; `verifyAdmin()`-gated, backs `sendWelcomeEmailToAll`, deliberately kept separate from the public `/api/users/list` above rather than adding a conditional "include email" flag to it |
+| `users` profile write (most fields) | `POST /api/users/sync` | **Exists, partially used** — privilege-sensitive fields already routed correctly; ordinary profile fields still bypass it via direct writes. **Unchanged by checkpoint 1** — that checkpoint fixed the bulk *read* only; every direct *write* to `users` (registration, profile save, save/unsave a listing — §1.1 row 3) is exactly as exposed as before. Still Phase 1 work. |
 | `products` list/detail read | `GET /api/products`, `/api/products/:id` | Exists, fully used |
 | `products` create/edit/delete | `/api/products/create`, `/api/products/sync`, `/api/products/delete` | Exists, fully used (except the views/likes direct-write residual) |
 | `chats` read/write | `/api/chats*` | Exists, fully used (except the admin support-desk realtime exception) |
@@ -159,12 +167,12 @@ A one-time Firestore→Supabase data-migration utility, gated by an admin-only U
 
 Not a full migration — just closing what's independently dangerous *before* anything else, so later phases aren't racing a live exposure:
 
-1. **Fix §0's `users` bulk PII read** — migrate `fetchUsersOnce` to `GET /api/users/list`. Zero new server work; this is a pure client-side call-site swap.
-2. **Close the `products` views/likes direct-write residual** (§1.2) — requires the new views/likes endpoint from §3.
-3. **Close the `notificationPreferences` cross-user write** flagged in the completed sweep (§22 of the audit doc) — a lightweight ownership check or migration to `/api/users/sync`.
-4. **Unmap `boost_purchases`/`admin_audit_logs`/`account_deletion_audits`** from `VALID_TABLE_MAP` entirely (§1.8) — zero functional impact, matches the `notifications` precedent, and removes three tables' worth of attack surface for free.
+1. **✅ FIXED — commit `94c3cc6`, checkpoint 1, pending live verification.** Migrate `fetchUsersOnce` to `GET /api/users/list`. **Correction to the original estimate**: this was *not* "zero new server work, a pure client-side call-site swap" — two features depended on the old read's contact-info fields and needed real server-side additions (`GET /api/users/get`'s new `username` param, the new `GET /api/admin/users/list-full`), and closing it surfaced a genuine, previously-unknown gap (`/api/admin/accounts/security-hold` had no independent super-admin check of its own) that had to be fixed in the same commit rather than deferred. Full detail in §0.
+2. **Not done — close the `products` views/likes direct-write residual** (§1.2) — requires the new views/likes endpoint from §3.
+3. **Not done — close the `notificationPreferences` cross-user write** flagged in the completed sweep (§22 of the audit doc) — a lightweight ownership check or migration to `/api/users/sync`.
+4. **Not done — unmap `boost_purchases`/`admin_audit_logs`/`account_deletion_audits`** from `VALID_TABLE_MAP` entirely (§1.8) — zero functional impact, matches the `notifications` precedent, and removes three tables' worth of attack surface for free. Deliberately kept as its own separate checkpoint rather than bundled with item 1 — genuinely unrelated to the `users`-table leak.
 
-*Verification for Phase 0:* re-run the same rejection-path testing discipline used throughout the completed sweep (`tsc --noEmit`, build, live rejection-path curl tests) — no new pattern needed, this phase is a continuation of the same work already validated all session.
+*Verification performed for item 1:* `tsc --noEmit` clean, production build clean, rejection-path/validation tests executed live against every new/changed endpoint. **Not yet performed:** live success-path verification (real data returned, the three affected features working end-to-end) — blocked on the reviewer's device access, not on anything outstanding in the code. Items 2-4 use the same testing discipline once implemented.
 
 ### Phase 1 — Protected writes
 
@@ -255,7 +263,7 @@ Every row in §1 marked with a concrete "if RLS enabled today" consequence would
 | **Every profile save fails** (username, bio, phone, avatar, preferences) | `users` direct writes | Phase 1 |
 | **Save/unsave a listing fails** | `users.savedProductIds` direct write | Phase 1 |
 | **Like/unlike a listing fails; view counts stop incrementing** | `products` direct writes | Phase 0/1 |
-| **The user directory / online-presence feature returns empty** | `users` bulk read | Phase 0/2 |
+| ~~The user directory / online-presence feature returns empty~~ — **no longer a break** | `users` bulk read | **Done (commit `94c3cc6`)** — this read is now server-mediated (`GET /api/users/list`, `service_role`), immune to RLS regardless of Phase 2's status; removed from this list |
 | **A user's own profile no longer live-updates** (e.g. after an admin action elsewhere) | `users` self-profile realtime | Phase 2 |
 | **Admin support-desk inbox shows nothing** | `chats`/`messages` support realtime | Phase 2 |
 | **Message read-state stops updating; messages can't be deleted** | `messages` direct writes | Phase 1 |
@@ -277,7 +285,7 @@ This document (`SUPABASE_RLS_MIGRATION_PLAN.md`) and `CURRENT_HANDOFF.md` (updat
 
 **Recommended target architecture:** `Web → Firebase Auth → authenticated TedBuy server API → server-side Supabase (service_role)`, for every operation in categories B, C, and D — which, per §2, is nearly everything. Category A (genuinely public data) stays server-mediated too, not because RLS couldn't theoretically allow it, but because the existing endpoints already do more (moderation filtering, caching) than a raw table grant ever would. **The browser should end this migration talking to Supabase for nothing at all** — `dbAdapter.ts`'s Supabase branch becomes dead code, not a smaller allow-list.
 
-**Tables requiring migration work:** `users` (highest priority — registration/profile/directory), `products` (views/likes residual), `chats`/`messages` (admin support-desk realtime), `store_names` (remaining write flows). `reviews`/`reports` are functionally done (just need the read-side hygiene migration for `reviews`). `boost_purchases`/`admin_audit_logs`/`account_deletion_audits` need no migration — just unmapping.
+**Tables requiring migration work:** `users` (highest priority — bulk-read directory exposure fixed in checkpoint 1; registration/profile writes and the self-profile realtime subscription remain outstanding, still Phase 1/2), `products` (views/likes residual), `chats`/`messages` (admin support-desk realtime), `store_names` (remaining write flows). `reviews`/`reports` are functionally done (just need the read-side hygiene migration for `reviews`). `boost_purchases`/`admin_audit_logs`/`account_deletion_audits` need no migration — just unmapping (next checkpoint).
 
 **Endpoints that need to be created:** (1) products views/likes (anonymous-view + authenticated-self-toggle-like), (2) admin-only chats/messages support-desk read (polling), (3) message delete, (4) `store_names` write coverage for registration/Google-signup/migration flows. Everything else already exists.
 
@@ -293,4 +301,4 @@ This document (`SUPABASE_RLS_MIGRATION_PLAN.md`) and `CURRENT_HANDOFF.md` (updat
 
 ---
 
-**No implementation performed. No Supabase, policy, grant, schema, `dbAdapter.ts`, `server.ts`, or client-code changes made in this pass. §0's finding is flagged, not fixed, per this task's explicit instruction.**
+**Current state: §0's finding is fixed as an isolated, individually-reviewed checkpoint (commit `94c3cc6`), pending the reviewer's own live/manual verification — not yet approved. No RLS, policy, grant, or schema change has been made at any point. Everything past §4's Phase 0 subsection (Phases 1-5, and Phase 0's own remaining items 2-4) is still design-only, unimplemented, and requires its own separate review before proceeding.**
