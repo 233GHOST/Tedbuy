@@ -333,8 +333,18 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
   // above. This Set is now unreachable (mapPathToTable has no path to it)
   // but was also removed outright rather than left as dead config, to
   // avoid it being mistaken for a still-active allow-list.
+  // 'status', 'availableAfter', 'quarantinedAt' deliberately excluded --
+  // these are what the 90-day username-quarantine system (applied on
+  // account deletion) actually depends on, and nothing legitimate on the
+  // client ever needs to set them directly (the reservation flow only
+  // ever needs id/userId/username; quarantine is applied and read
+  // server-side only -- see /api/users/sync's new quarantine check and
+  // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §20). Without this, a
+  // direct write could silently clear a quarantine record (or the
+  // upsert-by-id used elsewhere could overwrite it outright) and claim a
+  // recently-deleted user's exact username/identity immediately.
   store_names: new Set([
-    'id', 'userId', 'username', 'status', 'availableAfter', 'quarantinedAt'
+    'id', 'userId', 'username'
   ]),
   admin_audit_logs: new Set([
     'id', 'session_id', 'admin_user_id', 'admin_email', 'target_user_id',

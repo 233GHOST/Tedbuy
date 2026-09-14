@@ -3404,6 +3404,37 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
     return res.status(400).json({ success: false, error: 'This store name is reserved by TedBuy.' });
   }
 
+  // Business-logic fix: the 90-day username quarantine applied on account
+  // deletion (see the account-deletion flow below, "Quarantine Username /
+  // Store Name") existed only as a UI hint -- GET /api/auth/check-store-name
+  // reads it for a signup form's live availability check, but nothing on
+  // the actual claim path (here) ever verified it. A user could ignore
+  // that check (or simply never call it) and claim a just-deleted user's
+  // exact username immediately via a normal profile save, silently
+  // overwriting the quarantine record itself since this endpoint's own
+  // store_names upsert below is keyed by the same id. This is an identity/
+  // trust issue (impersonating or capturing a departed seller's exact
+  // username/reputation), not dependent on RLS or any client-side
+  // tampering -- it was simply never enforced. Non-admin only; admin
+  // override intentionally preserved for legitimate support cases.
+  if (!isAdmin && backendSupabase) {
+    const normalizedUsername = requestedUsername.toLowerCase();
+    const { data: existingStoreName } = await backendSupabase
+      .from('store_names')
+      .select('userId, status, availableAfter')
+      .eq('id', normalizedUsername)
+      .maybeSingle();
+    if (
+      existingStoreName &&
+      existingStoreName.userId !== targetUid &&
+      existingStoreName.status === 'quarantined' &&
+      existingStoreName.availableAfter &&
+      new Date(existingStoreName.availableAfter).getTime() > Date.now()
+    ) {
+      return res.status(400).json({ success: false, error: 'This store name is quarantined from a previously closed account and is temporarily unavailable.' });
+    }
+  }
+
   try {
     // P0 fix: isAdmin was previously taken straight from the client-supplied
     // `user` payload (`user.isAdmin === true`). The isOwner check above only
@@ -3440,6 +3471,26 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       existingIsSuspended = existingRowForFlags?.isSuspended === true;
     }
 
+    // Business-logic fix: emailVerified was previously taken straight from
+    // the client body (`user.emailVerified === true`) -- unlike isAdmin/
+    // isSuspended, simply preserving the existing DB value isn't the right
+    // fix here, since a real, legitimate transition to true happens
+    // whenever a user actually clicks their verification link (Firebase's
+    // own emailVerified flips, and the client is expected to sync that).
+    // The correct source of truth is Firebase Auth's own record, not the
+    // client's claim about it and not a possibly-stale DB copy --
+    // getAdminAuth().getUser() reads it directly, independent of whatever
+    // the request body says. No functional impact for the legitimate
+    // "I just verified my email" case; closes the previously-unrestricted
+    // "claim verified:true (or false) with no evidence" gap.
+    let realEmailVerified = false;
+    try {
+      const fbUser = await getAdminAuth().getUser(targetUid);
+      realEmailVerified = fbUser.emailVerified === true;
+    } catch (fbErr) {
+      console.warn('[Users Sync API] Could not read Firebase Auth emailVerified, defaulting to false:', fbErr);
+    }
+
     const cleanUser: any = {
       id: String(user.id).trim(),
       username: user.username ? String(user.username).trim() : (user.email ? user.email.split('@')[0] : `User_${user.id.substring(0, 5)}`),
@@ -3451,7 +3502,7 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       photoUrl: user.photoUrl || null,
       followingSellers: Array.isArray(user.followingSellers) ? user.followingSellers : [],
       savedProductIds: Array.isArray(user.savedProductIds) ? user.savedProductIds : [],
-      emailVerified: user.emailVerified === true,
+      emailVerified: realEmailVerified,
       isGoogleAuth: user.isGoogleAuth === true,
       authProvider: user.authProvider || null,
       isAdmin: existingIsAdmin || (user.email && user.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com'),
