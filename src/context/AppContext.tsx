@@ -4107,20 +4107,32 @@ CEO, Tedbuy Inc`;
     }
 
     const reportId = `report_${currentUser.id}_${productId}_${Date.now()}`;
-    const reportData = {
-      id: reportId,
-      productId: product.id,
-      productTitle: product.title,
-      reporterId: currentUser.id,
-      reporterName: currentUser.username,
-      reason,
-      comment,
-      createdAt: new Date().toISOString()
-    };
 
     try {
-      // 1. Save to reports collection
-      await setDoc(doc('reports', reportId), cleanObject(reportData));
+      // 1. Save to reports collection — routed through the server
+      // (POST /api/reports/create), NOT a direct database write like this
+      // used to be. The direct write took reporterId/reporterName straight
+      // from local client state (`currentUser`), which -- combined with
+      // 'reports' having no TABLE_COLUMNS allow-list at all in
+      // dbAdapter.ts (every other table has one; this was a real gap, not
+      // a deliberate choice, so filterTableColumns let every field through
+      // unfiltered) -- meant any signed-in user could file a report that
+      // falsely attributed authorship to someone else, or overwrite an
+      // existing report's content outright by id. The server endpoint
+      // already existed (verifyUser()-gated, derives reporterId from the
+      // verified token, never from the request body) but web had never
+      // been migrated to use it -- see
+      // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §21.
+      const authHeaders = await getAuthHeader();
+      const res = await fetch('/api/reports/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ productId: product.id, productTitle: product.title, reason, comment }),
+      });
+      const reportRes = await res.json().catch(() => ({}));
+      if (!reportRes.success) {
+        throw new Error(reportRes.error || 'Failed to submit report.');
+      }
 
       // 2. Locate or create support chat for the reporting user to send to admins inbox
       let supportChat = chats.find(c => 

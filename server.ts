@@ -2719,6 +2719,34 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
   const finalSellerJoinDate = existingRow?.sellerJoinDate || existingRow?.seller_join_date || productData.sellerJoinDate || new Date().toISOString();
   const finalCreatedAt = existingRow?.createdAt || existingRow?.created_at || productData.createdAt || new Date().toISOString();
 
+  // Business-logic fix: viewsCount/likesCount/likedUserIds were previously
+  // trusted straight from the client body as absolute values. Combined with
+  // the "social-only" ownership bypass above (intentionally letting a
+  // non-owner update just these fields, so liking/viewing someone else's
+  // listing doesn't trip the seller-only edit check), this meant ANY
+  // authenticated caller could set ANY listing's viewsCount/likesCount to
+  // an arbitrary number via a normal /api/products/sync call -- both feed
+  // directly into ranking (see engagementScore/priorityScore below) -- and
+  // could inject or remove OTHER users' ids from likedUserIds wholesale,
+  // fabricating or erasing who liked a listing. The app's real like/view
+  // features (toggleLikeProduct, incrementProductViews in AppContext.tsx)
+  // already go through a different, direct-Supabase path instead of this
+  // endpoint, so nothing legitimate actually needs an absolute value
+  // trusted here -- only a toggle of the CALLING user's own id, with the
+  // count always derived from the resulting array, never taken
+  // independently. See .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §21.
+  const existingLikedUserIds = Array.isArray(existingRow?.likedUserIds) ? existingRow.likedUserIds : [];
+  let finalLikedUserIds = existingLikedUserIds;
+  if (actingUser?.uid && Array.isArray(productData.likedUserIds)) {
+    const clientWantsLiked = productData.likedUserIds.includes(actingUser.uid);
+    const alreadyLiked = existingLikedUserIds.includes(actingUser.uid);
+    if (clientWantsLiked !== alreadyLiked) {
+      finalLikedUserIds = clientWantsLiked
+        ? [...existingLikedUserIds, actingUser.uid]
+        : existingLikedUserIds.filter((uid: string) => uid !== actingUser.uid);
+    }
+  }
+
   const cleanProduct: any = {
     id: prodId,
     title: productData.title || existingRow?.title || '',
@@ -2738,9 +2766,13 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     sellerJoinDate: finalSellerJoinDate,
     createdAt: finalCreatedAt,
     updatedAt: new Date().toISOString(),
-    viewsCount: Number(productData.viewsCount || productData.views || existingRow?.viewsCount || existingRow?.views) || 0,
-    likesCount: Number(productData.likesCount || productData.likes || existingRow?.likesCount || existingRow?.likes) || 0,
-    likedUserIds: Array.isArray(productData.likedUserIds) ? productData.likedUserIds : (existingRow?.likedUserIds || []),
+    // viewsCount is preserved from the existing row unconditionally: no
+    // legitimate feature calls this endpoint to record a view (see the
+    // fix note above finalLikedUserIds), and there's no way to validate an
+    // absolute client-claimed count anyway.
+    viewsCount: Number(existingRow?.viewsCount || existingRow?.views) || 0,
+    likesCount: finalLikedUserIds.length,
+    likedUserIds: finalLikedUserIds,
     // P0 fix: a moderation-locked listing ('archived'/'hidden'/'deleted' --
     // there's no dedicated admin product-moderation endpoint yet, so today
     // this state could only ever be set via direct DB access, but the gap

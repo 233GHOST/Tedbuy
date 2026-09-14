@@ -329,6 +329,21 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
   reviews: new Set([
     'id', 'buyerId', 'buyerName', 'sellerId', 'rating', 'comment', 'productTitle', 'createdAt'
   ]),
+  // 'reports' had NO entry here at all until this pass -- every other
+  // table in VALID_TABLE_MAP has an allow-list; this one was a genuine
+  // oversight, and filterTableColumns treats a missing entry as "don't
+  // filter" (see its `if (!allowed ...)` early-return), so writes to
+  // 'reports' passed through completely unfiltered. reportProduct() in
+  // AppContext.tsx has now been migrated to POST /api/reports/create
+  // (same treatment as reviews/addReview), so this table has no
+  // legitimate direct-write caller left either -- see the setDoc/
+  // updateDoc/deleteDoc barriers below and
+  // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §21. Listed here anyway,
+  // scoped to its real fields, as defense-in-depth documentation of what
+  // a write would have been limited to before those barriers existed.
+  reports: new Set([
+    'id', 'productId', 'productTitle', 'reporterId', 'reporterName', 'reason', 'comment', 'createdAt'
+  ]),
   // 'notifications' entry removed -- see the comment on VALID_TABLE_MAP
   // above. This Set is now unreachable (mapPathToTable has no path to it)
   // but was also removed outright rather than left as dead config, to
@@ -963,16 +978,45 @@ export async function setDoc(docRef: any, data: any, options?: any): Promise<voi
 
   if (table === 'users') {
     if (
-      id.startsWith('chat_') || 
-      id.startsWith('prod_') || 
-      id.startsWith('notif_') || 
-      id.startsWith('msg_') || 
-      id.startsWith('report_') || 
+      id.startsWith('chat_') ||
+      id.startsWith('prod_') ||
+      id.startsWith('notif_') ||
+      id.startsWith('msg_') ||
+      id.startsWith('report_') ||
       id.startsWith('rev_')
     ) {
       console.warn(`[dbAdapter Security Barrier] Blocked attempt to insert non-user entity ID "${id}" into "users" table.`);
       return;
     }
+  }
+
+  // Business-logic fix: 'reviews' has a legitimate direct read path
+  // (AppContext.tsx loads the full reviews list via getDocs for seller
+  // rating display) but NO legitimate direct write path at all -- the only
+  // real way to leave a review is addReview() -> POST /api/reviews/create,
+  // which is server-side gated on real chat participation and a genuinely
+  // completed trade (tradeStatus === 'completed', itself already protected
+  // -- see chats' TABLE_COLUMNS comment above and
+  // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §14/§21). With RLS
+  // disabled and this generic write path having no per-row ownership
+  // check, leaving TABLE_COLUMNS as the only gate would still allow a
+  // no-op-looking `setDoc(doc('reviews', existingId), {})` to upsert a row
+  // with just its id, nulling an existing review's content -- so this
+  // blocks the write outright instead, the same full-closure treatment
+  // already applied to notifications' write path in the same migration.
+  if (table === 'reviews') {
+    console.warn(`[dbAdapter Security Barrier] Blocked direct write to "reviews" table (id "${id}") -- reviews may only be created via POST /api/reviews/create.`);
+    return;
+  }
+
+  // Same treatment, same reason: reportProduct() now calls
+  // POST /api/reports/create, which derives reporterId from the verified
+  // token instead of trusting it from the client -- a direct write here
+  // could still spoof reporterId/reporterName to falsely attribute a
+  // report to someone else, or overwrite an existing report's content.
+  if (table === 'reports') {
+    console.warn(`[dbAdapter Security Barrier] Blocked direct write to "reports" table (id "${id}") -- reports may only be created via POST /api/reports/create.`);
+    return;
   }
 
   let payload = { id, ...data };
@@ -1038,6 +1082,20 @@ export async function updateDoc(docRef: any, data: any): Promise<void> {
     return;
   }
 
+  // See the matching barrier in setDoc above -- reviews have no legitimate
+  // direct write path (create or update) at all.
+  if (table === 'reviews') {
+    console.warn(`[dbAdapter Security Barrier] Blocked direct update to "reviews" table (id "${id}") -- reviews may only be created via POST /api/reviews/create.`);
+    return;
+  }
+
+  // See the matching barrier in setDoc above -- reports have no legitimate
+  // direct write path (create or update) at all.
+  if (table === 'reports') {
+    console.warn(`[dbAdapter Security Barrier] Blocked direct update to "reports" table (id "${id}") -- reports may only be created via POST /api/reports/create.`);
+    return;
+  }
+
   let payload = sanitizePayload({ ...data });
   console.log(`[Supabase Adapter] updateDoc path="${originalPath}" table="${table}" id="${id}"`);
 
@@ -1086,6 +1144,23 @@ export async function deleteDoc(docRef: any): Promise<void> {
   }
 
   if (!table) {
+    return;
+  }
+
+  // See the matching barrier in setDoc above -- no legitimate feature
+  // deletes reviews directly (no such call site exists anywhere in the
+  // client), and with RLS disabled and no per-row ownership check on this
+  // generic path, leaving it open would let anyone delete anyone else's
+  // review.
+  if (table === 'reviews') {
+    console.warn(`[dbAdapter Security Barrier] Blocked direct delete from "reviews" table (id "${id}").`);
+    return;
+  }
+
+  // Same reasoning as reviews above -- no legitimate feature deletes
+  // reports directly.
+  if (table === 'reports') {
+    console.warn(`[dbAdapter Security Barrier] Blocked direct delete from "reports" table (id "${id}").`);
     return;
   }
 
