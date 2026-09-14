@@ -178,14 +178,12 @@ interface AppContextType {
   sendMessage: (chatId: string, text: string) => Promise<void>;
   sendTypingStatus: (chatId: string, isTyping: boolean) => Promise<void>;
   markChatAsRead: (chatId: string) => Promise<void>;
-  toggleMessageReadStatus: (messageId: string, read?: boolean) => Promise<void>;
   markAsDelivered: (chatId: string) => Promise<void>;
   markAsPickedUp: (chatId: string) => Promise<void>;
   deleteChatForMe: (chatId: string) => Promise<void>;
   deleteMessageForMe: (messageId: string) => Promise<void>;
   deletedChatIds: Set<string>;
   deletedMessageIds: Set<string>;
-  resetChats: () => Promise<void>;
   followSeller: (sellerId: string) => Promise<void>;
   unfollowSeller: (sellerId: string) => Promise<void>;
   toggleSaveProduct: (productId: string) => Promise<void>;
@@ -4544,15 +4542,21 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
   // Marks the caller's unread messages in a chat as read via the
   // authenticated API — the server verifies participation and only ever
-  // touches the caller's own unread rows (never another user's). Same
-  // admin-support carve-out as sendMessage/the chat-list sync above: that
-  // one pseudo-account thread isn't representable by the buyer/seller
-  // authorization rule, so it stays on the pre-existing direct write.
+  // touches the caller's own unread rows (never another user's).
+  //
+  // Security fix (RLS-migration Phase 1, checkpoint 8): this used to branch
+  // on `isSupportChat` and fall back to a direct
+  // `updateDoc(doc('messages', msg.id), { read: true })` for the CEO-
+  // support pseudo-account thread, since that account isn't a real chat
+  // participant under /api/messages/mark-read's normal check -- the same
+  // shape as the admin-as-support-desk gap /api/messages/send already
+  // closed (§18 of the audit doc). Added the matching fallback to
+  // /api/messages/mark-read itself in this same commit (reachable only by
+  // a cryptographically-verified admin, only for the support account's
+  // own chat), so this function no longer needs a special case at all --
+  // markChatReadViaApi now handles both cases correctly server-side.
   const markChatAsRead = useCallback(async (chatId: string) => {
     if (!currentUser) return;
-
-    const chat = chats.find(c => c.id === chatId);
-    const isSupportChat = chat?.sellerId === 'user_ted_ceo_support' || chat?.buyerId === 'user_ted_ceo_support';
 
     const unreadMsgs = messages.filter(m => m.chatId === chatId && m.recipientId === currentUser.id && !m.read);
     if (unreadMsgs.length === 0) return;
@@ -4560,46 +4564,11 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     // Snappy optimistic local update — messages state represents this open thread.
     setMessages(prev => prev.map(m => (m.chatId === chatId && m.recipientId === currentUser.id && !m.read) ? { ...m, read: true } : m));
 
-    if (isSupportChat) {
-      try {
-        await Promise.all(unreadMsgs.map(msg => updateDoc(doc('messages', msg.id), { read: true })));
-      } catch (err) {
-        console.error('Error marking support messages as read:', err);
-      }
-      return;
-    }
-
     await markChatReadViaApi(chatId);
     // Reflect the read state in the chat list's unreadCount immediately
     // rather than waiting for the next 15s poll tick.
     setChats(prev => prev.map(c => c.id === chatId ? { ...c, unreadCount: 0 } : c));
-  }, [currentUser, chats, messages]);
-
-  const toggleMessageReadStatus = async (messageId: string, read: boolean = true) => {
-    setMessages(prev => {
-      const next = prev.map(m => m.id === messageId ? { ...m, read } : m);
-      const targetMsg = msgMapRef.current.get(messageId);
-      if (targetMsg) {
-        msgMapRef.current.set(messageId, { ...targetMsg, read });
-      }
-      try {
-        safeLocalStorage.setItem('tedbuy_local_messages_backup', JSON.stringify(next));
-        if (currentUser) {
-          safeLocalStorage.setItem(`tedbuy_local_messages_backup_${currentUser.id}`, JSON.stringify(next));
-        }
-      } catch (err) {
-        console.warn('Could not save messages backup:', err);
-      }
-      return next;
-    });
-
-    try {
-      await updateDoc(doc('messages', messageId), { read });
-    } catch (err) {
-      console.error('Error toggling message read status in the backend:', err);
-      handleBackendError(err, OperationType.UPDATE, `messages/${messageId}`);
-    }
-  };
+  }, [currentUser, messages]);
 
   const persistDeletedChatIds = (nextIds: Set<string>) => {
     if (!currentUser) return;
@@ -4725,20 +4694,6 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       } : c));
     } catch (err) {
       handleBackendError(err, OperationType.UPDATE, `chats/${chatId}`);
-    }
-  };
-
-  const resetChats = async () => {
-    // Zero out chat references inside Sandbox for quick pristine environment
-    try {
-      for (const chat of chats) {
-        await deleteDoc(doc('chats', chat.id));
-      }
-      for (const msg of messages) {
-        await deleteDoc(doc('messages', msg.id));
-      }
-    } catch (err) {
-      console.warn("Reset operation cleared active locally:", err);
     }
   };
 
@@ -5706,14 +5661,12 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       sendMessage,
       sendTypingStatus,
       markChatAsRead,
-      toggleMessageReadStatus,
       markAsDelivered,
       markAsPickedUp,
       deleteChatForMe,
       deleteMessageForMe,
       deletedChatIds,
       deletedMessageIds,
-      resetChats,
       followSeller,
       unfollowSeller,
       toggleSaveProduct,

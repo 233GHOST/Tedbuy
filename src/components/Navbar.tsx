@@ -21,7 +21,6 @@ export const Navbar: React.FC = () => {
     homeViewMode,
     setHomeViewMode,
     switchUserSimulated,
-    resetChats,
     chats,
     recentSearches,
     addRecentQuery,

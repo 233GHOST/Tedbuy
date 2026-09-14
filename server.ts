@@ -4168,7 +4168,25 @@ app.post('/api/messages/mark-read', serverRateLimiter(60 * 1000, 120, "messages-
     return res.status(400).json({ success: false, error: 'Missing chatId' });
   }
 
-  const chat = await getChatIfParticipant(chatId, verified.uid);
+  let chat = await getChatIfParticipant(chatId, verified.uid);
+  let recipientIdForRead = verified.uid;
+
+  // Admin-as-support-desk fallback, RLS-migration Phase 1: mirrors
+  // /api/messages/send's own fallback above (same file) -- the CEO-support
+  // pseudo-account isn't a real chat participant per getChatIfParticipant,
+  // so an admin marking that thread's messages as read needs the same
+  // carve-out. Closes the direct dbAdapter write markChatAsRead
+  // (AppContext.tsx) used for exactly this case. Reachable only by a
+  // cryptographically-verified admin, only for the support account's own
+  // chat.
+  if (!chat && verified.isAdmin && backendSupabase) {
+    const { data: rawChat } = await backendSupabase.from('chats').select('*').eq('id', chatId).maybeSingle();
+    if (rawChat && rawChat.sellerId === 'user_ted_ceo_support') {
+      chat = rawChat;
+      recipientIdForRead = 'user_ted_ceo_support';
+    }
+  }
+
   if (!chat) {
     return res.status(404).json({ success: false, error: 'Chat not found' });
   }
@@ -4181,7 +4199,7 @@ app.post('/api/messages/mark-read', serverRateLimiter(60 * 1000, 120, "messages-
       .from('messages')
       .update({ read: true })
       .eq('chatId', chatId)
-      .eq('recipientId', verified.uid)
+      .eq('recipientId', recipientIdForRead)
       .eq('read', false)
       .select('id');
 
