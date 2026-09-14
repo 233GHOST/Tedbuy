@@ -274,8 +274,24 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     // getDoc/getDocs still select('*') for this table, so all of these
     // still display correctly everywhere they're read -- this only blocks
     // them from ever being part of a write payload.
+    // 'notificationPreferences' also removed, RLS-migration Phase 0
+    // checkpoint 4 (.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md §22 of the
+    // audit doc / Phase 0 item 3): legitimately client-controlled for the
+    // caller's OWN row (muting/unmuting their own notification types), but
+    // this generic path has no per-row ownership check at all, so a raw
+    // Supabase caller (not this app's own JS) could set ANY user's
+    // preferences, not just their own -- a low-severity but real griefing
+    // vector (muting someone else's notifications). Confirmed before
+    // removing: updateUserProfile (AppContext.tsx) is the only place that
+    // writes this field, and it already ALSO calls syncUserToServer ->
+    // POST /api/users/sync in parallel, which already correctly persists
+    // notificationPreferences with a real ownership check
+    // (targetUid === verified.uid, server.ts ~3628). Removing it here has
+    // zero functional impact -- the already-existing secure path was
+    // always doing the real persist; this only removes the redundant,
+    // unauthenticated shortcut running alongside it.
     'id', 'username', 'originalUsername', 'email', 'phoneNumber', 'whatsAppNumber', 'role',
-    'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 'bio', 'bioUpdatedAt', 'notificationPreferences',
+    'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 'bio', 'bioUpdatedAt',
     'emailVerified', 'isGoogleAuth', 'authProvider', 'welcomeSent', 'createdAt'
   ]),
   products: new Set([
