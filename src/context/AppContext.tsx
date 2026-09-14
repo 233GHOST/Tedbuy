@@ -3985,6 +3985,26 @@ CEO, Tedbuy Inc`;
     }
   };
 
+  // Security fix (RLS-migration Phase 0, checkpoint 3): this used to write
+  // likedUserIds/likesCount directly via dbAdapter's updateDoc -- a raw
+  // Supabase write with no ownership check and no server-side validation
+  // that the caller was only ever toggling their OWN id (a caller
+  // bypassing this function's own convention could set the array to
+  // anything, for any product, impersonating or erasing other users'
+  // likes). POST /api/products/sync already has this exact self-toggle
+  // logic implemented correctly server-side (fixed earlier this session --
+  // see .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §21.1): it only ever
+  // toggles the CALLING user's own id relative to what's already saved,
+  // deriving likesCount from the result, regardless of what array the
+  // client sends. A minimal `{id, likedUserIds}` payload qualifies for
+  // that endpoint's "social-only" ownership-check bypass (every key sent
+  // is in SOCIAL_ONLY_FIELDS), so liking someone else's listing still
+  // works exactly as before -- just through the authenticated, validated
+  // path instead of a raw write. The desired next state is still computed
+  // client-side (for instant UI feedback and the send-my-own-id-or-not
+  // payload the server's toggle logic expects), but the actual persisted
+  // state always comes back from the server's response, not the client's
+  // guess.
   const toggleLikeProduct = async (id: string, userId: string) => {
     if (!currentUser) {
       throw new Error('Authentication Required: You must be logged in to like listings.');
@@ -3994,56 +4014,30 @@ CEO, Tedbuy Inc`;
     try {
       const productRef = doc('products', id);
       const productDoc = await getDoc(productRef);
-      
-      let nextLikedUserIds: string[] = [];
-      let nextLikesCount = 0;
 
-      if (productDoc.exists()) {
-        const existingData = productDoc.data() as Product;
-        const currentLikedUserIds = Array.isArray(existingData.likedUserIds) ? existingData.likedUserIds : [];
-        const hasLiked = currentLikedUserIds.includes(verifiedUserId);
-        
-        if (hasLiked) {
-          nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== verifiedUserId);
-        } else {
-          nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, verifiedUserId]));
-        }
-        nextLikesCount = nextLikedUserIds.length;
+      const currentLikedUserIds = productDoc.exists()
+        ? (Array.isArray((productDoc.data() as Product)?.likedUserIds) ? (productDoc.data() as Product).likedUserIds! : [])
+        : (Array.isArray(products.find(p => p.id === id)?.likedUserIds) ? products.find(p => p.id === id)!.likedUserIds! : []);
+      const hasLiked = currentLikedUserIds.includes(verifiedUserId);
+      const desiredLikedUserIds = hasLiked
+        ? currentLikedUserIds.filter(uid => uid !== verifiedUserId)
+        : Array.from(new Set([...currentLikedUserIds, verifiedUserId]));
 
-        // Atomically update standard backend document
-        await updateDoc(productRef, {
-          likedUserIds: nextLikedUserIds,
-          likesCount: nextLikesCount
-        });
-      } else {
-        // Fallback or self-healing for non-persisted local products
-        const localProduct = products.find(p => p.id === id);
-        if (localProduct) {
-          const currentLikedUserIds = Array.isArray(localProduct.likedUserIds) ? localProduct.likedUserIds : [];
-          const hasLiked = currentLikedUserIds.includes(verifiedUserId);
-          if (hasLiked) {
-            nextLikedUserIds = currentLikedUserIds.filter(uid => uid !== verifiedUserId);
-          } else {
-            nextLikedUserIds = Array.from(new Set([...currentLikedUserIds, verifiedUserId]));
-          }
-          nextLikesCount = nextLikedUserIds.length;
-        }
+      const authHeaders = await getAuthHeader();
+      const res = await fetch('/api/products/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ product: { id, likedUserIds: desiredLikedUserIds } })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!json.success || !json.product) {
+        throw new Error(json.error || 'Failed to update like status.');
       }
 
-      // Optimistically/real-time update products list
-      setProducts(prev => {
-        return prev.map(p => {
-          if (p.id === id) {
-            return {
-              ...p,
-              likedUserIds: nextLikedUserIds,
-              likesCount: nextLikesCount
-            };
-          }
-          return p;
-        });
-      });
+      const finalLikedUserIds: string[] = Array.isArray(json.product.likedUserIds) ? json.product.likedUserIds : desiredLikedUserIds;
+      const finalLikesCount: number = typeof json.product.likesCount === 'number' ? json.product.likesCount : finalLikedUserIds.length;
 
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, likedUserIds: finalLikedUserIds, likesCount: finalLikesCount } : p));
     } catch (err) {
       console.warn('[toggleLikeProduct] Error updating product likes:', err);
       // Fallback purely local update in case of network loss
@@ -4107,9 +4101,27 @@ CEO, Tedbuy Inc`;
       // safe fallback
     }
 
+    // Security fix (RLS-migration Phase 0, checkpoint 3): this used to be a
+    // direct `updateDoc(doc('products', id), { viewsCount: increment(1) })`.
+    // dbAdapter's increment() helper looks like a real atomic increment but
+    // isn't one -- the "current + 1" arithmetic happens entirely client-side
+    // in the browser (re-fetching the row via the anon Supabase client,
+    // adding 1, writing the absolute result), so a caller bypassing this
+    // function's own convention could set any value just as easily as a
+    // raw write. POST /api/products/:id/view now does the real increment
+    // server-side (never trusts a client-supplied count) and enforces the
+    // same "one real view per ~10 minutes" cooldown this function's own
+    // localStorage check expresses, except server-side, per-IP -- so it
+    // can't be bypassed by skipping this function entirely. Deliberately
+    // NOT behind authentication: anonymous visitors legitimately generate
+    // real views (see the self-view check above, which only applies when
+    // `currentUser` exists) -- an auth header is still sent when available,
+    // purely so the server can apply the same self-view exclusion too.
     try {
-      await updateDoc(doc('products', id), {
-        viewsCount: increment(1)
+      const authHeaders = currentUser ? await getAuthHeader() : {};
+      await fetch(`/api/products/${encodeURIComponent(id)}/view`, {
+        method: 'POST',
+        headers: authHeaders
       });
       console.log(`[Analytics] Valid external view registered successfully for product ${id}`);
     } catch (error) {

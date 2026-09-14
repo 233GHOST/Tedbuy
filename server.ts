@@ -3178,6 +3178,83 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
   }
 });
 
+// View-increment: RLS-migration Phase 0 item 2
+// (.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md §1.2/§3/§4) -- the direct
+// residual this closes: incrementProductViews (AppContext.tsx) wrote
+// viewsCount directly via dbAdapter's updateDoc(doc('products', id),
+// {viewsCount: increment(1)}). dbAdapter's increment() helper looked like
+// a real atomic increment but wasn't one -- the "current + 1" arithmetic
+// happened entirely client-side, in the browser, using the anon Supabase
+// client, before being written as an absolute value; a caller bypassing
+// the app's own JS convention could set any value with the same ease as
+// a raw write. Deliberately NOT behind verifyUser(): anonymous visitors
+// legitimately generate real views today (the existing client-side logic
+// only ever compares against `currentUser` when one exists), and requiring
+// login here would be a real product regression, not a security fix.
+// Real server-side protections instead:
+//  - The increment itself is computed server-side (existingRow.viewsCount
+//    + 1), never trusted from the client -- there is no viewsCount in the
+//    request body at all.
+//  - A per-product, per-IP cooldown enforces the same "one real view per
+//    ~10 minutes" intent the client's own localStorage cooldown already
+//    expressed -- except that one was trivially bypassable by calling
+//    Supabase directly; this one can't be, since it's the only path that
+//    ever touches viewsCount now.
+//  - Self-view exclusion is preserved when the caller is authenticated
+//    and happens to be the listing's own seller (matches the existing
+//    client-side behavior, now enforced server-side too).
+const viewCooldownStore = new Map<string, number>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, expiresAt] of viewCooldownStore.entries()) {
+    if (now > expiresAt) viewCooldownStore.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+app.post('/api/products/:productId/view', serverRateLimiter(60 * 1000, 60, "products-view"), async (req, res) => {
+  const productId = String(req.params.productId || '').trim();
+  if (!productId) {
+    return res.status(400).json({ success: false, error: 'Missing productId' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const { data: existingRow } = await backendSupabase.from('products').select('id, sellerId, viewsCount').eq('id', productId).maybeSingle();
+    if (!existingRow) {
+      return res.status(404).json({ success: false, error: 'Product not found' });
+    }
+
+    // Self-view exclusion -- only applies when a real, verified identity is
+    // present; anonymous requests always count, matching existing behavior.
+    if (req.headers.authorization) {
+      const verified = await verifyUser(req.headers.authorization);
+      if (verified && verified.uid === existingRow.sellerId) {
+        return res.json({ success: true, counted: false, reason: 'self-view' });
+      }
+    }
+
+    const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+    const cooldownKey = `${clientIp}_${productId}`;
+    const cooldownMs = 10 * 60 * 1000;
+    const existingExpiry = viewCooldownStore.get(cooldownKey);
+    if (existingExpiry && Date.now() < existingExpiry) {
+      return res.json({ success: true, counted: false, reason: 'cooldown' });
+    }
+    viewCooldownStore.set(cooldownKey, Date.now() + cooldownMs);
+
+    const nextViewsCount = Number(existingRow.viewsCount || 0) + 1;
+    const { error } = await backendSupabase.from('products').update({ viewsCount: nextViewsCount }).eq('id', productId);
+    if (error) throw error;
+
+    return res.json({ success: true, counted: true, viewsCount: nextViewsCount });
+  } catch (err: any) {
+    console.error('[Product View API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to record view' });
+  }
+});
+
 // Prevents spam-posting listings.
 app.post('/api/products/create', serverRateLimiter(60 * 1000, 10, "products-create"), async (req, res) => {
   const { product } = req.body;
