@@ -3621,9 +3621,19 @@ function redactUserSecrets<T extends Record<string, any> | null | undefined>(use
 app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (req: express.Request, res: express.Response) => {
   const userId = req.query.id as string;
   const email = req.query.email as string;
+  // Added alongside the RLS-migration Phase 0 work: SellerProfilePage.tsx's
+  // "contact seller via WhatsApp/phone" feature previously resolved a
+  // seller's real profile (including phoneNumber/whatsAppNumber, which
+  // sellers publish specifically so buyers can reach them) out of the
+  // client's own bulk, unauthenticated `users` table dump -- the same dump
+  // being closed in this pass for exposing every user's contact info, not
+  // just sellers'. selectedSellerId is sometimes an id and sometimes a
+  // username (see SellerProfilePage.tsx's own foundUser lookup), so this
+  // endpoint needs to resolve by either.
+  const username = req.query.username as string;
 
-  if (!userId && !email) {
-    return res.status(400).json({ success: false, error: 'Missing userId or email query parameter' });
+  if (!userId && !email && !username) {
+    return res.status(400).json({ success: false, error: 'Missing userId, email, or username query parameter' });
   }
 
   try {
@@ -3633,6 +3643,8 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
         q = q.eq('id', userId);
       } else if (email) {
         q = q.eq('email', email.trim());
+      } else if (username) {
+        q = q.ilike('username', username.trim());
       }
       const { data, error } = await q.maybeSingle();
       if (error) throw error;
@@ -3707,6 +3719,40 @@ app.get('/api/users/list', serverRateLimiter(60 * 1000, 30, "users-list"), async
     return res.json({ success: true, users });
   } catch (err: any) {
     console.error('[Users List API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch users' });
+  }
+});
+
+// Admin-only bulk user list, WITH contact info -- backs sendWelcomeEmailToAll
+// (AppContext.tsx). Deliberately separate from the public GET /api/users/list
+// above rather than adding an "include email" flag to it: that endpoint's
+// entire reason for existing is that its response is safe for anyone to
+// call, and a flag that changes that guarantee based on a query param would
+// be exactly the kind of foot-gun this whole migration is trying to remove.
+// This one is real admin-gated, real email/welcomeSent included, and capped
+// at a high-but-bounded limit rather than /api/admin/users/search's 50 (that
+// endpoint is a search/autocomplete tool; this one needs to see everyone
+// eligible for a bulk campaign, which a 50-row cap would silently truncate).
+app.get('/api/admin/users/list-full', serverRateLimiter(60 * 1000, 10, "admin-users-list-full"), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyAdmin(req.headers.authorization);
+  if (!verified) {
+    return res.status(403).json({ success: false, error: 'Unauthorized: Admin authorization required' });
+  }
+  try {
+    if (!backendSupabase) {
+      return res.status(503).json({ success: false, error: 'Database service unavailable' });
+    }
+    const { data, error } = await backendSupabase
+      .from('users')
+      .select('id, email, username, welcomeSent, isDeleted, status')
+      .limit(5000);
+    if (error) throw error;
+    const users = (data || [])
+      .filter((u: any) => u.isDeleted !== true && u.status !== 'deleted')
+      .map((u: any) => ({ id: u.id, email: u.email, username: u.username, welcomeSent: u.welcomeSent === true }));
+    return res.json({ success: true, users });
+  } catch (err: any) {
+    console.error('[Admin Users List Full API Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to fetch users' });
   }
 });
@@ -7072,6 +7118,26 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       const { targetUserId, hold, reason } = req.body || {};
       if (!targetUserId || typeof hold !== 'boolean') {
         return res.status(400).json({ success: false, error: "targetUserId and hold boolean are required." });
+      }
+
+      // Security fix (found during RLS-migration Phase 0 work): unlike
+      // /api/admin/users/{suspend,delete}, which both independently
+      // re-verify the super-admin account can't be targeted against the
+      // real database row, this endpoint had no equivalent check at all --
+      // the ONLY thing stopping a security hold from being placed on
+      // asumaduvincent7@gmail.com was a client-side check in
+      // adminToggleSecurityHold (AppContext.tsx), which read the target's
+      // email out of the same client-side `users` state being migrated off
+      // its unauthenticated bulk-PII source in this same pass. Once that
+      // state no longer carries email, that client-side check would
+      // silently stop firing -- so this gap needed a real, independent
+      // server-side check regardless, not just to keep working after the
+      // migration but because it should have existed already.
+      if (backendSupabase) {
+        const { data: targetForGuard } = await backendSupabase.from('users').select('email').eq('id', targetUserId).maybeSingle();
+        if ((targetForGuard?.email || '').trim().toLowerCase() === 'asumaduvincent7@gmail.com') {
+          return res.status(403).json({ success: false, error: 'Crucial Security Guard: The super-administrator account cannot be placed on security hold.' });
+        }
       }
 
       const now = new Date().toISOString();
