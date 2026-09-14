@@ -236,9 +236,22 @@ function sanitizePayload(data: any): any {
 // Allowed columns in our PostgreSQL schema
 const TABLE_COLUMNS: Record<string, Set<string>> = {
   users: new Set([
-    'id', 'username', 'originalUsername', 'email', 'phoneNumber', 'whatsAppNumber', 'role', 
+    // P0 security fix: 'isAdmin' deliberately excluded from this write
+    // allow-list. This Set gates every client-side setDoc/updateDoc into
+    // the "users" table (see filterTableColumns/transformForSupabaseClient
+    // below) -- with Supabase RLS currently disabled, nothing else stood
+    // between any signed-in-to-Supabase caller and setting their own row's
+    // isAdmin to true (see .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md
+    // §12 for the full exploit chain this closes). Admin status must only
+    // ever be granted server-side now -- see /api/users/sync in server.ts,
+    // which was fixed the same way (never trusts a client-supplied
+    // isAdmin, only preserves what's already in the database). Reads are
+    // unaffected: getDoc/getDocs still select('*') for this table, so
+    // isAdmin still displays correctly everywhere it's read -- this only
+    // blocks it from ever being part of a write payload.
+    'id', 'username', 'originalUsername', 'email', 'phoneNumber', 'whatsAppNumber', 'role',
     'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 'bio', 'bioUpdatedAt', 'notificationPreferences',
-    'emailVerified', 'isGoogleAuth', 'authProvider', 'isAdmin', 'welcomeSent', 'isSuspended', 
+    'emailVerified', 'isGoogleAuth', 'authProvider', 'welcomeSent', 'isSuspended',
     'status', 'isDeleted', 'deletedAt', 'deletionRequestedAt', 'securityHold', 'securityHoldReason',
     'securityHoldSetAt', 'securityHoldSetBy', 'createdAt'
   ]),

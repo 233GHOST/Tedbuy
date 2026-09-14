@@ -3275,11 +3275,22 @@ CEO, Tedbuy Inc`;
     }
   };
 
+  // P0 security fix: '2330' was previously ALWAYS accepted as a valid PIN,
+  // regardless of what VITE_ADMIN_PIN was actually configured to -- a
+  // hardcoded bypass baked into the shipped client bundle, readable by
+  // anyone. Removed. This remains a client-side-only check (VITE_ADMIN_PIN
+  // is itself bundled into the client JS, so it was never a real secret
+  // either) -- it is NOT a substitute for server-side authorization, and no
+  // privileged action should ever treat isAdminSessionVerified as proof of
+  // anything. It exists purely as UX friction before showing admin UI; the
+  // actual privileged endpoints (see /api/admin/*) independently
+  // re-verify admin status via verifyUser()'s cryptographic Firebase-token
+  // check regardless of this flag.
   const verifyAdminPIN = useCallback(async (pin: string): Promise<boolean> => {
     const trimmed = pin.trim();
     const customPin = (import.meta as any).env.VITE_ADMIN_PIN || '2330';
-    const isValid = trimmed === customPin.trim() || trimmed === '2330';
-    
+    const isValid = trimmed === customPin.trim();
+
     if (isValid) {
       setIsAdminSessionVerified(true);
       setAdminFailedAttempts(0);
@@ -5178,6 +5189,20 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     onProgress(total, total, logs);
   };
 
+  // P0 security fix: this used to cascade-delete a target user's products,
+  // reviews, chats, and messages via direct, unauthenticated Supabase calls
+  // (dbAdapter), gated ONLY by this client-side isSuperAdmin check -- no
+  // server round-trip ever re-verified admin status before the deletion
+  // ran. With Supabase RLS disabled, and users.isAdmin itself being a
+  // plain, previously-client-writable column, that meant any user could
+  // grant themselves isAdmin and then use this function's real UI button
+  // (ProfileSettings.tsx) to delete any other account. See
+  // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §12 for the full chain.
+  // Fixed: the actual deletion now happens exclusively server-side, at
+  // POST /api/admin/users/delete, which re-derives admin status from
+  // verifyUser()'s cryptographic Firebase-token verification -- this
+  // client-side check below is now only a fast UX rejection, never the
+  // real authorization boundary.
   const adminDeleteUserProfile = async (userId: string, forceDeleteActive: boolean = false) => {
     const isSuperAdmin = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') ||
       (originalAdminUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') ||
@@ -5188,191 +5213,30 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       throw new Error("Unauthorized: Only administrators can delete store profiles.");
     }
 
-    const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
+    const targetUser = users.find(u => u.id === userId);
 
-    // Check system to verify if this user still exists in the master database
-    let existsInDb = false;
-    let targetUserDb: User | null = null;
-    try {
-      const docRef = doc('users', userId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        existsInDb = true;
-        targetUserDb = docSnap.data() as User;
-      }
-    } catch (dbCheckErr) {
-      console.warn('[Admin Delete] Could not fetch user data from network, falling back to local memory list check:', dbCheckErr);
-      // In case of transient network failure or offline mode, we assume they might exist locally to allow manual override
-      existsInDb = true; 
-    }
-
-    const targetUser = targetUserDb || users.find(u => u.id === userId);
-    if (!targetUser) {
-      throw new Error("User profile not found in system.");
-    }
-
-    // Crucial Security Guard: Block admin profile deletion from admin dashboard
-    const targetEmail = targetUser.email?.trim()?.toLowerCase();
+    // Crucial Security Guard: Block admin profile deletion from admin dashboard.
+    // Kept here as fast client-side UX feedback; the server independently
+    // enforces the same guard against the real database row regardless of
+    // what's in local state.
+    const targetEmail = targetUser?.email?.trim()?.toLowerCase();
     if (targetEmail === 'asumaduvincent7@gmail.com') {
       throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be deleted under any circumstances.');
     }
 
-    if (existsInDb && !forceDeleteActive) {
+    if (!forceDeleteActive) {
       throw new Error("ACTIVE_ACCOUNT_CONFIRM_REQUIRED");
     }
 
-    if (!existsInDb) {
-      // The account has already been deleted by the user!
-      // We must clean up the local memory state and backup cache to release this store name immediately.
-      try {
-        const cached = safeLocalStorage.getItem('tedbuy_local_users_backup');
-        const currentList = cached ? JSON.parse(cached) : (users || []);
-        const filtered = currentList.filter((u: User) => u.id !== userId);
-        safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(filtered));
-        setUsers(filtered);
-      } catch (cacheErr) {
-        setUsers(prev => prev.filter(u => u.id !== userId));
-      }
-      showToast(`Verified: This store account was already deleted by the user! Released store name "${targetUser.username}" instantly.`, 'success');
-      return;
-    }
-
-    console.log(`[Admin] Deleting active store profile for user: ${targetUser.username} (${userId})`);
-
-    // 1. Delete all user's listings (products)
-    try {
-      const userProducts = products.filter(p => p.sellerId === userId);
-      for (const p of userProducts) {
-        if (!isSimulated) {
-          await deleteDoc(doc('products', p.id));
-        }
-      }
-      if (!isSimulated) {
-        const pq = query(collection(null, 'products'), where('sellerId', '==', userId));
-        const pqSnap = await getDocs(pq);
-        for (const itemDoc of pqSnap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-      }
-    } catch (productErr) {
-      console.warn('Could not fully delete user product listings upon admin deletion:', productErr);
-    }
-
-    // 2. Delete all user's reviews
-    try {
-      const userReviews = reviews.filter(r => r.buyerId === userId || r.sellerId === userId);
-      for (const r of userReviews) {
-        if (!isSimulated) {
-          await deleteDoc(doc('reviews', r.id));
-        }
-      }
-      if (!isSimulated) {
-        const rq1 = query(collection(null, 'reviews'), where('buyerId', '==', userId));
-        const rq1Snap = await getDocs(rq1);
-        for (const itemDoc of rq1Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-        const rq2 = query(collection(null, 'reviews'), where('sellerId', '==', userId));
-        const rq2Snap = await getDocs(rq2);
-        for (const itemDoc of rq2Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-      }
-    } catch (reviewErr) {
-      console.warn('Could not fully delete user reviews upon admin deletion:', reviewErr);
-    }
-
-    // 3. Delete all chats involving this user
-    const userChats = chats.filter(c => c.buyerId === userId || c.sellerId === userId);
-    try {
-      for (const c of userChats) {
-        if (!isSimulated) {
-          await deleteDoc(doc('chats', c.id));
-        }
-      }
-      if (!isSimulated) {
-        const cq1 = query(collection(null, 'chats'), where('buyerId', '==', userId));
-        const cq1Snap = await getDocs(cq1);
-        for (const itemDoc of cq1Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-        const cq2 = query(collection(null, 'chats'), where('sellerId', '==', userId));
-        const cq2Snap = await getDocs(cq2);
-        for (const itemDoc of cq2Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-      }
-    } catch (chatErr) {
-      console.warn('Could not fully delete user chats upon admin deletion:', chatErr);
-    }
-
-    // 4. Delete all messages sent/received by this user
-    try {
-      const chatIdsSet = new Set(userChats.map(c => c.id));
-      const userMessages = messages.filter(m => m.senderId === userId || m.recipientId === userId || chatIdsSet.has(m.chatId));
-      for (const m of userMessages) {
-        if (!isSimulated) {
-          await deleteDoc(doc('messages', m.id));
-        }
-      }
-      if (!isSimulated) {
-        const mq1 = query(collection(null, 'messages'), where('senderId', '==', userId));
-        const mq1Snap = await getDocs(mq1);
-        for (const itemDoc of mq1Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-        const mq2 = query(collection(null, 'messages'), where('recipientId', '==', userId));
-        const mq2Snap = await getDocs(mq2);
-        for (const itemDoc of mq2Snap.docs) {
-          await deleteDoc(itemDoc.ref);
-        }
-      }
-    } catch (msgErr) {
-      console.warn('Could not fully delete user messages upon admin deletion:', msgErr);
-    }
-
-    // 5. Delete specific deletedEmails record
-    const emailToDelete = targetUser.email;
-    if (emailToDelete) {
-      const emailPath = emailToDelete.trim().toLowerCase();
-      try {
-        if (!isSimulated) {
-          await deleteDoc(doc('deletedEmails', emailPath));
-        }
-      } catch (err) {
-        console.warn('Could not clear deleted email blocklist from backend:', err);
-        try {
-          handleBackendError(err, OperationType.DELETE, `deletedEmails/${emailPath}`);
-        } catch (thrownErr) {
-          console.warn('[Admin Delete] Blocklist clearance exception logged gracefully:', thrownErr);
-        }
-      }
-    }
-
-    // 6. Delete user doc and store name mapping atomically
-    try {
-      if (!isSimulated) {
-        const batch = writeBatch(null);
-        const userRef = doc('users', userId);
-        batch.delete(userRef);
-
-        const storeNameLower = targetUser.username?.trim()?.toLowerCase();
-        if (storeNameLower) {
-          const storeNameRef = doc('storeNames', storeNameLower);
-          batch.delete(storeNameRef);
-          console.log(`[Admin Delete] Queued deletion of store name registration: "${storeNameLower}"`);
-        }
-
-        await batch.commit();
-        console.log('[Admin Delete] Atomic user and storeNames registry deletion completed.');
-      }
-    } catch (err: any) {
-      console.error('Could not delete user document and store name mapping from the database during admin deletion:', err);
-      try {
-        handleBackendError(err, OperationType.DELETE, `users/${userId}`);
-      } catch (thrownErr) {
-        console.warn('[Admin Delete] User doc delete exception logged gracefully:', thrownErr);
-      }
+    const authHeaders = await getAuthHeader();
+    const res = await fetch('/api/admin/users/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ targetUserId: userId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to delete user account.');
     }
 
     // Filter out deleted user from local users backup cache and live memory state
@@ -5387,9 +5251,15 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       setUsers(prev => prev.filter(u => u.id !== userId));
     }
 
-    showToast(`Store profile for "${targetUser.username}" permanently deleted and store name released!`, 'success');
+    showToast(data.message || `Store profile for "${targetUser?.username || userId}" permanently deleted.`, 'success');
   };
   
+  // P0 security fix: same root cause as adminDeleteUserProfile above --
+  // this used to write isSuspended directly to Supabase (both via
+  // dbAdapter's updateDoc AND a redundant raw supabase.from() call),
+  // gated only by the client-side isSuperAdmin check below. Now
+  // delegates the actual mutation to POST /api/admin/users/suspend,
+  // which independently re-verifies admin status server-side.
   const adminToggleUserSuspension = async (userId: string, suspend: boolean) => {
     const isSuperAdmin = (currentUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') ||
       (originalAdminUser?.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') ||
@@ -5401,53 +5271,30 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     }
 
     const targetUser = users.find(u => u.id === userId);
-    if (!targetUser) {
-      throw new Error("User profile not found in system.");
-    }
 
-    const targetEmail = targetUser.email?.trim()?.toLowerCase();
+    const targetEmail = targetUser?.email?.trim()?.toLowerCase();
     if (targetEmail === 'asumaduvincent7@gmail.com') {
       throw new Error('Crucial Security Guard: The super-administrator account ("asumaduvincent7@gmail.com") cannot be suspended.');
     }
 
-    const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
-
-    console.log(`[Admin] ${suspend ? 'Suspending' : 'Unsuspending'} user profile for: ${targetUser.username} (${userId})`);
-
-    // 1. Update the user record in the database
-    try {
-      const userRef = doc('users', userId);
-      await updateDoc(userRef, {
-        isSuspended: suspend
-      });
-      console.log(`[Admin Suspend] Successfully wrote isSuspended: ${suspend} to the database for ${userId}`);
-    } catch (dbErr: any) {
-      console.warn('[Admin Suspend] Database update failed, trying sandbox update:', dbErr);
+    const authHeaders = await getAuthHeader();
+    const res = await fetch('/api/admin/users/suspend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ targetUserId: userId, suspend }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to update suspension status.');
     }
 
-    // 2. If Supabase is active, sync to Supabase table
-    if (isSupabaseActive && supabase) {
-      try {
-        const { error } = await supabase
-          .from('users')
-          .update({ isSuspended: suspend })
-          .eq('id', userId);
-        if (error) throw error;
-        console.log('[Admin Suspend] Supabase sync completed.');
-      } catch (sbErr) {
-        console.warn('[Admin Suspend] Supabase sync failed:', sbErr);
-      }
-    }
-
-    // 3. Update local state
+    // Update local state to reflect the server's confirmed result
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, isSuspended: suspend } : u));
-    
-    // If the active current user in memory is updated
+
     if (currentUser && currentUser.id === userId) {
       setCurrentUserState(prev => prev ? { ...prev, isSuspended: suspend } : null);
     }
 
-    // 4. Update the local backups
     try {
       const localUsersBackup = safeLocalStorage.getItem('tedbuy_local_users_backup');
       if (localUsersBackup) {
@@ -5459,7 +5306,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       console.warn('Failed to update local users backup:', err);
     }
 
-    showToast(`User "${targetUser.username}" has been successfully ${suspend ? 'suspended' : 'unsuspended'}.`, 'success');
+    showToast(data.message || `User "${targetUser?.username || userId}" has been successfully ${suspend ? 'suspended' : 'unsuspended'}.`, 'success');
   };
 
   const adminToggleSecurityHold = async (userId: string, hold: boolean, reason?: string) => {

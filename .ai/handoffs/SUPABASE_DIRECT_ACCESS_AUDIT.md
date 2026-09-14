@@ -268,6 +268,100 @@ Two problems, independent of the RLS/isAdmin issue above: (a) `VITE_ADMIN_PIN` i
 
 ---
 
+## 13. P0 REMEDIATION — self-promotion → admin deletion/suspension (IMPLEMENTED)
+
+This section documents the actual fix for §12.3. **This is the one section in this document where code was changed** — everything above remains a read-only finding.
+
+### 13.1 Root cause — corrected and expanded from §12.3
+
+§12.3 correctly identified the exploit *shape* but attributed the `isAdmin` poisoning purely to the direct-Supabase/RLS-disabled path. Implementing the fix surfaced the more fundamental root cause: **`POST /api/users/sync` itself — a properly-authenticated server endpoint, unrelated to RLS — wrote a client-supplied `isAdmin` value straight into the database:**
+
+```js
+// server.ts, /api/users/sync, before this fix:
+isAdmin: user.isAdmin === true || (user.email && user.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com'),
+```
+
+`user` here is `req.body.user` — entirely client-controlled. The endpoint's ownership check (`isOwner = targetUid === verified.uid`) correctly ensures a caller can only sync *their own* profile, but nothing stopped that caller from including `isAdmin: true` in their own profile payload. **This meant any authenticated TedBuy user could self-promote to admin using nothing but the app's own normal "save profile" API call plus one extra JSON field — no direct Supabase access, no anon key, no knowledge of RLS being disabled required at all.** This is a strictly more severe and more easily reachable vector than the direct-Supabase path in §12.3, and it would have remained fully exploitable even after RLS is re-enabled, since it never depended on RLS in the first place (it uses `backendSupabase`, the service-role client, which always bypasses RLS by design).
+
+The two client-side functions from §12.3 (`adminDeleteUserProfile`, `adminToggleUserSuspension`) were the second half of the chain — they trusted the resulting poisoned `currentUser.isAdmin` (React state, populated by reading back the now-poisoned database row) with no server round-trip to re-verify.
+
+**Important clarification also confirmed while implementing this fix:** `verifyUser()` itself — used everywhere else in `server.ts`, including every other admin-gated endpoint — was **never** vulnerable to this. Its `isAdmin` is derived purely from the Firebase ID token's own custom claims (`decoded.admin`) or the hardcoded super-admin email, and never reads the Supabase `users.isAdmin` column at all. So every other `/api/admin/*` endpoint, and `/api/products/sync`'s own admin check, were sound throughout. The vulnerability was narrowly: (a) `/api/users/sync` *writing* an attacker-controlled value into a column nothing else should have trusted, and (b) two specific client functions trusting that column's *client-side, React-state copy* instead of ever asking the server.
+
+### 13.2 Exploit chain (now closed)
+
+1. Any authenticated TedBuy user calls `POST /api/users/sync` with their own real Firebase token and `{ user: { id: <own uid>, isAdmin: true, ...other required fields } }`.
+2. Server writes `isAdmin: true` to that user's own row (service-role client, unrelated to RLS).
+3. App re-reads the user's profile (normal flow); `currentUser.isAdmin` becomes `true` in the browser session.
+4. `ProfileSettings.tsx`'s admin panel becomes visible; `adminDeleteUserProfile()`/`adminToggleUserSuspension()` are reachable and, before this fix, performed the actual mutation via direct client-to-Supabase calls with no server-side re-verification.
+5. Attacker hard-deletes or suspends any other user's account.
+
+### 13.3 Fix implemented
+
+**`server.ts`:**
+- `/api/users/sync` (~line 3235): `isAdmin` is no longer read from the request body at all. It now fetches the *existing* database value (`existingIsAdmin`) before building the update payload, and sets `isAdmin: existingIsAdmin || <super-admin-email-match>` — preserving genuine admin status (however it was actually granted) while making it impossible for any client payload to introduce or change it. Applies identically whether the caller is creating a new profile or updating an existing one (a brand-new row has no existing `isAdmin`, so it correctly defaults to `false` unless the super-admin email).
+- **New:** `POST /api/admin/users/suspend` — `verifyUser()`-gated, admin status derived cryptographically (never client-supplied), fetches the target row server-side (independent target-user authorization, not trusting anything about the target beyond its id), blocks the super-admin account as a target, performs the mutation via `backendSupabase`, writes an `admin_audit_logs` entry using `verified.uid`/`verified.email` (never a client header).
+- **New:** `POST /api/admin/users/delete` — same authorization pattern. Cascades: every product the target owns (reusing `deleteProductFromBackend`, which also handles Cloudinary asset cleanup and cache invalidation — better coverage than the old client version had), reviews where the target is buyer or seller, chats/messages involving the target, the store-name reservation, then the user row itself. Audit-logged the same way, including the deleted-product count.
+- Both new endpoints modeled directly on `/api/admin/accounts/security-hold` (already fixed earlier this session for the identical client-supplied-audit-header issue) — that endpoint is the correct reference pattern this whole codebase should follow for admin actions, and now three endpoints do.
+
+**`src/context/AppContext.tsx`:**
+- `adminDeleteUserProfile()` and `adminToggleUserSuspension()` gutted of their direct-Supabase cascade/write logic. The client-side `isSuperAdmin`/email checks are *retained* — but now purely as fast UX rejection (avoid a pointless network round-trip for an obviously-unauthorized click), never as the actual authorization boundary. Both now call their respective new endpoints and only touch local React state/`localStorage` cache after a confirmed server success.
+- `verifyAdminPIN()`: removed the hardcoded `'2330'` fallback that previously worked regardless of `VITE_ADMIN_PIN`'s configured value. Comparison against `VITE_ADMIN_PIN` itself is retained (per instruction, not replaced with a new client-side secret) — but is now explicitly documented in-code as UX friction only, never a substitute for server-side authorization. This doesn't change behavior for `adminDeleteUserProfile`/`adminToggleUserSuspension` specifically (neither ever checked `isAdminSessionVerified`), but closes a real, independent gap for whatever *does* rely on it (e.g. `sendWelcomeEmailToAll`'s client-side gate).
+
+**`src/dbAdapter.ts`:**
+- `'isAdmin'` removed from `TABLE_COLUMNS.users` — the write-allow-list every client-side `setDoc`/`updateDoc` into the `users` table is filtered through. This closes the *original* §12.3 direct-Supabase vector as defense-in-depth, independent of the `/api/users/sync` fix and independent of RLS's current disabled state. Reads are unaffected (`isAdmin` still returns normally everywhere it's read — this only blocks it from ever appearing in a write payload). Verified this doesn't regress the super-admin's own account: their `isAdmin` status is separately guaranteed both by `transformFromSupabase`'s read-time force (already existed) and by `/api/users/sync`'s own super-admin-email auto-grant (already existed, now the only path).
+
+### 13.4 Repository-wide search results (as requested)
+
+Searched every `currentUser?.isAdmin` / `currentUser.isAdmin` / `isSuperAdmin` / `isAdminUser` reference in `AppContext.tsx` (18 distinct sites) and every `isAdmin`-related line in `server.ts` (40+ sites). Findings beyond the two functions already fixed:
+
+- **`AppContext.tsx:3618-3634`** (`updateProduct`'s optimistic local check) and **`:3924-3925`** (a similar local gate) — confirmed **not vulnerable**: these are client-side-only *optimism* for immediate UI feedback; the actual product mutation always also goes through `/api/products/sync`, whose own admin check correctly uses `verifyUser()`'s cryptographic identity, not anything client-supplied. No fix needed.
+- **`AppContext.tsx:2461`** (CEO-support-chat live-read subscription) — same client-trust weakness (gated by `currentUser.isAdmin && isAdminSessionVerified`, both spoofable pre-fix, and even now the PIN gate is still client-side), but it's a **read**, not a write, of a narrow, already-flagged-in-its-own-comment feature ("Flagged for a dedicated support-ticket design in a future phase" — this was a known, accepted trade-off already, not a new discovery). Not fixed in this pass — read-only exposure of support-chat contents to a self-promoted admin is a real residual risk, but it's strictly narrower than the write-access chain this P0 closed, and the `isAdmin`-poisoning route into it is now closed (an attacker can no longer poison their own `isAdmin` via `/api/users/sync`, and the direct-Supabase route is closed too) — so **this specific read gate is not currently exploitable through the same chain anymore**, though it remains client-side-only as a design matter.
+- **`AppContext.tsx:5118`, `sendWelcomeEmailToAll`** — checks `currentUser.isAdmin && isAdminSessionVerified` client-side, then calls `POST /api/send-welcome-email` **per target user**. Checked that server endpoint (`server.ts:5537`): **it has no authentication check at all** — not even `verifyUser()`, let alone an admin check. This is a *different* class of bug (missing auth entirely, not a client-trust issue) — any actor, authenticated or not, can already call it directly with an arbitrary `{email, username}` and trigger a real Brevo-sent welcome email. Rate-limited (10/min), Brevo-cost/reputation/spam-abuse risk rather than a data-authorization one. **Flagged, not fixed** — out of this P0's scope (self-promotion → account deletion/suspension), but a real finding from the requested repo-wide search.
+- **`AppContext.tsx` lines 1306, 1433, 2946`** (`isAdmin: isSuperAdmin ? true : undefined` in the signup/account-creation flow) — these client-side writes are now silently stripped by the `dbAdapter.ts` fix (§13.3) regardless of what they compute, so they're inert. Not removed from the source in this pass (harmless dead value now, not worth the diff noise in a focused security commit) — worth a cleanup pass later, not a risk.
+- **`server.ts` — every other `isAdmin` reference** (`/api/products/*`, `/api/verify-payment`, `/api/admin/impersonate/*`, `/api/admin/accounts/security-hold`, `/api/users/list`, etc.) traced and confirmed to derive `isAdmin` exclusively from `verifyUser()`'s return value (cryptographic) or, in `/api/users/list`'s narrow case, from the row's `email` matching the hardcoded super-admin address for *display* purposes only (not an authorization decision) — consistent with the "sound all along" conclusion in §13.1.
+
+**Confirmed NOT fixed in this pass, same vulnerability class, different field:** `/api/users/sync` also writes `isSuspended: user.isSuspended === true` directly from the client body — meaning, independent of the isAdmin issue, a suspended user could currently un-suspend themselves via the same endpoint (self-serve bypass of a moderation action). This wasn't part of the requested P0 scope (which was specifically the self-promotion → deletion/suspension chain) and is flagged here rather than fixed, to keep this security commit narrowly scoped and reviewable. Recommend a follow-up fix of the identical shape (preserve existing DB value, never trust the client body) the next time `/api/users/sync` is touched.
+
+### 13.5 Tests performed
+
+No test framework exists in this repository (checked: no jest/vitest/mocha config, no `.test.`/`.spec.` files, `package.json`'s only check script is `tsc --noEmit`). Given the severity and time constraints of a P0 fix, standing up a full testing framework was judged out of scope for this commit (real, but separate, infrastructure work) — instead:
+
+**Executed against a local dev server** (`npm run dev`, real Firebase Admin SDK + real production Supabase connection, but only rejection-path requests that never reach a mutating code path):
+| Test | Result |
+|---|---|
+| `POST /api/admin/users/delete`, no Authorization header | `403 Unauthorized: Administrator privileges required.` ✓ |
+| `POST /api/admin/users/suspend`, no Authorization header | `403 Unauthorized: Administrator privileges required.` ✓ |
+| `POST /api/admin/users/delete`, forged/garbage Bearer token | `403` — confirms `verifyIdToken` is genuinely cryptographically validating, not just checking header presence ✓ |
+| `POST /api/users/sync`, forged Bearer token, body includes `isAdmin: true` (self-promotion attempt) | `401 Unauthorized: Authentication required` — rejected before ever reaching the isAdmin-handling logic ✓ |
+| `npm run build` (the actual production build pipeline — Vite client bundle + esbuild server bundle) | Succeeded, 0 errors. Confirmed the new endpoints are present in the built `dist/server.cjs` ✓ |
+| `tsc --noEmit` | Clean, 0 errors, across all three changed files ✓ |
+
+**Verified by code review, not live execution** (no real Firebase test-user credentials available in this environment, and minting real tokens against the production Firebase project for test purposes was judged too close to "creating production side effects" to do autonomously):
+- "Legitimate admin can still perform intended operations" — traced the full code path for a real `verified.isAdmin === true` caller through both new endpoints; logic is straightforward and mirrors the already-live, already-working `security-hold` endpoint exactly.
+- "Normal (authenticated, non-admin) user cannot invoke admin deletion/suspension" — same code path, `isAdmin` false branch, returns 403. Not distinguished by live execution from the "no token at all" case tested above, since both hit the same `if (!verified || !isAdmin)` branch — a genuinely distinct real non-admin account would exercise identical code, so this is a low-risk inference, but it is an inference, not a measurement.
+- "Target-user authorization enforced" — both endpoints fetch the target row independently server-side and 404 if it doesn't exist; traced, not executed against a real target.
+- "Audit records identify the verified acting admin" — traced: both endpoints use `verified.uid`/`verified.email`, never a request header or body field, for `admin_user_id`/`admin_email`. Not confirmed by inspecting a real inserted row (would require a real admin token to trigger).
+
+**Recommended follow-up** (not blocking this fix, but worth doing before relying on this indefinitely): set up a minimal test harness using the Firebase Auth emulator (avoids any production side effects entirely) to cover the untested cases above with real assertions instead of code-review inference.
+
+### 13.6 Remaining risks after this fix
+
+- **RLS is still disabled** — the broader migration (§1-11) is entirely unaffected by this fix and remains `BLOCKED_APPROVAL`. This fix closed one specific, severe chain; it did not touch the underlying RLS gap.
+- **`isSuspended` self-serve bypass via `/api/users/sync`** — same vulnerability shape as `isAdmin` had, not fixed (§13.4).
+- **`/api/send-welcome-email` has no authentication at all** — separate, lower-severity (abuse/cost, not data authorization), not fixed (§13.4).
+- **CEO-support-chat read gate remains client-side-only** — narrower now (the specific poisoning route is closed) but still not a real server-verified gate on its own terms (§13.4).
+- **`admin_audit_logs`/`account_deletion_audits` RLS status** — still unverified (unchanged from §11/§12.6).
+- **`resetChats` reachability** — still unresolved (unchanged from §11/§12.6).
+- **The admin PIN (`VITE_ADMIN_PIN`) is still a client-bundled value** — no longer has a hardcoded universal bypass, but it was never a real secret to begin with (anything shipped to the client isn't). This is fine *only* because nothing privileged is allowed to treat PIN verification as authorization anymore — worth keeping that invariant true for any future admin feature.
+
+### 13.7 Is this P0 actually closed?
+
+**Yes, for the specific chain described in the task**: self-promotion via a client-writable `isAdmin` (both the direct-Supabase route and, more importantly, the `/api/users/sync` route that didn't even need RLS to be off) leading to unauthorized account deletion or suspension. Both endpoints now independently re-verify admin status cryptographically server-side, matching the pattern already proven correct elsewhere in this codebase (`adminToggleSecurityHold`). Verified by a combination of live rejection-path testing, a full production build, and careful code-path tracing for the cases that couldn't be safely tested live.
+
+**No, in the sense that this is one closed chain among several open findings** documented across this file (§11, §12.6, §13.4, §13.6) — RLS remains disabled, `isSuspended` has an analogous unfixed gap, and the welcome-email endpoint has no auth at all. None of those were in scope for this specific P0.
+
+---
+
 ## Summary for the handoff
 
-Nothing was changed. This document is the complete map requested, now including a second pass that found a more severe, distinct issue: a real privilege-escalation chain (§12.3) allowing any authenticated-to-Supabase actor to grant themselves admin rights and then hard-delete or suspend any other user's account, via two specific `AppContext.tsx` functions that skip the server-round-trip pattern used correctly elsewhere in the same file. This is fixable independently of the broader RLS re-enablement work (§9's phased plan), and arguably should be prioritized ahead of it given the severity — that's Vincent's call. The next decision is Vincent's: approve Phase 1 of the RLS migration (lowest-risk, already has APIs), commission the still-open §11/§12.6 unknowns, and/or prioritize the §12.3 privilege-escalation fix specifically.
+The self-promotion → admin-deletion/suspension chain (§12.3) is fixed and verified to the extent possible without a live test-token infrastructure (§13.5-13.7). Two new server endpoints (`/api/admin/users/suspend`, `/api/admin/users/delete`) and one server-side fix (`/api/users/sync`'s `isAdmin` handling) close it; `dbAdapter.ts` closes the original direct-Supabase route as defense-in-depth. A repo-wide search for the same trust pattern surfaced two more findings (`isSuspended`'s identical gap in `/api/users/sync`, and `/api/send-welcome-email`'s total lack of authentication) that are documented but not fixed, staying within this task's explicit scope. RLS itself remains disabled and `BLOCKED_APPROVAL`, unaffected by this fix — the broader migration plan in §1-11 is still the next major decision point for Vincent.

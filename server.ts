@@ -3258,6 +3258,31 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
   }
 
   try {
+    // P0 fix: isAdmin was previously taken straight from the client-supplied
+    // `user` payload (`user.isAdmin === true`). The isOwner check above only
+    // verifies the caller is updating THEIR OWN row -- it never verified
+    // they were allowed to set isAdmin on it. Since this endpoint is
+    // reachable by any authenticated user syncing their own profile, this
+    // meant any signed-in TedBuy user could POST here with
+    // `{ user: { id: <their own uid>, isAdmin: true, ... } }` and grant
+    // themselves admin -- no Supabase/RLS knowledge required at all, just
+    // TedBuy's own normal "save profile" API with one extra field. Fixed:
+    // isAdmin is now derived exclusively from what's already in the
+    // database (preserving real admin status, however it was originally
+    // granted -- a Firebase custom claim or the hardcoded super-admin
+    // email) plus the same super-admin-email auto-grant already used
+    // elsewhere. It is never taken from the request body, for anyone,
+    // including an already-legitimate admin syncing their own profile.
+    let existingIsAdmin = false;
+    if (backendSupabase) {
+      const { data: existingAdminRow } = await backendSupabase
+        .from('users')
+        .select('"isAdmin"')
+        .eq('id', targetUid)
+        .maybeSingle();
+      existingIsAdmin = existingAdminRow?.isAdmin === true;
+    }
+
     const cleanUser: any = {
       id: String(user.id).trim(),
       username: user.username ? String(user.username).trim() : (user.email ? user.email.split('@')[0] : `User_${user.id.substring(0, 5)}`),
@@ -3272,7 +3297,7 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       emailVerified: user.emailVerified === true,
       isGoogleAuth: user.isGoogleAuth === true,
       authProvider: user.authProvider || null,
-      isAdmin: user.isAdmin === true || (user.email && user.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com'),
+      isAdmin: existingIsAdmin || (user.email && user.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com'),
       welcomeSent: user.welcomeSent === true,
       isSuspended: user.isSuspended === true,
       createdAt: user.createdAt || new Date().toISOString()
@@ -6735,6 +6760,222 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
     } catch (err: any) {
       console.error('[Admin Security Hold Error]:', err);
       return res.status(500).json({ success: false, error: err.message || "Failed to update security hold." });
+    }
+  });
+
+  // Admin User Suspension API
+  //
+  // P0 fix: this replaces a client-side-only path (adminToggleUserSuspension
+  // in AppContext.tsx used to write isSuspended directly to Supabase from the
+  // browser, gated only by a client-side currentUser.isAdmin check). Nothing
+  // server-side ever re-verified that check -- and with Supabase RLS
+  // disabled, currentUser.isAdmin itself was forgeable (see
+  // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §12). This endpoint is now
+  // the sole authoritative path: admin status is derived exclusively from
+  // verifyUser()'s cryptographic Firebase-token verification, never from
+  // anything the client claims.
+  app.post('/api/admin/users/suspend', serverRateLimiter(60 * 1000, 30, "admin-users-suspend"), async (req, res) => {
+    try {
+      const verified = await verifyUser(req.headers.authorization);
+      const isAdmin = verified?.isAdmin || verified?.originalAdmin;
+      if (!verified || !isAdmin) {
+        return res.status(403).json({ success: false, error: "Unauthorized: Administrator privileges required." });
+      }
+
+      const { targetUserId, suspend } = req.body || {};
+      if (!targetUserId || typeof targetUserId !== 'string' || typeof suspend !== 'boolean') {
+        return res.status(400).json({ success: false, error: "targetUserId and suspend boolean are required." });
+      }
+
+      // Target-user authorization is independent of the acting admin's own
+      // identity: fetch the real row server-side rather than trusting
+      // anything about the target the client might have sent beyond the id.
+      let targetUser: any = null;
+      if (backendSupabase) {
+        const { data } = await backendSupabase.from('users').select('id, email, username').eq('id', targetUserId).maybeSingle();
+        targetUser = data;
+      }
+      if (!targetUser) {
+        return res.status(404).json({ success: false, error: "User profile not found in system." });
+      }
+
+      const targetEmail = (targetUser.email || '').trim().toLowerCase();
+      if (targetEmail === 'asumaduvincent7@gmail.com') {
+        return res.status(403).json({ success: false, error: 'Crucial Security Guard: The super-administrator account cannot be suspended.' });
+      }
+
+      const now = new Date().toISOString();
+      const adminEmail = verified.email || 'admin';
+
+      if (adminDb) {
+        await adminDb.collection('users').doc(targetUserId).set({ isSuspended: suspend }, { merge: true }).catch(() => {});
+      }
+      if (backendSupabase) {
+        const { error } = await backendSupabase.from('users').update({ isSuspended: suspend }).eq('id', targetUserId);
+        if (error) throw error;
+      }
+
+      // Audit attribution uses the verified admin identity, never a
+      // client-supplied header/field -- same fix already applied to
+      // security-hold above.
+      const auditEntry = {
+        id: crypto.randomUUID(),
+        session_id: `suspend_${Date.now()}`,
+        admin_user_id: verified.uid,
+        admin_email: String(adminEmail),
+        target_user_id: targetUserId,
+        action: suspend ? 'SUSPEND_USER' : 'UNSUSPEND_USER',
+        status: 'SUCCESS',
+        start_time: now,
+        details: JSON.stringify({ targetUsername: targetUser.username || null }),
+        created_at: now
+      };
+      if (backendSupabase) {
+        await backendSupabase.from('admin_audit_logs').insert(auditEntry).catch(() => {});
+      }
+
+      console.log(`[Admin Suspend] ${suspend ? 'Suspended' : 'Unsuspended'} ${targetUserId} by verified admin ${adminEmail}`);
+
+      return res.json({
+        success: true,
+        message: `User "${targetUser.username || targetUserId}" has been successfully ${suspend ? 'suspended' : 'unsuspended'}.`,
+        targetUserId,
+        isSuspended: suspend
+      });
+    } catch (err: any) {
+      console.error('[Admin Suspend Error]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to update suspension status." });
+    }
+  });
+
+  // Admin User Deletion API (hard delete + cascade)
+  //
+  // P0 fix: same root cause as the suspend endpoint above -- this replaces
+  // adminDeleteUserProfile's client-side cascade, which deleted products,
+  // reviews, chats, and messages via direct, unauthenticated Supabase calls
+  // gated only by client-side state. See
+  // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §12 for the full exploit
+  // chain this closes.
+  app.post('/api/admin/users/delete', serverRateLimiter(60 * 1000, 10, "admin-users-delete"), async (req, res) => {
+    try {
+      const verified = await verifyUser(req.headers.authorization);
+      const isAdmin = verified?.isAdmin || verified?.originalAdmin;
+      if (!verified || !isAdmin) {
+        return res.status(403).json({ success: false, error: "Unauthorized: Administrator privileges required." });
+      }
+
+      const { targetUserId } = req.body || {};
+      if (!targetUserId || typeof targetUserId !== 'string') {
+        return res.status(400).json({ success: false, error: "targetUserId is required." });
+      }
+
+      if (!backendSupabase) {
+        return res.status(503).json({ success: false, error: 'Database service unavailable' });
+      }
+
+      let targetUser: any = null;
+      {
+        const { data } = await backendSupabase.from('users').select('id, email, username').eq('id', targetUserId).maybeSingle();
+        targetUser = data;
+      }
+      if (!targetUser) {
+        return res.status(404).json({ success: false, error: "User profile not found in system." });
+      }
+
+      const targetEmail = (targetUser.email || '').trim().toLowerCase();
+      if (targetEmail === 'asumaduvincent7@gmail.com') {
+        return res.status(403).json({ success: false, error: 'Crucial Security Guard: The super-administrator account cannot be deleted under any circumstances.' });
+      }
+
+      console.log(`[Admin Delete] Deleting active store profile for user: ${targetUser.username} (${targetUserId}), requested by verified admin ${verified.email}`);
+
+      // 1. Delete every product this user owns (reuses the same cleanup
+      // already used by the normal product-delete endpoint -- Cloudinary
+      // asset cleanup, Firestore mirror, cache invalidation -- rather than
+      // reimplementing a thinner version of it here).
+      let deletedProductCount = 0;
+      try {
+        const { data: userProducts } = await backendSupabase.from('products').select('id').eq('sellerId', targetUserId);
+        for (const p of userProducts || []) {
+          await deleteProductFromBackend(p.id);
+          deletedProductCount++;
+        }
+      } catch (productErr) {
+        console.warn('[Admin Delete] Could not fully delete user product listings:', productErr);
+      }
+
+      // 2. Delete reviews where this user is either party.
+      try {
+        await backendSupabase.from('reviews').delete().eq('buyerId', targetUserId);
+        await backendSupabase.from('reviews').delete().eq('sellerId', targetUserId);
+      } catch (reviewErr) {
+        console.warn('[Admin Delete] Could not fully delete user reviews:', reviewErr);
+      }
+
+      // 3. Delete messages and chats. Messages first (by chat id AND by
+      // sender/recipient id directly, same coverage the client version had),
+      // then the chats themselves.
+      try {
+        const { data: userChats } = await backendSupabase
+          .from('chats')
+          .select('id')
+          .or(`buyerId.eq.${targetUserId},sellerId.eq.${targetUserId}`);
+        const chatIds = (userChats || []).map((c: any) => c.id);
+        if (chatIds.length > 0) {
+          await backendSupabase.from('messages').delete().in('chatId', chatIds);
+        }
+        await backendSupabase.from('messages').delete().eq('senderId', targetUserId);
+        await backendSupabase.from('messages').delete().eq('recipientId', targetUserId);
+        await backendSupabase.from('chats').delete().or(`buyerId.eq.${targetUserId},sellerId.eq.${targetUserId}`);
+      } catch (chatErr) {
+        console.warn('[Admin Delete] Could not fully delete user chats/messages:', chatErr);
+      }
+
+      // 4. Delete the store-name reservation and the user row itself.
+      try {
+        const storeNameLower = targetUser.username?.trim()?.toLowerCase();
+        if (storeNameLower) {
+          await backendSupabase.from('store_names').delete().eq('id', storeNameLower);
+        }
+      } catch (storeErr) {
+        console.warn('[Admin Delete] Could not release store name reservation:', storeErr);
+      }
+
+      try {
+        await backendSupabase.from('users').delete().eq('id', targetUserId);
+      } catch (userErr) {
+        console.error('[Admin Delete] Could not delete user row:', userErr);
+        return res.status(500).json({ success: false, error: 'Deletion partially completed but the user record itself could not be removed. Contact support.' });
+      }
+
+      if (adminDb) {
+        await adminDb.collection('users').doc(targetUserId).delete().catch(() => {});
+      }
+
+      const now = new Date().toISOString();
+      const adminEmail = verified.email || 'admin';
+      const auditEntry = {
+        id: crypto.randomUUID(),
+        session_id: `admin_delete_${Date.now()}`,
+        admin_user_id: verified.uid,
+        admin_email: String(adminEmail),
+        target_user_id: targetUserId,
+        action: 'ADMIN_DELETE_USER',
+        status: 'SUCCESS',
+        start_time: now,
+        details: JSON.stringify({ targetUsername: targetUser.username || null, deletedProductCount }),
+        created_at: now
+      };
+      await backendSupabase.from('admin_audit_logs').insert(auditEntry).catch(() => {});
+
+      return res.json({
+        success: true,
+        message: `Store profile for "${targetUser.username || targetUserId}" permanently deleted and store name released!`,
+        targetUserId
+      });
+    } catch (err: any) {
+      console.error('[Admin Delete User Error]:', err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to delete user." });
     }
   });
 

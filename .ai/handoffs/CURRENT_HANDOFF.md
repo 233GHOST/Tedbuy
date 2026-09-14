@@ -1,6 +1,12 @@
 # Current Handoff Status
 
-**STATUS: BLOCKED_APPROVAL**
+**P0 CLOSED (this specific chain) — the self-promotion → admin account deletion/suspension privilege escalation described below has been fixed, tested to the extent safely possible, and committed.** Full detail: `.ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md` §13. Summary: `POST /api/users/sync` previously let any authenticated user set their own `isAdmin` to `true` via a normal profile-save request (a bug independent of RLS); combined with two `AppContext.tsx` functions that never re-verified admin status server-side, this allowed full account deletion/suspension of any user. Fixed with two new server endpoints (`/api/admin/users/suspend`, `/api/admin/users/delete`, both `verifyUser()`-gated and modeled on the already-correct `security-hold` pattern), a server-side fix to stop `/api/users/sync` from ever trusting client-supplied `isAdmin`, and a `dbAdapter.ts` write-allowlist fix closing the original direct-Supabase route too. Two related-but-out-of-scope gaps were found and flagged, not fixed: `isSuspended` has the same self-serve-bypass shape in `/api/users/sync`, and `/api/send-welcome-email` has no authentication at all.
+
+**Everything else below remains open and BLOCKED_APPROVAL — this fix did not touch RLS.**
+
+---
+
+**STATUS: BLOCKED_APPROVAL** (for the broader Supabase RLS migration — §1-11 of the audit doc)
 
 **Reason:** Production Supabase RLS is confirmed disabled (verified by Vincent directly in the Supabase dashboard). Direct client access must be fully mapped before any security architecture change (re-enabling RLS, changing grants/policies, migrating write paths) is made. No production database, RLS, grants, policies, or `dbAdapter.ts`/`server.ts` code has been touched.
 
