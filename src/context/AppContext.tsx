@@ -5005,12 +5005,32 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
     // --- PERSIST TO DATABASE ---
     try {
-      // Direct standalone setDoc write to user's document in the database
-      await setDoc(doc('users', currentUser.id), cleanObject(updatedUser), { merge: true });
-      console.log('[Profile Update] Direct database user document write succeeded for UID:', currentUser.id);
-
-      // Server backend API sync for guaranteed Supabase database persistence
-      syncUserToServer(updatedUser);
+      // Security fix (RLS-migration Phase 1, checkpoint 7): this used to be
+      // a direct `setDoc(doc('users', currentUser.id), ..., { merge: true
+      // })` -- dbAdapter's generic write path has no per-row ownership
+      // check, so a raw Supabase caller could write to ANY user's row, not
+      // just their own. The parallel `syncUserToServer` call right below it
+      // already does the real, ownership-checked persist (`targetUid ===
+      // verified.uid`, server.ts's /api/users/sync) -- but that helper
+      // swallows its own errors internally (by design, for its other
+      // fire-and-forget callers), so simply deleting the direct write and
+      // keeping `syncUserToServer(updatedUser)` as-is would mean a real
+      // persist failure silently stops reaching this function's own
+      // `catch (err) { throw err }` below, and the user would see "saved"
+      // even when nothing was. Calls POST /api/users/sync directly instead
+      // (same shape as toggleSaveProduct's checkpoint 5 fix) so failures
+      // still propagate correctly.
+      const authHeaders = await getAuthHeader();
+      const syncRes = await fetch('/api/users/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ user: updatedUser })
+      });
+      const syncJson = await syncRes.json().catch(() => ({}));
+      if (!syncJson.success) {
+        throw new Error(syncJson.error || 'Failed to save profile.');
+      }
+      console.log('[Profile Update] Server-authoritative profile sync succeeded for UID:', currentUser.id);
 
       // Best-effort update of store name index
       if (profileData.username !== undefined && newStoreNameLower !== currentStoreNameLower) {
