@@ -1368,8 +1368,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
 
               if (Object.keys(updates).length > 0) {
+                // Security fix (RLS-migration Phase 1, checkpoint 9): this
+                // used to be a direct, unauthenticated `updateDoc` --
+                // dbAdapter's generic write path has no per-row ownership
+                // check. This always targets the currently-authenticated
+                // user's own row (userRef = doc('users', firebaseUser.uid),
+                // a real Firebase session by definition here), so migrated
+                // to POST /api/users/sync -- sending the full merged
+                // profile (dbData + these updates), since that endpoint
+                // rebuilds the row from whatever's in the request body
+                // rather than patching it.
                 try {
-                  await updateDoc(userRef, updates);
+                  const authHeaders = await getAuthHeader();
+                  const syncRes = await fetch('/api/users/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...authHeaders },
+                    body: JSON.stringify({ user: { ...dbData, ...updates, id: actualUserId } })
+                  });
+                  const syncJson = await syncRes.json().catch(() => ({}));
+                  if (!syncJson.success) {
+                    console.warn('Could not sync auth metadata to the database:', syncJson.error);
+                  }
                 } catch (err) {
                   console.warn('Could not sync auth metadata to the database (offline/sandbox):', err);
                 }
@@ -1454,17 +1473,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
               newUser.username = uniqueUsername;
 
+              // Security fix (RLS-migration Phase 1, checkpoint 9): this
+              // used to be a direct, unauthenticated writeBatch --
+              // dbAdapter's generic write path has no per-row ownership
+              // check, so a raw Supabase caller could write to ANY user's
+              // row and claim ANY username's store_names reservation, not
+              // just their own. Unlike registerUser's sandbox-fallback
+              // branch, Google Sign-In always produces a real, genuine
+              // Firebase Auth session (there is no equivalent "auth
+              // disabled" degraded mode for it), so this always has a real
+              // identity to verify -- migrated to POST /api/users/sync,
+              // which already handles both the users upsert AND the
+              // store_names reservation server-side in one call (confirmed
+              // at checkpoint 7).
               try {
-                const batch = writeBatch(null);
-                batch.set(userRef, cleanObject(newUser));
-                batch.set(doc('storeNames', uniqueStoreNameLower), {
-                  userId: firebaseUser.uid,
-                  username: uniqueUsername
+                const authHeaders = await getAuthHeader();
+                const syncRes = await fetch('/api/users/sync', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', ...authHeaders },
+                  body: JSON.stringify({ user: newUser })
                 });
-                await batch.commit();
-                console.log(`[Google Signup] Atomically created user profile and reserved store name: "${uniqueStoreNameLower}"`);
+                const syncJson = await syncRes.json().catch(() => ({}));
+                if (!syncJson.success) {
+                  throw new Error(syncJson.error || 'Failed to persist Google sign-up profile.');
+                }
+                console.log(`[Google Signup] Server-authoritative profile sync succeeded, store name reserved: "${uniqueStoreNameLower}"`);
               } catch (batchErr) {
-                console.warn('[Google Signup] Database profile batch write warning (user account created locally):', batchErr);
+                console.warn('[Google Signup] Server-authoritative profile sync warning (user account created locally):', batchErr);
               }
 
               if (active) {
@@ -2625,6 +2660,16 @@ CEO, Tedbuy Inc`;
     try {
       let uid: string;
       let newUser: User;
+      // Tracks which branch below actually ran -- the real Firebase branch
+      // has a genuine, verifiable identity by the time persistence happens
+      // (Firebase Auth signs the new user in automatically on successful
+      // createUserWithEmailAndPassword); the sandbox-fallback branch
+      // (engaged only when the Firebase project's email/password provider
+      // is disabled) has no real Firebase identity at all -- there is
+      // nothing to verify server-side, so it can never be migrated onto an
+      // authenticated endpoint the way the real branch can. See the
+      // persistence step below for how this is used.
+      let isLocalSandboxFallback = false;
 
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
@@ -2669,28 +2714,62 @@ CEO, Tedbuy Inc`;
           };
           
           safeLocalStorage.setItem('tedbuy_simulated_mode', 'true');
+          isLocalSandboxFallback = true;
         } else {
           throw authErrorDetail;
         }
       }
 
-      // Proactively sync user profile and store name mapping atomically
-      try {
-        const batch = writeBatch(null);
-        batch.set(doc('users', uid), cleanObject(newUser));
-        const storeNameLower = username.trim().toLowerCase();
-        batch.set(doc('storeNames', storeNameLower), {
-          userId: uid,
-          username: username.trim()
-        });
-        await batch.commit();
-        console.log(`[Registration] Saved user profile and reserved store name: "${storeNameLower}"`);
-      } catch (dbErr) {
-        console.warn('Fitted profile registry to database (failed/local simulation only):', dbErr);
-        // Direct fallback
+      // Security fix (RLS-migration Phase 1, checkpoint 9): the real-
+      // Firebase-user branch above signs the new user in automatically
+      // (Firebase Auth's own behavior on a successful
+      // createUserWithEmailAndPassword), so by this point there IS a real,
+      // verifiable identity -- persisted via POST /api/users/sync instead
+      // of a direct, unauthenticated writeBatch (dbAdapter's generic write
+      // path has no per-row ownership check; a raw Supabase caller could
+      // otherwise write to ANY user's row and claim ANY username's
+      // store_names reservation, not just their own). That endpoint
+      // already handles both the users upsert AND the store_names
+      // reservation server-side in one call (confirmed at checkpoint 7).
+      // The sandbox-fallback branch is NOT migrated: it has no real
+      // Firebase identity at all (email/password auth is disabled for the
+      // whole project in that case), so there is nothing for
+      // verifyUser() to verify -- requiring the authenticated endpoint
+      // here would simply break the fallback outright rather than secure
+      // it. It keeps its original direct-write behavior, unchanged.
+      if (isLocalSandboxFallback) {
         try {
-          await setDoc(doc('users', uid), cleanObject(newUser));
-        } catch (_) {}
+          const batch = writeBatch(null);
+          batch.set(doc('users', uid), cleanObject(newUser));
+          const storeNameLower = username.trim().toLowerCase();
+          batch.set(doc('storeNames', storeNameLower), {
+            userId: uid,
+            username: username.trim()
+          });
+          await batch.commit();
+          console.log(`[Registration] Saved sandbox-fallback user profile and reserved store name: "${storeNameLower}"`);
+        } catch (dbErr) {
+          console.warn('Fitted profile registry to database (failed/local simulation only):', dbErr);
+          try {
+            await setDoc(doc('users', uid), cleanObject(newUser));
+          } catch (_) {}
+        }
+      } else {
+        try {
+          const authHeaders = await getAuthHeader();
+          const syncRes = await fetch('/api/users/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ user: newUser })
+          });
+          const syncJson = await syncRes.json().catch(() => ({}));
+          if (!syncJson.success) {
+            throw new Error(syncJson.error || 'Failed to persist registered profile.');
+          }
+          console.log(`[Registration] Server-authoritative profile sync succeeded, store name reserved for UID: ${uid}`);
+        } catch (dbErr) {
+          console.warn('[Registration] Server-authoritative profile sync failed:', dbErr);
+        }
       }
 
       // Back up to localized database backups
@@ -3006,8 +3085,28 @@ CEO, Tedbuy Inc`;
           emailVerified: firebaseUser.emailVerified || false,
           isAdmin: isSuperAdmin ? true : undefined
         };
+        // Security fix (RLS-migration Phase 1, checkpoint 9): this used to
+        // be a direct, unauthenticated `setDoc` -- dbAdapter's generic
+        // write path has no per-row ownership check at all. Login always
+        // requires a real, successfully-authenticated Firebase session by
+        // this point (unlike registerUser's sandbox-fallback branch), so
+        // there's a real identity to verify -- migrated to POST
+        // /api/users/sync, which also reserves this username in
+        // store_names as a side effect of its normal behavior (this
+        // minimal-fallback-profile path previously never did, a
+        // pre-existing gap this migration incidentally closes rather than
+        // a deliberate separate change).
         try {
-          await setDoc(doc('users', firebaseUser.uid), cleanObject(loggedInUser), { merge: true });
+          const authHeaders = await getAuthHeader();
+          const syncRes = await fetch('/api/users/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ user: loggedInUser })
+          });
+          const syncJson = await syncRes.json().catch(() => ({}));
+          if (!syncJson.success) {
+            throw new Error(syncJson.error || 'Failed to persist initial user document.');
+          }
         } catch (writeErr) {
           console.warn('[loginUser] Failed to persist initial user document to the database:', writeErr);
         }
@@ -3397,8 +3496,25 @@ CEO, Tedbuy Inc`;
       const freshUser = auth.currentUser;
       const isVerified = freshUser?.emailVerified || false;
       if (isVerified && currentUser) {
-        const userRef = doc('users', currentUser.id);
-        await updateDoc(userRef, { emailVerified: true });
+        // Security fix (RLS-migration Phase 1, checkpoint 9): this used to
+        // be a direct, unauthenticated `updateDoc` -- dbAdapter's generic
+        // write path has no per-row ownership check. Migrated to POST
+        // /api/users/sync, which doesn't even trust the client's
+        // emailVerified claim regardless -- it independently re-derives
+        // the real value from Firebase Admin SDK's own record server-side
+        // (see .ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md §0/§19 of the
+        // audit doc), so this is doubly safe: neither the write path nor
+        // the field's value is client-trusted anymore.
+        const authHeaders = await getAuthHeader();
+        const syncRes = await fetch('/api/users/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ user: { ...currentUser, emailVerified: true } })
+        });
+        const syncJson = await syncRes.json().catch(() => ({}));
+        if (!syncJson.success) {
+          throw new Error(syncJson.error || 'Failed to persist verification status.');
+        }
         setCurrentUserState(prev => prev ? { ...prev, emailVerified: true } : null);
         showToast("Success! Your email address has been verified. 🔒", "success");
       } else if (!isVerified) {
