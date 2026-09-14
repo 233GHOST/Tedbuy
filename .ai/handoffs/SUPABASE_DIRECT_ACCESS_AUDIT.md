@@ -362,6 +362,97 @@ No test framework exists in this repository (checked: no jest/vitest/mocha confi
 
 ---
 
+## 14. P1/P2/P3 REMEDIATION — isSuspended, send-welcome-email, repo-wide privileged-field sweep (IMPLEMENTED)
+
+Follow-up pass, same session. Priority 1 (isSuspended) and Priority 2 (send-welcome-email) were both confirmed vulnerable and fixed. Priority 3 (repo-wide sweep) surfaced one additional, unrelated real vulnerability (chat `tradeStatus`) that was also fixed, plus a full classification of every privilege-adjacent field found.
+
+### 14.1 Priority 1 — isSuspended (CONFIRMED VULNERABLE, FIXED)
+
+Traced every read and write path. Findings, mapped directly to the five questions asked:
+
+- **Can a normal user set their own `isSuspended=true`?** Technically yes, pre-fix — pointless self-harm, not a real vulnerability, but confirms the field was fully client-writable in both directions.
+- **Can they set `isSuspended=false`?** **Yes — this was the real vulnerability.** `POST /api/users/sync` wrote `isSuspended: user.isSuspended === true` straight from the request body (`server.ts:3302`, before this fix) — identical shape to the `isAdmin` bug in §13. Any suspended user could self-unsuspend with a normal profile-save call.
+- **Can they alter another user's suspension state?** Not via `/api/users/sync` (its `isOwner` check restricts writes to the caller's own row) — but **yes, via the direct-Supabase route**: `dbAdapter.ts`'s generic `setDoc`/`updateDoc` has no per-row ownership check at all (confirmed in the original audit, §2), and `isSuspended` was in the `users` write allow-list, so with RLS disabled a direct Supabase call could target any row, not just the caller's own.
+- **Bypass an existing suspension by manipulating profile-sync data?** Yes — exactly the `/api/users/sync` self-unsuspend vector above.
+- **Cause client state to disagree with the server's authoritative state?** This question exposed a deeper, separate architectural finding: **there is no server-side enforcement of `isSuspended` at all.** Checked every reference in `server.ts` — none exist outside the write paths themselves. `verifyUser()` never checks it. Suspension is enforced *entirely client-side*: `AppContext.tsx` reads the user's own doc on login/mount and forcibly signs out + shows a block screen if `isSuspended` is true (`AppContext.tsx:1562` and others). This means a suspended user's still-valid Firebase ID token continues to work against every API endpoint regardless of their suspension status — the block is a UI gate, not an access-control boundary. **This is real but out of scope for this fix** (the question asked was specifically about the field being client-writable/spoofable, which is now closed; whether suspension should also be enforced at the API layer is a separate architectural decision — flagged in §14.5, not fixed, since it requires a product decision about which endpoints a suspended user should be blocked from, not just a mechanical fix).
+
+**Fix**: identical treatment to `isAdmin`. `/api/users/sync` now fetches the existing `isSuspended` value alongside `isAdmin` (same query, one round trip) and never takes it from the request body. `dbAdapter.ts`'s `users` write allow-list no longer includes `isSuspended`. The only legitimate way to change it is now `POST /api/admin/users/suspend` (already built in §13, unaffected by this fix).
+
+### 14.2 Priority 2 — /api/send-welcome-email (CONFIRMED VULNERABLE, FIXED)
+
+Traced from every caller (`AppContext.tsx:2226` — post-signup welcome trigger; `AppContext.tsx:5156` — `sendWelcomeEmailToAll`, the admin bulk tool) through to the server. Findings:
+
+- **Authentication requirement (before fix): none.** Not even `verifyUser()`. Both real callers already sent a Bearer token — the server just never checked it.
+- **Authorization requirement (before fix): none.**
+- **Recipient source:** `req.body.email` — fully arbitrary, client-supplied, never validated against the caller's own identity.
+- **Arbitrary email addresses:** confirmed possible, trivially.
+- **Rate limiting:** yes, `serverRateLimiter(60*1000, 10, ...)` — bounds volume per rate-limiter key (IP-based, per the pattern used throughout this file) but doesn't require auth, so doesn't meaningfully bound a distributed abuser.
+- **Abuse/spam potential:** real. Anyone could trigger a genuine, TedBuy-branded, Brevo-sent "Welcome" email to any address — spam/phishing-adjacent (an unsolicited branded email that looks legitimate to the recipient) and a real cost/reputation vector against TedBuy's own Brevo account and sender deliverability.
+- **Account-enumeration potential:** none found — the handler never queried the users table to check if the email was already registered, so its response never varied in a way that would leak that information (this was true both before and after the fix, for the non-admin path).
+- **External email/API cost:** real — every call is a genuine Brevo API send.
+- **Still actively used:** yes, confirmed — both callers are live, current features (new-user welcome trigger, and the admin bulk-onboarding tool).
+- **Bonus finding:** a second, complete duplicate registration of this exact route existed 1,700+ lines later in the file (`server.ts`, was line 7276), with a different (older-looking) email template and its own partial rate-limiting/admin-bypass logic. Confirmed via Express's routing semantics (first matching handler always wins, no fallthrough) that this second handler was **dead, unreachable code** — it never ran for any real request. Removed as misleading dead code (308 lines) rather than fixed in place, since the first, now-corrected handler is the sole live implementation.
+
+**Severity classified as: real, externally-facing, but not a data-authorization breach** (no user data read or modified) — closer to an abuse/cost/reputation issue. The safe intended behavior was unambiguous (a welcome email should only ever go to the account it's actually welcoming), so per the task's own instruction this was fixed rather than merely documented.
+
+**Fix**: `verifyUser()` now required. A non-admin caller may only trigger their own welcome email — the recipient is validated against their own verified Firebase email (`verified.email`), never trusted from the body. An admin caller (the legitimate bulk-send feature) may target another user, but that target is looked up server-side by email against the real `users` table — never an arbitrary/unregistered address — and its real username is used rather than a client-supplied one.
+
+### 14.3 Priority 3 — repository-wide privileged-field sweep
+
+Every `users`-table column in `dbAdapter.ts`'s `TABLE_COLUMNS`, plus the equivalent fields on `products`/`chats` most resembling a permission/role/status flag, traced for actual authorization effect (not assumed from naming):
+
+| Field | Table | Classification | Evidence |
+|---|---|---|---|
+| `isAdmin` | users | Was dangerously client-controlled | Fixed in §13 |
+| `isSuspended` | users | Was dangerously client-controlled | Fixed in §14.1 |
+| `securityHold`, `securityHoldReason`, `securityHoldSetAt`, `securityHoldSetBy` | users | **Was dangerously client-controlled — fixed this pass** | Same shape as isAdmin/isSuspended: present in `dbAdapter.ts`'s write allow-list, but confirmed **no legitimate client code path ever wrote these** (only `POST /api/admin/accounts/security-hold`, server-side, does). A user under investigation could have self-cleared their own hold via a direct Supabase write, or — since dbAdapter has no per-row ownership check — potentially tampered with someone else's. Removed from the write allow-list; zero functional impact confirmed (nothing legitimate used this path). Not independently enforced server-side beyond the account-deletion flow's own check (`hasSecurityHold` at `server.ts:6432`) — same "read-only client trust, no API-layer enforcement" shape as isSuspended's deeper finding (§14.5), not fixed further here. |
+| `status`, `isDeleted`, `deletedAt`, `deletionRequestedAt` | users | **Was dangerously client-controlled — fixed this pass** | Same reasoning and same fix as securityHold above — confirmed no legitimate write path via dbAdapter, removed from the allow-list. A malicious direct write could otherwise have set `isDeleted`/`status` on **any** row (own or, since there's no ownership check, someone else's), which could be used to make another user's account falsely appear deleted, or to "undelete"/reactivate a row that was legitimately soft-deleted. |
+| `role` | users | **Safely client-editable** | Confirmed via full trace: never used for an authorization decision anywhere in `server.ts` — purely a self-descriptive buyer/seller/both classification, cosmetic. No fix needed. |
+| `emailVerified` | users | **Dangerously client-controlled — documented, NOT fixed this pass** | `/api/users/sync` still writes `emailVerified: user.emailVerified === true` directly from the client body. Traced every usage: never gates a real secret or cross-user action server-side (the one server-side "isVerified" computation found, `server.ts:2329`, ends its OR-chain with a literal `|| true`, making it unconditionally true regardless of this field — dead/cosmetic). The only real gate found is client-side UX (requiring email verification before revealing a seller's WhatsApp number). **Classified LOW severity** — self-only tampering, no cross-user or data-exposure risk, no real secret bypassed. **Not fixed**: the cleanest correct fix isn't "preserve from DB" (which could lock in a stale value) but deriving it from the Firebase ID token's own `email_verified` claim — `verifyUser()` doesn't currently capture that claim at all, so this would need a small extension to `VerifiedAuthUser`, which is more surface than the narrow, single-purpose fixes made elsewhere this session. Recommended as a well-scoped, low-risk follow-up, not done autonomously here to keep this pass's diff tightly scoped to confirmed, higher-severity findings. |
+| `isGoogleAuth`, `authProvider`, `welcomeSent`, `joinDate`, `photoUrl`, `bio`, `notificationPreferences`, `followingSellers`, `savedProductIds` | users | **Safely client-editable** | Traced: all are genuine self-service preference/metadata fields with no authorization role found anywhere. No fix needed. |
+| `isApproved` | products | **Effectively inert, not a real gate** | `server.ts:2810`: `isApproved: productData.isApproved !== false` — defaults true unless explicitly false, and no read path anywhere filters listings by this field. Not currently a real moderation boundary one way or the other. Not fixed (nothing to fix — it isn't doing anything either way); flagged in case a future feature intends to use it as a real moderation gate, since it currently isn't wired to one. |
+| `tradeStatus` | chats | **Was dangerously client-controlled — fixed this pass, found via this sweep, not originally in scope** | See §14.4 — a distinct, real fraud vector discovered while doing this systematic search, not a variant of the isAdmin/isSuspended pattern but the same root cause (dbAdapter's lack of ownership checks, RLS disabled). |
+| `deliveredBySeller`, `pickedUpByBuyer` | chats | **Not exploitable, pre-existing unrelated quirk** | Neither field is actually present in `dbAdapter.ts`'s `chats` write allow-list (confirmed) — meaning the old client code's attempt to write them via `updateDoc` was already being silently stripped by `filterTableColumns` before this session's fixes. Harmless (the fields are cosmetic flags, not gates), not a security issue, not touched. |
+| `boostStatus`, `boostPlan`, `boostPriority`, etc. | products | **Not evaluated this pass** | Boost activation already confirmed server-authoritative in the earlier security-audit pass (`/api/verify-payment`, uses `verified.uid`/real Paystack verification) — these product-table boost fields being in `dbAdapter`'s write allow-list wasn't re-examined for a parallel direct-write bypass in this pass. Flagged as **UNKNOWN / NEEDS INVESTIGATION** — a plausible next target for the same class of check (does a direct Supabase write let a seller boost their own listing for free, bypassing `/api/verify-payment` entirely?), not confirmed either way. |
+
+### 14.4 Bonus finding from the Priority 3 sweep — chat `tradeStatus` (CONFIRMED VULNERABLE, FIXED)
+
+Not an `isAdmin`-shaped field, but surfaced by the same systematic search and sharing the identical root cause (dbAdapter's lack of per-row ownership checks + RLS disabled). `markAsDelivered()`/`markAsPickedUp()` in `AppContext.tsx` wrote `tradeStatus` (`'delivered'` / `'completed'`) directly via `dbAdapter`'s `updateDoc`, with **zero verification that the caller was actually this chat's real seller/buyer**.
+
+This matters specifically because `POST /api/reviews/create` (audited and confirmed sound in §12.5) trusts a chat's `tradeStatus === 'completed'` as its proof that a genuine trade occurred before allowing a review. **Any user could therefore fabricate review eligibility**: start a chat with any seller (cheap, low-friction), directly set that chat's `tradeStatus` to `'completed'` via the unauthenticated dbAdapter path, then legitimately call the (otherwise well-built) reviews endpoint, which would accept the forged trade as real. This undermines the review-integrity system that §12.5 previously certified as sound — the review endpoint itself was never the weak link; the data it trusted was.
+
+**Discovered while confirming mobile/web parity**: mobile already had the correct implementation. `mobile/src/firebase.ts`'s `markAsDelivered`/`markAsPickedUp` call real server endpoints (`POST /api/chats/mark-delivered`, `POST /api/chats/mark-picked-up`) that already existed, are already `verifyUser()`-gated, and already independently verify the caller is genuinely the chat's seller (`chat.sellerId !== verified.uid → 403`) or buyer (`chat.buyerId !== verified.uid → 403`) respectively via `getChatIfParticipant`. Web simply never called them, maintaining its own parallel, insecure, direct-Supabase implementation instead.
+
+**Fix**: web's `markAsDelivered`/`markAsPickedUp` now call the same, already-correct, already-proven (via mobile) server endpoints. `dbAdapter.ts`'s `chats` write allow-list no longer includes `tradeStatus` — confirmed the only other write of this field (`/api/chats/start`'s initial `'pending'`) is already server-side (`server.ts:3688`), so this closes the client route with zero functional impact on legitimate chat creation.
+
+### 14.5 Tests performed (this pass)
+
+Same honesty standard as §13.5 — no test framework exists in this repo.
+
+**Executed against a local dev server** (rejection-path only, no mutating requests):
+| Test | Result |
+|---|---|
+| `POST /api/send-welcome-email`, no auth | `401` ✓ |
+| `POST /api/send-welcome-email`, forged token, arbitrary recipient | `401` (rejected before reaching recipient-validation logic) ✓ |
+| `POST /api/chats/mark-delivered`, no auth | `401` ✓ |
+| `POST /api/chats/mark-picked-up`, no auth | `401` ✓ |
+| `POST /api/users/sync`, forged token, `isSuspended: false` self-clear attempt | `401` ✓ |
+| `npm run build` | Succeeds, 0 errors |
+| `tsc --noEmit` | Clean, 0 errors |
+
+**Verified by code review, not live execution** (same limitation as §13.5 — no real Firebase test credentials available): a genuine non-admin authenticated user being correctly restricted to their own email in `/api/send-welcome-email`; a genuine chat participant successfully marking delivered/picked-up; a genuine non-participant being rejected by `getChatIfParticipant`; an admin successfully bulk-sending to a real registered user's email.
+
+### 14.6 Remaining risks after this pass
+
+- **isSuspended is still not enforced at the API layer** (§14.1) — closing the client-writability bug doesn't change that a suspended user's token still works against every endpoint. Real, but requires a product decision (which endpoints should reject a suspended user?) before it can be safely implemented — not guessed at here.
+- **securityHold has the same API-layer-enforcement gap** — same shape, same reasoning, not fixed.
+- **`emailVerified` remains client-controlled** (§14.3) — low severity, documented, not fixed.
+- **Boost-related product fields not re-examined for a parallel direct-write bypass** (§14.3) — flagged UNKNOWN, worth checking next.
+- **RLS is still disabled** — unaffected by any fix in this session. Still `BLOCKED_APPROVAL`.
+- Everything listed in §13.6 that this pass didn't touch remains open (CEO-support-chat read gate, `admin_audit_logs`/`account_deletion_audits` RLS status, `resetChats` reachability).
+
+---
+
 ## Summary for the handoff
 
-The self-promotion → admin-deletion/suspension chain (§12.3) is fixed and verified to the extent possible without a live test-token infrastructure (§13.5-13.7). Two new server endpoints (`/api/admin/users/suspend`, `/api/admin/users/delete`) and one server-side fix (`/api/users/sync`'s `isAdmin` handling) close it; `dbAdapter.ts` closes the original direct-Supabase route as defense-in-depth. A repo-wide search for the same trust pattern surfaced two more findings (`isSuspended`'s identical gap in `/api/users/sync`, and `/api/send-welcome-email`'s total lack of authentication) that are documented but not fixed, staying within this task's explicit scope. RLS itself remains disabled and `BLOCKED_APPROVAL`, unaffected by this fix — the broader migration plan in §1-11 is still the next major decision point for Vincent.
+Three real, distinct vulnerabilities closed this session, all sharing the same root cause (client-writable privilege/status fields, exploitable via either a legitimate-looking API call or the RLS-disabled direct-Supabase path): `isAdmin` self-promotion (§13), `isSuspended` self-clearing (§14.1), and chat `tradeStatus` fabrication enabling fraudulent reviews (§14.4) — plus a real, unauthenticated email-abuse endpoint (§14.2) and 308 lines of dead, misleading duplicate code removed. A full field-by-field classification (§14.3) confirmed several other fields are safely client-editable (no fix needed) and flagged two genuine open items (`emailVerified`, boost fields) for future, appropriately-scoped follow-up rather than folding them into this pass. RLS itself remains untouched and `BLOCKED_APPROVAL` — none of this session's fixes depend on or affect that decision.

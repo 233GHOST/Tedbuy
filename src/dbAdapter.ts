@@ -236,24 +236,28 @@ function sanitizePayload(data: any): any {
 // Allowed columns in our PostgreSQL schema
 const TABLE_COLUMNS: Record<string, Set<string>> = {
   users: new Set([
-    // P0 security fix: 'isAdmin' deliberately excluded from this write
-    // allow-list. This Set gates every client-side setDoc/updateDoc into
-    // the "users" table (see filterTableColumns/transformForSupabaseClient
-    // below) -- with Supabase RLS currently disabled, nothing else stood
-    // between any signed-in-to-Supabase caller and setting their own row's
-    // isAdmin to true (see .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md
-    // §12 for the full exploit chain this closes). Admin status must only
-    // ever be granted server-side now -- see /api/users/sync in server.ts,
-    // which was fixed the same way (never trusts a client-supplied
-    // isAdmin, only preserves what's already in the database). Reads are
-    // unaffected: getDoc/getDocs still select('*') for this table, so
-    // isAdmin still displays correctly everywhere it's read -- this only
-    // blocks it from ever being part of a write payload.
+    // P0 security fix: moderation/privilege fields deliberately excluded
+    // from this write allow-list -- 'isAdmin', 'isSuspended', and (this
+    // pass) the whole security-hold/soft-delete cluster below. This Set
+    // gates every client-side setDoc/updateDoc into the "users" table (see
+    // filterTableColumns/transformForSupabaseClient below); with Supabase
+    // RLS currently disabled, nothing else stood between any
+    // signed-in-to-Supabase caller and clearing their own (or, since this
+    // generic path has no per-row ownership check at all, potentially
+    // someone else's) security hold, soft-deletion, or status -- exact same
+    // shape as the isAdmin/isSuspended issues (see
+    // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §12/§14 for the exploit
+    // chains this closes). Confirmed no legitimate client code path ever
+    // wrote any of these fields via dbAdapter to begin with -- they're only
+    // ever set server-side, via POST /api/admin/accounts/security-hold and
+    // the account-deletion flow -- so removing them here has zero
+    // functional impact on any real feature. Reads are unaffected:
+    // getDoc/getDocs still select('*') for this table, so all of these
+    // still display correctly everywhere they're read -- this only blocks
+    // them from ever being part of a write payload.
     'id', 'username', 'originalUsername', 'email', 'phoneNumber', 'whatsAppNumber', 'role',
     'joinDate', 'photoUrl', 'followingSellers', 'savedProductIds', 'bio', 'bioUpdatedAt', 'notificationPreferences',
-    'emailVerified', 'isGoogleAuth', 'authProvider', 'welcomeSent', 'isSuspended',
-    'status', 'isDeleted', 'deletedAt', 'deletionRequestedAt', 'securityHold', 'securityHoldReason',
-    'securityHoldSetAt', 'securityHoldSetBy', 'createdAt'
+    'emailVerified', 'isGoogleAuth', 'authProvider', 'welcomeSent', 'createdAt'
   ]),
   products: new Set([
     'id', 'title', 'description', 'price', 'currency', 'category', 'subcategory', 'location', 
@@ -266,9 +270,21 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
     'thumbnailUrl', 'videoPosterUrl', 'primaryPicture'
   ]),
   chats: new Set([
-    'id', 'productId', 'productTitle', 'productPrice', 'productImage', 
-    'buyerId', 'buyerName', 'sellerId', 'sellerName', 'lastMessageText', 
-    'lastMessageTime', 'tradeStatus', 'isParticipantDeleted', 'buyerDeleted', 'sellerDeleted', 'adId', 'adTitle', 'adImage', 
+    // P0 security fix: 'tradeStatus' deliberately excluded. It's the field
+    // POST /api/reviews/create trusts as proof a trade actually completed
+    // before allowing a review -- with no per-row ownership check in this
+    // generic write path (RLS disabled), any user could otherwise set
+    // tradeStatus: 'completed' on a chat they were never the real
+    // buyer/seller of a genuine transaction on, fabricating review
+    // eligibility. The only legitimate way to change it now: server-side,
+    // via /api/chats/start (initial 'pending'),
+    // /api/chats/mark-delivered ('delivered'), and
+    // /api/chats/mark-picked-up ('completed') -- all verifyUser()-gated
+    // and role-checked (seller-only / buyer-only respectively). See
+    // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §14 for the full chain.
+    'id', 'productId', 'productTitle', 'productPrice', 'productImage',
+    'buyerId', 'buyerName', 'sellerId', 'sellerName', 'lastMessageText',
+    'lastMessageTime', 'isParticipantDeleted', 'buyerDeleted', 'sellerDeleted', 'adId', 'adTitle', 'adImage',
     'adThumbnail', 'adType'
   ]),
   messages: new Set([

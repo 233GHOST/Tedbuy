@@ -4693,29 +4693,47 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     });
   };
 
+  // P0 security fix: these two used to write tradeStatus directly to
+  // Supabase via dbAdapter -- with no ownership check anywhere in that
+  // path (RLS disabled, dbAdapter itself never verifies the caller is
+  // actually this chat's seller/buyer), meaning any user could set
+  // tradeStatus: 'completed' on any chat, including one they merely
+  // started but never actually transacted on. This mattered beyond just
+  // these two chat-status fields: /api/reviews/create trusts a chat's
+  // tradeStatus === 'completed' as its proof a real trade happened before
+  // allowing a review -- so this was a live fraud vector for fabricating
+  // eligibility to leave (or receive) reviews without a genuine
+  // transaction. Mobile already had the correct fix (see
+  // mobile/src/firebase.ts's markAsDelivered/markAsPickedUp) -- the real
+  // server endpoints (POST /api/chats/mark-delivered,
+  // POST /api/chats/mark-picked-up) already existed, already independently
+  // verify the caller is genuinely this chat's seller/buyer via
+  // getChatIfParticipant, and already create the system message
+  // server-side -- web just never called them. Now it does.
   const markAsDelivered = async (chatId: string) => {
     const chat = chats.find(c => c.id === chatId);
     if (!chat) return;
 
     try {
-      await updateDoc(doc('chats', chatId), cleanObject({
+      const authHeaders = await getAuthHeader();
+      const res = await fetch('/api/chats/mark-delivered', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ chatId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Could not confirm delivery.');
+      }
+
+      const now = new Date().toISOString();
+      setChats(prev => prev.map(c => c.id === chatId ? {
+        ...c,
         deliveredBySeller: true,
         tradeStatus: 'delivered',
         lastMessageText: '📦 Seller marked item as delivered',
-        lastMessageTime: new Date().toISOString()
-      }));
-
-      const msgId = `sys_${Date.now()}`;
-      const systemMsg: Message = {
-        id: msgId,
-        chatId,
-        senderId: chat.sellerId,
-        recipientId: chat.buyerId,
-        text: '📦 Seller has marked this item as delivered. Please inspect it and click "Mark as Picked up" once you have received it.',
-        createdAt: new Date().toISOString(),
-        read: false
-      };
-      await setDoc(doc('messages', msgId), cleanObject(systemMsg));
+        lastMessageTime: now
+      } : c));
     } catch (err) {
       handleBackendError(err, OperationType.UPDATE, `chats/${chatId}`);
     }
@@ -4726,24 +4744,25 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     if (!chat) return;
 
     try {
-      await updateDoc(doc('chats', chatId), cleanObject({
+      const authHeaders = await getAuthHeader();
+      const res = await fetch('/api/chats/mark-picked-up', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ chatId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Could not confirm pickup.');
+      }
+
+      const now = new Date().toISOString();
+      setChats(prev => prev.map(c => c.id === chatId ? {
+        ...c,
         pickedUpByBuyer: true,
         tradeStatus: 'completed',
         lastMessageText: "🤝 Buyer marked as picked up",
-        lastMessageTime: new Date().toISOString()
-      }));
-
-      const msgId = `sys_${Date.now()}`;
-      const systemMsg: Message = {
-        id: msgId,
-        chatId,
-        senderId: chat.buyerId,
-        recipientId: chat.sellerId,
-        text: "🤝 Buyer has marked this item as PICKED UP and confirmed purchase.",
-        createdAt: new Date().toISOString(),
-        read: false
-      };
-      await setDoc(doc('messages', msgId), cleanObject(systemMsg));
+        lastMessageTime: now
+      } : c));
     } catch (err) {
       handleBackendError(err, OperationType.UPDATE, `chats/${chatId}`);
     }

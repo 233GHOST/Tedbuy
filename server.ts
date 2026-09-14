@@ -3273,14 +3273,24 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
     // email) plus the same super-admin-email auto-grant already used
     // elsewhere. It is never taken from the request body, for anyone,
     // including an already-legitimate admin syncing their own profile.
+    //
+    // P0 fix (second field, same shape): isSuspended had the identical bug
+    // -- taken straight from the client body, which meant a suspended user
+    // could self-unsuspend with a normal profile-save request containing
+    // `isSuspended: false`. Same treatment: preserved from the existing DB
+    // row, never taken from the client. The only legitimate way to change
+    // this now is POST /api/admin/users/suspend (verifyUser()-gated, real
+    // admin check, see that endpoint).
     let existingIsAdmin = false;
+    let existingIsSuspended = false;
     if (backendSupabase) {
-      const { data: existingAdminRow } = await backendSupabase
+      const { data: existingRowForFlags } = await backendSupabase
         .from('users')
-        .select('"isAdmin"')
+        .select('"isAdmin", "isSuspended"')
         .eq('id', targetUid)
         .maybeSingle();
-      existingIsAdmin = existingAdminRow?.isAdmin === true;
+      existingIsAdmin = existingRowForFlags?.isAdmin === true;
+      existingIsSuspended = existingRowForFlags?.isSuspended === true;
     }
 
     const cleanUser: any = {
@@ -3299,7 +3309,7 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       authProvider: user.authProvider || null,
       isAdmin: existingIsAdmin || (user.email && user.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com'),
       welcomeSent: user.welcomeSent === true,
-      isSuspended: user.isSuspended === true,
+      isSuspended: existingIsSuspended,
       createdAt: user.createdAt || new Date().toISOString()
     };
 
@@ -5534,15 +5544,66 @@ app.post("/api/auth/verify-and-sync-password", serverRateLimiter(15 * 60 * 1000,
   }
 });
 
+// P0 fix: this endpoint previously had NO authentication or authorization
+// check at all -- not even verifyUser() -- despite both real callers
+// (AppContext.tsx) already sending a Bearer token. `email`/`username` were
+// taken directly from the request body with no validation that the caller
+// had any relationship to that address, so anyone (authenticated or not)
+// could trigger a real Brevo-sent, TedBuy-branded "Welcome" email to an
+// arbitrary third-party address -- a spam/phishing/reputation and Brevo-
+// cost vector, not a data-authorization one, but real and externally
+// facing. Note a second, dead registration of this same route existed
+// further down this file (never reachable -- Express only ever runs the
+// first matching handler) that had partial rate-limiting/admin-bypass
+// logic; removed as unreachable, misleading dead code rather than fixed
+// in place, since this is now the sole, corrected implementation.
+//
+// Fix: real auth required. A non-admin caller may only ever trigger their
+// OWN welcome email (recipient is validated against their own verified
+// Firebase email, never trusted from the body). An admin caller (the
+// legitimate bulk "send to all users" feature) may target another
+// registered user, but the target is looked up server-side by email --
+// never an arbitrary unregistered address -- and its real username is
+// used rather than trusting a client-supplied one.
 app.post("/api/send-welcome-email", serverRateLimiter(60 * 1000, 10, "send-welcome-email"), async (req: express.Request, res: express.Response) => {
   try {
-    const { email, username } = req.body;
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
+    const verified = await verifyUser(req.headers.authorization);
+    if (!verified) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to send a welcome email.' });
+    }
+    const isAdmin = verified.isAdmin || verified.originalAdmin;
+
+    const requestedEmail = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (!requestedEmail || !requestedEmail.includes('@')) {
       return res.status(400).json({ success: false, error: 'Valid recipient email is required.' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
-    const displayName = username || cleanEmail.split('@')[0];
+    let cleanEmail: string;
+    let displayName: string;
+
+    if (isAdmin) {
+      if (!backendSupabase) {
+        return res.status(503).json({ success: false, error: 'Database service unavailable' });
+      }
+      const { data: targetUser } = await backendSupabase
+        .from('users')
+        .select('email, username')
+        .eq('email', requestedEmail)
+        .maybeSingle();
+      if (!targetUser?.email) {
+        return res.status(404).json({ success: false, error: 'No TedBuy account found for that email address.' });
+      }
+      cleanEmail = String(targetUser.email).trim().toLowerCase();
+      displayName = targetUser.username || cleanEmail.split('@')[0];
+    } else {
+      const ownEmail = (verified.email || '').trim().toLowerCase();
+      if (!ownEmail || requestedEmail !== ownEmail) {
+        return res.status(403).json({ success: false, error: 'You can only trigger a welcome email for your own account.' });
+      }
+      cleanEmail = ownEmail;
+      const requestedUsername = typeof req.body?.username === 'string' ? req.body.username.trim().slice(0, 60) : '';
+      displayName = requestedUsername || cleanEmail.split('@')[0];
+    }
 
     const brevoApiKey = process.env.BREVO_API_KEY;
     const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
@@ -7209,315 +7270,6 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
     } catch (err: any) {
       console.error('[Cache Invalidation API Exception]:', err);
       return res.status(500).json({ success: false, error: err.message || "Internal server error during cache invalidation." });
-    }
-  });
-
-  app.post('/api/send-welcome-email', async (req, res) => {
-    const { email, username } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: 'Email parameter is required.' });
-    }
-
-    // Dynamic rate limiter check that bypasses for Admins
-    const authHeader = req.headers.authorization;
-    const isAdmin = await verifyAdmin(authHeader);
-
-    if (!isAdmin) {
-      const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "anonymous";
-      const key = `${ip}:welcome-email`;
-      const now = Date.now();
-      const windowMs = 5 * 60 * 1000;
-      const maxRequests = 3;
-
-      if (!rateLimitStore[key] || rateLimitStore[key].resetTime < now) {
-        rateLimitStore[key] = {
-          count: 1,
-          resetTime: now + windowMs
-        };
-      } else {
-        rateLimitStore[key].count++;
-        if (rateLimitStore[key].count > maxRequests) {
-          const remainingSecs = Math.ceil((rateLimitStore[key].resetTime - now) / 1000);
-          res.setHeader("Retry-After", remainingSecs);
-          return res.status(429).json({
-            error: `Too many requests to welcome-email. Please wait ${remainingSecs} seconds and try again.`
-          });
-        }
-      }
-    } else {
-      console.log(`[Email Engine] Admin authorized. Bypassing rate limit check for sending welcome email to: ${email}`);
-    }
-
-    const cleanName = username || email.split('@')[0] || 'there';
-    const escapedName = escapeHtml(cleanName);
-
-    const subject = 'Welcome to Tedbuy Ghana';
-    const textContent = `Welcome to TedBuy!\n\nHi ${cleanName},\n\nI wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.\n\nAll replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.\n\nAlso, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.\n\nGratefully yours,\n\nVincent Asumadu,\nCEO, Tedbuy Inc`;
-    
-    const htmlContent = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light dark">
-  <meta name="supported-color-schemes" content="light dark">
-  <style>
-    :root {
-      color-scheme: light dark;
-      supported-color-schemes: light dark;
-    }
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-      background-color: #f4f6fa; 
-      color: #334155; 
-      margin: 0; 
-      padding: 0; 
-    }
-    .container { 
-      max-width: 500px; 
-      margin: 40px auto; 
-      background-color: #ffffff; 
-      border-radius: 24px; 
-      border: 1px solid #e2e8f0; 
-      overflow: hidden; 
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); 
-    }
-    .header { 
-      background-color: #ffffff; 
-      padding: 30px 24px; 
-      border-bottom: 4px solid #ea580c; 
-    }
-    .header-table {
-      margin: 0 auto;
-      border-collapse: collapse;
-    }
-    .header-logo-img {
-      width: 44px;
-      height: 44px;
-      border-radius: 10px;
-      display: block;
-      background-color: #0f172a;
-    }
-    .header-title {
-      font-size: 28px;
-      font-weight: 950;
-      color: #0f172a;
-      margin: 0;
-      line-height: 1;
-      letter-spacing: -0.03em;
-    }
-    .header-title span {
-      color: #ea580c;
-    }
-    .header-tag {
-      font-size: 10px;
-      font-weight: 800;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      margin-top: 4px;
-      display: block;
-    }
-    .content { 
-      padding: 40px 32px; 
-      line-height: 1.7; 
-      font-size: 15px; 
-      color: #334155; 
-      text-align: left;
-    }
-    .content p { 
-      margin-top: 0; 
-      margin-bottom: 22px; 
-    }
-    .footer { 
-      background-color: #f8fafc; 
-      padding: 28px 32px; 
-      text-align: center; 
-      font-size: 12px; 
-      color: #64748b; 
-      border-top: 1px solid #e2e8f0; 
-      line-height: 1.6; 
-    }
-    .footer p { 
-      margin: 6px 0; 
-    }
-    .footer a { 
-      color: #ea580c; 
-      text-decoration: underline; 
-      font-weight: 600; 
-    }
-
-    /* Dark Mode (Respect User Preferences) */
-    @media (prefers-color-scheme: dark) {
-      body {
-        background-color: #0b0f19 !important;
-        color: #cbd5e1 !important;
-      }
-      .container {
-        background-color: #0f172a !important;
-        border-color: #1e293b !important;
-        box-shadow: 0 15px 45px rgba(0, 0, 0, 0.3) !important;
-      }
-      .header {
-        background-color: #0f172a !important;
-        border-bottom-color: #ea580c !important;
-      }
-      .header-title {
-        color: #ffffff !important;
-      }
-      .header-tag {
-        color: #94a3b8 !important;
-      }
-      .content {
-        color: #cbd5e1 !important;
-      }
-      .content p {
-        color: #cbd5e1 !important;
-      }
-      .greeting-welcome {
-        color: #ffffff !important;
-      }
-      .footer {
-        background-color: #0b0f19 !important;
-        border-top-color: #1e293b !important;
-        color: #64748b !important;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <table class="header-table" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          <td style="vertical-align: middle; padding-right: 12px;">
-            <img class="header-logo-img" src="https://tedbuy.store/favicon.png" alt="TedBuy Logo" />
-          </td>
-          <td style="vertical-align: middle; text-align: left;">
-            <h1 class="header-title">Ted<span>Buy</span></h1>
-            <span class="header-tag">Ghana's #1 Social Marketplace</span>
-          </td>
-        </tr>
-      </table>
-    </div>
-    <div class="content">
-      <p style="font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 24px;" class="greeting-welcome">Hi ${escapedName},</p>
-      
-      <p>I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.</p>
-
-      <p>All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.</p>
-
-      <p>Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.</p>
-      
-      <p style="margin-top: 40px; line-height: 1.5; font-size: 14px;">
-        Gratefully yours,<br/><br/>
-        <strong style="font-size: 16px; color: #0f172a;" class="greeting-welcome">Vincent Asumadu,<br/>CEO, Tedbuy Inc</strong>
-      </p>
-    </div>
-    <div class="footer">
-      <p>This message was sent from <a href="mailto:support@tedbuy.store">support@tedbuy.store</a>. You can reply directly to this email to reach our support team.</p>
-      <p>&copy; 2026 TedBuy Ghana. Accra, Ghana.</p>
-    </div>
-  </div>
-</body>
-</html>`;
-
-    // 1. Try Brevo REST API if configured
-    const brevoApiKey = process.env.BREVO_API_KEY;
-    if (brevoApiKey) {
-      console.log(`[Email Engine] Brevo API Key detected. Dispatched via Brevo Transactional REST API for: ${email}`);
-      try {
-        const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
-        const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy Support';
-
-        const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: {
-            'accept': 'application/json',
-            'api-key': brevoApiKey,
-            'content-type': 'application/json'
-          },
-          body: JSON.stringify({
-            sender: {
-              name: senderName,
-              email: senderEmail
-            },
-            to: [
-              {
-                email: email.trim(),
-                name: cleanName
-              }
-            ],
-            replyTo: {
-              email: senderEmail,
-              name: senderName
-            },
-            subject: subject,
-            htmlContent: htmlContent,
-            textContent: textContent
-          })
-        });
-
-        if (brevoResponse.ok) {
-          const result = await brevoResponse.json();
-          console.log(`[Email Engine] Brevo REST API sent successfully. Message ID: ${result.messageId || 'unknown'}`);
-          return res.json({ success: true, messageId: result.messageId || 'brevo-rest-id', provider: 'brevo-rest' });
-        } else {
-          const errText = await brevoResponse.text();
-          throw new Error(`Brevo HTTP ${brevoResponse.status}: ${errText}`);
-        }
-      } catch (brevoErr: any) {
-        console.warn(`[Email Engine] Brevo REST API delivery failed, falling back to SMTP/Simulation:`, brevoErr?.message || brevoErr);
-      }
-    }
-
-    // 2. Fall back to standard SMTP Transporter
-    try {
-      const transporter = getMailTransporter();
-
-      // Run pre-flight network connection, handshake, and authentication diagnostic check
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        console.log(`[Email Engine] Running pre-flight SMTP diagnostics for recipient: ${email}...`);
-        const diagResult = await diagnoseSMTPAndVerify(transporter);
-        if (!diagResult.success) {
-          console.warn(`[Email Engine] Pre-flight SMTP block: Diagnostics failed prior to dispatch to ${email}. Gracefully bypassing to simulate success.`);
-          return res.json({
-            success: true,
-            messageId: 'simulated_delivery_bypass_id',
-            simulated: true,
-            warning: 'SMTP pre-flight diagnostic failed or host is offline. Onboarding flow completed with simulation.'
-          });
-        }
-      }
-      
-      const mailOptions = {
-        from: '"Tedbuy" <support@tedbuy.store>',
-        to: email,
-        replyTo: 'support@tedbuy.store',
-        subject: subject,
-        text: textContent,
-        html: htmlContent
-      };
-
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[Email Engine] Welcome email dispatched successfully via SMTP for ${email}. MessageId: ${info.messageId || 'virtual'}`);
-      
-      if ((info as any).message) {
-        console.log(`[Email Engine] Virtual Dispatch Preview (First 400 chars):\n`, (info as any).message.toString().slice(0, 400));
-      }
-
-      return res.json({ success: true, messageId: info.messageId || 'virtual', provider: 'smtp' });
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      console.warn(`[Email Engine] SMTP Send attempted but encountered limit/rejection for ${email}:`, errMsg);
-
-      console.log(`[Email Engine] [Bypass] Gracefully bypassing SMTP issue for ${email}. Returning simulated delivery success.`);
-      return res.json({
-        success: true,
-        messageId: 'simulated_delivery_bypass_id',
-        simulated: true,
-        warning: `SMTP issue bypassed. Details: ${errMsg}`
-      });
     }
   });
 
