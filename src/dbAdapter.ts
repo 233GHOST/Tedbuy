@@ -81,18 +81,6 @@ if (isSupabaseActive) {
 // and every CRUD function already no-ops safely on that (see their
 // `if (!table) { ... }` branches), so removing the mapping is a real,
 // enforced closure, not just documentation.
-//
-// 'boost_purchases', 'admin_audit_logs', and 'account_deletion_audits'
-// removed the same way as part of RLS-migration Phase 0
-// (.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md §1.8): confirmed via
-// repository-wide grep that none of them has ever had a real client
-// dbAdapter caller (only server.ts's backendSupabase touches them,
-// 11 call sites, all server-only) -- one incidental string mention in
-// ProfileSettings.tsx's legacy Firestore-to-Supabase migration tool's
-// table-name list was the only client-side reference found, not an actual
-// read/write call. A table mapping with no legitimate client caller is a
-// live liability, not a convenience -- matches the notifications
-// precedent above exactly.
 const VALID_TABLE_MAP: Record<string, string> = {
   users: 'users',
   products: 'products',
@@ -101,7 +89,13 @@ const VALID_TABLE_MAP: Record<string, string> = {
   reviews: 'reviews',
   reports: 'reports',
   storenames: 'store_names',
-  store_names: 'store_names'
+  store_names: 'store_names',
+  boostpurchases: 'boost_purchases',
+  boost_purchases: 'boost_purchases',
+  admin_audit_logs: 'admin_audit_logs',
+  adminauditlogs: 'admin_audit_logs',
+  account_deletion_audits: 'account_deletion_audits',
+  accountdeletionaudits: 'account_deletion_audits'
 };
 
 function isEphemeralPath(path: string): boolean {
@@ -366,12 +360,19 @@ const TABLE_COLUMNS: Record<string, Set<string>> = {
   // recently-deleted user's exact username/identity immediately.
   store_names: new Set([
     'id', 'userId', 'username'
+  ]),
+  admin_audit_logs: new Set([
+    'id', 'session_id', 'admin_user_id', 'admin_email', 'target_user_id',
+    'target_user_email', 'action', 'status', 'start_time', 'end_time', 'details', 'created_at'
+  ]),
+  boost_purchases: new Set([
+    'id', 'productId', 'userId', 'amount', 'currency', 'status', 'createdAt'
+  ]),
+  account_deletion_audits: new Set([
+    'id', 'internalUserId', 'originalUsername', 'emailHash', 'accountCreatedAt',
+    'deletionRequestedAt', 'deletedAt', 'status', 'securityHold', 'securityHoldReason',
+    'listingCount', 'paymentCount', 'chatCount', 'metadata', 'createdAt'
   ])
-  // 'admin_audit_logs', 'boost_purchases', and 'account_deletion_audits'
-  // entries removed -- see the VALID_TABLE_MAP comment above; these Sets
-  // are now unreachable (no table mapping resolves to them) but were also
-  // removed outright rather than left as dead config, same treatment as
-  // 'notifications' above.
 };
 
 function filterTableColumns(table: string, data: any): any {
