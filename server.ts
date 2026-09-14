@@ -3134,14 +3134,29 @@ app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-dele
   }
 
   let sellerId: string | null = null;
+  let sellerEmail: string | null = null;
   if (backendSupabase) {
     try {
-      const { data } = await backendSupabase.from('products').select('sellerId, seller_id').eq('id', productId).maybeSingle();
-      if (data) sellerId = data.sellerId || data.seller_id || null;
+      const { data } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      if (data) {
+        sellerId = data.sellerId || data.seller_id || null;
+        sellerEmail = data.sellerEmail || data.seller_email || null;
+      }
     } catch (_) {}
   }
 
-  const isOwner = sellerId === user.uid;
+  // Matches /api/products/sync's ownership check — sellerId can legitimately
+  // be stored as the bare uid or a user_/phone_ prefixed variant (see that
+  // route's comment), or the caller can be identified by seller email. This
+  // previously only checked an exact uid match, which was never an
+  // authorization hole (it fails safe, denying access) but could wrongly
+  // 403 a real owner trying to delete their own listing.
+  const isOwner = !!sellerId && (
+    sellerId === user.uid ||
+    sellerId === `user_${user.uid}` ||
+    sellerId === `phone_${user.uid}` ||
+    (!!user.email && !!sellerEmail && sellerEmail.toLowerCase() === user.email.toLowerCase())
+  );
   const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
 
   if (sellerId && !isOwner && !isAdmin) {
@@ -3170,14 +3185,29 @@ app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "product
   }
 
   let sellerId: string | null = null;
+  let sellerEmail: string | null = null;
   if (backendSupabase) {
     try {
-      const { data } = await backendSupabase.from('products').select('sellerId, seller_id').eq('id', productId).maybeSingle();
-      if (data) sellerId = data.sellerId || data.seller_id || null;
+      const { data } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      if (data) {
+        sellerId = data.sellerId || data.seller_id || null;
+        sellerEmail = data.sellerEmail || data.seller_email || null;
+      }
     } catch (_) {}
   }
 
-  const isOwner = sellerId === user.uid;
+  // Matches /api/products/sync's ownership check — sellerId can legitimately
+  // be stored as the bare uid or a user_/phone_ prefixed variant (see that
+  // route's comment), or the caller can be identified by seller email. This
+  // previously only checked an exact uid match, which was never an
+  // authorization hole (it fails safe, denying access) but could wrongly
+  // 403 a real owner trying to delete their own listing.
+  const isOwner = !!sellerId && (
+    sellerId === user.uid ||
+    sellerId === `user_${user.uid}` ||
+    sellerId === `phone_${user.uid}` ||
+    (!!user.email && !!sellerEmail && sellerEmail.toLowerCase() === user.email.toLowerCase())
+  );
   const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
 
   if (sellerId && !isOwner && !isAdmin) {
@@ -6641,10 +6671,18 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
   });
 
   // Admin Security Hold Management API
-  app.post('/api/admin/accounts/security-hold', async (req, res) => {
+  app.post('/api/admin/accounts/security-hold', serverRateLimiter(60 * 1000, 30, "admin-security-hold"), async (req, res) => {
     try {
-      const verified = await verifyAdmin(req.headers.authorization);
-      if (!verified) {
+      // Was verifyAdmin() (a plain boolean) plus a client-supplied
+      // x-admin-email header for audit attribution below -- any admin could
+      // set that header to a different admin's email and have the action
+      // logged under someone else's name. verifyUser() already gives back
+      // the cryptographically-verified identity (see /api/admin/impersonate/start,
+      // which correctly uses it this way); no reason security-hold's audit
+      // trail should trust an unverified header instead.
+      const verified = await verifyUser(req.headers.authorization);
+      const isAdmin = verified?.isAdmin || verified?.originalAdmin;
+      if (!verified || !isAdmin) {
         return res.status(403).json({ success: false, error: "Unauthorized: Administrator privileges required." });
       }
 
@@ -6654,7 +6692,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       }
 
       const now = new Date().toISOString();
-      const adminEmail = req.headers['x-admin-email'] || 'admin';
+      const adminEmail = verified.email || 'admin';
       const securityHoldData = {
         securityHold: hold,
         securityHoldReason: hold ? (reason || 'Placed on administrative hold for fraud/dispute investigation') : null,
@@ -6701,7 +6739,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
   });
 
   // Admin Get Soft-Deleted & Investigated Accounts API
-  app.get('/api/admin/accounts/deleted', async (req, res) => {
+  app.get('/api/admin/accounts/deleted', serverRateLimiter(60 * 1000, 30, "admin-accounts-deleted"), async (req, res) => {
     try {
       const verified = await verifyAdmin(req.headers.authorization);
       if (!verified) {
@@ -6754,7 +6792,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
   });
 
   // Admin Retention Evaluation & Auto-Purge API
-  app.post('/api/admin/retention/run-purge', async (req, res) => {
+  app.post('/api/admin/retention/run-purge', serverRateLimiter(60 * 1000, 5, "admin-retention-run-purge"), async (req, res) => {
     try {
       const verified = await verifyAdmin(req.headers.authorization);
       if (!verified) {
