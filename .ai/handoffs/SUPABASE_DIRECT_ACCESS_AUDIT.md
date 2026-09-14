@@ -197,6 +197,77 @@ The single most concerning concrete example found: **account deletion's cascade 
 
 ---
 
+## 12. UPDATE — Account-deletion cascade trace + reviews audit (second pass)
+
+This section resolves the §11 items on `resetChats`, the self-serve account-deletion path, and reviews — and surfaces a **new, more severe finding than the original RLS gap**: a real client-side privilege-escalation path that doesn't even require RLS to stay off to matter for two specific admin functions, though RLS being off is what makes the first stage of the chain possible.
+
+### 12.1 `deleteAccount()` (self-serve) — CLEARED, not vulnerable
+
+Traced in full (`AppContext.tsx:5041-5109`). This function does **not** use `dbAdapter`'s direct-Supabase cascade at all. It calls `POST /api/auth/delete-account` with a real Firebase ID token; everything else it does is local React-state/`localStorage` cleanup (marking the user's own products archived *in the browser's own copy of state*, not a database write). The server endpoint (`server.ts:6298`) is properly built: `verifyUser()`-gated, and — critically — it uses `verified.uid` (cryptographically derived from the Firebase token) throughout, **never a client-supplied user id**. A user cannot use this path to affect any account but their own. **No issue found here.**
+
+### 12.2 `adminDeleteUserProfile(userId, forceDeleteActive)` — CONFIRMED VULNERABLE
+
+Traced in full (`AppContext.tsx:5181-5378`). Concretely, for the target `userId` (an arbitrary string, caller-supplied — no cryptographic binding to anything):
+
+| Step | What it deletes | How |
+|---|---|---|
+| 1 | Every `products` row where `sellerId === userId` (both from local `products` state AND a live `where('sellerId','==',userId)` query, so it's not limited to what happens to already be loaded) | `deleteDoc` per row, direct to Supabase |
+| 2 | Every `reviews` row where `buyerId === userId` OR `sellerId === userId` | Same pattern |
+| 3 | Every `chats` row where `buyerId === userId` OR `sellerId === userId` | Same pattern |
+| 4 | Every `messages` row where `senderId === userId`, `recipientId === userId`, or belonging to one of the just-deleted chats | Same pattern |
+| 5 | A `deletedEmails` blocklist row (silently no-ops — `deletedEmails` isn't in `VALID_TABLE_MAP`, so this line has never actually done anything; not a security issue, just dead code noted in passing) | — |
+| 6 | The `users` row itself **and** the matching `store_names` reservation, via `writeBatch` | Direct to Supabase |
+
+**Authorization for all of this: exactly one client-side check**, at the top of the function:
+```js
+const isSuperAdmin = (currentUser?.email === 'asumaduvincent7@gmail.com') || ... || currentUser?.isAdmin || originalAdminUser?.isAdmin;
+if (!currentUser || !isSuperAdmin) { throw new Error("Unauthorized: ..."); }
+```
+`currentUser` is a plain React state object, populated from a Supabase row fetch. **No server call verifies admin status before this cascade runs.** Compare this to `adminToggleSecurityHold` (`AppContext.tsx:5465`, traced in the same pass), which has the *identical* client-side gate but then calls the real `POST /api/admin/accounts/security-hold` endpoint — which independently re-verifies admin status server-side via `verifyUser()`. That's the correct pattern, proving it was known and done properly elsewhere in the same file; `adminDeleteUserProfile` and `adminToggleUserSuspension` (`AppContext.tsx:5393`, same issue — direct `updateDoc`/raw `supabase.from('users').update()` calls, no server round-trip) simply never got the same treatment.
+
+**Real UI exposure confirmed** — this isn't dead code behind an unreachable gate: `ProfileSettings.tsx:3277` calls `adminDeleteUserProfile(targetId, true)` from what is a real button in the live admin panel of the Settings screen.
+
+### 12.3 The privilege-escalation chain that makes this exploitable by *anyone*, not just a compromised admin
+
+This is the part that elevates the finding beyond "an admin function isn't defense-in-depth." Two things compound:
+
+1. **`isAdmin` is a plain, client-writable column.** `dbAdapter.ts`'s `TABLE_COLUMNS.users` allow-list includes `isAdmin`. Nothing in `dbAdapter` (or anywhere else client-side) stops a request from setting it. `transformFromSupabase` only *forces* `isAdmin: true` for the hardcoded super-admin email — for every other email, whatever value is already sitting in the row (including one the row's own owner wrote there themselves) passes through untouched.
+2. **Verifying this requires no app code at all.** With RLS off, a direct `PATCH` to Supabase's own REST endpoint — `https://<project>.supabase.co/rest/v1/users?id=eq.<own-uid>` with header `apikey: <the public anon key, sitting in the shipped JS bundle>` and body `{"isAdmin": true}` — succeeds. This bypasses `dbAdapter.ts`, `AppContext.tsx`, and TedBuy's own frontend entirely; it only needs the public anon key and the (equally public, inferrable from `TABLE_COLUMNS`/`supabase_policies.sql` if someone reads the open-source-shaped client bundle) table/column names.
+
+**Concrete attack scenario:**
+1. Create a normal, free TedBuy account (or use an existing one). No special privilege needed.
+2. Issue one authenticated-to-Supabase-only (not TedBuy) REST call setting that account's own `users.isAdmin` to `true`.
+3. Reload the TedBuy web app. `AppContext`'s normal profile-fetch (`getDoc(doc('users', uid))`) reads the row back, `currentUser.isAdmin` is now `true` in the browser session. This requires **no PIN, no second factor** — `adminDeleteUserProfile` and `adminToggleUserSuspension` don't check `isAdminSessionVerified` at all (only `sendWelcomeEmailToAll` does, and even that gate is separately broken — see 12.4).
+4. The admin panel in `ProfileSettings.tsx` becomes reachable in the UI (gated on the same `currentUser.isAdmin`). The attacker can now: hard-delete any other user's entire account (products, reviews, chats, messages, store name, profile — §12.2), or suspend/unsuspend any user (`adminToggleUserSuspension`, same pattern, same missing server round-trip).
+
+**Impact:** full account-deletion / suspension capability against any user, for the cost of one unauthenticated-to-TedBuy REST call. This is strictly worse than "RLS is off" alone — it's a complete authorization-bypass chain, and it would remain partially exploitable even after RLS is re-enabled on the *other* tables, unless `users.isAdmin` writes are specifically locked down (self-service profile updates should never be able to touch that column) and `adminDeleteUserProfile`/`adminToggleUserSuspension` are migrated to call real server endpoints the way `adminToggleSecurityHold` already correctly does.
+
+### 12.4 Bonus finding, same investigation: the admin PIN gate is also not real
+
+`verifyAdminPIN` (`AppContext.tsx:3278`) — the second-factor gate meant to set `isAdminSessionVerified` — is entirely client-side JavaScript:
+```js
+const customPin = (import.meta as any).env.VITE_ADMIN_PIN || '2330';
+const isValid = trimmed === customPin.trim() || trimmed === '2330';
+```
+Two problems, independent of the RLS/isAdmin issue above: (a) `VITE_ADMIN_PIN` is Vite's client-bundling prefix — if set, it ships in the JS bundle, readable by anyone; (b) **`'2330'` always works as a hardcoded fallback, regardless of what the real PIN is configured to.** There is no server call anywhere in this function — it cannot be, since it's pure string comparison against client-visible values. This means even a hypothetical world where `isAdmin` couldn't be spoofed, the PIN "second factor" adds no real security today. (As noted in 12.3, this doesn't even matter for `adminDeleteUserProfile`/`adminToggleUserSuspension` specifically, since neither checks `isAdminSessionVerified` at all — but it's a real, separate gap for whatever *does* rely on it, e.g. `sendWelcomeEmailToAll`.)
+
+### 12.5 Reviews — audited end-to-end, CREATE is clean, no UPDATE exists, DELETE shares the admin-cascade issue
+
+- **Create**: `addReview()` (`AppContext.tsx:5521`) — already fully server-mediated via `POST /api/reviews/create`, no direct-Supabase path. The server endpoint (`server.ts:3898`) is well-built: real `verifyUser()` auth, rejects self-review, requires a `chatId` that must resolve to a chat where the caller is a genuine participant (`getChatIfParticipant`) with `tradeStatus === 'completed'`, derives `productTitle` from the chat rather than trusting the client, and enforces one review per buyer/seller/trade server-side (not just hidden in the UI). The code's own comment documents that this used to be a direct, unauthenticated write and was already fixed in an earlier round — consistent with what this audit found elsewhere (the codebase generally *does* fix these when found; this specific class just hasn't been swept end-to-end until now). **No issue found.**
+- **Update**: no code path exists anywhere — client or server — for editing an existing review. Nothing to secure because the feature doesn't exist.
+- **Delete**: the only review-delete path is inside `adminDeleteUserProfile`'s cascade (§12.2) — same vulnerability, same root cause, no separate issue.
+- **Ownership**: `server.ts`'s `/api/reviews` GET is a public read (`sellerId` query param, `SELECT ... WHERE sellerId = ?`) — appropriate for a public reviews-on-a-store-page feature, matches Class A (public read) from §3's framework.
+
+### 12.6 §11 items resolved by this pass
+
+- **`resetChats` reachability**: not fully resolved — searched for callers within the time budget of this pass and did not find one wired to a visible UI button (unlike `adminDeleteUserProfile`, which has a confirmed real caller). Likely dev/sandbox-only, but I'm not marking this CLEARED without a caller-search as rigorous as §12.2 got. Still UNKNOWN, lower priority than 12.2/12.3 given no confirmed UI trigger.
+- **Self-serve account deletion's server equivalent**: RESOLVED — see §12.1, confirmed safe.
+- **Reviews creation/authorization**: RESOLVED — see §12.5, confirmed safe.
+- **`admin_audit_logs`/`account_deletion_audits` RLS status**: still UNKNOWN — unchanged from the first pass, still needs a direct dashboard check.
+- **Full `onSnapshot` read-path inventory**: still not exhaustively re-covered — unchanged from the first pass.
+
+---
+
 ## Summary for the handoff
 
-Nothing was changed. This document is the complete map requested. The next decision is Vincent's: approve Phase 1 (lowest-risk, already has APIs) as the first implementation step, and/or commission investigation of the §11 unknowns before any RLS toggle happens.
+Nothing was changed. This document is the complete map requested, now including a second pass that found a more severe, distinct issue: a real privilege-escalation chain (§12.3) allowing any authenticated-to-Supabase actor to grant themselves admin rights and then hard-delete or suspend any other user's account, via two specific `AppContext.tsx` functions that skip the server-round-trip pattern used correctly elsewhere in the same file. This is fixable independently of the broader RLS re-enablement work (§9's phased plan), and arguably should be prioritized ahead of it given the severity — that's Vincent's call. The next decision is Vincent's: approve Phase 1 of the RLS migration (lowest-risk, already has APIs), commission the still-open §11/§12.6 unknowns, and/or prioritize the §12.3 privilege-escalation fix specifically.
