@@ -992,32 +992,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (_) {}
     }
 
-    // 3. Query the legacy users collection by exact email
+    // 3. Query the legacy users collection by exact email.
+    // Security fix (RLS-migration Phase 2, checkpoint 10): same finding
+    // and same fix as step 6 below -- this was a direct, unauthenticated
+    // `getDocs(query(collection('users'), where('email', '==', ...)))`.
+    // Client-side query filters aren't access control (foundational fact
+    // #2 of the migration plan): a caller bypassing this app's own JS
+    // could issue the same underlying request with ANY email, or none at
+    // all, turning this into an unauthenticated way to look up any other
+    // user's full profile (or the entire table) by email. Migrated to
+    // the same targeted, safe-by-design GET /api/users/get?email= lookup.
     if (!foundDocData && rawEmail) {
       try {
-        const qExact = query(collection('users'), where('email', '==', rawEmail));
-        const snapExact = await getDocs(qExact);
-        const found = snapExact.docs.find(d => d.id !== targetUid);
-        if (found) {
-          foundDocData = found.data() as User;
-          existingUserId = found.id;
-          console.log(`[findAndMigrateExistingUser] Located profile via exact email query ("${rawEmail}") under ID "${found.id}".`);
+        const res = await fetch(`/api/users/get?email=${encodeURIComponent(rawEmail)}`);
+        const json = await res.json().catch(() => ({}));
+        if (json.success && json.user && json.user.id !== targetUid) {
+          foundDocData = json.user as User;
+          existingUserId = json.user.id;
+          console.log(`[findAndMigrateExistingUser] Located profile via exact email lookup ("${rawEmail}") under ID "${existingUserId}".`);
         }
       } catch (e) {
-        console.warn('[findAndMigrateExistingUser] Exact email query failed:', e);
+        console.warn('[findAndMigrateExistingUser] Exact email lookup failed:', e);
       }
     }
 
-    // 4. Query the legacy users collection by lowercased email
+    // 4. Query the legacy users collection by lowercased email (same fix)
     if (!foundDocData && targetEmailLower && targetEmailLower !== rawEmail) {
       try {
-        const qLower = query(collection('users'), where('email', '==', targetEmailLower));
-        const snapLower = await getDocs(qLower);
-        const found = snapLower.docs.find(d => d.id !== targetUid);
-        if (found) {
-          foundDocData = found.data() as User;
-          existingUserId = found.id;
-          console.log(`[findAndMigrateExistingUser] Located profile via lowercased email query ("${targetEmailLower}") under ID "${found.id}".`);
+        const res = await fetch(`/api/users/get?email=${encodeURIComponent(targetEmailLower)}`);
+        const json = await res.json().catch(() => ({}));
+        if (json.success && json.user && json.user.id !== targetUid) {
+          foundDocData = json.user as User;
+          existingUserId = json.user.id;
+          console.log(`[findAndMigrateExistingUser] Located profile via lowercased email lookup ("${targetEmailLower}") under ID "${existingUserId}".`);
         }
       } catch (e) {
         console.warn('[findAndMigrateExistingUser] Lower email query failed:', e);
