@@ -1058,23 +1058,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    // 6. Case-insensitive scan of all users in the legacy database
+    // 6. Case-insensitive email lookup in the legacy database.
+    // Security fix (RLS-migration Phase 2, checkpoint 10): this used to be
+    // `getDocs(collection('users'))` -- an unauthenticated, unfiltered
+    // `select('*')` bulk read of the ENTIRE users table, missed by the
+    // original Phase 0 sweep (§0 of this document) because that sweep's
+    // grep only matched `fetchUsersOnce`'s specific call pattern, not this
+    // one, buried inside the account-migration search's own fallback step.
+    // Same severity as that original finding -- every user's email/phone/
+    // whatsApp/isAdmin/isSuspended/securityHold, for every user, in one
+    // unauthenticated request. `/api/users/list` (used to fix the original
+    // finding) can't replace this specific lookup: it deliberately omits
+    // email for the exact same bulk-exposure reason, and this step's whole
+    // purpose is matching by email. `GET /api/users/get?email=` already
+    // exists as a targeted, single-user, safe-by-design lookup (the
+    // caller's own just-authenticated email, not attacker-controlled) --
+    // migrated to that instead of building anything new.
     if (!foundDocData && targetEmailLower) {
       try {
-        const allUsersSnap = await getDocs(collection('users'));
-        const found = allUsersSnap.docs.find(d => {
-          if (d.id === targetUid) return false;
-          const u = d.data() as User;
-          const docEmail = u.email ? u.email.trim().toLowerCase() : '';
-          return docEmail === targetEmailLower;
-        });
-        if (found) {
-          foundDocData = found.data() as User;
-          existingUserId = found.id;
-          console.log(`[findAndMigrateExistingUser] Located profile via full users scan under ID "${found.id}".`);
+        const res = await fetch(`/api/users/get?email=${encodeURIComponent(targetEmailLower)}`);
+        const json = await res.json().catch(() => ({}));
+        if (json.success && json.user && json.user.id !== targetUid) {
+          foundDocData = json.user as User;
+          existingUserId = json.user.id;
+          console.log(`[findAndMigrateExistingUser] Located profile via email lookup under ID "${existingUserId}".`);
         }
       } catch (e) {
-        console.warn('[findAndMigrateExistingUser] Full users scan failed:', e);
+        console.warn('[findAndMigrateExistingUser] Email lookup failed:', e);
       }
     }
 
