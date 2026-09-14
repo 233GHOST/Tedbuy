@@ -3936,11 +3936,20 @@ CEO, Tedbuy Inc`;
     // Optimistically update local memory state
     setProducts(prev => prev.filter(p => p.id !== id));
 
-    // If active user had bookmarked this item, immediately update saved list
+    // If active user had bookmarked this item, immediately update saved list.
+    // Security fix (RLS-migration Phase 1, checkpoint 5): this used to be a
+    // direct `updateDoc(doc('users', currentUser.id), { savedProductIds })`
+    // -- dbAdapter's generic write path has no per-row ownership check, so
+    // a raw Supabase caller could set ANY user's savedProductIds, not just
+    // their own. Routed through the already-existing, already-ownership-
+    // checked syncUserToServer -> POST /api/users/sync instead -- best-
+    // effort/fire-and-forget here, matching the original's own
+    // `.catch(() => {})` swallow-all semantics (this is a side-effect
+    // cleanup, not the primary user-facing save action).
     if (currentUser?.savedProductIds?.includes(id)) {
       const updatedSaved = currentUser.savedProductIds.filter(pid => pid !== id);
       setCurrentUserState(prev => prev ? { ...prev, savedProductIds: updatedSaved } : null);
-      updateDoc(doc('users', currentUser.id), { savedProductIds: updatedSaved }).catch(() => {});
+      syncUserToServer({ ...currentUser, savedProductIds: updatedSaved });
     }
 
     // Trigger server deletion (Supabase, server memory & disk cache, and Cloudinary media destroy)
@@ -4787,6 +4796,11 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
   // Automatically reconcile and prune stale/deleted product IDs from currentUser.savedProductIds
   // This guarantees that the user's bookmarks list and bookmark badge counts never display ghost/stale counts
+  // Security fix (RLS-migration Phase 1, checkpoint 5): same reasoning as
+  // deleteProduct's savedProductIds cleanup above -- routed through
+  // syncUserToServer -> POST /api/users/sync (ownership-checked) instead of
+  // a direct dbAdapter write, fire-and-forget to match this effect's own
+  // existing best-effort semantics.
   useEffect(() => {
     if (!currentUser || !Array.isArray(currentUser.savedProductIds) || currentUser.savedProductIds.length === 0) {
       return;
@@ -4798,11 +4812,23 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       if (validSaved.length !== currentUser.savedProductIds.length) {
         console.log(`[SavedSync] Pruned ${currentUser.savedProductIds.length - validSaved.length} stale/deleted product IDs from user saved list.`);
         setCurrentUserState(prev => prev ? { ...prev, savedProductIds: validSaved } : null);
-        updateDoc(doc('users', currentUser.id), { savedProductIds: validSaved }).catch(() => {});
+        syncUserToServer({ ...currentUser, savedProductIds: validSaved });
       }
     }
   }, [products, currentUser?.id]);
 
+  // Security fix (RLS-migration Phase 1, checkpoint 5): this used to be a
+  // direct `updateDoc(doc('users', currentUser.id), { savedProductIds })`
+  // -- dbAdapter's generic write path has no per-row ownership check, so a
+  // raw Supabase caller could set ANY user's savedProductIds, not just
+  // their own. Unlike the two best-effort cleanup call sites above (which
+  // use syncUserToServer directly, since it swallows its own errors),
+  // this is the primary user-facing save/unsave action and its existing
+  // catch block needs a real failure to actually reach it -- so this
+  // calls POST /api/users/sync directly rather than through
+  // syncUserToServer, sending the full current user object (that endpoint
+  // rebuilds the row from whatever's in the request body, so a
+  // savedProductIds-only payload would wipe every other field).
   const toggleSaveProduct = async (productId: string) => {
     if (!currentUser) return;
     const saved = Array.isArray(currentUser.savedProductIds) ? currentUser.savedProductIds : [];
@@ -4815,9 +4841,16 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       isAdding = true;
     }
     try {
-      await updateDoc(doc('users', currentUser.id), {
-        savedProductIds: updatedSaved
+      const authHeaders = await getAuthHeader();
+      const res = await fetch('/api/users/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ user: { ...currentUser, savedProductIds: updatedSaved } })
       });
+      const json = await res.json().catch(() => ({}));
+      if (!json.success) {
+        throw new Error(json.error || 'Failed to update saved listings.');
+      }
       setCurrentUserState({ ...currentUser, savedProductIds: updatedSaved });
     } catch (err) {
       handleBackendError(err, OperationType.UPDATE, `users/${currentUser.id}`);
