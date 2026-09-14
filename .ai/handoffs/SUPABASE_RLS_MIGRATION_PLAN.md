@@ -1,10 +1,10 @@
 # Supabase RLS Migration Plan
 
-**STATUS: BLOCKED_APPROVAL — RLS itself (Phase 4) still requires explicit approval.** §0's finding is fixed as an isolated checkpoint (commit `94c3cc6`), pending live/manual verification. Everything else — Phases 1 through 5 — remains design-only. RLS, policies, grants, schema, and production config remain completely untouched.
+**STATUS: BLOCKED_APPROVAL — RLS itself (Phase 4) still requires explicit approval.** Phase 0, items 1 and 4, are implemented as two isolated checkpoints (`94c3cc6`, `aeba056`) — item 1 pending live/manual verification, item 4 fully verified (no server endpoint involved). Phase 0 items 2-3, and Phases 1 through 5, remain design-only. RLS, policies, grants, schema, and production config remain completely untouched throughout.
 
 This document started as a design artifact and is being kept current as implementation proceeds in small, individually-reviewed checkpoints rather than as a static one-time snapshot. It builds on the completed read-only inventory in `.ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md` (§1-22) and the field-level fixes already shipped this session, and answers the question: **what would it take to safely turn RLS back on, and in what order.**
 
-The finding in [§0](#0-one-new-finding-surfaced-by-this-design-pass-fixed-pending-live-verification-commit-94c3cc6-checkpoint-1) — surfaced during the original design pass and initially flagged rather than fixed — has since been implemented as its own isolated checkpoint; see that section for what changed and what's still pending review. Everything past §4's Phase 0 subsection remains design, not yet implemented.
+The finding in [§0](#0-one-new-finding-surfaced-by-this-design-pass-fixed-pending-live-verification-commit-94c3cc6-checkpoint-1) — surfaced during the original design pass and initially flagged rather than fixed — has since been implemented as its own isolated checkpoint (`94c3cc6`), pending live verification. Phase 0's item 4 (§1.8/§4, unmapping three server-only tables) is also implemented, as a separate checkpoint (`aeba056`), and fully verified. Everything else in this document remains design, not yet implemented.
 
 ---
 
@@ -104,13 +104,13 @@ One subsection per table. Columns match the request: operation, web caller, `dbA
 | Write (`id`/`userId`/`username` only — quarantine fields already blocked this session) | `AppContext.tsx` — 4 call sites (registration, Google signup, account-migration, profile update) | `setDoc`/`writeBatch.set` | `TABLE_COLUMNS` allow-list (3 fields only) — no row-ownership check | LOW-MEDIUM (a reservation row can be pointed at the wrong `userId` by a caller who isn't its owner, since nothing checks) | B | None dedicated — `/api/users/sync` already writes the same rows server-side for the profile-save case; the other 3 (registration, Google signup, migration) don't yet | Partial — extend `/api/users/sync`'s existing write, or add equivalents for the other 3 flows | Registration, Google signup, and the migration flow's username reservation step all break | P1 (registration is a critical path) |
 | Quarantine fields (`status`/`availableAfter`/`quarantinedAt`) | — | Blocked (this session's fix, §20) | Fully closed | — | C | `/api/users/sync`'s quarantine check | No | N/A | — (already done) |
 
-### 1.8 `boost_purchases`, `admin_audit_logs`, `account_deletion_audits`
+### 1.8 `boost_purchases`, `admin_audit_logs`, `account_deletion_audits` — ✅ DONE (commit `aeba056`, checkpoint 2)
 
 | Table | Client usage found | Category | Notes |
 |---|---|---|---|
-| `boost_purchases` | None (one incidental mention in a legacy migration tool's table-name list, `ProfileSettings.tsx:870` — not an active read/write call) | **C** (payment records) | Server-only in practice today (11 `backendSupabase` call sites in `server.ts`, zero client `dbAdapter` calls). Should simply be removed from `VALID_TABLE_MAP` entirely — matches the `notifications` precedent (§18 of the audit doc): a table mapping that has no legitimate client caller is a live liability, not a convenience. |
-| `admin_audit_logs` | None | **D** | Same reasoning — server-only already, should be unmapped. |
-| `account_deletion_audits` | None | **D** | Same reasoning — server-only already, should be unmapped. |
+| `boost_purchases` | None (one incidental mention in a legacy migration tool's table-name list, `ProfileSettings.tsx:870` — not an active read/write call; re-confirmed dead at checkpoint 2, traced into that whole code branch and found it a disabled stub) | **C** (payment records) | Server-only in practice today (11 `backendSupabase` call sites in `server.ts`, zero client `dbAdapter` calls). **Removed from `VALID_TABLE_MAP` and `TABLE_COLUMNS` entirely, checkpoint 2** — matches the `notifications` precedent (§18 of the audit doc): a table mapping that has no legitimate client caller is a live liability, not a convenience. |
+| `admin_audit_logs` | None | **D** | Same reasoning — server-only, **unmapped, checkpoint 2**. |
+| `account_deletion_audits` | None | **D** | Same reasoning — server-only, **unmapped, checkpoint 2**. |
 
 ### 1.9 `notifications` — reference case, already fully migrated (§18)
 
@@ -170,9 +170,13 @@ Not a full migration — just closing what's independently dangerous *before* an
 1. **✅ FIXED — commit `94c3cc6`, checkpoint 1, pending live verification.** Migrate `fetchUsersOnce` to `GET /api/users/list`. **Correction to the original estimate**: this was *not* "zero new server work, a pure client-side call-site swap" — two features depended on the old read's contact-info fields and needed real server-side additions (`GET /api/users/get`'s new `username` param, the new `GET /api/admin/users/list-full`), and closing it surfaced a genuine, previously-unknown gap (`/api/admin/accounts/security-hold` had no independent super-admin check of its own) that had to be fixed in the same commit rather than deferred. Full detail in §0.
 2. **Not done — close the `products` views/likes direct-write residual** (§1.2) — requires the new views/likes endpoint from §3.
 3. **Not done — close the `notificationPreferences` cross-user write** flagged in the completed sweep (§22 of the audit doc) — a lightweight ownership check or migration to `/api/users/sync`.
-4. **Not done — unmap `boost_purchases`/`admin_audit_logs`/`account_deletion_audits`** from `VALID_TABLE_MAP` entirely (§1.8) — zero functional impact, matches the `notifications` precedent, and removes three tables' worth of attack surface for free. Deliberately kept as its own separate checkpoint rather than bundled with item 1 — genuinely unrelated to the `users`-table leak.
+4. **✅ DONE — commit `aeba056`, checkpoint 2.** Unmapped `boost_purchases`/`admin_audit_logs`/`account_deletion_audits` from `VALID_TABLE_MAP` and `TABLE_COLUMNS` entirely (§1.8) — zero functional impact confirmed (re-verified via fresh grep before touching anything, not assumed from the original inventory), matches the `notifications` precedent, removes three tables' worth of attack surface. Kept as its own isolated checkpoint, separate from item 1 — genuinely unrelated tables, no shared risk surface. `git diff` for this commit touches exactly one file (`src/dbAdapter.ts`).
 
-*Verification performed for item 1:* `tsc --noEmit` clean, production build clean, rejection-path/validation tests executed live against every new/changed endpoint. **Not yet performed:** live success-path verification (real data returned, the three affected features working end-to-end) — blocked on the reviewer's device access, not on anything outstanding in the code. Items 2-4 use the same testing discipline once implemented.
+*Verification performed for item 1:* `tsc --noEmit` clean, production build clean, rejection-path/validation tests executed live against every new/changed endpoint. **Not yet performed:** live success-path verification (real data returned, the three affected features working end-to-end) — blocked on the reviewer's device access, not on anything outstanding in the code.
+
+*Verification performed for item 4:* `tsc --noEmit` clean, production build clean. `dbAdapter.ts` is browser-only and never imported by `server.ts`, so there's no server endpoint to rejection-path test here — `tsc` + the Vite build (which compiles/bundles this file) is the complete verification for this specific change.
+
+Items 2-3 remain not done, still pending as their own future checkpoints.
 
 ### Phase 1 — Protected writes
 
@@ -285,7 +289,7 @@ This document (`SUPABASE_RLS_MIGRATION_PLAN.md`) and `CURRENT_HANDOFF.md` (updat
 
 **Recommended target architecture:** `Web → Firebase Auth → authenticated TedBuy server API → server-side Supabase (service_role)`, for every operation in categories B, C, and D — which, per §2, is nearly everything. Category A (genuinely public data) stays server-mediated too, not because RLS couldn't theoretically allow it, but because the existing endpoints already do more (moderation filtering, caching) than a raw table grant ever would. **The browser should end this migration talking to Supabase for nothing at all** — `dbAdapter.ts`'s Supabase branch becomes dead code, not a smaller allow-list.
 
-**Tables requiring migration work:** `users` (highest priority — bulk-read directory exposure fixed in checkpoint 1; registration/profile writes and the self-profile realtime subscription remain outstanding, still Phase 1/2), `products` (views/likes residual), `chats`/`messages` (admin support-desk realtime), `store_names` (remaining write flows). `reviews`/`reports` are functionally done (just need the read-side hygiene migration for `reviews`). `boost_purchases`/`admin_audit_logs`/`account_deletion_audits` need no migration — just unmapping (next checkpoint).
+**Tables requiring migration work:** `users` (highest priority — bulk-read directory exposure fixed in checkpoint 1; registration/profile writes and the self-profile realtime subscription remain outstanding, still Phase 1/2), `products` (views/likes residual), `chats`/`messages` (admin support-desk realtime), `store_names` (remaining write flows). `reviews`/`reports` are functionally done (just need the read-side hygiene migration for `reviews`). `boost_purchases`/`admin_audit_logs`/`account_deletion_audits` — ✅ done, unmapped entirely in checkpoint 2 (commit `aeba056`).
 
 **Endpoints that need to be created:** (1) products views/likes (anonymous-view + authenticated-self-toggle-like), (2) admin-only chats/messages support-desk read (polling), (3) message delete, (4) `store_names` write coverage for registration/Google-signup/migration flows. Everything else already exists.
 
@@ -301,4 +305,4 @@ This document (`SUPABASE_RLS_MIGRATION_PLAN.md`) and `CURRENT_HANDOFF.md` (updat
 
 ---
 
-**Current state: §0's finding is fixed as an isolated, individually-reviewed checkpoint (commit `94c3cc6`), pending the reviewer's own live/manual verification — not yet approved. No RLS, policy, grant, or schema change has been made at any point. Everything past §4's Phase 0 subsection (Phases 1-5, and Phase 0's own remaining items 2-4) is still design-only, unimplemented, and requires its own separate review before proceeding.**
+**Current state: two of Phase 0's four items are implemented, each as its own isolated, individually-reviewed checkpoint.** §0's finding (item 1, commit `94c3cc6`) — pending the reviewer's own live/manual verification, not yet approved. The three-table unmapping (item 4, commit `aeba056`) — fully verified, no live/manual check needed (no server endpoint involved). No RLS, policy, grant, or schema change has been made at any point. Phase 0 items 2-3, and Phases 1-5 in full, remain design-only, unimplemented, and require their own separate review before proceeding.
