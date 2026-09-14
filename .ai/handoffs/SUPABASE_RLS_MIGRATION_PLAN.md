@@ -1,10 +1,10 @@
 # Supabase RLS Migration Plan
 
-**STATUS: BLOCKED_APPROVAL — design only, no implementation.**
+**STATUS: BLOCKED_APPROVAL — RLS itself (Phase 4) still requires explicit approval. Phase 0 is now IMPLEMENTED (commit `2c34c23`); Phases 1-5 remain design-only.**
 
-This document is a design artifact, not a change log. Nothing in this pass touched Supabase config, RLS, policies, grants, schema, `dbAdapter.ts`, `server.ts`, or client code. It builds on the completed read-only inventory in `.ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md` (§1-22) and the field-level fixes already shipped this session, and answers the next question: **what would it take to safely turn RLS back on, and in what order.**
+This document started as a design artifact. Phase 0 (§4) has since been implemented at Vincent's explicit request — application-code changes only (client + server), with RLS, policies, grants, schema, and production config still completely untouched, exactly as this document always specified Phase 0 would require. It builds on the completed read-only inventory in `.ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md` (§1-22) and the field-level fixes already shipped this session, and answers the question: **what would it take to safely turn RLS back on, and in what order.**
 
-One finding surfaced during this design pass that is **not** covered by the completed sweep and is flagged prominently rather than fixed — see [§0](#0-one-new-finding-surfaced-by-this-design-pass-not-fixed). Everything else in this document is design, not a vulnerability report.
+The finding in [§0](#0-one-new-finding-surfaced-by-this-design-pass-not-fixed) — surfaced during the original design pass and flagged rather than fixed at the time — has since been **fixed** as the first item of Phase 0; see the update at the end of that section. Everything else in this document past §4's Phase 0 subsection remains design, not yet implemented.
 
 ---
 
@@ -18,13 +18,15 @@ One finding surfaced during this design pass that is **not** covered by the comp
 
 ---
 
-## 0. One new finding surfaced by this design pass (not fixed)
+## 0. One new finding surfaced by this design pass — FIXED (commit `2c34c23`)
 
 **Building the inventory below surfaced a live PII exposure not covered by the completed sweep.** `AppContext.tsx`'s `fetchUsersOnce` (~line 1893) runs `getDocs(collection(null, 'users'))` — an unauthenticated, unfiltered, `select('*')` bulk read of the **entire `users` table**, polled periodically (explicitly *not* a realtime listener, by design, to avoid an O(n²) egress blowup — see the comment at `AppContext.tsx:1885-1890`). Because `getTableSelectColumns()` only restricts columns for `products`, this read returns every column for every user: `email`, `phoneNumber`, `whatsAppNumber`, plus `isAdmin`/`isSuspended`/`securityHold`/`status` and anything else on the row — to any anonymous browser, no login required.
 
 A safe, purpose-built replacement **already exists and is already correct**: `GET /api/users/list` (`server.ts:3674`) was built specifically to solve this exact problem for mobile (its own comment explains it replaces a direct Firestore read for the same reason) and deliberately selects only `id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin` — no contact info. Web has simply never been switched to it, the same "mobile/server already had it right" pattern found repeatedly throughout the completed audit.
 
-This is scoped as **P0/P1 by the completed sweep's own severity bar** (bulk PII exposure, no auth required, live in production today). It is **not fixed in this pass** because this task is explicitly design-only and forbids client-code changes. Recommend treating this as either (a) a fast-follow fix authorized separately, immediately, outside the RLS migration timeline, or (b) the very first item of Phase 0 below if you'd rather bundle it. Flagging clearly rather than silently deferring it into a phase where it might sit for a while.
+This is scoped as **P0/P1 by the completed sweep's own severity bar** (bulk PII exposure, no auth required, live in production today).
+
+**Update — fixed as the first item of Phase 0.** `fetchUsersOnce` now calls `GET /api/users/list` instead. Two legitimate features that depended on the old bulk read's contact-info fields (`SellerProfilePage.tsx`'s "contact seller via WhatsApp" feature, and the admin-only `sendWelcomeEmailToAll` bulk campaign) were migrated to targeted, purpose-appropriate replacements rather than left broken — see §4's Phase 0 write-up for the full detail, including one additional gap this work surfaced along the way (a missing server-side super-admin guard on `/api/admin/accounts/security-hold`, fixed in the same commit).
 
 ---
 
@@ -159,12 +161,15 @@ A one-time Firestore→Supabase data-migration utility, gated by an admin-only U
 
 Not a full migration — just closing what's independently dangerous *before* anything else, so later phases aren't racing a live exposure:
 
-1. **Fix §0's `users` bulk PII read** — migrate `fetchUsersOnce` to `GET /api/users/list`. Zero new server work; this is a pure client-side call-site swap.
-2. **Close the `products` views/likes direct-write residual** (§1.2) — requires the new views/likes endpoint from §3.
-3. **Close the `notificationPreferences` cross-user write** flagged in the completed sweep (§22 of the audit doc) — a lightweight ownership check or migration to `/api/users/sync`.
-4. **Unmap `boost_purchases`/`admin_audit_logs`/`account_deletion_audits`** from `VALID_TABLE_MAP` entirely (§1.8) — zero functional impact, matches the `notifications` precedent, and removes three tables' worth of attack surface for free.
+1. **✅ DONE (commit `2c34c23`) — Fix §0's `users` bulk PII read.** Turned out to be more than "zero new server work" once traced fully: `fetchUsersOnce` now calls `GET /api/users/list`, but two real features depended on the old bulk read's contact-info fields and needed their own fix rather than being silently broken:
+   - `SellerProfilePage.tsx`'s "Contact seller via WhatsApp" feature (a seller's own *published* contact info — legitimately public-to-buyers, not part of the PII exposure being closed) now does its own targeted, single-seller lookup via `GET /api/users/get`, which was extended in this same commit to accept a `username` key in addition to `id`/`email` (the page's `selectedSellerId` is sometimes one, sometimes the other).
+   - `sendWelcomeEmailToAll` (the admin-only bulk-onboarding-email campaign) now calls a new endpoint, `GET /api/admin/users/list-full` — real `verifyAdmin()`-gated, includes `email`/`welcomeSent`, capped at 5000 rather than `/api/admin/users/search`'s 50 (that endpoint is a search tool; this one needs to see everyone eligible for a bulk send). Kept deliberately separate from the public `/api/users/list` rather than adding a conditional "include email" flag to it — that endpoint's entire value is being safe for *anyone* to call, unconditionally.
+   - Three now-dead client-side "can't target the super-admin" guards (`adminDeleteUserProfile`/`adminToggleUserSuspension`/`adminToggleSecurityHold`) were removed, since they depended on the bulk state's `email` field. Verified before removing that this was safe: `/api/admin/users/{delete,suspend}` both already independently re-check the same guard against the real database row server-side. `/api/admin/accounts/security-hold` did **not** — this was a genuine, previously-undiscovered gap (the client-side check was the *only* thing stopping a security hold from being placed on the super-admin account) — fixed by adding the missing server-side check in the same commit.
+2. **Not done this pass — close the `products` views/likes direct-write residual** (§1.2). Still open; requires the new views/likes endpoint from §3 (a real design decision — anonymous view-tracking + authenticated self-toggle-like — not a drop-in swap like item 1 turned out to only partially be).
+3. **Not done this pass — close the `notificationPreferences` cross-user write** flagged in the completed sweep (§22 of the audit doc).
+4. **✅ DONE (commit `2c34c23`) — Unmapped `boost_purchases`/`admin_audit_logs`/`account_deletion_audits`** from `VALID_TABLE_MAP` entirely (§1.8) — zero functional impact confirmed via repository-wide grep (no real client caller existed for any of the three), matches the `notifications` precedent.
 
-*Verification for Phase 0:* re-run the same rejection-path testing discipline used throughout the completed sweep (`tsc --noEmit`, build, live rejection-path curl tests) — no new pattern needed, this phase is a continuation of the same work already validated all session.
+*Verification performed:* `tsc --noEmit` clean, production build (client + server) clean, live rejection-path curl tests against the two new/changed admin endpoints (both correctly reject no-auth and forged-token requests). The success path (endpoints actually returning real Supabase data) could not be live-verified in that session — the sandbox's DNS resolution to the production Supabase host was intermittently failing throughout testing, reproduced against unmodified pre-existing code too (ruling out a code-level cause), and never recovered before the commit. Logic was verified by careful code reading instead. **Recommend a live functional check of `/api/users/list`, `/api/users/get?username=`, `/api/admin/users/list-full`, and the seller-contact / bulk-welcome-email features in a real browser session before considering Phase 0 fully closed out.**
 
 ### Phase 1 — Protected writes
 

@@ -1,5 +1,22 @@
 # Current Handoff Status
 
+**UPDATE — RLS-migration Phase 0 implemented.** `.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md` §0/§4, commit `2c34c23`. At explicit request, moved from design-only to implementing Phase 0 specifically: application code only (client + server) — RLS, policies, grants, schema, and production config remain completely untouched.
+
+**Fixed:** the live, unauthenticated bulk `users`-table PII read flagged in the plan's §0 (`fetchUsersOnce` in `AppContext.tsx`) — migrated to the already-existing, already-safe `GET /api/users/list`. Tracing what depended on the old read's contact-info fields surfaced more real work than a pure call-site swap:
+- `SellerProfilePage.tsx`'s "contact seller via WhatsApp" feature now does a targeted single-seller lookup via `GET /api/users/get` (extended to accept a `username` key, not just `id`/`email`).
+- The admin-only bulk-welcome-email feature now calls a new, real `verifyAdmin()`-gated endpoint (`GET /api/admin/users/list-full`) instead of the shared state.
+- Three client-side "can't target the super-admin" guards, now dead code after the migration, were removed after confirming the server independently re-checks the same thing — **except one didn't**: `/api/admin/accounts/security-hold` had **no server-side re-check at all**, meaning the client-side guard being removed was the *only* thing protecting the super-admin account from a security hold. Found and fixed in the same commit, not left as a new gap.
+
+Also unmapped `boost_purchases`/`admin_audit_logs`/`account_deletion_audits` from `dbAdapter.ts` entirely (zero real client callers, confirmed via grep) — same treatment as `notifications` in an earlier pass.
+
+**Verification:** `tsc --noEmit` and production build both clean. Rejection-path tests executed live against the new/changed admin endpoints (correct 403s for no-auth and forged tokens). **Not verified:** the actual success path (endpoints returning real data) — this sandbox's DNS resolution to the production Supabase host was down throughout testing (reproduced against unmodified pre-existing endpoints too, ruling out a code bug) and never recovered. Recommend a real-browser functional check of the user directory, seller-contact display, and bulk-welcome-email admin tool before treating Phase 0 as fully closed out.
+
+**Still open from Phase 0** (not done this pass): the `products` views/likes direct-write residual and the `notificationPreferences` cross-user write, both already documented in the plan as needing more design work than a drop-in fix.
+
+**Status: RLS itself (Phase 4) remains BLOCKED_APPROVAL** — nothing about enabling RLS, writing policies, or touching grants/schema has changed. Only Phase 0's application-code prerequisites were implemented, at explicit request, exactly as scoped.
+
+---
+
 **UPDATE — RLS migration design complete (read-only, no implementation).** `.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md` (new document). Requested as the next step after the sweep closed: design the safe path from `Web → dbAdapter → Supabase anon key` to `Web → Firebase Auth → authenticated TedBuy server API → server-side Supabase`, without touching RLS, policies, grants, schema, `dbAdapter.ts`, `server.ts`, or client code. Nothing was implemented — this is a design document only.
 
 **Headline finding, not fixed (per this task's explicit no-implementation instruction):** building the read/write inventory surfaced a live, unauthenticated bulk PII exposure not covered by the completed sweep — `AppContext.tsx`'s `fetchUsersOnce` reads the **entire `users` table** directly from Supabase (`select('*')`, no auth, no column restriction), returning every user's email/phone/WhatsApp number/admin-status/suspension-status to anyone. A safe, purpose-built replacement already exists and is unused by web (`GET /api/users/list`, built for mobile, already strips PII). Flagged prominently in the plan (§0) as P0/P1-equivalent severity — recommend authorizing this as a fast, standalone fix rather than letting it sit through the full migration timeline, since it's a one-line call-site swap onto an endpoint that already exists.
