@@ -34,7 +34,6 @@ import {
   onSnapshot,
   query,
   where,
-  increment,
   orderBy,
   limit,
   isSupabaseActive,
@@ -1695,20 +1694,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const existingTokens = currentUser.fcmTokens || [];
           if (!existingTokens.includes(token)) {
             const updatedTokens = [...existingTokens, token].slice(-5);
-            
+
             setCurrentUserState({
               ...currentUser,
               fcmTokens: updatedTokens
             });
 
-            try {
-              await updateDoc(doc('users', currentUser.id), {
-                fcmTokens: updatedTokens
-              });
-              console.log('[FCM] Device token registered in the user document.');
-            } catch (err) {
-              console.warn('[FCM] Could not write device token to the user database (running offline or permission restricted):', err);
-            }
+            // RLS-migration Phase 1: the direct `updateDoc(doc('users', ...),
+            // { fcmTokens })` persist that used to sit here was removed --
+            // 'fcmTokens' has never been in dbAdapter.ts's TABLE_COLUMNS
+            // allow-list, so this write has been a pure no-op the entire
+            // time (filterTableColumns strips it to an empty payload, and
+            // updateDoc returns early rather than ever calling Supabase --
+            // confirmed by reading that exact code path, not assumed).
+            // fcmTokens is also never read anywhere else in the codebase
+            // (client or server) beyond this dead persist attempt, so
+            // nothing downstream depended on it succeeding. The token
+            // fetch above this block is left untouched -- it has a real,
+            // independent side effect (triggering the browser's native
+            // push-notification permission prompt) unrelated to whether
+            // the token itself ever gets stored.
           }
         }
       } catch (err) {
@@ -1735,34 +1740,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         safeSessionStorage.setItem(sessionKey, 'true');
         
         // Dynamically increment visitCount in the database and state, tracking login & seen
+        // RLS-migration Phase 1: the direct-write persists that used to sit
+        // here (visitCount/lastLogin/lastSeen/isOnline) were removed --
+        // none of these fields has ever been in dbAdapter.ts's
+        // TABLE_COLUMNS allow-list, so these writes have been pure no-ops
+        // the entire time (confirmed by reading updateDoc's own
+        // filterTableColumns -> empty-payload -> early-return path, not
+        // assumed). The local state update below is left as-is: it's a
+        // real, if session-scoped-only, user-visible counter (see
+        // SellerDashboard.tsx's "visits" display) -- pending a decision on
+        // whether to actually build real server-side tracking for it.
         const originalVisits = currentUser.visitCount || 0;
         const newVisits = originalVisits + 1;
-        
-        updateDoc(doc('users', currentUser.id), {
-          visitCount: increment(1),
-          lastLogin: nowIso,
-          lastSeen: nowIso,
-          isOnline: true
-        }).catch(err => {
-          console.warn('[Tracking] Failed to increment visitCount on the database:', err);
-        });
 
-        setCurrentUserState(prev => prev ? { 
-          ...prev, 
+        setCurrentUserState(prev => prev ? {
+          ...prev,
           visitCount: newVisits,
           lastLogin: nowIso,
           lastSeen: nowIso,
           isOnline: true
         } : null);
       } else {
-        // Just make sure user is marked online and update lastSeen
-        updateDoc(doc('users', currentUser.id), {
-          isOnline: true,
-          lastSeen: nowIso
-        }).catch(() => {});
-
-        setCurrentUserState(prev => prev ? { 
-          ...prev, 
+        // Just make sure user is marked online and update lastSeen locally
+        // (see the no-op removal note above -- same reasoning applies here)
+        setCurrentUserState(prev => prev ? {
+          ...prev,
           lastSeen: nowIso,
           isOnline: true
         } : null);
@@ -1780,7 +1782,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const nowIso = new Date().toISOString();
 
-      // Update local state copy every 2 minutes
+      // Update local state copy every 2 minutes.
+      // RLS-migration Phase 1: the direct-write persists that used to sit
+      // here (and in this effect's unmount cleanup below) were removed --
+      // same reasoning as the visitCount/isOnline block above: neither
+      // 'lastSeen' nor 'isOnline' has ever been in dbAdapter.ts's
+      // TABLE_COLUMNS allow-list, so both writes have been pure no-ops the
+      // entire time.
       setCurrentUserState(prev => {
         if (!prev) return null;
         return {
@@ -1789,20 +1797,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           isOnline: true
         };
       });
-
-      updateDoc(doc('users', currentUser.id), {
-        lastSeen: nowIso,
-        isOnline: true
-      }).catch(() => {});
     }, 120000);
 
     return () => {
       clearInterval(interval);
-      const nowIso = new Date().toISOString();
-      updateDoc(doc('users', currentUser.id), {
-        isOnline: false,
-        lastSeen: nowIso
-      }).catch(() => {});
     };
   }, [currentUser?.id]);
 
@@ -3592,7 +3590,17 @@ CEO, Tedbuy Inc`;
         setProducts(prev => prev.map(p => p.id === prodId ? { ...p, isSyncing: false } : p));
       })().catch(err => console.warn('[createProduct] Background save execution error:', err));
 
-      // Update current user's rapid post score dynamically
+      // Update current user's rapid post score dynamically.
+      // RLS-migration Phase 1: the direct-write persist that used to sit
+      // here was removed -- 'rapidPostScore' has never been in
+      // dbAdapter.ts's TABLE_COLUMNS allow-list, so this write has been a
+      // pure no-op the entire time (confirmed by reading updateDoc's own
+      // filterTableColumns -> empty-payload -> early-return path, not
+      // assumed). The local state update below is left as-is: it's a
+      // real, if session-scoped-only, user-visible value (see
+      // SellerDashboard.tsx's "recent posts" display) -- pending a
+      // decision on whether to actually build real server-side tracking
+      // for it.
       try {
         const sellerProds = products.filter(p => p.sellerId === currentUser.id);
         const nowMs = Date.now();
@@ -3600,10 +3608,6 @@ CEO, Tedbuy Inc`;
           const createdMs = p.createdAt ? new Date(p.createdAt).getTime() : 0;
           return (nowMs - createdMs) < 3 * 24 * 60 * 60 * 1000; // 3 days
         }).length + 1; // + 1 for the newly posted one
-
-        updateDoc(doc('users', currentUser.id), {
-          rapidPostScore: postsLast3Days
-        }).catch(() => {});
 
         setCurrentUserState(prev => {
           if (!prev) return null;
