@@ -1296,7 +1296,14 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         videos: uploadedVideoUrl ? [uploadedVideoUrl] : [],
         videoPoster: uploadedVideoUrl ? uploadedVideoPosterUrl : '',
         sellerId: auth.currentUser.uid,
-        sellerName: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
+        // Prefer the canonical Supabase profile (matches web's
+        // AppContext.tsx, which stamps sellerName from currentUser.username)
+        // over the Firebase Auth SDK's own displayName -- that field can go
+        // stale if a profile-name update's Auth SDK call fails while the
+        // Supabase write still succeeds (updateUserProfile in firebase.ts
+        // swallows that specific failure), silently baking the old name
+        // into every listing published afterward.
+        sellerName: currentUserProfile?.username || auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Verified Seller',
         sellerPhoto: auth.currentUser.photoURL || '',
         sellerJoinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
         createdAt: new Date().toISOString(),
