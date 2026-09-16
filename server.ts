@@ -3054,8 +3054,16 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
       remainingBoostTime: productData.remainingBoostTime !== undefined ? Number(productData.remainingBoostTime) : undefined,
       paymentStatus: productData.paymentStatus || undefined,
       paymentReference: productData.paymentReference || undefined,
-      lastBoostedAt: productData.lastBoostedAt || undefined,
-      lastBoostPurchase: productData.lastBoostPurchase || undefined,
+      // `|| undefined` (like the two fields above) would silently drop an
+      // explicit null from the write entirely -- JSON.stringify omits
+      // undefined keys, so the column is never touched and a deactivated
+      // boost's stale timestamp survives forever. These two specifically
+      // need `|| null` (matching boostEndDate/boostStartDate/boostPlan
+      // above) so boost-control's deactivate branch can actually clear
+      // them -- getBoostEndDate() (src/utils/dateParser.ts) falls back to
+      // these exact fields to reconstruct a still-active end date.
+      lastBoostedAt: productData.lastBoostedAt || null,
+      lastBoostPurchase: productData.lastBoostPurchase || null,
       boostHistory: Array.isArray(productData.boostHistory) ? productData.boostHistory : undefined,
     } : {
       boostStatus: existingRow?.boostStatus === true,
