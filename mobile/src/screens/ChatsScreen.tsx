@@ -369,7 +369,37 @@ export function ChatsScreen() {
   // processOfflineQueue) — a failed send previously just showed an Alert and
   // the message was gone. Network failures specifically (not validation
   // errors) now queue for automatic retry instead of being silently lost.
-  const OFFLINE_QUEUE_KEY = 'tedbuy_offline_message_queue';
+  //
+  // Namespaced per-user (matches tedbuy_deleted_chat_ids_${uid} above) —
+  // this used to be one global, unscoped key shared by every account on the
+  // device. On a shared/family device, a message queued offline by User A
+  // could get silently replayed under whichever identity happened to be
+  // signed in when connectivity returned (User B, if they'd since signed
+  // in), or attempted under a signed-out session and just fail invisibly.
+  // Each queued item also now records its own senderId as a second,
+  // independent check before ever being replayed.
+  const LEGACY_UNSCOPED_OFFLINE_QUEUE_KEY = 'tedbuy_offline_message_queue';
+  const getOfflineQueueKey = (uid: string) => `tedbuy_offline_message_queue_${uid}`;
+
+  // One-time migration: move anything sitting under the old, unscoped key
+  // to the current user's namespaced key rather than silently abandoning
+  // real pending messages the moment this ships. Best-effort assumption
+  // (reasonable for the overwhelmingly common single-user-per-device case):
+  // whoever queued them is most likely the person currently signed in.
+  const migrateLegacyOfflineQueue = async (uid: string) => {
+    try {
+      const legacyRaw = await AsyncStorage.getItem(LEGACY_UNSCOPED_OFFLINE_QUEUE_KEY);
+      if (!legacyRaw) return;
+      await AsyncStorage.removeItem(LEGACY_UNSCOPED_OFFLINE_QUEUE_KEY);
+      const legacyQueue = JSON.parse(legacyRaw);
+      if (!Array.isArray(legacyQueue) || legacyQueue.length === 0) return;
+      const key = getOfflineQueueKey(uid);
+      const existingRaw = await AsyncStorage.getItem(key);
+      const existingQueue = existingRaw ? JSON.parse(existingRaw) : [];
+      const merged = [...existingQueue, ...legacyQueue.map((item: any) => ({ ...item, senderId: item.senderId || uid }))];
+      await AsyncStorage.setItem(key, JSON.stringify(merged));
+    } catch (_) {}
+  };
 
   // Prefers the structured errorCode apiFetch attaches to thrown errors
   // (reliable) over guessing from message text (fragile — and broke once the
@@ -378,30 +408,43 @@ export function ChatsScreen() {
   const isNetworkError = (err: any) => isRetryableApiError(err);
 
   const queueOfflineMessage = async (chatId: string, text: string) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
     try {
-      const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+      const key = getOfflineQueueKey(uid);
+      const raw = await AsyncStorage.getItem(key);
       const queue = raw ? JSON.parse(raw) : [];
-      queue.push({ id: `pending_${Date.now()}`, chatId, text, queuedAt: Date.now() });
-      await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+      queue.push({ id: `pending_${Date.now()}`, chatId, text, queuedAt: Date.now(), senderId: uid });
+      await AsyncStorage.setItem(key, JSON.stringify(queue));
       setPendingMessageCount(queue.length);
     } catch (_) {}
   };
 
   const processOfflineQueue = async () => {
-    if (!auth.currentUser) return;
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    await migrateLegacyOfflineQueue(uid);
+    const key = getOfflineQueueKey(uid);
     let raw: string | null;
     try {
-      raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+      raw = await AsyncStorage.getItem(key);
     } catch (_) {
       return;
     }
     if (!raw) return;
-    let queue: { id: string; chatId: string; text: string; queuedAt: number }[] = [];
+    let queue: { id: string; chatId: string; text: string; queuedAt: number; senderId?: string }[] = [];
     try { queue = JSON.parse(raw); } catch (_) { return; }
     if (queue.length === 0) return;
 
     const stillQueued: typeof queue = [];
     for (const item of queue) {
+      // Defense-in-depth: the queue is already namespaced by uid, but
+      // double-check each item's own recorded sender before ever replaying
+      // it under the currently signed-in identity.
+      if (item.senderId && item.senderId !== uid) {
+        stillQueued.push(item);
+        continue;
+      }
       try {
         await sendMessageApi(item.chatId, item.text);
       } catch (err: any) {
@@ -412,7 +455,7 @@ export function ChatsScreen() {
         // rather than retried forever.
       }
     }
-    await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(stillQueued));
+    await AsyncStorage.setItem(key, JSON.stringify(stillQueued));
     setPendingMessageCount(stillQueued.length);
     if (stillQueued.length < queue.length && activeChatId) {
       try {
