@@ -3744,6 +3744,122 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
   }
 });
 
+// Server-authoritative account-migration merge, RLS-migration Phase 2
+// (.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md -- findAndMigrateExistingUser's
+// merge logic, flagged as the highest-risk deferred item since checkpoint 9).
+// AppContext.tsx's findAndMigrateExistingUser used to run this merge as a
+// direct, unauthenticated client writeBatch: set the merged profile under
+// the new Firebase uid, delete the OLD row entirely, repoint store_names,
+// and cascade sellerId/buyerId across products/chats -- all driven by a
+// client-asserted "this other id was my old account", with no server-side
+// check that the caller actually owned it. Naively porting that to an
+// authenticated endpoint without adding real verification would let anyone
+// delete or absorb an arbitrary other user's account merely by naming its
+// id while signed in as any account at all.
+//
+// The fix is not "add auth", it's requiring cryptographic proof of
+// ownership: the OLD account's stored email must match the CALLER's own
+// verified email (verifyIdToken's decoded claim, never anything client-
+// supplied). Two different Firebase identities sharing a verified email is
+// only possible if the same real person controls both (e.g. switching from
+// a password account to Google Sign-In on the same address) -- exactly the
+// legitimate scenario this merge exists to handle, and not reachable by an
+// attacker who doesn't already control that email address. If the old
+// row's email can't be matched (missing, or simply different), this
+// endpoint fails closed (403) rather than trusting the client's claim --
+// the caller falls back to a fresh account rather than an unverifiable
+// merge, a deliberate behavior tightening vs. the old fully-trusting
+// client-side code.
+app.post('/api/users/merge-account', serverRateLimiter(60 * 1000, 10, "users-merge-account"), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  const targetUid = verified.uid;
+  const oldUserId = req.body?.oldUserId ? String(req.body.oldUserId).trim() : '';
+  if (!oldUserId || oldUserId === targetUid) {
+    return res.status(400).json({ success: false, error: 'Missing or invalid oldUserId' });
+  }
+  if (!verified.email) {
+    return res.status(403).json({ success: false, error: 'A verified email is required to merge an existing account' });
+  }
+
+  try {
+    const { data: oldRow, error: fetchErr } = await backendSupabase
+      .from('users')
+      .select('*')
+      .eq('id', oldUserId)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!oldRow) {
+      return res.status(404).json({ success: false, error: 'Old account not found' });
+    }
+    if (oldRow.isDeleted === true || oldRow.status === 'deleted') {
+      return res.status(404).json({ success: false, error: 'Old account no longer exists' });
+    }
+
+    const oldEmail = oldRow.email ? String(oldRow.email).trim().toLowerCase() : '';
+    if (!oldEmail || oldEmail !== verified.email) {
+      return res.status(403).json({ success: false, error: 'Forbidden: old account email does not match your verified email' });
+    }
+
+    // emailVerified/isGoogleAuth/authProvider are derived from Firebase
+    // Admin's own record of the CALLER (targetUid), same pattern as
+    // /api/users/sync above -- never taken from the client body.
+    let realEmailVerified = false;
+    let isGoogleUser = false;
+    try {
+      const fbUser = await getAdminAuth().getUser(targetUid);
+      realEmailVerified = fbUser.emailVerified === true;
+      isGoogleUser = (fbUser.providerData || []).some((p: any) => p.providerId === 'google.com');
+    } catch (fbErr) {
+      console.warn('[Users Merge API] Could not read Firebase Auth user, proceeding with defaults:', fbErr);
+    }
+
+    const oldRowSafe = redactUserSecrets(oldRow);
+    const mergedUser: any = {
+      ...oldRowSafe,
+      id: targetUid,
+      email: verified.email,
+      emailVerified: realEmailVerified,
+      photoUrl: (req.body?.photoUrl ? String(req.body.photoUrl) : null) || oldRow.photoUrl || null,
+      isGoogleAuth: isGoogleUser || oldRow.isGoogleAuth === true,
+      authProvider: isGoogleUser ? 'google.com' : (oldRow.authProvider || null)
+    };
+
+    const { error: upsertErr } = await safeBackendSupabaseUpsert('users', cleanObject(mergedUser), { onConflict: 'id' });
+    if (upsertErr) throw upsertErr;
+
+    await backendSupabase.from('users').delete().eq('id', oldUserId);
+
+    if (mergedUser.username) {
+      await safeBackendSupabaseUpsert('store_names', {
+        id: String(mergedUser.username).trim().toLowerCase(),
+        userId: targetUid,
+        username: String(mergedUser.username).trim()
+      }, { onConflict: 'id' }).catch(() => {});
+    }
+
+    try {
+      await backendSupabase.from('products').update({ sellerId: targetUid }).eq('sellerId', oldUserId);
+      await backendSupabase.from('chats').update({ buyerId: targetUid }).eq('buyerId', oldUserId);
+      await backendSupabase.from('chats').update({ sellerId: targetUid }).eq('sellerId', oldUserId);
+    } catch (cascadeErr) {
+      console.warn('[Users Merge API] Cascade update warning:', cascadeErr);
+    }
+
+    console.log(`[Users Merge API] Merged old account "${oldUserId}" into verified UID "${targetUid}" (matched email).`);
+    return res.json({ success: true, user: mergedUser });
+  } catch (err: any) {
+    console.error('[Users Merge API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Account merge failed' });
+  }
+});
+
 // Bulk, public-safe user directory — backs mobile's watchUsers(), which
 // used to read the Firestore `users` collection directly. That collection
 // is a mirror of this Supabase table and can drift out of sync with it (a

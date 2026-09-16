@@ -1031,7 +1031,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    // 5. Query storeNames mapping for candidates: cached username, display name, email prefix
+    // 5. Query storeNames mapping for candidates: cached username, display name, email prefix.
+    // The storeNames lookup itself stays a direct read (non-PII id->userId/
+    // username mapping, keyed by a candidate derived only from the current
+    // session's own cached username/display name/email prefix, never
+    // attacker-controlled). Security fix (RLS-migration Phase 2, checkpoint
+    // 13): the follow-up profile read WAS a direct, unauthenticated
+    // `getDoc(doc('users', storeData.userId))` -- a targeted but still
+    // unauthenticated single-user PII read, previously left deferred
+    // because it was coupled to the merge-write logic below, which needed
+    // its own server-side redesign first (see that block's comment). Now
+    // that the merge write is server-verified, this read closes the same
+    // way steps 3/4/6 already did: GET /api/users/get?id=.
     if (!foundDocData) {
       const storeCandidates: string[] = [];
       if (cachedUser && cachedUser.username) storeCandidates.push(cachedUser.username.trim().toLowerCase());
@@ -1048,13 +1059,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (storeSnap.exists()) {
             const storeData = storeSnap.data();
             if (storeData && storeData.userId && storeData.userId !== targetUid) {
-              const uSnap = await getDoc(doc('users', storeData.userId));
-              if (uSnap.exists()) {
-                const uData = uSnap.data() as User;
+              const res = await fetch(`/api/users/get?id=${encodeURIComponent(storeData.userId)}`);
+              const json = await res.json().catch(() => ({}));
+              if (json.success && json.user) {
+                const uData = json.user as User;
                 const uEmail = uData.email ? uData.email.trim().toLowerCase() : '';
                 if (uEmail === targetEmailLower || !uEmail || !targetEmailLower) {
                   foundDocData = uData;
-                  existingUserId = uSnap.id;
+                  existingUserId = uData.id;
                   console.log(`[findAndMigrateExistingUser] Located profile via storeNames mapping "${candidate}" -> ID "${existingUserId}".`);
                   break;
                 }
@@ -1109,7 +1121,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       existingUserId = null;
     }
 
-    // IF an existing account was found, MIGRATE it to targetUid dynamically
+    // IF an existing account was found, MIGRATE it to targetUid dynamically.
+    //
+    // Security fix (RLS-migration Phase 2, checkpoint 13): this used to run
+    // the whole merge as a direct, unauthenticated client writeBatch --
+    // set the merged profile under the new uid, delete the OLD row
+    // entirely, repoint store_names, and cascade sellerId/buyerId across
+    // products/chats -- all driven by nothing more than "existingUserId
+    // came from a search above", with no server-side check that the
+    // caller actually owned that other account. That's the single
+    // highest-risk item flagged throughout this whole migration: a naive
+    // authenticated version would still let an attacker delete or absorb
+    // an arbitrary other user's account merely by getting existingUserId
+    // to resolve to it, since nothing here cryptographically ties
+    // existingUserId to the signed-in caller.
+    //
+    // Two real cases reach this block:
+    //  - existingUserId !== targetUid (steps 2-6 above): a genuine
+    //    cross-account merge. Routed to POST /api/users/merge-account,
+    //    which independently re-verifies ownership server-side (the OLD
+    //    account's stored email must match the caller's own Firebase-
+    //    verified email) before writing anything -- see that endpoint for
+    //    the full reasoning. If the server refuses (no match), this
+    //    deliberately returns null rather than fabricating a local merge,
+    //    so the caller falls back to creating a fresh account.
+    //  - existingUserId === targetUid (only reachable via step 7's local-
+    //    cache fallback, e.g. step 1's direct lookup failed while offline
+    //    but the exact same uid's data is in local storage): not a
+    //    cross-account merge at all, just persisting a self-owned cached
+    //    copy -- routed to the already-migrated POST /api/users/sync.
     if (foundDocData) {
       const isGoogleUser = firebaseUser.providerData?.some((p: any) => p.providerId === 'google.com') || false;
       const mergedUser: User = {
@@ -1123,47 +1163,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
 
       try {
-        const batch = writeBatch(null);
-        // 1. Save merged user document under new targetUid
-        batch.set(doc('users', targetUid), cleanObject(mergedUser));
-
-        // 2. Delete old user document if ID changed
         if (existingUserId && existingUserId !== targetUid) {
-          batch.delete(doc('users', existingUserId));
-        }
-
-        // 3. Keep storeNames mapping pointing to targetUid
-        if (mergedUser.username) {
-          const storeNameLower = mergedUser.username.trim().toLowerCase();
-          batch.set(doc('storeNames', storeNameLower), {
-            userId: targetUid,
-            username: mergedUser.username.trim()
+          const authHeaders = await getAuthHeader();
+          const res = await fetch('/api/users/merge-account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ oldUserId: existingUserId, photoUrl: firebaseUser.photoURL || undefined })
           });
-        }
-
-        await batch.commit();
-        console.log(`[findAndMigrateExistingUser] Successfully migrated profile into UID: "${targetUid}"`);
-
-        if (existingUserId && existingUserId !== targetUid) {
-          // Asynchronously cascade ID updates in background
-          const cascadeBatch = writeBatch(null);
-          let count = 0;
-          try {
-            const prods = await getDocs(query(collection('products'), where('sellerId', '==', existingUserId)));
-            prods.forEach(p => { cascadeBatch.update(doc('products', p.id), { sellerId: targetUid }); count++; });
-
-            const chatsB = await getDocs(query(collection('chats'), where('buyerId', '==', existingUserId)));
-            chatsB.forEach(c => { cascadeBatch.update(doc('chats', c.id), { buyerId: targetUid }); count++; });
-
-            const chatsS = await getDocs(query(collection('chats'), where('sellerId', '==', existingUserId)));
-            chatsS.forEach(c => { cascadeBatch.update(doc('chats', c.id), { sellerId: targetUid }); count++; });
-
-            if (count > 0) await cascadeBatch.commit();
-          } catch (cErr) {
-            console.warn('[findAndMigrateExistingUser] Cascade update warning:', cErr);
+          const json = await res.json().catch(() => ({}));
+          if (json.success && json.user) {
+            console.log(`[findAndMigrateExistingUser] Server-verified merge succeeded into UID: "${targetUid}"`);
+            return json.user as User;
           }
+          console.warn('[findAndMigrateExistingUser] Server-side merge refused or failed (old account email did not match verified email, or another error):', json.error);
+          return null;
         }
-        syncUserToServer(mergedUser);
+
+        const authHeaders = await getAuthHeader();
+        const syncRes = await fetch('/api/users/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ user: mergedUser })
+        });
+        const syncJson = await syncRes.json().catch(() => ({}));
+        if (!syncJson.success) {
+          throw new Error(syncJson.error || 'Failed to persist restored profile.');
+        }
+        console.log(`[findAndMigrateExistingUser] Restored cached profile persisted for UID: "${targetUid}"`);
       } catch (writeErr) {
         console.error('[findAndMigrateExistingUser] Error writing merged user doc:', writeErr);
       }
