@@ -627,6 +627,19 @@ export async function signInWithGoogle() {
 }
 
 export async function logOut() {
+  // The native Google Sign-In SDK keeps its own signed-in session on the
+  // device, entirely separate from Firebase Auth -- signOut(auth) alone
+  // never clears it, so a user who signs out and then taps "Sign in with
+  // Google" again was silently re-signed into the same account instead of
+  // seeing the account picker. Best-effort: the native module doesn't
+  // exist in Expo Go, and a user who never used Google sign-in has no
+  // session to clear either way, so any failure here is expected and safe
+  // to ignore.
+  try {
+    await getGoogleSignInModule().signOut();
+  } catch (err) {
+    // Expo Go, module not configured, or no active Google session.
+  }
   return signOut(auth);
 }
 
