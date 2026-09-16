@@ -5251,7 +5251,17 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
         createdAt: new Date().toISOString()
       });
       if (purchaseInsertErr) {
-        console.warn(`[Verify Payment API] boost_purchases claim insert failed for ${paymentReference} (likely a concurrent replay of the same reference):`, purchaseInsertErr.message);
+        // A duplicate-key violation here is the expected, benign case (a
+        // genuine concurrent replay losing the race). Any OTHER error
+        // (network blip, timeout, transient Supabase issue) means this
+        // reference was NEVER actually claimed -- the early SELECT above
+        // won't catch a later replay of it either, since no row exists to
+        // find. That's a real gap in the replay guard, not just a detected
+        // duplicate, so it's logged at error level to stay visible rather
+        // than blending into routine warnings.
+        const isDuplicateKey = purchaseInsertErr.code === '23505';
+        const logFn = isDuplicateKey ? console.warn : console.error;
+        logFn(`[Verify Payment API] boost_purchases claim insert failed for ${paymentReference} (${isDuplicateKey ? 'likely a concurrent replay of the same reference' : 'NOT a duplicate-key error -- this reference is unclaimed and could be replayed later'}):`, purchaseInsertErr.message);
       }
     }
 
