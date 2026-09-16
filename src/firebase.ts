@@ -272,12 +272,30 @@ export function handleBackendError(error: unknown, operationType: OperationType,
     }
   });
 
+  const isReadOnlyOperation = operationType === OperationType.LIST || operationType === OperationType.GET;
+
   if (isPermissionError) {
     console.error('Backend Security Permission Error: ', JSON.stringify(errInfo));
-    if (operationType !== OperationType.LIST && operationType !== OperationType.GET) {
-      throw new Error(JSON.stringify(errInfo));
-    }
+  } else if (!isReadOnlyOperation) {
+    // A write (create/update/delete) failed for a non-permission reason --
+    // network error, validation rejection, a 5xx, a timeout, a malformed
+    // response, anything. Every caller of this function does
+    // `catch (err) { handleBackendError(err, ...); }` with nothing after
+    // it, so without also throwing here the calling async function
+    // resolved successfully regardless -- callers like ListingModal.tsx
+    // then showed "Ad updated successfully!" / "Ad posted successfully!"
+    // even though nothing was actually saved. Same class of bug as the
+    // boost-deactivate and mobile createProduct issues found and fixed
+    // earlier this session. Reads (LIST/GET) intentionally keep the
+    // original swallow-and-warn behavior below -- a failed background
+    // list-fetch shouldn't crash the page -- but a failed write must never
+    // look like it succeeded.
+    console.error('Backend Write Operation Failed: ', JSON.stringify(errInfo));
   } else {
     console.warn('Backend Connection/State Notice (Recoverable/Offline Cached):', JSON.stringify(errInfo));
+  }
+
+  if (!isReadOnlyOperation) {
+    throw new Error(JSON.stringify(errInfo));
   }
 }

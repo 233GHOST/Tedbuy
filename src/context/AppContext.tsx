@@ -3718,10 +3718,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const payload = cleanObject({ ...newProduct, isSyncing: false });
 
-      // Step A: Optimistically inject into products list state
+      // Step A: Optimistically inject into products list state -- gives an
+      // instant "isSyncing: true" card in the feed while Step B confirms
+      // with the server, same UX as before.
       setProducts(prev => [newProduct, ...prev]);
 
-      // Step B: Save to server API asynchronously.
+      // Step B: Save to server API.
       //
       // Security fix (RLS-migration Phase 1, checkpoint 23): this used to
       // ALSO run a "Priority 2" direct, unauthenticated
@@ -3737,22 +3739,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // server sync above already creates the product correctly and
       // safely (server-enforced sellerId = the verified caller). Removed
       // the redundant, insecure "fallback".
-      (async () => {
-        try {
-          const authHeaders = await getAuthHeader();
-          await fetch('/api/products/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders },
-            body: JSON.stringify({ product: payload })
-          });
-          fetch('/api/sitemap/clear', { method: 'POST', headers: authHeaders }).catch(() => {});
-          console.log('[createProduct] Server API sync completed successfully');
-        } catch (syncErr) {
-          console.warn('[createProduct] Failed syncing product to server API:', syncErr);
+      //
+      // Correctness fix: this used to be an un-awaited, fire-and-forget IIFE
+      // that never checked the response at all -- fetch() only rejects on a
+      // network-level failure, never on a 4xx/5xx, so any server-side
+      // rejection (validation, ownership, rate limit, a 5xx) left the
+      // optimistic product from Step A sitting in local state with nothing
+      // to say it never actually saved, while createProduct still resolved
+      // successfully to its caller (ListingModal.tsx then showed "Ad posted
+      // successfully!" regardless). Same class of bug as the mobile
+      // createProduct fix and the boost-deactivate fix earlier this
+      // session. Now properly awaited, checked, and rolled back on failure.
+      let savedProduct: Product = newProduct;
+      try {
+        const authHeaders = await getAuthHeader();
+        const res = await fetch('/api/products/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ product: payload })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Failed to publish listing.');
         }
-
-        setProducts(prev => prev.map(p => p.id === prodId ? { ...p, isSyncing: false } : p));
-      })().catch(err => console.warn('[createProduct] Background save execution error:', err));
+        if (data.product) {
+          savedProduct = data.product;
+        }
+        setProducts(prev => prev.map(p => p.id === prodId ? { ...p, ...(data.product || {}), isSyncing: false } : p));
+        fetch('/api/sitemap/clear', { method: 'POST', headers: authHeaders }).catch(() => {});
+      } catch (syncErr) {
+        // Never actually saved -- remove the optimistic card rather than
+        // leave a phantom listing sitting in local state.
+        setProducts(prev => prev.filter(p => p.id !== prodId));
+        throw syncErr;
+      }
 
       // Update current user's rapid post score dynamically.
       // RLS-migration Phase 1: the direct-write persist that used to sit
@@ -3794,7 +3814,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // you follow" notification (server.ts, using real follower data and
       // the verified seller identity) -- no client-side dispatch needed.
 
-      return newProduct;
+      return savedProduct;
     } catch (err) {
       handleBackendError(err, OperationType.CREATE, `products/${prodId}`);
     }
