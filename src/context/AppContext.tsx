@@ -5129,8 +5129,6 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
         }
       : currentUser.notificationPreferences;
 
-    const currentStoreNameLower = currentUser.username?.trim().toLowerCase();
-    const newStoreNameLower = finalUsername.trim().toLowerCase();
     const isStoreNameChanged = profileData.username !== undefined && finalUsername !== currentUser.username;
 
     if (isStoreNameChanged && !isUserAdmin(currentUser) && isReservedStoreName(finalUsername)) {
@@ -5252,29 +5250,39 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       }
       console.log('[Profile Update] Server-authoritative profile sync succeeded for UID:', currentUser.id);
 
-      // Best-effort update of store name index
-      if (profileData.username !== undefined && newStoreNameLower !== currentStoreNameLower) {
-        try {
-          if (currentStoreNameLower) {
-            await deleteDoc(doc('storeNames', currentStoreNameLower)).catch(() => {});
-          }
-          if (newStoreNameLower) {
-            await setDoc(doc('storeNames', newStoreNameLower), {
-              userId: currentUser.id,
-              username: finalUsername.trim()
-            }, { merge: true });
-          }
-        } catch (snErr) {
-          console.warn('[Profile Update] Non-fatal store name index update warning:', snErr);
-        }
-      }
+      // Security fix (RLS-migration Phase 1, checkpoint 18): the store-name
+      // index update used to ALSO run here as a direct, unauthenticated
+      // `deleteDoc`/`setDoc(doc('storeNames', ...))` pair -- dbAdapter's
+      // generic write path has no per-row ownership check, so a raw
+      // Supabase caller could delete or claim ANY username's store_names
+      // row, unauthenticated. The new-username reservation was already
+      // redundant with what POST /api/users/sync does server-side (called
+      // above); the old-username cleanup this block existed for is now
+      // folded into that same endpoint (server.ts), gated behind its
+      // existing ownership check and scoped to the row this user actually
+      // held. No client-side call needed at all anymore.
 
-      // Best-effort update of products sellerName
+      // Best-effort update of products sellerName. Security fix (same
+      // checkpoint): this used to be a direct, unauthenticated
+      // `updateDoc(doc('products', p.id), { sellerName })` per product --
+      // same root gap, exploitable to rename the displayed seller on ANY
+      // product regardless of the client-side `sellerId === currentUser.id`
+      // filter (not real access control). Routed through the existing,
+      // already-ownership-checked POST /api/products/sync instead, sending
+      // each product's full object (not a partial patch) to avoid the same
+      // "partial payload wipes other fields" landmine already documented
+      // for /api/users/sync.
       if (isStoreNameChanged) {
         const sellerProductsToUpdate = products.filter(p => p.sellerId === currentUser.id);
         if (sellerProductsToUpdate.length > 0) {
           Promise.all(
-            sellerProductsToUpdate.map(p => updateDoc(doc('products', p.id), { sellerName: finalUsername }).catch(() => {}))
+            sellerProductsToUpdate.map(p =>
+              fetch('/api/products/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ product: { ...p, sellerName: finalUsername } })
+              }).catch(() => {})
+            )
           ).catch(() => {});
         }
       }

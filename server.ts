@@ -3570,14 +3570,16 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
     // admin check, see that endpoint).
     let existingIsAdmin = false;
     let existingIsSuspended = false;
+    let existingUsername: string | null = null;
     if (backendSupabase) {
       const { data: existingRowForFlags } = await backendSupabase
         .from('users')
-        .select('"isAdmin", "isSuspended"')
+        .select('"isAdmin", "isSuspended", username')
         .eq('id', targetUid)
         .maybeSingle();
       existingIsAdmin = existingRowForFlags?.isAdmin === true;
       existingIsSuspended = existingRowForFlags?.isSuspended === true;
+      existingUsername = existingRowForFlags?.username || null;
     }
 
     // Business-logic fix: emailVerified was previously taken straight from
@@ -3673,6 +3675,33 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
           username: cleanUser.username
         };
         await safeBackendSupabaseUpsert('store_names', storeObj, { onConflict: 'id' }).catch(() => {});
+
+        // RLS-migration Phase 1, checkpoint 18: on a rename, clean up the
+        // OLD username's store_names row so it doesn't sit around
+        // reserved forever. This used to be a client-side direct
+        // `deleteDoc(doc('storeNames', oldNameLower))` in
+        // updateUserProfile -- dbAdapter's generic write path has no
+        // per-row ownership check, so a raw Supabase caller could delete
+        // (or upsert) ANY username's store_names row, unauthenticated.
+        // Folded in here instead, alongside the new-username reservation
+        // this endpoint already does server-side, gated behind the same
+        // ownership check as the rest of this endpoint (isOwner/isAdmin,
+        // checked above) and scoped only to the row this user actually
+        // held (the `userId` match below), so it can't be used to clear
+        // someone else's reservation even if a username collision existed.
+        const oldUsernameLower = existingUsername ? existingUsername.trim().toLowerCase() : null;
+        if (oldUsernameLower && oldUsernameLower !== storeObj.id) {
+          try {
+            const { error: delErr } = await backendSupabase
+              .from('store_names')
+              .delete()
+              .eq('id', oldUsernameLower)
+              .eq('userId', cleanUser.id);
+            if (delErr) console.warn('[Users Sync API] Old store_names cleanup warning:', delErr.message || delErr);
+          } catch (delErr: any) {
+            console.warn('[Users Sync API] Old store_names cleanup warning:', delErr?.message || delErr);
+          }
+        }
       }
     }
 
