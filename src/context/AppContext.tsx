@@ -3041,12 +3041,7 @@ CEO, Tedbuy Inc`;
         // will normally miss now (RLS-migration Phase 0 moved that state
         // off a bulk read that included email/phoneNumber onto the
         // PII-safe GET /api/users/list, which doesn't), always falling
-        // through to the direct Supabase lookup by username/phoneNumber
-        // below instead. That fallback already existed and needed no
-        // change -- it's a single targeted lookup, not a bulk PII dump,
-        // and login-by-username/phone keeps working exactly as before,
-        // just always taking this path instead of sometimes short-
-        // circuiting on a cache hit.
+        // through to the lookup below instead.
         const foundUser = users.find(
           u => (u.username && u.username.toLowerCase() === cleanLower) ||
                (u.phoneNumber && u.phoneNumber === cleanIdentifier)
@@ -3054,19 +3049,28 @@ CEO, Tedbuy Inc`;
         if (foundUser && foundUser.email) {
           emailTarget = foundUser.email;
         } else {
-          // Query the legacy users collection by username or phoneNumber
+          // Security fix (RLS-migration Phase 2, checkpoint 16): this used
+          // to be a direct, unauthenticated `getDocs(query(collection(
+          // 'users'), where('username'/'phoneNumber', '==', ...)))` --
+          // same shape and severity as the email-based lookups closed at
+          // checkpoints 10/11 (client-side query filters aren't access
+          // control; a caller bypassing this app's own JS could issue the
+          // same query with ANY username or phone number, turning "login
+          // identifier resolution" into an unauthenticated way to look up
+          // any other user's full profile). Migrated to
+          // GET /api/users/get?username=/&phoneNumber=, extending that
+          // endpoint with a phoneNumber lookup key alongside its existing
+          // id/email/username ones (same server-side change, this commit).
           try {
-            const qUser = query(collection(null, 'users'), where('username', '==', cleanIdentifier));
-            const snapUser = await getDocs(qUser);
-            if (!snapUser.empty) {
-              const userData = snapUser.docs[0].data() as User;
-              if (userData.email) emailTarget = userData.email;
+            const usernameRes = await fetch(`/api/users/get?username=${encodeURIComponent(cleanIdentifier)}`);
+            const usernameJson = await usernameRes.json().catch(() => ({}));
+            if (usernameJson.success && usernameJson.user?.email) {
+              emailTarget = usernameJson.user.email;
             } else {
-              const qPhone = query(collection(null, 'users'), where('phoneNumber', '==', cleanIdentifier));
-              const snapPhone = await getDocs(qPhone);
-              if (!snapPhone.empty) {
-                const userData = snapPhone.docs[0].data() as User;
-                if (userData.email) emailTarget = userData.email;
+              const phoneRes = await fetch(`/api/users/get?phoneNumber=${encodeURIComponent(cleanIdentifier)}`);
+              const phoneJson = await phoneRes.json().catch(() => ({}));
+              if (phoneJson.success && phoneJson.user?.email) {
+                emailTarget = phoneJson.user.email;
               }
             }
           } catch (lookupErr) {

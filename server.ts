@@ -3709,9 +3709,21 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
   // is sometimes an id and sometimes a username (see SellerProfilePage.tsx's
   // own foundUser lookup), so this endpoint needs to resolve by either.
   const username = req.query.username as string;
+  // Added at RLS-migration Phase 2, checkpoint 16: loginUser's username-or-
+  // phone-number identifier resolution had its own direct, unauthenticated
+  // `getDocs(query(collection('users'), where('phoneNumber', '==', ...)))`
+  // -- same shape and severity as the email-based lookups already closed
+  // at checkpoints 10/11 (client-side query filters aren't access control;
+  // a caller bypassing the app's own JS could issue the same query with
+  // ANY phone number). Adding phoneNumber as a fourth lookup key here
+  // rather than a new endpoint: this endpoint is already a public-by-
+  // design, single-targeted-key profile lookup (id/email/username), so
+  // one more equally-targeted key is the same exposure class already
+  // accepted for those three, not a new one.
+  const phoneNumber = req.query.phoneNumber as string;
 
-  if (!userId && !email && !username) {
-    return res.status(400).json({ success: false, error: 'Missing userId, email, or username query parameter' });
+  if (!userId && !email && !username && !phoneNumber) {
+    return res.status(400).json({ success: false, error: 'Missing userId, email, username, or phoneNumber query parameter' });
   }
 
   try {
@@ -3723,6 +3735,8 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
         q = q.eq('email', email.trim());
       } else if (username) {
         q = q.ilike('username', username.trim());
+      } else if (phoneNumber) {
+        q = q.eq('phoneNumber', phoneNumber.trim());
       }
       const { data, error } = await q.maybeSingle();
       if (error) throw error;
