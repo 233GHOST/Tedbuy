@@ -2048,12 +2048,19 @@ async function getProductsListData(forceRefresh = false): Promise<{ products: an
   if (backendSupabase) {
     try {
       // Explicit column selection with double quotes for camelCase Postgres identifiers.
-      // "isSold", "soldAt", status, "isDeleted" and "updatedAt" were missing —
-      // PostgREST only returns columns you explicitly ask for, so every row from
-      // this query (home feed, search, seller-listings fetch) had these as
+      // "isSold", "soldAt", status and "isDeleted" were missing — PostgREST
+      // only returns columns you explicitly ask for, so every row from this
+      // query (home feed, search, seller-listings fetch) had these as
       // undefined, silently breaking both the Mark as Sold state here and the
-      // soft-delete/archived-listing exclusion filter below.
-      const summaryColumns = 'id, title, price, category, location, brand, condition, negotiable, "sellerId", "sellerName", "createdAt", "updatedAt", "viewsCount", "likesCount", "boostStatus", "boostPlan", "boostStartDate", "boostEndDate", "lastBoostedAt", "isApproved", "isSold", "soldAt", status, "isDeleted", images, videos';
+      // soft-delete/archived-listing exclusion filter below. "updatedAt" is
+      // deliberately NOT requested here -- the products table has no such
+      // column (confirmed, out of scope to change per explicit instruction),
+      // so requesting it made this query fail on every single call and
+      // silently fall back to a second, slower select(*) every time. The
+      // normalized row's updatedAt already falls back to createdAt below
+      // regardless, so omitting it here changes no resulting data -- it only
+      // removes a guaranteed-to-fail round trip on this hot path.
+      const summaryColumns = 'id, title, price, category, location, brand, condition, negotiable, "sellerId", "sellerName", "createdAt", "viewsCount", "likesCount", "boostStatus", "boostPlan", "boostStartDate", "boostEndDate", "lastBoostedAt", "isApproved", "isSold", "soldAt", status, "isDeleted", images, videos';
       let { data, error } = await backendSupabase
         .from('products')
         .select(summaryColumns)
