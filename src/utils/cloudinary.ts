@@ -144,6 +144,13 @@ export async function uploadToCloudinary(
     });
   }
 
+  // Security fix (matches the server-side fix to /api/cloudinary/upload,
+  // same commit): that endpoint now requires authentication, matching its
+  // sibling /api/cloudinary/delete (below, already sends this header) --
+  // fetched once before the retry loop since XHR needs the header value
+  // available synchronously at open() time, unlike fetch().
+  const authHeaders = await getAuthHeader();
+
   while (attempt < maxRetries) {
     try {
       attempt++;
@@ -156,10 +163,13 @@ export async function uploadToCloudinary(
       });
 
       const xhr = new XMLHttpRequest();
-      
+
       const uploadPromise = new Promise<CloudinaryUploadResult>((resolve, reject) => {
         xhr.open('POST', '/api/cloudinary/upload', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
+        if (authHeaders.Authorization) {
+          xhr.setRequestHeader('Authorization', authHeaders.Authorization);
+        }
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable && onProgress) {

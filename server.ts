@@ -1106,7 +1106,25 @@ app.post(
   }
 );
 
+// Security fix (found during a Phase-5-style consolidated rejection-path
+// sweep of every endpoint, RLS-migration follow-up): this endpoint had NO
+// authentication check at all -- unlike its sibling /api/cloudinary/delete
+// just below, which already correctly requires verifyUser(). In this
+// sandbox that's masked by Cloudinary not being configured (always 503
+// before reaching the upload), but with real Cloudinary credentials
+// configured (as production has), this let ANY caller, fully
+// unauthenticated, upload arbitrary files to TedBuy's own Cloudinary
+// account -- a real abuse vector (storage/bandwidth cost, using a paid
+// third-party account as an anonymous open file host). Both web
+// (src/utils/cloudinary.ts) and mobile (mobile/src/firebase.ts) callers
+// updated in the same change to actually send the auth header this now
+// requires.
 app.post("/api/cloudinary/upload", serverRateLimiter(60 * 1000, 120, "cloudinary-upload"), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to upload media' });
+  }
+
   try {
     if (!initCloudinaryConfig()) {
       return res.status(503).json({ success: false, error: 'Cloudinary is not configured on this server (missing API secret).' });

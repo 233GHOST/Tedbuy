@@ -241,11 +241,20 @@ export async function uploadMediaToCloudinaryMobile(
     ? `${window.location.origin}/api/cloudinary/upload`
     : 'https://www.tedbuy.store/api/cloudinary/upload';
 
+  // Security fix (matches the server-side fix to /api/cloudinary/upload,
+  // same commit): that endpoint now requires authentication. Fetched
+  // before opening the XHR since the header value must be available
+  // synchronously at that point.
+  const authHeaders = await getAuthHeaderMobile();
+
   try {
     const result = await new Promise<{ success: boolean; result?: any; error?: string }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', serverUrl, true);
       xhr.setRequestHeader('Content-Type', 'application/json');
+      if (authHeaders.Authorization) {
+        xhr.setRequestHeader('Authorization', authHeaders.Authorization);
+      }
       // Was previously unset — a stalled connection (server hung, wifi died
       // mid-request) left this promise pending forever, which left the
       // image's status stuck at 'uploading' and Publish disabled with no way
