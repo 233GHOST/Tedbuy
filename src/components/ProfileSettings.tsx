@@ -986,7 +986,16 @@ CEO, Tedbuy Inc`;
           const res = await uploadToCloudinary(photoUrl, 'image');
           finalPhotoUrl = res.secure_url || res.url;
         } catch (uploadErr) {
-          console.warn('[ProfileSettings] Cloudinary avatar upload warning:', uploadErr);
+          // Correctness fix: this used to only console.warn and fall
+          // through -- finalPhotoUrl stayed as the raw data:/blob: string,
+          // which then got saved as the user's permanent photoUrl below. A
+          // blob: URL is only valid in the tab that created it (broken on
+          // reload or anywhere else it's rendered); a raw data: URL bloats
+          // the row with unbounded base64 text. Abort the save instead --
+          // better to tell the user their photo upload failed than to
+          // silently corrupt their profile photo for every future load.
+          console.error('[ProfileSettings] Cloudinary avatar upload failed:', uploadErr);
+          throw new Error('Failed to upload your new photo. Please try again.');
         }
       }
 
