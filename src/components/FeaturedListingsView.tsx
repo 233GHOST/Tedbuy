@@ -6,7 +6,7 @@ import { isBoostActive, parseDate } from '../utils/dateParser';
 import { Flame, ArrowLeft } from 'lucide-react';
 
 export const FeaturedListingsView: React.FC = () => {
-  const { products, selectedCategory, setCurrentView } = useApp();
+  const { selectedCategory, setCurrentView } = useApp();
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -42,20 +42,19 @@ export const FeaturedListingsView: React.FC = () => {
         if (data.success && Array.isArray(data.products)) {
           const validFeatured = filterAndSortFeatured(data.products, selectedCategory);
           setFeaturedProducts(validFeatured);
-          setIsLoading(false);
-          return;
         }
       }
     } catch (err) {
-      console.warn('[FeaturedListingsView] /api/featured fetch fallback:', err);
-    }
-
-    if (products && products.length > 0) {
-      const filtered = filterAndSortFeatured(products, selectedCategory);
-      setFeaturedProducts(filtered);
+      // Keep whatever was already showing rather than falling back to the
+      // general (paginated, recency-sorted, not boost-aware) products
+      // context array -- that was the exact bug already fixed in the
+      // carousel component (FeaturedListings.tsx); reintroducing it here as
+      // a fallback would just move the same wrong-data-source problem
+      // behind a network failure instead of removing it.
+      console.warn('[FeaturedListingsView] /api/featured fetch error:', err);
     }
     setIsLoading(false);
-  }, [selectedCategory, filterAndSortFeatured, products]);
+  }, [selectedCategory, filterAndSortFeatured]);
 
   useEffect(() => {
     fetchFeaturedProducts();
