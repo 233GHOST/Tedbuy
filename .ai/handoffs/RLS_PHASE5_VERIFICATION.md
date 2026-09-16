@@ -59,3 +59,35 @@ Public-read paths verified live and working post-RLS: `GET /api/auth/check-store
 **Phase 5 status: PARTIAL — credentials unavailable.** RLS itself and service_role connectivity are fully verified with zero anomalies or defects found. The rows requiring real Firebase credentials remain genuinely untested — an environment limitation, not a defect. No RLS/policy/grant/schema/code change was made during this phase; rollback was not needed.
 
 **If/when real credentials become available** (shared into this sandbox, or run by Vincent directly), the remaining rows to close out: a full authenticated round-trip (login → create listing → send message → leave a review), one deliberate cross-user attempt, and one real admin action (suspend/security-hold/impersonate) through the actual app/admin panel.
+
+---
+
+## Manual verification results (Vincent, 2026-09-16)
+
+Per `RLS_PHASE5_MANUAL_PROCEDURE.md`.
+
+### Test 1 — Authenticated write/read flow
+**PASS.** Vincent confirmed via the live app.
+
+### Test 2 — Cross-user authorization
+**PASS.** Executed via Firefox DevTools: authenticated as User A ("Richie"), sent a real `POST /api/products/sync` request (with User A's own valid Authorization token) targeting a listing owned by a different seller ("ISBON STORE", `prod_1786488773748`), attempting to change its title.
+
+Result:
+```
+POST https://www.tedbuy.store/api/products/sync → HTTP 403
+{"success":false,"error":"Forbidden: You do not have permission to modify this listing"}
+```
+Confirmed via code read (`server.ts:3178-3189`) that this rejection happens *before* any database write — the ownership check is a hard `return` ahead of the save logic, so there is no path by which the target listing could have been altered despite the request being sent. Server-side ownership enforcement (`sellerId` cross-checked against the real DB row, never trusted from the client) is confirmed intact and independent of RLS.
+
+### Test 3 — Authorized admin action
+**BLOCKED — defect found, root cause not yet confirmed.** Vincent attempted to reverse/deactivate a boost via the admin panel; the action reported no visible effect ("nothing happened, the expected action was not performed").
+
+Code read of `POST /api/admin/boost-control` (`server.ts:5343`) found a pre-existing pattern where Supabase write failures are swallowed (`console.warn`, never re-thrown) and the endpoint still returns `{ success: true }` regardless of whether the underlying row actually changed — this bug predates this session's RLS work, not introduced by it. Whether *this specific* failure was RLS-caused or this pre-existing bug remains unconfirmed — pending from Vincent: Render logs for `[Admin Boost Control API]` around the time of the attempt (specifically any `Supabase upsert error` warning and its exact message), and the product row's actual `boostStatus`/`isBoosted`/`updatedAt` state checked directly in the Supabase Table Editor.
+
+**No RLS, policy, grant, schema, or application code has been changed in response to this finding.** No rollback performed.
+
+---
+
+## Overall Phase 5 status
+
+**BLOCKED — actual defect found (Test 3).** Tests 1 and 2 pass cleanly with no anomalies. Test 3 surfaced a real defect in `/api/admin/boost-control` whose relationship to RLS is not yet confirmed — Phase 5 cannot be marked PASS until this is resolved one way or the other.
