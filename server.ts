@@ -5504,20 +5504,37 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
       id: productId
     };
 
-    // 1. Sync to Supabase
+    // 1. Sync to Supabase -- the actual source of truth every reader
+    // (UI, /api/products/:id, the feed) depends on. Track whether this
+    // genuinely succeeded rather than assuming it did: this endpoint used
+    // to unconditionally return success:true regardless of what happened
+    // here, which is exactly what let a Phase 5 test find an admin action
+    // that appeared to succeed while the write silently never landed (see
+    // .ai/handoffs/RLS_PHASE5_VERIFICATION.md's admin-action test note --
+    // that specific case turned out to be a UI staleness issue, not a
+    // write failure, but the endpoint had no way to tell the difference
+    // either way, which is the actual gap being closed here).
+    let supabaseWriteSucceeded = !backendSupabase;
     if (backendSupabase) {
       try {
         const saved = await upsertProductToSupabase(mergedProduct, undefined, true);
         if (saved) {
+          supabaseWriteSucceeded = true;
           console.log(`[Admin Boost Control API] Saved product ${productId} to Supabase.`);
         }
       } catch (upsertErr: any) {
         console.warn('[Admin Boost Control API] Supabase upsert error, falling back to safeBackendSupabaseUpsert:', upsertErr?.message);
-        await safeBackendSupabaseUpsert('products', mergedProduct, { onConflict: 'id' }).catch(() => {});
+        const fallback = await safeBackendSupabaseUpsert('products', mergedProduct, { onConflict: 'id' }).catch((e: any) => ({ data: null, error: e }));
+        supabaseWriteSucceeded = !fallback.error;
+        if (fallback.error) {
+          console.error('[Admin Boost Control API] Both Supabase write attempts failed:', fallback.error?.message || fallback.error);
+        }
       }
     }
 
-    // 2. Sync to Firestore adminDb
+    // 2. Sync to Firestore adminDb -- a secondary, best-effort sync for
+    // mobile's realtime listeners; Supabase above remains authoritative,
+    // so a failure here alone doesn't fail the request.
     if (adminDb) {
       try {
         await adminDb.collection('products').doc(productId).set(cleanObject(mergedProduct), { merge: true });
@@ -5525,6 +5542,13 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
       } catch (fWriteErr: any) {
         console.warn('[Admin Boost Control API] Firestore adminDb write warning:', fWriteErr?.message);
       }
+    }
+
+    if (!supabaseWriteSucceeded) {
+      return res.status(500).json({
+        success: false,
+        error: `The boost ${action} action could not be saved. Please try again.`
+      });
     }
 
     // 3. Invalidate Memory & Sitemap Caches
