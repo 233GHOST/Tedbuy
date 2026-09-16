@@ -851,10 +851,43 @@ export async function fetchUserById(userId: string) {
 // show "Couldn't load listings, try again" instead of a silent empty grid on
 // a real network failure (as opposed to a genuinely empty catalog) can read
 // it; everyone else keeps working exactly as before.
+// Shared across every watchProducts() caller -- this app has no global
+// products store (unlike web's AppContext), so ~10 different screens
+// (Home, Search, Profile, ForYou, Trending, Featured, Seller Profile,
+// Discover Sellers, Saved Products, Product Detail) each independently
+// called watchProducts() on mount, each firing its own fresh 200-item
+// fetch with zero sharing -- visiting even 3-4 screens re-downloaded and
+// re-parsed the same ~200-item catalog 3-4 separate times. This cache
+// lets near-simultaneous/rapid callers (mounting around the same time, or
+// switching tabs within the window below) share one in-flight request and
+// its result, instead of each firing their own. 45s is long enough to
+// dedupe realistic tab-switching during a single session, short enough
+// that a genuinely stale view is unlikely to matter for a "browse the
+// catalog" screen (every screen that needs a guaranteed-fresh read after
+// an action already uses noCache=true, which always bypasses this).
+let productsCache: { data: any[]; timestamp: number } | null = null;
+let productsCacheInFlight: Promise<{ products: any[]; failed: boolean }> | null = null;
+const PRODUCTS_CACHE_TTL_MS = 45 * 1000;
+
 export function watchProducts(callback: (products: any[], failed?: boolean) => void, noCache = false) {
   let active = true;
   const load = async () => {
-    const { products, failed } = await fetchProductsWithStatus(200, undefined, undefined, noCache);
+    if (!noCache && productsCache && (Date.now() - productsCache.timestamp) < PRODUCTS_CACHE_TTL_MS) {
+      if (active) callback(productsCache.data, false);
+      return;
+    }
+    if (!noCache && productsCacheInFlight) {
+      const result = await productsCacheInFlight;
+      if (active) callback(result.products, result.failed);
+      return;
+    }
+    const fetchPromise = fetchProductsWithStatus(200, undefined, undefined, noCache);
+    if (!noCache) productsCacheInFlight = fetchPromise;
+    const { products, failed } = await fetchPromise;
+    if (!noCache) {
+      productsCacheInFlight = null;
+      if (!failed) productsCache = { data: products, timestamp: Date.now() };
+    }
     if (active) callback(products, failed);
   };
   load();
