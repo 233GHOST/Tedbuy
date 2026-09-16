@@ -586,6 +586,9 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                     <ProductCard
                       product={item}
                       onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
+                      onProductUpdated={(updated) => {
+                        setProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+                      }}
                     />
                   </View>
                 ))}

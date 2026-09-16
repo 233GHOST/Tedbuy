@@ -65,6 +65,9 @@ export function SavedProductsScreen({ onBack, navigation }: SavedProductsScreenP
               product={item}
               onPress={() => navigation?.navigate('ProductDetail', { productId: item.id })}
               onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+              onProductUpdated={(updated) => {
+                setAllProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+              }}
             />
           )}
           ListEmptyComponent={

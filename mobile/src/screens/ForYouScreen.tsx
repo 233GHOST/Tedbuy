@@ -70,6 +70,9 @@ export function ForYouScreen({ onBack, navigation }: ForYouScreenProps) {
               product={item}
               onPress={() => navigation?.navigate('ProductDetail', { productId: item.id })}
               onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+              onProductUpdated={(updated) => {
+                setProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+              }}
             />
           )}
           ListEmptyComponent={

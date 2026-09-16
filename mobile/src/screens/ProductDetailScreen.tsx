@@ -900,6 +900,9 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                     product={p}
                     onPress={() => navigation.push('ProductDetail', { productId: p.id })}
                     onSellerPress={(sellerId: string) => navigation.navigate('SellerProfile', { sellerId })}
+                    onProductUpdated={(updated) => {
+                      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
+                    }}
                   />
                 </View>
               ))}
