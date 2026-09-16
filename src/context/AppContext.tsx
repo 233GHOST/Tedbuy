@@ -4228,16 +4228,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // caller or admin) -- this client-side function's own ownership
       // guard was always only a UX pre-check, never the real boundary.
       // Removed entirely; nothing else did this deletion.
-      getAuthHeader().then(authHeaders => {
-        fetch('/api/products/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({ id })
-        }).catch(err => console.warn('[deleteProduct] Server delete endpoint error:', err));
-
-        fetch('/api/sitemap/clear', { method: 'POST', headers: authHeaders }).catch(() => {});
+      // Correctness fix: this used to be a `.then()` chain the outer
+      // function never awaited, whose own fetch() was only `.catch()`'d for
+      // a network-level failure -- never checked for a non-2xx response at
+      // all. That meant a real server-side rejection (ownership race,
+      // validation, a 5xx) left the optimistic removal above in place with
+      // nothing to say the delete never actually happened, while
+      // deleteProduct still resolved successfully to its callers
+      // (ProfileSettings.tsx, SellerDashboard.tsx, ProductDetail.tsx all
+      // show a "deleted successfully" toast right after `await
+      // deleteProduct(...)`, unconditionally). Same class of bug as
+      // createProduct, fixed earlier this session. Now properly awaited,
+      // checked, and rolled back on failure.
+      const authHeaders = await getAuthHeader();
+      const res = await fetch('/api/products/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ id })
       });
-    } catch (_) {}
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete listing.');
+      }
+
+      fetch('/api/sitemap/clear', { method: 'POST', headers: authHeaders }).catch(() => {});
+    } catch (err) {
+      // Never actually deleted server-side -- roll back the optimistic
+      // removal rather than leave the caller believing this succeeded.
+      if (localProduct) {
+        setProducts(prev => (prev.some(p => p.id === id) ? prev : [localProduct, ...prev]));
+      }
+      setOptimisticDeletedProductIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      throw err;
+    }
 
     refreshSellerCounts().catch(() => {});
   };

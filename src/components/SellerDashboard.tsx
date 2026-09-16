@@ -728,8 +728,10 @@ export const SellerDashboard: React.FC = () => {
                   if (!deleteConfirmChecked) return;
                   try {
                     await deleteProduct(productToDelete.id);
-                  } catch (err) {
+                    showToast('Listing deleted successfully', 'success');
+                  } catch (err: any) {
                     console.error("Deletion error:", err);
+                    showToast(err?.message || 'Failed to delete listing', 'error');
                   } finally {
                     setProductToDelete(null);
                   }
