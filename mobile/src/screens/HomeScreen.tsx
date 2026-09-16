@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, FlatList, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -348,7 +349,7 @@ const VideoFeedPlayer = React.memo(function VideoFeedPlayer({
           instead of a blank black rectangle while the video buffers — the
           VideoView covers it completely once playback actually starts. */}
       {!!posterUri && (
-        <Image source={{ uri: posterUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        <Image source={{ uri: posterUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
       )}
       {/* A native VideoView is a genuinely heavy view to have mounted — its
           own decoder/compositor layer. VideoFeedPlayer (this whole
@@ -592,7 +593,7 @@ const VideoFeedRow = React.memo(function VideoFeedRow({
           onRetry={() => setRetryNonce((n) => n + 1)}
         />
       ) : videoFallbackImageUri ? (
-        <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} />
+        <Image source={{ uri: videoFallbackImageUri }} style={styles.videoPlaceholderImage} cachePolicy="memory-disk" />
       ) : (
         <CategoryImagePlaceholder category={item.category} style={styles.videoPlaceholderImage} iconSize={40} />
       )}
@@ -1085,26 +1086,40 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     };
   }, []);
 
-  // Fetch server search results when search query or category changes
+  // Supplements the client-side filter below (filteredProducts already
+  // matches title/description/category/brand/location against whatever's
+  // in `products`, entirely locally, with zero network cost) by also
+  // reaching beyond the already-loaded 200-item page in case a match
+  // exists further back in the catalog. This used to fire a fresh 200-item
+  // network request on every single keystroke (and again on every category
+  // tap) with no debounce -- typing a 10-character search term meant 10
+  // separate full-catalog re-fetches while the user was still typing,
+  // merged into `products` and cascading through every downstream
+  // useMemo/render. Debounced to match SearchScreen.tsx's own 150ms
+  // pattern for its equivalent server-suggestions call (slightly longer
+  // here since this is a supplementary background reach, not the primary
+  // -- and already-instant -- local search).
   useEffect(() => {
     if (!searchText.trim() && selectedCategory === 'All') return;
 
     let active = true;
-
-    fetchProducts(200, searchText, selectedCategory).then((items) => {
-      if (!active) return;
-      if (Array.isArray(items) && items.length > 0) {
-        setProducts((prev) => {
-          const map = new Map<string, Product>();
-          prev.forEach((p) => { if (p && p.id) map.set(String(p.id), p as Product); });
-          items.forEach((p) => { if (p && p.id) map.set(String(p.id), p as Product); });
-          return Array.from(map.values());
-        });
-      }
-    }).catch(() => {});
+    const timer = setTimeout(() => {
+      fetchProducts(200, searchText, selectedCategory).then((items) => {
+        if (!active) return;
+        if (Array.isArray(items) && items.length > 0) {
+          setProducts((prev) => {
+            const map = new Map<string, Product>();
+            prev.forEach((p) => { if (p && p.id) map.set(String(p.id), p as Product); });
+            items.forEach((p) => { if (p && p.id) map.set(String(p.id), p as Product); });
+            return Array.from(map.values());
+          });
+        }
+      }).catch(() => {});
+    }, 400);
 
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [searchText, selectedCategory]);
 
@@ -1817,6 +1832,20 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
             showsVerticalScrollIndicator={false}
             onScroll={onTabBarScroll}
             scrollEventThrottle={16}
+            // No getItemLayout deliberately -- card height isn't fixed
+            // (product titles wrap to a variable number of lines), and
+            // onScrollToIndexFailed above already has a working fallback for
+            // exactly this. Safe to tune the rest: unlike the video feed
+            // below (see its own long comment on why removeClippedSubviews
+            // + a tight windowSize caused outright freezes there -- a
+            // native-video-decoder-specific interaction during view
+            // recycling), this grid only ever holds plain Image cells, so
+            // the standard combination is safe and reduces how much
+            // off-screen content stays mounted while scrolling a long feed.
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === 'android'}
             refreshControl={
               <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#0f172a" colors={['#0f172a']} />
             }
@@ -2226,7 +2255,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                           >
                             <View style={styles.recentlyViewedThumb}>
                               {!!thumbUri && (
-                                <Image source={{ uri: thumbUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                                <Image source={{ uri: thumbUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
                               )}
                             </View>
                             <View style={styles.recentlyViewedTextWrap}>
@@ -2289,6 +2318,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                             onPress={() => onOpenProduct(item)}
                             onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
                             isFeaturedVariant={true}
+                            onProductUpdated={(updated) => {
+                              setProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+                            }}
                           />
                         </View>
                       ))}
@@ -2384,6 +2416,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                             product={item}
                             onPress={() => onOpenProduct(item)}
                             onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+                            onProductUpdated={(updated) => {
+                              setProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+                            }}
                           />
                         </View>
                       ))}
@@ -2421,6 +2456,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                             onPress={() => onOpenProduct(item)}
                             onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
                             isTrendingVariant={true}
+                            onProductUpdated={(updated) => {
+                              setProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+                            }}
                           />
                         </View>
                       ))}
@@ -2491,6 +2529,15 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                 product={item}
                 onPress={() => onOpenProduct(item)}
                 onSellerPress={(sellerId) => navigation?.navigate('SellerProfile', { sellerId })}
+                // Without this, a seller marking their own listing sold from
+                // this feed saw no change until an unrelated refetch
+                // happened to catch it later (reported as needing to
+                // "refresh twice") -- ProductCard only writes the toggle to
+                // the server, it has no way to update this screen's own
+                // `products` state on its own.
+                onProductUpdated={(updated) => {
+                  setProducts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+                }}
               />
             )}
             onEndReached={() => {
