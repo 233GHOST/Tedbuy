@@ -3973,41 +3973,54 @@ CEO, Tedbuy Inc`;
         return id;
       }
 
-      const productRef = doc('products', id);
-
       if (localProduct) {
         const keys = Object.keys(updatedData);
         const silentKeys = [
           'likesCount', 'likedUserIds', 'viewsCount',
-          'boostStatus', 'boostPlan', 'boostEndDate', 'boostStartDate', 
-          'boostPriority', 'priorityScore', 'boostHistory', 'paymentStatus', 
-          'paymentReference', 'boostAmount', 'boostPackagePrice', 
+          'boostStatus', 'boostPlan', 'boostEndDate', 'boostStartDate',
+          'boostPriority', 'priorityScore', 'boostHistory', 'paymentStatus',
+          'paymentReference', 'boostAmount', 'boostPackagePrice',
           'boostPriorityLevel', 'remainingBoostTime', 'lastBoostPurchase', 'lastBoostedAt'
         ];
         const isSocialOnly = keys.every(k => silentKeys.includes(k));
 
         if (isSocialOnly) {
-          updateDoc(productRef, cleanObject(updatedData))
-            .then(() => console.log('[updateProduct] Database document updated successfully (social-only)'))
-            .catch(innerErr => {
-              console.warn('[updateProduct] Database server write warning (using local fallback state):', innerErr);
-              const fallbackMerged = { ...localProduct, ...updatedData, id };
-              setDoc(productRef, cleanObject(fallbackMerged), { merge: true }).catch(() => {});
-            });
-
-          // Also sync to backend API so Supabase and server cache reflect boost/social changes
+          // Security fix (RLS-migration Phase 1, checkpoint 17): this used
+          // to ALSO fire a direct, unauthenticated `updateDoc(productRef,
+          // cleanObject(updatedData))` straight to Supabase (dbAdapter's
+          // generic write path has no per-row ownership check) in parallel
+          // with the authenticated sync below -- and critically, this
+          // client-side `isSocialOnly` classification bundles boost fields
+          // (boostStatus/boostEndDate/boostPriority/...) in with the
+          // genuinely-social ones (likesCount/likedUserIds/viewsCount) to
+          // decide whether ITS OWN auth guard above can be skipped, while
+          // POST /api/products/sync's server-side bypass (SOCIAL_ONLY_FIELDS,
+          // that endpoint's own code) is deliberately narrower -- likes/views
+          // only, never boost fields. That meant the direct write could set
+          // boostStatus/boostEndDate/boostPriority on ANY product for free,
+          // by anyone, fully unauthenticated -- completely bypassing both
+          // this function's own auth guard AND the server's separate,
+          // already-fixed protection against exactly this (the
+          // trustBoostFields P0 fix noted in cleanProduct, server.ts) --
+          // since the direct write never went through that server logic at
+          // all. Removed entirely; the sync call below already does
+          // everything the direct write did, correctly and safely: real
+          // social-only changes (likes/views) bypass ownership server-side
+          // exactly as before, and boost-field changes now actually go
+          // through the server's real ownership/payment-integrity checks
+          // instead of skipping them.
           try {
-            getAuthHeader().then(authHeaders => {
-              const fullSocialUpdate = { ...localProduct, ...updatedData, id };
-              fetch('/api/products/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...authHeaders },
-                body: JSON.stringify({ product: fullSocialUpdate })
-              }).then(() => {
-                fetch('/api/sitemap/clear', { method: 'POST', headers: authHeaders }).catch(() => {});
-              }).catch(syncErr => console.warn('[updateProduct] Server sync failed (social-only):', syncErr));
+            const authHeaders = await getAuthHeader();
+            const fullSocialUpdate = { ...localProduct, ...updatedData, id };
+            await fetch('/api/products/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...authHeaders },
+              body: JSON.stringify({ product: fullSocialUpdate })
             });
-          } catch (_) {}
+            fetch('/api/sitemap/clear', { method: 'POST', headers: authHeaders }).catch(() => {});
+          } catch (syncErr) {
+            console.warn('[updateProduct] Server sync failed (social-only):', syncErr);
+          }
         } else {
           // CRITICAL: Always strictly preserve original seller info for existing listings
           const finalSellerId = localProduct?.sellerId || (updatedData as any).sellerId || '';
@@ -4075,15 +4088,20 @@ CEO, Tedbuy Inc`;
             throw syncErr;
           }
 
-          // Write merged document to client database
-          try {
-            await setDoc(productRef, cleanObject(fullProductUpdate), { merge: true });
-            console.log('[updateProduct] Database document updated successfully (full)');
-          } catch (innerErr) {
-            console.warn('[updateProduct] Database server write warning (using local fallback state):', innerErr);
-            if (!serverSyncSucceeded) {
-              console.warn('[updateProduct] Warning: neither server sync nor client Firestore direct write succeeded.');
-            }
+          // Security fix (RLS-migration Phase 1, checkpoint 17): this used
+          // to ALSO do a direct, unauthenticated `setDoc(productRef, ...)`
+          // straight to Supabase after the authenticated sync above already
+          // succeeded. Only ever reached after that ownership-checked call
+          // had already persisted the exact same data (the sync's own
+          // try/catch re-throws on failure, skipping this block entirely),
+          // so it was purely redundant -- `syncJson.product` already
+          // updated local state above -- not a distinct privilege-
+          // escalation path on its own, but still an unnecessary
+          // unauthenticated write against the same root architectural gap
+          // (dbAdapter has no per-row ownership check) flagged throughout
+          // this migration. Removed.
+          if (!serverSyncSucceeded) {
+            console.warn('[updateProduct] Warning: server sync did not report success.');
           }
 
           // Notification security migration (see
@@ -4099,7 +4117,28 @@ CEO, Tedbuy Inc`;
           // client-side dispatch needed.
         }
       } else {
-        // Local product wasn't found in memory state - perform atomic update and sync while preserving existing seller
+        // Local product wasn't found in memory state - perform atomic update and sync while preserving existing seller.
+        //
+        // Security fix (RLS-migration Phase 1, checkpoint 17): the highest-
+        // severity of the three findings closed in this checkpoint. This
+        // branch is reached whenever the product isn't in local `products`
+        // state (e.g. a fresh session, or an id never fetched into it) --
+        // and the Authorization Guard above short-circuits to allow it
+        // through regardless of ownership in that case (`localProduct &&
+        // !isOwner...` is false whenever `localProduct` is falsy, since
+        // `isOwner` can't even be computed without it), requiring only that
+        // SOME user is logged in, not that they own this specific product.
+        // The direct `updateDoc(productRef, cleanObject(safeData))` that
+        // used to run here wrote `safeData` (built from `updatedData`, the
+        // caller's own arbitrary input) straight to Supabase with zero
+        // ownership check at all -- meaning ANY signed-in user could modify
+        // ANY OTHER seller's listing (not just isSold/status/soldAt; any
+        // field present in `updatedData`), simply by calling updateProduct
+        // for a product id not currently cached client-side. Removed;
+        // POST /api/products/sync below already enforces real ownership
+        // (existingSellerId must match the caller, or admin) for anything
+        // that isn't a genuine social-only change, so this closes the gap
+        // rather than merely narrowing it.
         const safeData: any = {
           ...updatedData,
           id,
@@ -4114,18 +4153,22 @@ CEO, Tedbuy Inc`;
           safeData.isSold = true;
         }
 
-        updateDoc(productRef, cleanObject(safeData))
-          .catch(() => {
-            setDoc(productRef, cleanObject(safeData), { merge: true }).catch(() => {});
-          });
-
-        getAuthHeader().then(authHeaders => {
-          fetch('/api/products/sync', {
+        try {
+          const authHeaders = await getAuthHeader();
+          const syncRes = await fetch('/api/products/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders },
             body: JSON.stringify({ product: safeData })
-          }).then(() => refreshSellerCounts().catch(() => {})).catch(() => {});
-        }).catch(() => {});
+          });
+          const syncJson = await syncRes.json().catch(() => ({}));
+          if (!syncJson.success) {
+            throw new Error(syncJson.error || 'Failed to update listing on server');
+          }
+          refreshSellerCounts().catch(() => {});
+        } catch (syncErr) {
+          console.warn('[updateProduct] Server sync error:', syncErr);
+          throw syncErr;
+        }
       }
 
       refreshSellerCounts().catch(() => {});
