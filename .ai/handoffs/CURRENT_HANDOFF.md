@@ -1,5 +1,19 @@
 # Current Handoff Status
 
+**✅ Mobile performance pass + mark-as-sold sync bug, 2026-09-16.** Two real Android testers reported the app feeling slow; separately, marking a listing sold needed "refreshing twice" before the UI caught up. Investigated with a dedicated audit (rendering/images/lists/network) plus direct tracing, not guessed at.
+
+**Root causes found and fixed:**
+- `ProductCard` (rendered dozens of times per screen) was never memoized — every unrelated re-render (a keystroke, the Featured carousel's 1.5s auto-swipe) rebuilt every mounted card's full element tree. Fixed with `React.memo` + a custom comparator, mirroring the exact pattern already proven for `HomeScreen.tsx`'s `VideoFeedRow`.
+- Every product photo in every list requested the seller's original full-resolution upload for a ~180px grid cell. Added a Cloudinary thumbnail transform + switched from React Native's `Image` to `expo-image` (adds real caching) across `ProductCard`, `SellerCard`, and `HomeScreen`'s remaining direct image usages.
+- Home's search box fired a full 200-item network request on **every keystroke**, no debounce (`SearchScreen.tsx` already had this right at 150ms; Home's box never got it) — client-side filtering already handles search with zero network cost, so this was pure waste. Debounced to 400ms.
+- 10 different screens each independently called `watchProducts()`, each firing its own fresh 200-item fetch with zero sharing — visiting 3-4 tabs re-downloaded/re-parsed the same catalog 3-4 times. Added a shared 45s cache + in-flight request dedup.
+- Main grid `FlatList` had zero virtualization tuning (the video feed got careful tuning; the grid didn't). Added `initialNumToRender`/`maxToRenderPerBatch`/`windowSize`, with `removeClippedSubviews` gated to Android only — the codebase's own existing comment documents why that combination caused freezes for the *video* feed specifically (native decoder conflict); the grid is plain images, so it's safe there and matches the platform the actual complaint came from.
+- **Mark-as-sold bug**: `ProductCard`'s toggle only wrote to the server — it had no way to tell its parent screen to update local state, so the card kept showing the pre-toggle status until an unrelated refetch happened to catch it (explains "refresh twice"). Added an `onProductUpdated` callback, wired into all 10 of `ProductCard`'s call sites across the app.
+
+6 commits, `tsc --noEmit` clean throughout (same 6 pre-existing, unrelated errors at every checkpoint), all pushed to `main`: `1034521`, `129783d`, `bf23bb2`, `90f6abb`, `5350da1`.
+
+**Still needs a fresh EAS build to actually reach a device** — none of this has shipped yet; the build that was in progress was killed to fold this work in first. Also queued from earlier: the push-notification schema migration (`.ai/handoffs/PUSH_NOTIFICATIONS_SCHEMA_PROPOSAL.md`, awaiting Vincent's approval) should go in the same build cycle.
+
 **✅ RLS MIGRATION FULLY COMPLETE AND VERIFIED IN PRODUCTION, 2026-09-16.** The `BLOCKED_APPROVAL` status below is now historical — closing the loop on the entire saga this document has been tracking. Full detail lives in the dedicated docs (`RLS_PREFLIGHT_AUDIT.md`, `RLS_PHASE4_PROPOSAL.md`, `RLS_PHASE5_VERIFICATION.md`, `RLS_PHASE5_MANUAL_PROCEDURE.md`); summary here for anyone starting from this file:
 
 - **Pre-flight audit** (`RLS_PREFLIGHT_AUDIT.md`, post service_role migration): confirmed every table's client-side path closed, server consistently on `service_role`, mobile has zero Supabase dependency. One open item — `admin_audit_logs` confirmed absent from production — resolved as non-blocking: all six dependent admin endpoints already degrade gracefully with it missing (no error, no blocked action; only consequence is a missing audit trail for those actions). Verdict: READY FOR RLS.
