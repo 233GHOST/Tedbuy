@@ -10,10 +10,11 @@ interface TrendingListingsProps {
 }
 
 export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProducts, selectedCategory: propCategory }) => {
-  const { products, selectedCategory: contextCategory, registerProduct, setCurrentView } = useApp();
+  const { selectedCategory: contextCategory, registerProduct, setCurrentView } = useApp();
   const activeCategory = propCategory !== undefined ? propCategory : contextCategory;
 
   const [serverTrending, setServerTrending] = useState<Product[]>([]);
+  const [isTrendingLoading, setIsTrendingLoading] = useState<boolean>(true);
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -50,20 +51,25 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
       .slice(0, 10); // Display top 10 most viewed items
   }, []);
 
-  // Compute trending products synchronously from context products or overrideProducts
+  // Trending must come from the dedicated /api/trending endpoint, never
+  // from the general `products` context array -- same bug and fix as
+  // Featured Listings (see FeaturedListings.tsx): that array is whatever
+  // page of the browse/search feed happens to be loaded (24 items by
+  // default, sorted by recency), so "most viewed" derived from it could
+  // easily miss genuinely more-popular older listings sitting outside that
+  // window. /api/trending queries the full catalog server-side and
+  // properly ranks by real view counts.
   const trendingProducts = useMemo(() => {
     if (overrideProducts && overrideProducts.length > 0) {
       return filterAndSortTrending(overrideProducts, activeCategory);
     }
-    if (products && products.length > 0) {
-      return filterAndSortTrending(products, activeCategory);
-    }
     return serverTrending;
-  }, [overrideProducts, products, activeCategory, filterAndSortTrending, serverTrending]);
+  }, [overrideProducts, activeCategory, filterAndSortTrending, serverTrending]);
 
-  // Fetch from server /api/trending only for cold start when products is not yet loaded in context
+  // Always fetch from the dedicated endpoint (unless a parent explicitly
+  // overrides) -- on mount and whenever the category filter changes.
   useEffect(() => {
-    if (overrideProducts || (products && products.length > 0)) {
+    if (overrideProducts) {
       return;
     }
     let isCancelled = false;
@@ -80,11 +86,13 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
         }
       } catch (err) {
         console.warn('[TrendingListings] /api/trending fetch error:', err);
+      } finally {
+        if (!isCancelled) setIsTrendingLoading(false);
       }
     };
     fetchTrending();
     return () => { isCancelled = true; };
-  }, [activeCategory, products, overrideProducts, filterAndSortTrending, registerProduct]);
+  }, [activeCategory, overrideProducts, filterAndSortTrending, registerProduct]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -126,7 +134,7 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
     }
   };
 
-  if (!overrideProducts && (!products || products.length === 0) && trendingProducts.length === 0) {
+  if (!overrideProducts && isTrendingLoading && trendingProducts.length === 0) {
     return (
       <div className="w-full mb-8 bg-white rounded-3xl p-4 sm:p-5 shadow-xs animate-pulse">
         <div className="flex items-center justify-between mb-3">
