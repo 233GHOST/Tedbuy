@@ -4476,20 +4476,31 @@ app.post('/api/chats/mark-picked-up', serverRateLimiter(60 * 1000, 30, "chats-ma
 // dbAdapter routes to. Mobile has no direct-Supabase client (unlike web,
 // which can use the public anon key + RLS), so these go through the
 // verified server path instead, consistent with the rest of mobile's API.
+// RLS-migration Phase 2, checkpoint 21: `sellerId` is now optional. This
+// used to always 400 without it, so the client's own global reviews sync
+// (AppContext.tsx, populating the shared `reviews` state every consumer
+// filters locally by sellerId) had no server-mediated equivalent and
+// stayed on a direct, unauthenticated `getDocs(collection('reviews'))`
+// bulk read -- the last item left open in this whole migration. Safe to
+// serve unscoped: reviews are already treated as public content (Phase 3
+// of the migration plan), and this table's schema carries no PII
+// (id/sellerId/buyerId/buyerName/rating/comment/createdAt/productTitle;
+// buyerName is already just an email-prefix-derived display name, same as
+// shown on every review card today).
 app.get('/api/reviews', serverRateLimiter(60 * 1000, 120, "reviews-list"), async (req, res) => {
   const { sellerId } = req.query;
-  if (!sellerId || typeof sellerId !== 'string') {
-    return res.status(400).json({ success: false, error: 'Missing sellerId' });
+  if (sellerId !== undefined && typeof sellerId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Invalid sellerId' });
   }
   if (!backendSupabase) {
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
   }
   try {
-    const { data, error } = await backendSupabase
-      .from('reviews')
-      .select('*')
-      .eq('sellerId', sellerId)
-      .order('createdAt', { ascending: false });
+    let q = backendSupabase.from('reviews').select('*').order('createdAt', { ascending: false });
+    if (sellerId) {
+      q = q.eq('sellerId', sellerId);
+    }
+    const { data, error } = await q;
     if (error) throw error;
     return res.json({ success: true, reviews: data || [] });
   } catch (err: any) {

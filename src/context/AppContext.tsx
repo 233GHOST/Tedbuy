@@ -2486,24 +2486,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [selectedProductId, currentView]);
 
-  // 3. Real-time Reviews Synchronization (Optimized to Fetch Once on Mount)
+  // 3. Reviews Synchronization (Optimized to Fetch Once on Mount).
+  //
+  // Security fix (RLS-migration Phase 2, checkpoint 21 -- the last item
+  // open in this whole migration): this used to be a direct,
+  // unauthenticated `getDocs(collection('reviews'))` bulk read -- left
+  // open longer than everything else specifically because `GET /api/reviews`
+  // required a `sellerId` and couldn't serve this global-state use case.
+  // That endpoint now accepts an optional `sellerId` (server.ts, same
+  // commit) and returns everything, ordered, when it's omitted. Reviews
+  // carry no PII (id/sellerId/buyerId/buyerName/rating/comment/createdAt/
+  // productTitle) and are already treated as public content elsewhere in
+  // the app, so serving them unscoped closes this the same way every
+  // other bulk-read finding in this migration was closed, without
+  // changing what any consumer of the shared `reviews` state sees.
   useEffect(() => {
     const timer = setTimeout(async () => {
       try {
-        const snapshot = await getDocs(collection(null, 'reviews'));
-        const rList: Review[] = [];
-        snapshot.forEach(docSnap => {
-          const data = docSnap.data();
-          rList.push({
-            ...data,
-            id: docSnap.id || data.id
-          } as Review);
-        });
-        const sorted = rList.sort((a, b) => {
-          const dateA = typeof a?.createdAt === 'string' ? a.createdAt : '';
-          const dateB = typeof b?.createdAt === 'string' ? b.createdAt : '';
-          return dateB.localeCompare(dateA);
-        });
+        const res = await fetch('/api/reviews');
+        const json = await res.json().catch(() => ({}));
+        if (!json.success || !Array.isArray(json.reviews)) {
+          throw new Error(json.error || 'Failed to load reviews');
+        }
+        const sorted = (json.reviews as Review[]);
         setReviews(sorted);
         try {
           safeLocalStorage.setItem('tedbuy_local_reviews_backup', JSON.stringify(sorted));
@@ -2511,11 +2516,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('Could not save reviews backup:', err);
         }
       } catch (error: any) {
-        // If 429 quota exceeded, gracefully fail silently without raising a blocking exception
-        if (error?.message?.includes('Quota exceeded') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
-          console.warn('[Reviews Sync] Legacy database quota exceeded. Relying on local storage reviews.');
-          return;
-        }
         handleBackendError(error, OperationType.LIST, 'reviews');
       }
     }, 300); // Defer to prioritize products and authentication paint
