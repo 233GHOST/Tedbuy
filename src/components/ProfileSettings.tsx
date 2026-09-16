@@ -8,7 +8,6 @@ import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
 import { auth, getAuthHeader, fetchAllMessagesFromApi } from '../firebase';
-import { doc, getDoc, setDoc } from '../dbAdapter';
 import { uploadToCloudinary, deleteFromCloudinary } from '../utils/cloudinary';
 import { formatTedbuyTenure, isBoostActive } from '../utils/dateParser';
 import { resolveProductImage } from '../utils/productUtils';
@@ -275,14 +274,31 @@ CEO, Tedbuy Inc`;
       addLog(`   Payload:\n${JSON.stringify(updatePayload, null, 2)}`);
 
       addLog('\n3. VERIFYING SECURITY RULES & WRITE PERMISSIONS:');
-      if (appUid) {
+      // Security fix (RLS-migration, admin-diagnostics cleanup): this used
+      // to be a direct, unauthenticated `getDoc`/`setDoc(doc('users',
+      // appUid), ...)` pair -- dbAdapter's generic path has no per-row
+      // ownership check, so despite this button being admin-only in the
+      // UI, the underlying write was reachable by anyone, for any uid,
+      // fully unauthenticated. Migrated to the same authenticated
+      // GET /api/users/get + POST /api/users/sync already used throughout
+      // this migration; the write now sends the caller's full current
+      // profile (not a partial patch) to avoid wiping other fields, since
+      // /api/users/sync rebuilds the row from whatever's in the body.
+      if (appUid && currentUser) {
         try {
-          const userRef = doc('users', appUid);
-          const snap = await getDoc(userRef);
-          addLog(`   • Document exists: ${snap.exists()}`);
+          const getRes = await fetch(`/api/users/get?id=${encodeURIComponent(appUid)}`);
+          const getJson = await getRes.json().catch(() => ({}));
+          addLog(`   • Document exists: ${!!(getJson.success && getJson.user)}`);
 
           addLog(`   • Executing test write to "users/${appUid}"...`);
-          await setDoc(userRef, { lastDiagnosticCheck: new Date().toISOString() }, { merge: true });
+          const authHeadersForDiag = await getAuthHeader();
+          const writeRes = await fetch('/api/users/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeadersForDiag },
+            body: JSON.stringify({ user: { ...currentUser, lastDiagnosticCheck: new Date().toISOString() } })
+          });
+          const writeJson = await writeRes.json().catch(() => ({}));
+          if (!writeJson.success) throw new Error(writeJson.error || 'Write rejected');
           addLog(`   ✅ SECURITY RULES PASS: Authenticated write operation allowed for UID "${appUid}".`);
         } catch (writeErr: any) {
           addLog(`   ❌ SECURITY RULES REJECTED: ${writeErr?.message || writeErr}`);

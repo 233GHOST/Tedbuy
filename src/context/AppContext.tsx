@@ -3721,9 +3721,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Step A: Optimistically inject into products list state
       setProducts(prev => [newProduct, ...prev]);
 
-      // Step B: Save to server API & Supabase database asynchronously
+      // Step B: Save to server API asynchronously.
+      //
+      // Security fix (RLS-migration Phase 1, checkpoint 23): this used to
+      // ALSO run a "Priority 2" direct, unauthenticated
+      // `setDoc(doc('products', prodId), payload)` straight to Supabase
+      // after the authenticated sync above -- dbAdapter's generic write
+      // path has no per-row ownership check. This call site's own payload
+      // is always self-authored (sellerId is hardcoded to currentUser.id a
+      // few lines above, not part of this function's input type at all),
+      // but the direct write itself doesn't care what THIS caller sends --
+      // a caller bypassing this app's own JS entirely could reach the same
+      // write with ANY sellerId/title/price/images, creating fake listings
+      // attributed to arbitrary real sellers, fully unauthenticated. The
+      // server sync above already creates the product correctly and
+      // safely (server-enforced sellerId = the verified caller). Removed
+      // the redundant, insecure "fallback".
       (async () => {
-        // Priority 1: Direct backend API sync using server credentials
         try {
           const authHeaders = await getAuthHeader();
           await fetch('/api/products/sync', {
@@ -3735,14 +3749,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.log('[createProduct] Server API sync completed successfully');
         } catch (syncErr) {
           console.warn('[createProduct] Failed syncing product to server API:', syncErr);
-        }
-
-        // Priority 2: Client database write (non-blocking fallback)
-        try {
-          await setDoc(doc('products', prodId), payload);
-          console.log('[createProduct] Client database setDoc completed successfully');
-        } catch (dbErr) {
-          console.warn('[createProduct] Client database setDoc warning:', dbErr);
         }
 
         setProducts(prev => prev.map(p => p.id === prodId ? { ...p, isSyncing: false } : p));
@@ -4172,6 +4178,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
+      // Security fix (RLS-migration Phase 1, checkpoint 22): this used to
+      // ALSO run a direct, unauthenticated `deleteDoc(doc('products', id))`
+      // straight to Supabase right after the request above -- dbAdapter's
+      // generic write path has no per-row ownership check, so a caller
+      // bypassing this app's own JS could delete ANY product by id, fully
+      // unauthenticated, no login required at all. The most severe finding
+      // in this whole migration's final re-sweep (worse than any of the
+      // updateProduct gaps closed at checkpoint 17 -- deletion, not
+      // modification, and reachable with zero authentication rather than
+      // "any signed-in user"). POST /api/products/delete above already
+      // independently re-verifies real ownership server-side (fetches the
+      // actual sellerId from Supabase, checks it against the verified
+      // caller or admin) -- this client-side function's own ownership
+      // guard was always only a UX pre-check, never the real boundary.
+      // Removed entirely; nothing else did this deletion.
       getAuthHeader().then(authHeaders => {
         fetch('/api/products/delete', {
           method: 'POST',
@@ -4183,20 +4204,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     } catch (_) {}
 
-    // Delete from the legacy client database
-    try {
-      await deleteDoc(doc('products', id));
-      console.log(`[deleteProduct] Successfully deleted document ${id} from the database`);
-    } catch (err) {
-      console.warn('Database product delete call bypassed or errored:', err);
-      try {
-        handleBackendError(err, OperationType.DELETE, `products/${id}`);
-      } catch (thrownErr) {
-        console.warn('[Delete Product] Exception logged gracefully:', thrownErr);
-      }
-    } finally {
-      refreshSellerCounts().catch(() => {});
-    }
+    refreshSellerCounts().catch(() => {});
   };
 
   // Security fix (RLS-migration Phase 0, checkpoint 3): this used to write
@@ -4381,40 +4389,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw new Error(reportRes.error || 'Failed to submit report.');
       }
 
-      // 2. Locate or create support chat for the reporting user to send to admins inbox
-      let supportChat = chats.find(c => 
-        c.productId === 'support_welcome' && 
-        c.buyerId === currentUser.id && 
+      // 2. Locate or create support chat for the reporting user to send to admins inbox.
+      //
+      // Security fix (RLS-migration Phase 1, checkpoint 24): the fallback
+      // creation used to be a direct, unauthenticated `setDoc(doc('chats',
+      // supportChatId), ...)` -- same finding, same fix, as
+      // setupWelcomePackage's chat creation (checkpoint 19): a caller
+      // bypassing this app's own JS could create a chat impersonating
+      // TedBuy Support in an arbitrary OTHER victim's inbox. Rather than
+      // build a second endpoint for what's conceptually the same "ensure
+      // my own support chat exists" operation, reused
+      // POST /api/welcome/setup (checkpoint 19) -- it's idempotent and
+      // guarantees a chat at the fixed id `chat_support_<uid>` exists for
+      // the verified caller, which also fixes a minor pre-existing
+      // inconsistency where this fallback used to mint a second, different
+      // support-chat id pattern (`chat_<uid>_user_ted_ceo_support_
+      // support_welcome_<timestamp>`) instead of reusing the one
+      // setupWelcomePackage already creates for every verified user.
+      let supportChat = chats.find(c =>
+        c.productId === 'support_welcome' &&
+        c.buyerId === currentUser.id &&
         c.sellerId === 'user_ted_ceo_support'
       );
 
       let supportChatId = supportChat?.id;
 
       if (!supportChatId) {
-        supportChatId = `chat_${currentUser.id}_user_ted_ceo_support_support_welcome_${Date.now()}`;
-        const newSupportChat: Chat = {
-          id: supportChatId,
-          productId: 'support_welcome',
-          productTitle: 'Tedbuy Support Desk',
-          productPrice: 'Direct Channel',
-          productImage: '/favicon.svg',
-          buyerId: currentUser.id,
-          sellerId: 'user_ted_ceo_support',
-          buyerName: currentUser.username,
-          sellerName: 'Tedbuy Support',
-          lastMessageText: `Report submitted for ${product.title}`,
-          lastMessageTime: new Date().toISOString(),
-          deliveredBySeller: false,
-          pickedUpByBuyer: false,
-          tradeStatus: 'pending',
-          adId: 'support_welcome',
-          adTitle: 'Tedbuy Support Desk',
-          adImage: '/favicon.svg',
-          adThumbnail: '/favicon.svg',
-          adType: 'image',
-          videoPoster: ''
-        };
-        await setDoc(doc('chats', supportChatId), cleanObject(newSupportChat));
+        const authHeadersForSetup = await getAuthHeader();
+        const setupRes = await fetch('/api/welcome/setup', { method: 'POST', headers: authHeadersForSetup });
+        const setupJson = await setupRes.json().catch(() => ({}));
+        supportChatId = setupJson.success && setupJson.chatId ? setupJson.chatId : `chat_support_${currentUser.id}`;
       }
 
       // 3. Send message inside support chat
