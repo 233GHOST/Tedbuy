@@ -115,6 +115,49 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
     finishVerification(reference, paymentMethod, activePlan.priceGHS);
   };
 
+  // The user closed the checkout WebView themselves (back button or the X)
+  // before onNavigationStateChange ever caught the Paystack redirect. The
+  // overwhelming majority of the time this is a genuine cancel -- no charge
+  // happened. But it's also possible the payment actually completed on
+  // Paystack's own hosted page a moment before the redirect was detected
+  // (slow network, closed too fast right after seeing their own "success"
+  // message) -- silently walking away at that point would mean a real
+  // charge with no boost activated and no easy way to recover. Since
+  // /api/verify-payment is safe to call either way (idempotent, reports a
+  // clean failure for a reference that was never actually paid), check
+  // before giving up on this reference rather than assuming the worst case
+  // never happens.
+  const handleCheckoutClose = () => {
+    const pendingRef = reference;
+    const pendingMethod = paymentMethod;
+    const pendingAmount = activePlan.priceGHS;
+    setCheckoutUrl(null);
+
+    if (!pendingRef || checkoutHandledRef.current) {
+      isPayingRef.current = false;
+      setStep('plan-select');
+      return;
+    }
+    checkoutHandledRef.current = true;
+    setStep('verifying');
+
+    (async () => {
+      try {
+        const updated = await activateBoost(product.id, selectedPlanId, pendingMethod, pendingAmount, pendingRef);
+        setStep('success');
+        if (onSuccess) onSuccess(updated);
+      } catch (_) {
+        // Genuine cancel (or a real failure) -- no charge went through, or
+        // it did and something else is wrong. Either way, return quietly to
+        // plan selection rather than showing an alarming error for what
+        // was most likely just changing their mind.
+        setStep('plan-select');
+      } finally {
+        isPayingRef.current = false;
+      }
+    })();
+  };
+
   return (
     <>
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
@@ -290,22 +333,12 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
     <Modal
       visible={!!checkoutUrl}
       animationType="slide"
-      onRequestClose={() => {
-        // User closed the checkout themselves before completing payment —
-        // no reference to verify, just return to plan selection.
-        setCheckoutUrl(null);
-        isPayingRef.current = false;
-        setStep('plan-select');
-      }}
+      onRequestClose={handleCheckoutClose}
     >
       <SafeAreaView style={styles.checkoutContainer} edges={['top', 'bottom']}>
         <View style={styles.checkoutHeader}>
           <Pressable
-            onPress={() => {
-              setCheckoutUrl(null);
-              isPayingRef.current = false;
-              setStep('plan-select');
-            }}
+            onPress={handleCheckoutClose}
             hitSlop={10}
           >
             <X size={20} color={colors.textMuted} />
