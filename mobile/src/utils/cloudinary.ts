@@ -161,6 +161,30 @@ export async function uploadVideoDirectToCloudinaryMobile(
   });
 }
 
+/**
+ * A right-sized thumbnail transform for list/grid contexts (ProductCard and
+ * anywhere else showing many photos at once) — previously every product
+ * photo, in every grid cell across every list in the app, requested the
+ * seller's original full-resolution upload, decoded at full size just to be
+ * displayed in a ~150-200px cell. `q_auto,f_auto` let Cloudinary pick the
+ * best quality/format per viewer (WebP/AVIF where supported); `c_fill`
+ * crops to the exact requested box instead of just capping the longest
+ * edge. Cloudinary caches each distinct transform at its CDN edge after the
+ * first request for it, so this is a one-time "cold" generation per size
+ * (typically well under a second for a photo, unlike the video transform
+ * above — see getOptimizedVideoUrlMobile's comment for why the same
+ * lazy-transform approach was reverted for video specifically), not a
+ * per-view cost. `w`/`h` default to 2x a ~200px cell for crisp rendering on
+ * standard device pixel ratios.
+ */
+export function getCloudinaryThumbnailMobile(url?: string | null, size = 400): string {
+  if (!url || !url.includes('res.cloudinary.com')) return url || '';
+  if (url.includes('/upload/')) {
+    return url.replace('/upload/', `/upload/w_${size},h_${size},c_fill,q_auto,f_auto/`);
+  }
+  return url;
+}
+
 /** Mirrors web's getCloudinaryVideoPoster — a poster frame derived on-the-fly
  * from the video via Cloudinary's own transform, no separate image needed. */
 export function getCloudinaryVideoPosterMobile(url?: string): string {

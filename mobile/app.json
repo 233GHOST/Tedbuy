@@ -80,7 +80,8 @@
         {
           "color": "#ea580c"
         }
-      ]
+      ],
+      "expo-image"
     ],
     "extra": {
       "eas": {

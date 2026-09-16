@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Platform, Alert, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { Heart, Check } from 'lucide-react-native';
 import { Product } from '../types';
 import { auth, updateProduct } from '../firebase';
 import { fonts } from '../theme';
 import { formatProductPrice } from '../utils/formatPrice';
 import { resolveProductImageUri } from '../utils/productImage';
+import { getCloudinaryThumbnailMobile } from '../utils/cloudinary';
 import { CategoryImagePlaceholder } from './CategoryImagePlaceholder';
 import { useSavedProducts } from '../context/SavedProducts';
 
@@ -14,16 +16,36 @@ interface ProductCardProps {
   onPress?: () => void;
   onToggleSave?: (productId: string) => void;
   onSellerPress?: (sellerId: string) => void;
+  // Fired with the server's own updated product after a successful "Mark
+  // Sold" toggle -- this card only holds the `product` prop it was given by
+  // its parent's list, and updateProduct() (firebase.ts) only writes to the
+  // server, so without this the card kept showing the pre-toggle isSold
+  // state until something unrelated happened to refetch the parent's whole
+  // list (reported as needing to "refresh twice" before the UI caught up).
+  onProductUpdated?: (updated: Product) => void;
   isSaved?: boolean;
   isFeaturedVariant?: boolean;
   isTrendingVariant?: boolean;
 }
 
-export function ProductCard({
+// Memoized for the same reason and with the same tradeoff already
+// established and proven for HomeScreen.tsx's VideoFeedRow: HomeScreen (this
+// component's primary caller, rendered dozens of times per screen in the
+// main grid) re-renders often -- a search keystroke, a filter toggle, even
+// the Featured Listings carousel's own 1.5s auto-swipe timer -- and without
+// memoization every one of those was recreating every mounted card's entire
+// element tree for no visible reason. The comparator below deliberately
+// ignores the callback props (onPress/onToggleSave/onSellerPress) -- across
+// this app's ~10 call sites they're frequently plain closures redefined on
+// every parent render, and chasing that down everywhere wasn't worth the
+// risk here, same reasoning VideoFeedRow's own comment gives. It only
+// compares what actually determines the rendered output.
+export const ProductCard = React.memo(function ProductCard({
   product,
   onPress,
   onToggleSave,
   onSellerPress,
+  onProductUpdated,
   isSaved: propIsSaved,
   isFeaturedVariant,
   isTrendingVariant,
@@ -112,11 +134,12 @@ export function ProductCard({
     const nextSoldState = !(product as any).isSold;
     try {
       setUpdatingSold(true);
-      await updateProduct(product.id, {
+      const updated = await updateProduct(product.id, {
         isSold: nextSoldState,
         status: nextSoldState ? 'sold' : 'active',
         soldAt: nextSoldState ? new Date().toISOString() : null
       });
+      if (updated) onProductUpdated?.(updated);
       Alert.alert(
         nextSoldState ? 'Listing Sold! 🎉' : 'Listing Restored',
         nextSoldState 
@@ -132,7 +155,9 @@ export function ProductCard({
 
   // Real photo or video-poster only — never an unrelated stock photo. See
   // utils/productImage.ts.
-  const coverImageUrl = resolveProductImageUri(product);
+  // Grid-sized transform, not the full-resolution original -- see
+  // getCloudinaryThumbnailMobile's own comment for why.
+  const coverImageUrl = getCloudinaryThumbnailMobile(resolveProductImageUri(product));
 
   return (
     <Pressable style={styles.cardContainer} onPress={onPress}>
@@ -144,6 +169,8 @@ export function ProductCard({
           <Image
             source={{ uri: coverImageUrl }}
             style={styles.coverImage}
+            cachePolicy="memory-disk"
+            transition={150}
             onLoadStart={() => setLoaded(false)}
             onLoadEnd={() => setLoaded(true)}
           />
@@ -234,8 +261,9 @@ export function ProductCard({
               <View style={styles.sellerAvatarSmall}>
                 {(product as any).sellerPhoto || (product as any).sellerAvatar ? (
                   <Image
-                    source={{ uri: (product as any).sellerPhoto || (product as any).sellerAvatar }}
+                    source={{ uri: getCloudinaryThumbnailMobile((product as any).sellerPhoto || (product as any).sellerAvatar, 80) }}
                     style={styles.sellerAvatarImgSmall}
+                    cachePolicy="memory-disk"
                   />
                 ) : (
                   <Text style={styles.sellerAvatarLetterSmall}>
@@ -301,7 +329,30 @@ export function ProductCard({
       </View>
     </Pressable>
   );
-}
+}, (prev, next) => (
+  prev.product.id === next.product.id &&
+  prev.product.title === next.product.title &&
+  prev.product.price === next.product.price &&
+  prev.product.location === next.product.location &&
+  prev.product.category === next.product.category &&
+  (prev.product as any).brand === (next.product as any).brand &&
+  prev.product.condition === next.product.condition &&
+  prev.product.negotiable === next.product.negotiable &&
+  prev.product.sellerId === next.product.sellerId &&
+  prev.product.sellerName === next.product.sellerName &&
+  prev.product.videos === next.product.videos &&
+  (prev.product as any).likesCount === (next.product as any).likesCount &&
+  (prev.product as any).isSold === (next.product as any).isSold &&
+  (prev.product as any).boostStatus === (next.product as any).boostStatus &&
+  (prev.product as any).boostEndDate === (next.product as any).boostEndDate &&
+  (prev.product as any).images === (next.product as any).images &&
+  (prev.product as any).imageUrls === (next.product as any).imageUrls &&
+  (prev.product as any).displayImage === (next.product as any).displayImage &&
+  (prev.product as any).videoPoster === (next.product as any).videoPoster &&
+  prev.isSaved === next.isSaved &&
+  prev.isFeaturedVariant === next.isFeaturedVariant &&
+  prev.isTrendingVariant === next.isTrendingVariant
+));
 
 const styles = StyleSheet.create({
   cardContainer: {
