@@ -1226,6 +1226,28 @@ export async function updateUserProfile(profileData: {
   if (!data.success) {
     throw new Error(data.error || 'Could not update profile.');
   }
+
+  // Matches web's updateUserProfile (src/context/AppContext.tsx) -- was
+  // entirely missing on mobile. Renaming a store here previously updated
+  // the profile itself, but every already-published listing kept showing
+  // the old sellerName until each was individually re-saved. (Web also
+  // patches its own in-memory chats/reviews state on rename, but never
+  // persists that to the database either -- a session-only cosmetic touch
+  // with no mobile equivalent to port, since mobile has no comparable
+  // shared state object; the real, durable fix is this products
+  // reconciliation.) Best-effort, non-blocking -- a reconciliation failure
+  // here shouldn't fail the profile save that already succeeded above.
+  if (isStoreNameChanged) {
+    fetchProductsForSeller(currentUser.uid, myProfile.email).then((sellerProducts) => {
+      if (sellerProducts.length === 0) return;
+      Promise.all(
+        sellerProducts.map((p) =>
+          apiFetch('/api/products/sync', { method: 'POST', body: { product: { ...p, sellerName: finalUsername } } }).catch(() => {})
+        )
+      ).catch(() => {});
+    }).catch(() => {});
+  }
+
   return updatedUser;
 }
 
