@@ -1227,12 +1227,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       try {
         if (firebaseUser) {
-          // Instant direct check on the legacy user database for suspension to block a suspended user immediately
+          // Instant direct check on the legacy user database for suspension to block a suspended user immediately.
+          // Security fix (RLS-migration Phase 2, checkpoint 14): this used
+          // to be a direct, unauthenticated `getDoc(doc('users',
+          // firebaseUser.uid))` -- same self-only read pattern as the
+          // profile poll above, migrated to the same GET /api/users/get?id=.
           try {
-            const userDocRef = doc('users', firebaseUser.uid);
-            const userSnap = await getDoc(userDocRef);
-            if (active && userSnap.exists()) {
-              const data = userSnap.data() as User;
+            const res = await fetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`);
+            const json = await res.json().catch(() => ({}));
+            if (active && json.success && json.user) {
+              const data = json.user as User;
               if (data.isSuspended) {
                 console.warn('[Security Auth Observer] Suspended user logged in! Logging out immediately.');
                 await signOut(auth);
@@ -1375,11 +1379,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Instantly hide any full screen loading blocking screen
           setIsAuthLoading(false);
 
-          // Now subscribe to real-time doc updates asynchronously so that changes are handled instantly
-          const userRef = doc('users', firebaseUser.uid);
-          userSubUnsub = onSnapshot(userRef, async (userDoc) => {
+          // Poll self-profile updates asynchronously so that changes are handled promptly.
+          //
+          // Security fix (RLS-migration Phase 2, checkpoint 14): this used
+          // to be a direct, unauthenticated `onSnapshot(doc('users',
+          // firebaseUser.uid), ...)` -- dbAdapter's generic read path has
+          // no per-row ownership check, so the same anon key this
+          // subscription used could subscribe to ANY user's row, not just
+          // the signed-in one, since the id in the query was only ever
+          // app-chosen, never enforced. Migrated to a poll of the existing,
+          // already-public-by-design `GET /api/users/get?id=` (a single,
+          // targeted lookup -- see that endpoint's own history at
+          // checkpoint 1 -- reached here only for the caller's own uid),
+          // matching the notifications migration's realtime-push-to-poll
+          // precedent (audit doc §18.5). 5s cadence: this is the primary
+          // signal for suspension/verification-status changes, which the
+          // pre-existing code explicitly wants to catch "instantly" (see
+          // the suspension check below), so it's polled faster than a
+          // typical background poll -- close to real-time without an open
+          // subscription.
+          //
+          // Wrapped in a small Firestore-doc-shaped object (`exists()`/
+          // `data()`/`id`) matching what `onSnapshot` used to hand the
+          // callback below, so the large, carefully-tested body of that
+          // callback (suspension handling, emailVerified/isGoogleAuth
+          // upgrade sync, account-migration/new-user creation) needed no
+          // changes at all -- only the trigger mechanism changed.
+          let pollActive = true;
+          const pollSelfProfile = async () => {
+            if (!pollActive || !active) return;
+            let userDoc: { exists: () => boolean; data: () => User; id: string };
+            try {
+              const res = await fetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`);
+              const json = await res.json().catch(() => ({}));
+              const found = !!(json.success && json.user);
+              userDoc = { exists: () => found, data: () => json.user as User, id: firebaseUser.uid };
+            } catch (error) {
+              console.error('[User Doc Stream] Poll error:', error);
+              return;
+            }
             if (!active) return;
-            
+
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
               const actualUserId = dbData.id || userDoc.id || firebaseUser.uid;
@@ -1555,9 +1595,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 });
               }
             }
-          }, (error) => {
-            console.error('[User Doc Stream] Firebase onSnapshot error:', error);
-          });
+          };
+
+          pollSelfProfile();
+          const userPollInterval = setInterval(pollSelfProfile, 5000);
+          userSubUnsub = () => {
+            pollActive = false;
+            clearInterval(userPollInterval);
+          };
         } else {
           const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
           if (isSimulated) {
@@ -1646,15 +1691,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    // 2. Proactive database lookup to prevent stale cache bypass
+    // 2. Proactive database lookup to prevent stale cache bypass.
+    // Security fix (RLS-migration Phase 2, checkpoint 14): same self-only
+    // read pattern as the two sites above, migrated to the same
+    // GET /api/users/get?id=.
     const verifyUserSuspensionInDatabase = async () => {
       try {
-        const userRef = doc('users', currentUser.id);
-        const userSnap = await getDoc(userRef);
+        const res = await fetch(`/api/users/get?id=${encodeURIComponent(currentUser.id)}`);
+        const json = await res.json().catch(() => ({}));
         if (!active) return;
 
-        if (userSnap.exists()) {
-          const dbData = userSnap.data() as User;
+        if (json.success && json.user) {
+          const dbData = json.user as User;
           if (dbData.isSuspended) {
             console.error('[Security Check] Suspended state discovered on database! Logging out.', dbData.username);
             setIsSuspendedBlockOpen(true);
@@ -2937,13 +2985,18 @@ CEO, Tedbuy Inc`;
           return found;
         }
       } else {
-        const userRef = doc('users', uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const dbData = userSnap.data() as User;
+        // Security fix (RLS-migration Phase 2, checkpoint 14): same
+        // self-only read pattern as the other sites in this checkpoint
+        // (this branch's only real caller, loginUser, always passes the
+        // just-authenticated firebaseUser's own uid -- see the sole call
+        // site below), migrated to the same GET /api/users/get?id=.
+        const res = await fetch(`/api/users/get?id=${encodeURIComponent(uid)}`);
+        const json = await res.json().catch(() => ({}));
+        if (json.success && json.user) {
+          const dbData = json.user as User;
           const normalizedUser: User = {
             ...dbData,
-            id: userSnap.id || uid,
+            id: dbData.id || uid,
             emailVerified: auth.currentUser?.emailVerified || dbData.emailVerified || false
           };
           setCurrentUserState(normalizedUser);
@@ -3234,11 +3287,15 @@ CEO, Tedbuy Inc`;
         if (googleUser && googleUser.email) {
           const emailClean = googleUser.email.trim().toLowerCase();
 
+          // Security fix (RLS-migration Phase 2, checkpoint 14): same
+          // self-only read pattern as the other sites in this checkpoint
+          // (googleUser.uid is the identity that just signed in), migrated
+          // to the same GET /api/users/get?id=.
           try {
-            const userRef = doc('users', googleUser.uid);
-            const userSnap = await getDoc(userRef);
-            if (userSnap && typeof userSnap.exists === 'function' && userSnap.exists()) {
-              const dbData = userSnap.data() as User;
+            const res = await fetch(`/api/users/get?id=${encodeURIComponent(googleUser.uid)}`);
+            const json = await res.json().catch(() => ({}));
+            if (json.success && json.user) {
+              const dbData = json.user as User;
               if (dbData && dbData.isSuspended) {
                 await signOut(auth);
                 setIsSuspendedBlockOpen(true);
