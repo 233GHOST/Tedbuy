@@ -6158,6 +6158,116 @@ app.post("/api/auth/verify-and-sync-password", serverRateLimiter(15 * 60 * 1000,
   }
 });
 
+// RLS-migration Phase 1, checkpoint 19 (.ai/handoffs/SUPABASE_RLS_MIGRATION_PLAN.md):
+// replaces setupWelcomePackage's (AppContext.tsx) four direct, unauthenticated
+// dbAdapter writes -- creating/upserting the `user_ted_ceo_support` profile,
+// creating the welcome support chat, creating its welcome message, and
+// flagging welcomeSent on the caller's own row. Earlier passes had assessed
+// this as low-urgency because every value that function itself sends is a
+// hardcoded constant or the caller's own session data -- but that reasoning
+// doesn't hold, because dbAdapter's generic write path has no per-row
+// ownership check at all: a caller bypassing this app's own JS entirely
+// could reach the exact same writes with DIFFERENT values -- overwriting
+// the well-known `user_ted_ceo_support` account's email/photoUrl (a
+// takeover/impersonation vector for TedBuy's own support identity), or
+// creating a chat/message that impersonates TedBuy Support in an arbitrary
+// OTHER victim's inbox (buyerId set to anyone, not just the caller) --
+// regardless of what this one call site happens to send.
+//
+// This endpoint performs all four steps server-side, authenticated, with
+// every identity value derived from the verified caller (verifyUser()'s
+// decoded token) or the caller's own already-stored `users` row, never
+// from the request body -- there is no body this endpoint reads at all.
+app.post('/api/welcome/setup', serverRateLimiter(60 * 1000, 10, "welcome-setup"), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    // 1. Ensure the TedBuy Support pseudo-account profile exists. Fixed,
+    // hardcoded values only -- never derived from the request.
+    await safeBackendSupabaseUpsert('users', {
+      id: 'user_ted_ceo_support',
+      username: 'Tedbuy Support',
+      email: 'info.tedbuy@gmail.com',
+      photoUrl: '/favicon.svg',
+      role: 'seller',
+      joinDate: 'Jun 2018'
+    }, { onConflict: 'id' });
+
+    // Real username for the buyer side of the chat comes from the
+    // caller's own stored row, never from the client.
+    const { data: selfRow } = await backendSupabase
+      .from('users')
+      .select('username')
+      .eq('id', verified.uid)
+      .maybeSingle();
+    const buyerName = selfRow?.username || (verified.email ? verified.email.split('@')[0] : 'TedBuy User');
+
+    const chatId = `chat_support_${verified.uid}`;
+    const { data: existingChat } = await backendSupabase
+      .from('chats')
+      .select('id')
+      .eq('id', chatId)
+      .maybeSingle();
+
+    if (!existingChat) {
+      const welcomeMessageBody = `Welcome to TedBuy
+
+I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.
+All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.
+Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.
+
+Gratefully yours,
+
+Vincent Asumadu,
+CEO, Tedbuy Inc`;
+
+      await safeBackendSupabaseUpsert('chats', {
+        id: chatId,
+        productId: 'support_welcome',
+        productTitle: 'Tedbuy Support Desk',
+        productPrice: 'Direct Channel',
+        productImage: '/favicon.svg',
+        buyerId: verified.uid,
+        buyerName,
+        sellerId: 'user_ted_ceo_support',
+        sellerName: 'Tedbuy Support',
+        lastMessageText: 'Welcome to Tedbuy 🚀',
+        lastMessageTime: new Date().toISOString(),
+        tradeStatus: 'pending',
+        adId: 'support_welcome',
+        adTitle: 'Tedbuy Support Desk',
+        adImage: '/favicon.svg',
+        adThumbnail: '/favicon.svg',
+        adType: 'image'
+      }, { onConflict: 'id' });
+
+      await safeBackendSupabaseUpsert('messages', {
+        id: `msg_welcome_${verified.uid}`,
+        chatId,
+        senderId: 'user_ted_ceo_support',
+        recipientId: verified.uid,
+        text: welcomeMessageBody,
+        createdAt: new Date().toISOString(),
+        read: false
+      }, { onConflict: 'id' });
+    }
+
+    // 2. Flag the caller's own row -- self-only by construction (verified.uid).
+    await backendSupabase.from('users').update({ welcomeSent: true }).eq('id', verified.uid);
+
+    return res.json({ success: true, chatId });
+  } catch (err: any) {
+    console.error('[Welcome Setup API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Welcome package setup failed' });
+  }
+});
+
 // P0 fix: this endpoint previously had NO authentication or authorization
 // check at all -- not even verifyUser() -- despite both real callers
 // (AppContext.tsx) already sending a Bearer token. `email`/`username` were

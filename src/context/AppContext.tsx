@@ -2311,97 +2311,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     console.log(`[Welcome Trigger] Initializing automated Welcome Email & Support Chat package for: ${targetUser.username} (${email})`);
 
-    // 1. Create/Ensure support profile exists in users collection (Wrapped to protect outbound email pipeline)
+    // Security fix (RLS-migration Phase 1, checkpoint 19): steps 1-4 (CEO
+    // support profile upsert, support chat creation, welcome message
+    // creation, welcomeSent flag) used to be four direct, unauthenticated
+    // dbAdapter writes here. Earlier passes assessed this as low-urgency
+    // because every value THIS call site sends is a hardcoded constant or
+    // the caller's own session data -- but dbAdapter's generic write path
+    // has no per-row ownership check at all, so a caller bypassing this
+    // app's own JS could reach the exact same writes with DIFFERENT
+    // values: overwriting the well-known `user_ted_ceo_support` account's
+    // email/photoUrl (an impersonation vector for TedBuy's own support
+    // identity), or creating a chat/message that impersonates TedBuy
+    // Support in an arbitrary OTHER victim's inbox. Replaced with one
+    // authenticated call to POST /api/welcome/setup, which performs all
+    // four steps server-side with every identity value derived from the
+    // verified caller, never the request body.
     try {
-      const ceoRef = doc('users', 'user_ted_ceo_support');
-      const ceoProfile = {
-        id: 'user_ted_ceo_support',
-        username: 'Tedbuy Support',
-        email: 'info.tedbuy@gmail.com',
-        photoUrl: '/favicon.svg',
-        role: 'seller',
-        joinDate: 'Jun 2018'
-      };
-      await setDoc(ceoRef, cleanObject(ceoProfile), { merge: true });
-      console.log('[Welcome Trigger] Created/Updated Tedbuy Support user profile in the database.');
-    } catch (ceoProfileErr) {
-      console.warn('[Welcome Trigger] Support profile setup failed (continuing program):', ceoProfileErr);
-    }
-
-    // 2. Setup chat room (Wrapped to protect outbound email pipeline)
-    const chatId = `chat_support_${targetUser.id}`;
-    const chatRef = doc('chats', chatId);
-    let chatExists = false;
-    try {
-      const chatDoc = await getDoc(chatRef);
-      if (chatDoc.exists()) {
-        chatExists = true;
+      const authHeaders = await getAuthHeader();
+      const setupRes = await fetch('/api/welcome/setup', {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const setupJson = await setupRes.json().catch(() => ({}));
+      if (!setupJson.success) {
+        console.warn('[Welcome Trigger] Server-side welcome package setup reported failure (continuing to email step):', setupJson.error);
+      } else {
+        console.log('[Welcome Trigger] Server-authoritative welcome package setup succeeded.');
       }
-    } catch (checkErr) {
-      console.log('[Welcome Trigger] Support chat doc check threw permission/missing error, assuming it needs creation.');
-    }
-
-    const welcomeMessageBody = `Welcome to TedBuy
-
-I wanted to check in with you to ensure that you have everything you need. I hope that your experience with TedBuy so far has been a pleasant one. Customer experience is at the heart of everything we do. It's why we come to work each day.
-All replies to this email inbox are monitored by myself, so if you'd like to get in touch directly and provide any feedback which could help us help you, please type in the chat on TedBuy (or hit reply to this email!) and we'll ensure that we get onto that right away. No issue is too small. If it matters to you, it matters to us, so please do get in touch if you need to.
-Also, don't forget that our customer support team are here for all your day-to-day and technical questions 24/7. Thanks once again. I'm delighted to have you on board and look forward to helping you drive your business to awesome new heights.
-
-Gratefully yours,
-
-Vincent Asumadu,
-CEO, Tedbuy Inc`;
-
-    if (!chatExists) {
-      try {
-        const supportChat = {
-          id: chatId,
-          productId: 'support_welcome',
-          productTitle: 'Tedbuy Support Desk',
-          productPrice: 'Direct Channel',
-          productImage: '/favicon.svg',
-          buyerId: targetUser.id,
-          buyerName: targetUser.username,
-          sellerId: 'user_ted_ceo_support',
-          sellerName: 'Tedbuy Support',
-          lastMessageText: 'Welcome to Tedbuy 🚀',
-          lastMessageTime: new Date().toISOString(),
-          tradeStatus: 'pending',
-          adId: 'support_welcome',
-          adTitle: 'Tedbuy Support Desk',
-          adImage: '/favicon.svg',
-          adThumbnail: '/favicon.svg',
-          adType: 'image'
-        };
-        await setDoc(chatRef, cleanObject(supportChat));
-        console.log(`[Welcome Trigger] Automated direct support chat initialized for ${targetUser.username}.`);
-
-        // 3. Create message document inside messages collection
-        const msgId = `msg_welcome_${targetUser.id}`;
-        const msgRef = doc('messages', msgId);
-        const supportMessage = {
-          id: msgId,
-          chatId: chatId,
-          senderId: 'user_ted_ceo_support',
-          recipientId: targetUser.id,
-          text: welcomeMessageBody,
-          createdAt: new Date().toISOString(),
-          read: false
-        };
-        await setDoc(msgRef, cleanObject(supportMessage));
-        console.log(`[Welcome Trigger] Welcome CEO chat message delivered directly.`);
-      } catch (chatWriteErr) {
-        console.warn('[Welcome Trigger] Failed to write support chat/message to the database (continuing):', chatWriteErr);
-      }
-    }
-
-    // 4. Update welcomeSent: true metadata under users/{userId} (Wrapped to prevent failure from aborting process)
-    try {
-      const userRef = doc('users', targetUser.id);
-      await setDoc(userRef, { welcomeSent: true }, { merge: true });
-      console.log(`[Welcome Trigger] Flagged user's database metadata with welcomeSent: true.`);
-    } catch (userFlagErr) {
-      console.warn('[Welcome Trigger] Database welcomeSent flag write failed (continuing):', userFlagErr);
+    } catch (setupErr) {
+      console.warn('[Welcome Trigger] Welcome package setup request failed (continuing to email step):', setupErr);
     }
 
     // 5. Send Welcome Email synchronously via server SMTP / Brevo REST
