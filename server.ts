@@ -4193,12 +4193,52 @@ async function getChatIfParticipant(chatId: string, uid: string): Promise<any | 
   return data;
 }
 
+// Real push delivery via Expo's push service -- no FCM/APNs server
+// credentials needed for this (Expo's managed push service relays to both
+// using the credentials already configured for EAS builds via
+// google-services.json/GoogleService-Info.plist). Best-effort and
+// read-only against `users.pushToken`; wrapped so a missing column (before
+// the schema migration this depends on is applied) or any other failure
+// just no-ops rather than affecting the notification this is attached to.
+async function sendPushNotification(userId: string, title: string, body: string, data?: Record<string, any>) {
+  if (!backendSupabase || !userId) return;
+  try {
+    const { data: userRow, error } = await backendSupabase.from('users').select('pushToken').eq('id', userId).maybeSingle();
+    if (error || !userRow?.pushToken || typeof userRow.pushToken !== 'string' || !userRow.pushToken.startsWith('ExponentPushToken')) {
+      return;
+    }
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+      },
+      body: JSON.stringify({
+        to: userRow.pushToken,
+        title,
+        body,
+        data: data || {},
+        sound: 'default',
+      }),
+    });
+  } catch (err) {
+    console.warn('[sendPushNotification] failed:', err);
+  }
+}
+
 async function createNotification(notif: Record<string, any>) {
   try {
     await safeBackendSupabaseUpsert('notifications', notif, { onConflict: 'id' });
   } catch (err) {
     console.warn('[createNotification] failed to write notification:', err);
   }
+  // Real push delivery, on top of the in-app notification row above --
+  // previously a user only ever learned about a new
+  // message/follower/listing-update if they had the app open (web's poll,
+  // or mobile's own chat poll). This is what actually reaches someone who
+  // has the app backgrounded or closed. Never blocks or fails the caller.
+  sendPushNotification(notif.userId, notif.title, notif.message, { notificationId: notif.id, type: notif.type }).catch(() => {});
 }
 
 // Opt-out model (matches the mobile Notification Settings screen): a
@@ -4936,6 +4976,46 @@ app.post('/api/notifications/clear-all', serverRateLimiter(60 * 1000, 10, "notif
 // Follow/unfollow a seller — updates the caller's own followingSellers list
 // (never another user's record) and, on a new follow, notifies the seller.
 // Mirrors web's followSeller/unfollowSeller (src/context/AppContext.tsx).
+// Saves the caller's own device's Expo push token so createNotification()
+// (above) can actually reach them with a real push, not just an in-app
+// notification row they'll only see next time they open the app. Depends
+// on the users.pushToken column existing -- see
+// .ai/handoffs/PUSH_NOTIFICATIONS_SCHEMA_PROPOSAL.md for the exact SQL,
+// which has NOT been applied to production yet (schema changes require
+// Vincent's explicit approval, same as every other schema change this
+// session). Until that migration runs, this endpoint's own write will
+// simply fail (column does not exist) and report a real 500 -- it isn't
+// silently pretending to succeed.
+app.post('/api/users/push-token', serverRateLimiter(60 * 1000, 20, "users-push-token"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  const { pushToken, platform } = req.body || {};
+  if (!pushToken || typeof pushToken !== 'string' || !pushToken.startsWith('ExponentPushToken')) {
+    return res.status(400).json({ success: false, error: 'Missing or invalid pushToken' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const { error } = await backendSupabase
+      .from('users')
+      .update({
+        pushToken,
+        pushTokenPlatform: typeof platform === 'string' ? platform.slice(0, 20) : null,
+        pushTokenUpdatedAt: new Date().toISOString(),
+      })
+      .eq('id', verified.uid);
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Push Token API] Failed to save push token:', err?.message || err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to save push token' });
+  }
+});
+
 app.post('/api/users/follow', serverRateLimiter(60 * 1000, 30, "users-follow"), async (req, res) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
