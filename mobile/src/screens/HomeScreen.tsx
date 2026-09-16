@@ -974,10 +974,13 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // ProductDetailScreen.tsx on view, re-read here on every focus since the
   // list is populated from a different screen while this one stays mounted.
   const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>([]);
-  const RECENTLY_VIEWED_KEY = 'tedbuy_recently_viewed_ids';
+  // Namespaced per-user, matching ProductDetailScreen.tsx (the writer of
+  // this same key) -- was a shared global key, so User B signing in on the
+  // same device would see User A's recently-viewed products.
+  const getRecentlyViewedKeyForCurrentUser = () => `tedbuy_recently_viewed_ids_${auth.currentUser?.uid || 'guest'}`;
   useEffect(() => {
     const loadRecentlyViewed = () => {
-      AsyncStorage.getItem(RECENTLY_VIEWED_KEY).then((saved) => {
+      AsyncStorage.getItem(getRecentlyViewedKeyForCurrentUser()).then((saved) => {
         if (!saved) { setRecentlyViewedIds([]); return; }
         try { setRecentlyViewedIds(JSON.parse(saved)); } catch { setRecentlyViewedIds([]); }
       });
@@ -994,7 +997,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   }, [recentlyViewedIds, products]);
   const clearRecentlyViewed = () => {
     setRecentlyViewedIds([]);
-    AsyncStorage.removeItem(RECENTLY_VIEWED_KEY).catch(() => {});
+    AsyncStorage.removeItem(getRecentlyViewedKeyForCurrentUser()).catch(() => {});
   };
 
   // Progressive discovery for the hold-to-2x lock/unlock gesture: the full

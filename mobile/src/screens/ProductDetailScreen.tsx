@@ -19,7 +19,11 @@ import ImageViewing from 'react-native-image-viewing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fonts } from '../theme';
 
-export const RECENTLY_VIEWED_KEY = 'tedbuy_recently_viewed_ids';
+// Namespaced per-user (matches ChatsScreen.tsx's tedbuy_deleted_chat_ids_${uid}
+// pattern) -- this used to be one global key shared by every account on the
+// device, so on a shared/family device, User B signing in would see User A's
+// recently-viewed products.
+export const getRecentlyViewedKey = (uid?: string | null) => `tedbuy_recently_viewed_ids_${uid || 'guest'}`;
 const MAX_RECENTLY_VIEWED = 5;
 
 const { width } = Dimensions.get('window');
@@ -128,13 +132,14 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     // Matches web's AppContext.tsx recentlyViewedIds tracking (move-to-front,
     // dedupe, cap 5, persisted) — was entirely absent on mobile, so there was
     // no "Recently Viewed" history to surface anywhere in the app.
-    AsyncStorage.getItem(RECENTLY_VIEWED_KEY).then((saved) => {
+    const recentlyViewedKey = getRecentlyViewedKey(auth.currentUser?.uid);
+    AsyncStorage.getItem(recentlyViewedKey).then((saved) => {
       let ids: string[] = [];
       if (saved) {
         try { ids = JSON.parse(saved); } catch { ids = []; }
       }
       const updated = [productId, ...ids.filter((id) => id !== productId)].slice(0, MAX_RECENTLY_VIEWED);
-      AsyncStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(recentlyViewedKey, JSON.stringify(updated)).catch(() => {});
     });
 
     // Real view tracking (10-min per-device cooldown) — feeds the Popular

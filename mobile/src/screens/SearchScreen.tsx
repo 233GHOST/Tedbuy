@@ -4,13 +4,16 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MapPin, Building2, Sparkles, Search as SearchIcon } from 'lucide-react-native';
 import { categories } from '../data';
-import { watchProducts, fetchSearchSuggestions } from '../firebase';
+import { auth, watchProducts, fetchSearchSuggestions } from '../firebase';
 import { Product } from '../types';
 import { getPrefixAutocompleteSuggestions, AutocompleteSuggestion } from '../utils/searchAutocomplete';
 import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT, useTabBarVisibility } from '../context/TabBarVisibility';
 
-const RECENT_SEARCHES_KEY = 'tedbuy_recent_searches';
+// Namespaced per-user (matches ChatsScreen.tsx's tedbuy_deleted_chat_ids_${uid}
+// pattern) -- was one shared global key, so User B signing in on the same
+// device would see User A's recent searches.
+const getRecentSearchesKey = () => `tedbuy_recent_searches_${auth.currentUser?.uid || 'guest'}`;
 
 // Matches web's SearchSuggestions.tsx GHANA_CITIES exactly (same 14 cities,
 // same order) — was entirely absent on mobile, so typing "acc" never
@@ -128,7 +131,7 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
   }, [navigation, resetTabBar]);
 
   useEffect(() => {
-    AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((saved) => {
+    AsyncStorage.getItem(getRecentSearchesKey()).then((saved) => {
       if (saved) {
         try {
           setRecentSearches(JSON.parse(saved));
@@ -142,7 +145,7 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
   }, []);
 
   useEffect(() => {
-    AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(recentSearches)).catch(() => {});
+    AsyncStorage.setItem(getRecentSearchesKey(), JSON.stringify(recentSearches)).catch(() => {});
   }, [recentSearches]);
 
   const trimmedQuery = searchText.trim().toLowerCase();
