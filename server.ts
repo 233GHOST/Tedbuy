@@ -1441,10 +1441,14 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
       }
 
       if (!owns) {
+        // Matches the sellerId/seller_id dual-column check used everywhere
+        // else in this file (e.g. /api/products/delete) -- some rows store
+        // the seller reference under the snake_case column, so checking
+        // only `sellerId` here would incorrectly deny a legitimate owner.
         const { data: ownProducts } = await backendSupabase
           .from('products')
           .select('images, imageUrls, videos, videoUrls')
-          .or(`sellerId.eq.${verified.uid},sellerId.eq.user_${verified.uid},sellerId.eq.phone_${verified.uid}`);
+          .or(`sellerId.eq.${verified.uid},sellerId.eq.user_${verified.uid},sellerId.eq.phone_${verified.uid},seller_id.eq.${verified.uid},seller_id.eq.user_${verified.uid},seller_id.eq.phone_${verified.uid}`);
         owns = !!(ownProducts || []).some((p: any) =>
           [p.images, p.imageUrls, p.videos, p.videoUrls].some((arr: any) => Array.isArray(arr) && arr.includes(url))
         );
