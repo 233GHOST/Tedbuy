@@ -924,12 +924,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const rawEmail = firebaseUser.email ? firebaseUser.email.trim() : '';
     const targetEmailLower = rawEmail.toLowerCase();
 
-    // 1. Direct UID lookup in the legacy user database
+    // 1. Direct UID lookup in the legacy user database.
+    // Security fix (RLS-migration Phase 2, checkpoint 15): missed by the
+    // original 5-site self-profile-reads catalog (checkpoint 12's sweep) --
+    // self-only by construction (targetUid is always firebaseUser.uid),
+    // same fix as that finding: GET /api/users/get?id=.
     try {
-      const userRef = doc('users', targetUid);
-      const directSnap = await getDoc(userRef);
-      if (directSnap.exists()) {
-        const data = directSnap.data() as User;
+      const res = await fetch(`/api/users/get?id=${encodeURIComponent(targetUid)}`);
+      const json = await res.json().catch(() => ({}));
+      if (json.success && json.user) {
+        const data = json.user as User;
         const normalized: User = { ...data, id: targetUid };
         return normalized;
       }
@@ -980,13 +984,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let foundDocData: User | null = null;
     let existingUserId: string | null = null;
 
-    // Check if the cached user doc actually exists in the legacy user database under their old ID
+    // Check if the cached user doc actually exists in the legacy user database under their old ID.
+    // Security fix (RLS-migration Phase 2, checkpoint 15): same class as
+    // step 5's storeNames-candidate lookup (checkpoint 13) -- a targeted
+    // single-doc read of a candidate id, not a bulk/query leak, migrated
+    // to the same GET /api/users/get?id=.
     if (cachedUser && cachedUser.id && cachedUser.id !== targetUid) {
       try {
-        const cachedDocSnap = await getDoc(doc('users', cachedUser.id));
-        if (cachedDocSnap.exists()) {
-          foundDocData = cachedDocSnap.data() as User;
-          existingUserId = cachedDocSnap.id;
+        const res = await fetch(`/api/users/get?id=${encodeURIComponent(cachedUser.id)}`);
+        const json = await res.json().catch(() => ({}));
+        if (json.success && json.user) {
+          foundDocData = json.user as User;
+          existingUserId = json.user.id;
           console.log(`[findAndMigrateExistingUser] Located profile via local storage cache ID "${cachedUser.id}".`);
         }
       } catch (_) {}
