@@ -4163,7 +4163,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       syncUserToServer({ ...currentUser, savedProductIds: updatedSaved });
     }
 
-    // Trigger server deletion (Supabase, server memory & disk cache, and Cloudinary media destroy)
+    // Trigger server deletion (Supabase, server memory & disk cache, and Cloudinary media destroy).
+    //
+    // Correctness fix (found reviewing the ownership check added to
+    // POST /api/cloudinary/delete, commit 8bb0b62): that endpoint now
+    // verifies each url appears in the media fields of a product the
+    // caller owns -- correct for the security fix, but this Cloudinary
+    // cleanup used to be fire-and-forget (`.catch(...)`, never awaited)
+    // immediately followed by the product-delete request below, with no
+    // guarantee either would reach the server first. If the product-delete
+    // request landed first, the product row would already be gone by the
+    // time the ownership check ran, so the url would never be found and
+    // the (now-correct) check would reject the delete -- silently leaving
+    // the deleted listing's images/videos orphaned in Cloudinary forever.
+    // Now awaited and sequenced strictly before the product-delete
+    // request, so the server always sees the product row (and its media)
+    // still in place when it verifies these deletes.
     try {
       if (localProduct) {
         const mediaUrls = [
@@ -4174,7 +4189,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ].filter(u => typeof u === 'string' && u.includes('res.cloudinary.com'));
 
         if (mediaUrls.length > 0) {
-          deleteMultipleFromCloudinary(mediaUrls).catch(err => console.warn('[deleteProduct] Cloudinary cleanup error:', err));
+          await deleteMultipleFromCloudinary(mediaUrls).catch(err => console.warn('[deleteProduct] Cloudinary cleanup error:', err));
         }
       }
 

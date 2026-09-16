@@ -1065,12 +1065,32 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       }
 
       if (productToEdit) {
-        // Cleanup replaced/removed Cloudinary assets
+        // Cleanup replaced/removed Cloudinary assets.
+        // Correctness fix (found reviewing the ownership check added to
+        // POST /api/cloudinary/cleanup-orphans, commit 8bb0b62): that
+        // endpoint now verifies each URL still appears in the product's
+        // CURRENT stored media fields before deleting it -- correct for
+        // the security fix, but this call used to be fire-and-forget
+        // (`.catch(() => {})`, never awaited) immediately followed by
+        // `updateProduct` below, which saves the NEW media list to that
+        // same product row. Since neither request's arrival order at the
+        // server was ever guaranteed, updateProduct's save could reach the
+        // server first, overwriting the product's stored media to the new
+        // list before cleanup-orphans' ownership check ran -- at which
+        // point the "old" URLs it's trying to clean up no longer appear in
+        // the row at all, so the (now-correct) ownership check would
+        // reject them and the old assets would silently never be deleted
+        // (both calls swallow their own errors, so this would have failed
+        // silently). Now awaited and sequenced strictly before
+        // updateProduct, so the server always sees the OLD media list
+        // still in place when it verifies these URLs. Still non-blocking
+        // to the actual save on failure -- errors are swallowed same as
+        // before, this only fixes the ordering.
         if (Array.isArray(productToEdit.images)) {
-          cleanupOrphanedCloudinaryAssets(productToEdit.images, cloudinaryImages, productToEdit.id).catch(() => {});
+          await cleanupOrphanedCloudinaryAssets(productToEdit.images, cloudinaryImages, productToEdit.id).catch(() => {});
         }
         if (Array.isArray(productToEdit.videos)) {
-          cleanupOrphanedCloudinaryAssets(productToEdit.videos, cloudinaryVideos, productToEdit.id).catch(() => {});
+          await cleanupOrphanedCloudinaryAssets(productToEdit.videos, cloudinaryVideos, productToEdit.id).catch(() => {});
         }
 
         // Edit flow

@@ -990,8 +990,25 @@ CEO, Tedbuy Inc`;
         }
       }
 
+      // Correctness fix (found reviewing the ownership check added to
+      // POST /api/cloudinary/delete, commit 8bb0b62): that endpoint now
+      // verifies the url matches the caller's CURRENT stored users.photoUrl
+      // before deleting it -- correct for the security fix, but this call
+      // used to be fire-and-forget (`.catch(() => {})`, never awaited)
+      // immediately followed by `updateUserProfile` below, which saves the
+      // NEW photoUrl to that same row. Since neither request's arrival
+      // order at the server was ever guaranteed, the profile save could
+      // reach the server first, overwriting photoUrl to the new value
+      // before the delete's ownership check ran -- at which point the OLD
+      // photo url would no longer match and the (now-correct) check would
+      // reject the delete, silently leaving the old avatar orphaned in
+      // Cloudinary forever (both calls swallow their own errors). Now
+      // awaited and sequenced strictly before updateUserProfile, so the
+      // server always sees the OLD photoUrl still in place when it
+      // verifies this delete. Still non-blocking to the actual profile
+      // save on failure -- errors are swallowed same as before.
       if (currentUser?.photoUrl && currentUser.photoUrl.includes('res.cloudinary.com') && currentUser.photoUrl !== finalPhotoUrl) {
-        deleteFromCloudinary(currentUser.photoUrl).catch(() => {});
+        await deleteFromCloudinary(currentUser.photoUrl).catch(() => {});
       }
 
       await updateUserProfile({
