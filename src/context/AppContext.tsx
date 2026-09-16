@@ -5361,8 +5361,13 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
         if (emailResponse.ok) {
           successCount++;
-          const userRef = doc('users', targetUser.id);
-          await setDoc(userRef, { welcomeSent: true }, { merge: true });
+          // Security fix (RLS-migration Phase 1, checkpoint 20): this used
+          // to be a direct, unauthenticated `setDoc(doc('users',
+          // targetUser.id), { welcomeSent: true })` per target --
+          // dbAdapter's generic write path has no per-row ownership check.
+          // POST /api/send-welcome-email above now sets this flag
+          // server-side itself, scoped to the same email it just verified
+          // and sent to, so no separate write is needed here at all.
           logs += `✔️ [SUCCESS] ${targetUser.username} (${email})\n`;
         } else {
           const errData = await emailResponse.json().catch(() => ({}));

@@ -6480,6 +6480,24 @@ app.post("/api/send-welcome-email", serverRateLimiter(60 * 1000, 10, "send-welco
       return res.status(500).json({ success: false, error: brevoData.message || 'Brevo error' });
     }
 
+    // RLS-migration Phase 1, checkpoint 20: flags the recipient's own row
+    // server-side, scoped to `cleanEmail` (resolved above from either the
+    // caller's own verified email, or a real DB lookup for the admin-bulk
+    // case -- never an arbitrary client-supplied id). Replaces
+    // sendWelcomeEmailToAll's (AppContext.tsx) direct, unauthenticated
+    // `setDoc(doc('users', targetUser.id), { welcomeSent: true })` per
+    // target -- same root gap (dbAdapter's generic write path has no per-
+    // row ownership check) as every other finding in this migration, low
+    // severity here (welcomeSent is a non-sensitive dispatch-tracking
+    // flag) but closed for the same reason and with the same rigor as the
+    // rest. The self-service path already sets this flag via
+    // POST /api/welcome/setup (checkpoint 19); this covers the admin-bulk
+    // path, the only remaining caller of the old direct write.
+    if (backendSupabase) {
+      const { error: flagErr } = await backendSupabase.from('users').update({ welcomeSent: true }).eq('email', cleanEmail);
+      if (flagErr) console.warn('[Send Welcome Email] welcomeSent flag update warning:', flagErr.message || flagErr);
+    }
+
     return res.json({ success: true, message: 'Welcome email sent successfully.' });
   } catch (err: any) {
     console.error('[Welcome Email API Exception]:', err);
