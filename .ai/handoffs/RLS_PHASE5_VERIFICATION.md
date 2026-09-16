@@ -80,14 +80,22 @@ POST https://www.tedbuy.store/api/products/sync → HTTP 403
 Confirmed via code read (`server.ts:3178-3189`) that this rejection happens *before* any database write — the ownership check is a hard `return` ahead of the save logic, so there is no path by which the target listing could have been altered despite the request being sent. Server-side ownership enforcement (`sellerId` cross-checked against the real DB row, never trusted from the client) is confirmed intact and independent of RLS.
 
 ### Test 3 — Authorized admin action
-**BLOCKED — defect found, root cause not yet confirmed.** Vincent attempted to reverse/deactivate a boost via the admin panel; the action reported no visible effect ("nothing happened, the expected action was not performed").
+**PASS (write confirmed correct at the database level); separate non-RLS UI bug found and logged.**
 
-Code read of `POST /api/admin/boost-control` (`server.ts:5343`) found a pre-existing pattern where Supabase write failures are swallowed (`console.warn`, never re-thrown) and the endpoint still returns `{ success: true }` regardless of whether the underlying row actually changed — this bug predates this session's RLS work, not introduced by it. Whether *this specific* failure was RLS-caused or this pre-existing bug remains unconfirmed — pending from Vincent: Render logs for `[Admin Boost Control API]` around the time of the attempt (specifically any `Supabase upsert error` warning and its exact message), and the product row's actual `boostStatus`/`isBoosted`/`updatedAt` state checked directly in the Supabase Table Editor.
+Vincent attempted to reverse/deactivate a boost via the admin panel; the action appeared to do nothing on screen. Investigated via Render logs and code, in order:
 
-**No RLS, policy, grant, schema, or application code has been changed in response to this finding.** No rollback performed.
+1. **Logs showed no RLS/permission error anywhere** — `[Admin Boost Control API]` logged a successful Supabase save, a successful Firestore sync, and `"boost set to deactivate"`; immediately after, a second, redundant save via `[Product Sync Endpoint]` (traced to `ProductDetail.tsx:978`'s `handleDeactivateBoostSilently`, which re-submits the server's own already-correct response through `/api/products/sync`) also succeeded. The `products.updatedAt does not exist` line in the same log is the separate, already-known, gracefully-handled gap — unrelated, out of scope per the Phase 4 instructions.
+2. Traced whether the redundant second write could revert the boost fields (this app has a documented history of exactly that kind of bug) — confirmed it doesn't: `server.ts:3228`'s `cleanProduct = { ...product, ... }` passes boost fields through unchanged.
+3. **Vincent confirmed directly in the Supabase Table Editor: the product's `boostStatus` is `false`** — the database write is correct. The admin panel's on-screen state simply didn't refresh to reflect it.
+
+**Conclusion:** the admin-gated write itself — the thing Phase 5 needs to verify — succeeded correctly against the RLS-enabled `products` table, confirming `service_role`'s admin write path is unaffected by RLS. The non-reflected UI is a real but separate, pre-existing bug (the page isn't re-fetching/re-rendering local state after the action completes) — unrelated to RLS, not introduced by this migration, and not fixed here (no code change authorized under this task). Logged as a follow-up item for Vincent to decide on separately.
+
+**No RLS, policy, grant, schema, or application code was changed investigating or resolving this.** No rollback needed.
 
 ---
 
 ## Overall Phase 5 status
 
-**BLOCKED — actual defect found (Test 3).** Tests 1 and 2 pass cleanly with no anomalies. Test 3 surfaced a real defect in `/api/admin/boost-control` whose relationship to RLS is not yet confirmed — Phase 5 cannot be marked PASS until this is resolved one way or the other.
+**PASS.** All three manual rows confirmed: authenticated write/read (Test 1), cross-user authorization (Test 2, live `403 Forbidden` confirmed before any DB write), and an authorized admin write against the RLS-enabled database (Test 3, confirmed correct at the DB level). Combined with the automated checks earlier in this document (10/10 tables reject anonymous reads, 5/5 reject anonymous writes with the specific RLS-violation error, `service_role` connectivity confirmed live) — RLS Phase 4's enablement is fully verified with zero RLS-related defects found.
+
+One non-RLS defect surfaced along the way and is tracked separately, not as a Phase 5 blocker: the admin boost-deactivate UI doesn't refresh its on-screen state after a successful action (`ProductDetail.tsx`'s `handleDeactivateBoostSilently` / admin boost panel) — pre-existing, unrelated to this migration, not fixed under this task.
