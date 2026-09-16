@@ -433,13 +433,18 @@ export async function deleteMultipleFromCloudinary(
 }
 
 /**
- * Automatically find removed Cloudinary assets between old and new URL arrays and destroy them
+ * Automatically find removed Cloudinary assets between old and new URL arrays and destroy them.
+ * Security fix (matches the server-side ownership check added to
+ * /api/cloudinary/cleanup-orphans, same commit): that endpoint now requires
+ * productId to verify the caller actually owns the listing these URLs came
+ * from, so it's a required parameter here too.
  */
 export async function cleanupOrphanedCloudinaryAssets(
   oldUrls: string[],
-  newUrls: string[]
+  newUrls: string[],
+  productId: string
 ): Promise<{ cleanedCount: number }> {
-  if (!Array.isArray(oldUrls) || oldUrls.length === 0) {
+  if (!Array.isArray(oldUrls) || oldUrls.length === 0 || !productId) {
     return { cleanedCount: 0 };
   }
   const newSet = new Set(Array.isArray(newUrls) ? newUrls : []);
@@ -454,7 +459,7 @@ export async function cleanupOrphanedCloudinaryAssets(
     const res = await fetch('/api/cloudinary/cleanup-orphans', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ oldUrls, newUrls })
+      body: JSON.stringify({ oldUrls, newUrls, productId })
     });
     const data = await res.json();
     return { cleanedCount: data?.count || 0 };

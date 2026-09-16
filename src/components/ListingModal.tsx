@@ -1067,10 +1067,10 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       if (productToEdit) {
         // Cleanup replaced/removed Cloudinary assets
         if (Array.isArray(productToEdit.images)) {
-          cleanupOrphanedCloudinaryAssets(productToEdit.images, cloudinaryImages).catch(() => {});
+          cleanupOrphanedCloudinaryAssets(productToEdit.images, cloudinaryImages, productToEdit.id).catch(() => {});
         }
         if (Array.isArray(productToEdit.videos)) {
-          cleanupOrphanedCloudinaryAssets(productToEdit.videos, cloudinaryVideos).catch(() => {});
+          cleanupOrphanedCloudinaryAssets(productToEdit.videos, cloudinaryVideos, productToEdit.id).catch(() => {});
         }
 
         // Edit flow

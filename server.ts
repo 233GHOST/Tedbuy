@@ -1387,6 +1387,20 @@ app.post(
   }
 );
 
+// Security fix (found in the same consolidated rejection-path sweep as the
+// two endpoints above): verifyUser() alone isn't ownership -- this deleted
+// any Cloudinary asset in the account, real account-wide credentials, based
+// purely on a client-supplied URL/publicId, with no check that the caller
+// actually owned whatever it belonged to. Its two real callers only ever
+// target the caller's own profile photo or their own product's media, but
+// the endpoint itself never enforced that -- any signed-in user could
+// delete another seller's public listing photos (trivially discoverable
+// via GET /api/products) or another user's profile photo. Fixed by
+// verifying the target URL actually matches the caller's own stored
+// photoUrl, or appears in the media fields of a product they own, before
+// ever calling Cloudinary -- admins retain full access. A bare publicId
+// with no url can't be cross-checked against anything, so it's rejected
+// for non-admins rather than trusted.
 app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-delete"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
@@ -1410,6 +1424,37 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
       return res.status(400).json({ success: false, error: 'Missing publicId or valid Cloudinary url' });
     }
 
+    const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+    if (!isAdmin) {
+      if (!url || typeof url !== 'string') {
+        return res.status(403).json({ success: false, error: 'Forbidden: cannot verify ownership without a url' });
+      }
+      if (!backendSupabase) {
+        return res.status(503).json({ success: false, error: 'Database service unavailable' });
+      }
+
+      let owns = false;
+
+      const { data: selfRow } = await backendSupabase.from('users').select('photoUrl').eq('id', verified.uid).maybeSingle();
+      if (selfRow?.photoUrl === url) {
+        owns = true;
+      }
+
+      if (!owns) {
+        const { data: ownProducts } = await backendSupabase
+          .from('products')
+          .select('images, imageUrls, videos, videoUrls')
+          .or(`sellerId.eq.${verified.uid},sellerId.eq.user_${verified.uid},sellerId.eq.phone_${verified.uid}`);
+        owns = !!(ownProducts || []).some((p: any) =>
+          [p.images, p.imageUrls, p.videos, p.videoUrls].some((arr: any) => Array.isArray(arr) && arr.includes(url))
+        );
+      }
+
+      if (!owns) {
+        return res.status(403).json({ success: false, error: 'Forbidden: You do not own this asset' });
+      }
+    }
+
     const result = await deleteCloudinaryAsset(targetPublicId, targetResourceType);
     return res.json({ success: true, result });
   } catch (err: any) {
@@ -1420,6 +1465,24 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
 
 // A bulk scan/cleanup operation — genuinely expensive per call, not
 // something any legitimate client flow needs to hit often.
+// Security fix (found during the same consolidated rejection-path sweep as
+// /api/cloudinary/upload above): this endpoint checked verifyUser() -- ANY
+// signed-in user -- but never verified the caller actually owned the
+// listing these URLs belonged to, or even that the URLs belonged to any
+// listing of theirs at all. It deletes real Cloudinary assets using the
+// server's own account-wide credentials based purely on client-supplied
+// URLs. Its one legitimate caller (ListingModal.tsx, cleaning up images/
+// videos removed during an edit) only ever sends its own product's own
+// media -- but the endpoint itself placed no such restriction, so any
+// authenticated user (including a freshly-registered one) could delete ANY
+// Cloudinary asset in the account -- most seriously, another seller's
+// public listing photos, which are trivially discoverable via the public
+// GET /api/products feed -- by simply naming that URL in `oldUrls`. Fixed
+// by requiring `productId`, verifying real ownership from the DB row (not
+// the client's claim), and restricting deletion candidates to URLs that
+// actually appear in that product's own stored media fields -- so even a
+// legitimate caller acting on their own product can't slip in another
+// product's asset URL.
 app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5, "cloudinary-cleanup-orphans"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
@@ -1427,13 +1490,43 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
   }
 
   try {
-    const { oldUrls, newUrls } = req.body;
+    const { oldUrls, newUrls, productId } = req.body;
     if (!Array.isArray(oldUrls) || !Array.isArray(newUrls)) {
       return res.status(400).json({ success: false, error: 'Expected arrays oldUrls and newUrls' });
     }
+    if (!productId || typeof productId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Missing productId' });
+    }
+    if (!backendSupabase) {
+      return res.status(503).json({ success: false, error: 'Database service unavailable' });
+    }
+
+    const { data: existingProduct } = await backendSupabase
+      .from('products')
+      .select('images, imageUrls, videos, videoUrls, sellerId, seller_id')
+      .eq('id', productId)
+      .maybeSingle();
+    if (!existingProduct) {
+      return res.status(404).json({ success: false, error: 'Product not found' });
+    }
+    const existingSellerId = existingProduct.sellerId || existingProduct.seller_id;
+    const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+    const isOwner = existingSellerId === verified.uid ||
+      existingSellerId === `user_${verified.uid}` ||
+      existingSellerId === `phone_${verified.uid}`;
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'Forbidden: You do not own this listing' });
+    }
+
+    const ownedUrls = new Set([
+      ...(Array.isArray(existingProduct.images) ? existingProduct.images : []),
+      ...(Array.isArray(existingProduct.imageUrls) ? existingProduct.imageUrls : []),
+      ...(Array.isArray(existingProduct.videos) ? existingProduct.videos : []),
+      ...(Array.isArray(existingProduct.videoUrls) ? existingProduct.videoUrls : [])
+    ]);
 
     const newUrlSet = new Set(newUrls);
-    const orphans = oldUrls.filter(url => typeof url === 'string' && !newUrlSet.has(url));
+    const orphans = oldUrls.filter(url => typeof url === 'string' && !newUrlSet.has(url) && ownedUrls.has(url));
 
     const results = [];
     for (const orphanUrl of orphans) {
