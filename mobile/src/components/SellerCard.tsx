@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { CheckCircle2, MapPin, Package, ArrowUpRight, Plus, Check } from 'lucide-react-native';
 import { fonts } from '../theme';
 import { DiscoverSeller } from '../utils/discoverSellers';
@@ -30,7 +31,7 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
         <View style={styles.avatarRow}>
           <View style={[styles.avatarRing, seller.isVerified ? styles.avatarRingVerified : styles.avatarRingPlain]}>
             {seller.photo ? (
-              <Image source={{ uri: seller.photo }} style={styles.avatarImg} />
+              <Image source={{ uri: seller.photo }} style={styles.avatarImg} cachePolicy="memory-disk" />
             ) : (
               <View style={styles.avatarFallback}>
                 <Text style={styles.avatarInitial}>{seller.name.charAt(0).toUpperCase()}</Text>
