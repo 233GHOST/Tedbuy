@@ -5462,6 +5462,13 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
         boostPriorityLevel: 0,
         priorityScore,
         remainingBoostTime: 0,
+        // getBoostEndDate() (src/utils/dateParser.ts) falls back to these two
+        // fields to reconstruct an end date whenever boostStartDate/boostEndDate
+        // are empty -- leaving them set from the original activation meant a
+        // deactivated boost could still compute a future end date and show as
+        // active in the UI, even though boostStatus itself was correctly false.
+        lastBoostedAt: null,
+        lastBoostPurchase: null,
         updatedAt: now.toISOString()
       };
     }

@@ -990,6 +990,13 @@ export const ProductDetail: React.FC = () => {
         boostPriority: 0,
         boostPriorityLevel: 0,
         remainingBoostTime: 0,
+        // getBoostEndDate() (src/utils/dateParser.ts) falls back to these two
+        // fields when boostStartDate/boostEndDate are empty -- leaving them
+        // set from the original activation let a deactivated boost still
+        // compute a future end date and render as active, even though
+        // boostStatus itself was correctly false.
+        lastBoostedAt: "",
+        lastBoostPurchase: "",
         priorityScore: calculatePriorityScore({
           ...product,
           boostStatus: false,
