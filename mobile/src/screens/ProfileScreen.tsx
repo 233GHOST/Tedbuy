@@ -7,8 +7,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { TedBuyLogo } from '../components/TedBuyLogo';
 import { BackButton } from '../components/BackButton';
 import { BoostModal } from '../components/BoostModal';
-import { auth, observeAuthState, signIn, signUp, signInWithGoogle, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage } from '../firebase';
-import { Users as UsersIcon, Bookmark, Eye, EyeOff, Flame, Clock, Edit2, Tag, MapPin, Trash2, ShieldCheck, UserCircle2, Bell, Store, HelpCircle, ChevronRight, Settings as SettingsIcon } from 'lucide-react-native';
+import { auth, observeAuthState, signIn, signUp, signInWithGoogle, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage, logOut } from '../firebase';
+import { Users as UsersIcon, Bookmark, Eye, EyeOff, Flame, Clock, Edit2, Tag, MapPin, Trash2, ShieldCheck, UserCircle2, Bell, Store, HelpCircle, ChevronRight, Settings as SettingsIcon, LogOut } from 'lucide-react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT, useTabBarVisibility } from '../context/TabBarVisibility';
@@ -330,6 +330,24 @@ export function ProfileScreen() {
             } catch (err: any) {
               Alert.alert('Error', err.message || 'Could not delete product.');
             }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out Session',
+      'Are you sure you want to end your current session? You will need to log in again to post ads or chat with merchants.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await logOut();
+            setActiveTab('dashboard');
           },
         },
       ]
@@ -866,6 +884,13 @@ export function ProfileScreen() {
                   <ChevronRight size={18} color="#94a3b8" />
                 </Pressable>
               </View>
+
+              <Pressable onPress={handleSignOut} style={styles.settingsLogoutRow}>
+                <View style={styles.settingsLogoutIconBadge}>
+                  <LogOut size={17} color="#e11d48" />
+                </View>
+                <Text style={styles.settingsLogoutText}>Log Out</Text>
+              </Pressable>
             </ScrollView>
             </GestureDetector>
           )}
@@ -995,6 +1020,9 @@ const styles = StyleSheet.create({
   settingsItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 10 },
   settingsItemTitle: { fontSize: 13.5, fontFamily: fonts.extrabold, color: '#0f172a' },
   settingsItemSubtitle: { fontSize: 11, color: '#64748b', marginTop: 1 },
+  settingsLogoutRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#fecdd3', borderRadius: 16, paddingVertical: 14, marginTop: 4 },
+  settingsLogoutIconBadge: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
+  settingsLogoutText: { fontSize: 13.5, fontFamily: fonts.extrabold, color: '#e11d48' },
 
   followStatsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14, paddingHorizontal: 10, paddingVertical: 12, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   followStatItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
