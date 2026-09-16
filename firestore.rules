@@ -87,7 +87,6 @@ service cloud.firestore {
       allow read: if true; // Listings are public
       allow create: if isSignedIn() && (isOwner(incoming().get('sellerId', '')) || isAdmin()) && isValidId(productId) && isValidProduct(incoming());
       allow update: if isValidId(productId) && (
-                      incoming().get('serverVerificationSecret', '') == 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ' ||
                       (isValidProduct(incoming()) && (
                         isAdmin() ||
                         // Let product owners update details like title, description, category, etc.,
@@ -267,8 +266,7 @@ service cloud.firestore {
     // 9. Boost Purchases Collection rules
     match /boost_purchases/{purchaseId} {
       allow read: if isSignedIn() && (isOwner(resource.data.get('sellerId', '')) || isAdmin());
-      allow create: if (isSignedIn() && (isOwner(incoming().get('sellerId', '')) || isAdmin()) && isValidId(purchaseId)) ||
-                       incoming().get('serverVerificationSecret', '') == 'TEDBUY_SERVER_BYPASS_SECRET_2026_XYZ';
+      allow create: if isSignedIn() && (isOwner(incoming().get('sellerId', '')) || isAdmin()) && isValidId(purchaseId);
       allow update, delete: if isAdmin();
     }
 
