@@ -1,6 +1,14 @@
 # RLS Phase 4 — Enablement Proposal
 
-**STATUS: AWAITING APPROVAL. NOTHING BELOW HAS BEEN EXECUTED.** No SQL in this document has been run against production. No tool call in this session has touched the database, schema, RLS state, policies, or grants. This sandbox has no Supabase credentials for the production project in any case — execution is Vincent's alone, matching the established pattern (`reports_table_creation.sql`).
+**STATUS: APPLIED — 2026-09-16.** Approved by Vincent and executed by him directly in the Supabase SQL Editor (project `hnfqymkdgadwzrjenaqf`, confirmed `PRODUCTION`) — this sandbox never had execution capability, matching the established pattern (`reports_table_creation.sql`).
+
+**Result:** all 10 `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` statements succeeded. Post-execution verification confirmed `rls_enabled = true` for all 10 target tables and zero rows in `pg_policies` for them (true default-deny, as designed). No grants, schema, or application code were changed. `admin_audit_logs` was not created. Rollback was not needed.
+
+**What's still open, unchanged by this execution**: the Phase 5 live application verification matrix (§5 below) — explicitly deferred per Vincent's instruction, since this sandbox still has no real anon key or Firebase test credentials for the production project. Recommended next step whenever Vincent is ready: the anonymous-vs-Supabase-directly row first (the one row that actually tests RLS), then a normal smoke pass through the live app/admin panel.
+
+The original proposal (as approved and executed, unchanged) follows below for the record.
+
+---
 
 Produced per Vincent's explicit Phase 4 instruction (2026-09-16), built from `RLS_PREFLIGHT_AUDIT.md` (`c78beee`, verdict: READY FOR RLS) and `RLS_ENABLEMENT_READINESS_REPORT.md`. No application code was touched to produce this. No unrelated schema (e.g. `products.updatedAt`) is referenced. `admin_audit_logs` is deliberately excluded — see §1.
 
