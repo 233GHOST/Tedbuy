@@ -13,7 +13,8 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { AppNavigator } from './src/navigation';
 import { applyGlobalFont } from './src/applyGlobalFont';
-import { configureGoogleSignIn } from './src/firebase';
+import { configureGoogleSignIn, observeAuthState, registerPushToken } from './src/firebase';
+import { registerForPushNotificationsAsync } from './src/utils/pushNotifications';
 import { SuspensionGate } from './src/components/SuspensionGate';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { UnreadChatsProvider } from './src/context/UnreadChats';
@@ -42,6 +43,23 @@ export default function App() {
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
+
+  // Register (or re-register — the OS can occasionally rotate an Expo push
+  // token) this device for push notifications once a user is actually
+  // signed in, so the backend knows where to deliver a new message/follower/
+  // listing-update push. registerForPushNotificationsAsync() never throws
+  // and resolves to null for every "nothing to do here" case (denied
+  // permission, simulator, Expo Go) — registerPushToken() is itself a
+  // no-op without both a token and a signed-in user.
+  useEffect(() => {
+    const unsub = observeAuthState((user) => {
+      if (!user) return;
+      registerForPushNotificationsAsync().then((token) => {
+        if (token) registerPushToken(token);
+      });
+    });
+    return unsub;
+  }, []);
 
   if (!fontsLoaded && !fontError) {
     return null;

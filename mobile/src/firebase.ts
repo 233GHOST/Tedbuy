@@ -1,4 +1,4 @@
-import { AppState, Alert } from 'react-native';
+import { AppState, Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
 import { initializeAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendPasswordResetEmail, sendEmailVerification, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
@@ -624,6 +624,26 @@ export async function signInWithGoogle() {
   }
 
   return userCred;
+}
+
+/**
+ * Saves the device's Expo push token against the signed-in user's own row
+ * server-side, so the backend can later send a real push notification (new
+ * message, new follower, listing update) instead of the user only ever
+ * learning about it if they happen to have the app open. Best-effort --
+ * failure here (offline, server hiccup) shouldn't block anything else the
+ * caller is doing, so this never throws.
+ */
+export async function registerPushToken(token: string) {
+  if (!token || !auth.currentUser) return;
+  try {
+    const data = await apiFetch('/api/users/push-token', { method: 'POST', body: { pushToken: token, platform: Platform.OS } });
+    if (!data.success) {
+      console.warn('[registerPushToken] Server rejected push token registration:', data.error);
+    }
+  } catch (err) {
+    console.warn('[registerPushToken] Failed to register push token:', err);
+  }
 }
 
 export async function logOut() {
