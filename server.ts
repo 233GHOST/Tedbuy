@@ -677,13 +677,63 @@ function serverRateLimiter(windowMs: number, maxRequests: number, prefix: string
 // -------------------------------------------------------------
 // Initialize Backend Supabase PostgreSQL Client
 // -------------------------------------------------------------
+// Security fix (service_role migration, 2026-09-16): backendSupabase used
+// to ALWAYS use the anon key (VITE_SUPABASE_ANON_KEY/SUPABASE_ANON_KEY,
+// with a hardcoded anon-role JWT as the last-resort fallback below) --
+// discovered while debugging the reports table (see
+// .ai/handoffs/CURRENT_HANDOFF.md and
+// .ai/handoffs/RLS_ENABLEMENT_READINESS_REPORT.md for the full story).
+// This meant the server was never actually more privileged than the
+// anon key the browser used to call Supabase with directly -- every one
+// of this file's ~200 backendSupabase call sites depended on the exact
+// same Postgres GRANT a raw anon-key caller would need, and enabling RLS
+// with zero policies (this whole migration's target design) would have
+// broken the server's own database access, not just closed the anon
+// key's direct reach, because the server WAS an anon-key caller.
+//
+// Now prefers a real SUPABASE_SERVICE_ROLE_KEY when configured -- get it
+// from the Supabase dashboard, Project Settings -> API ("service_role
+// secret"), NEVER the anon/public key. It is never exposed to any
+// client, only ever read here, server-side. If it isn't set, this falls
+// back to the exact pre-existing anon-key behavior unchanged, so any
+// environment without the new var configured (local dev, this sandbox,
+// a preview deploy, etc.) keeps working exactly as it did before this
+// change rather than going dark -- this migration is meant to upgrade
+// the credential where it's configured, not require it everywhere at
+// once.
+//
+// decodeSupabaseKeyRole below is a pure diagnostic (reads the JWT's own
+// `role` claim, changes no behavior) so the startup log states plainly
+// which role is actually active -- catches, for example, a copy-paste
+// mistake where the anon key gets pasted into SUPABASE_SERVICE_ROLE_KEY
+// by accident, which would otherwise silently look like nothing
+// changed. Never hardcode a real service_role value anywhere in this
+// file, unlike the anon key's existing fallback below -- this repository
+// is public on GitHub.
+function decodeSupabaseKeyRole(key: string): string | null {
+  try {
+    const payload = key.split('.')[1];
+    if (!payload) return null;
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return typeof decoded?.role === 'string' ? decoded.role : null;
+  } catch {
+    return null;
+  }
+}
+
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://kxfykyxagkbrjymjmtal.supabase.co';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4ZnlreXhhZ2ticmp5bWptdGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMzc0NzAsImV4cCI6MjA4MzYxMzQ3MH0.fKjM2_pAti2Pj3XU6e9o3pX6M8fJ0X6Q9A2_A2';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4ZnlreXhhZ2ticmp5bWptdGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMzc0NzAsImV4cCI6MjA4MzYxMzQ3MH0.fKjM2_pAti2Pj3XU6e9o3pX6M8fJ0X6Q9A2_A2';
+const supabaseKey = supabaseServiceRoleKey || supabaseAnonKey;
 
 let backendSupabase: any = null;
 if (supabaseUrl && supabaseKey) {
   backendSupabase = createClient(supabaseUrl, supabaseKey);
-  console.log('[Supabase Server] Initialized backend Supabase client:', supabaseUrl);
+  const activeRole = decodeSupabaseKeyRole(supabaseKey);
+  if (supabaseServiceRoleKey && activeRole !== 'service_role') {
+    console.warn(`[Supabase Server] SUPABASE_SERVICE_ROLE_KEY is set but decodes to role "${activeRole || 'unknown'}", not "service_role" -- double-check the value pasted into that env var.`);
+  }
+  console.log(`[Supabase Server] Initialized backend Supabase client: ${supabaseUrl} (role: ${activeRole || 'unknown'}${supabaseServiceRoleKey ? '' : ', SUPABASE_SERVICE_ROLE_KEY not set -- falling back to anon key'})`);
 } else {
   console.warn('[Supabase Server] Missing credentials for backend Supabase client.');
 }
