@@ -12,10 +12,11 @@ interface FeaturedListingsProps {
 }
 
 export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProducts, selectedCategory: propCategory }) => {
-  const { products, selectedCategory: contextCategory, setSelectedProductId, setCurrentView, registerProduct } = useApp();
+  const { selectedCategory: contextCategory, setSelectedProductId, setCurrentView, registerProduct } = useApp();
   const activeCategory = propCategory !== undefined ? propCategory : contextCategory;
 
   const [serverFeatured, setServerFeatured] = useState<Product[]>([]);
+  const [isFeaturedLoading, setIsFeaturedLoading] = useState<boolean>(true);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isPaused, setIsPaused] = useState<boolean>(false);
 
@@ -53,20 +54,28 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
       });
   }, []);
 
-  // Compute featured products synchronously from context products or overrideProducts
+  // Featured listings must come from the dedicated /api/featured endpoint,
+  // never from the general `products` context array — that array is
+  // whatever page of the browse/search feed happens to be loaded (capped at
+  // 24 items by default, sorted by recency, not boost status), so deriving
+  // "featured" from it meant this section could show nothing at all (none
+  // of the currently-loaded page happened to be boosted) or an incomplete
+  // subset, even while genuinely-boosted listings existed elsewhere in the
+  // catalog. /api/featured queries up to 1000 products server-side
+  // specifically for this, so it's always the complete, correct set.
   const featuredProducts = useMemo(() => {
     if (overrideProducts && overrideProducts.length > 0) {
       return filterAndSortFeatured(overrideProducts, activeCategory);
     }
-    if (products && products.length > 0) {
-      return filterAndSortFeatured(products, activeCategory);
-    }
     return serverFeatured;
-  }, [overrideProducts, products, activeCategory, filterAndSortFeatured, serverFeatured]);
+  }, [overrideProducts, activeCategory, filterAndSortFeatured, serverFeatured]);
 
-  // Load featured products from server API cache only for cold start when products is empty
+  // Always fetch from the dedicated endpoint (unless a parent explicitly
+  // overrides with its own list) — on mount and whenever the category
+  // filter changes. Previous results stay visible while a refetch is in
+  // flight, so switching categories doesn't flash an empty state.
   useEffect(() => {
-    if (overrideProducts || (products && products.length > 0)) {
+    if (overrideProducts) {
       return;
     }
     let isCancelled = false;
@@ -83,11 +92,13 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
         }
       } catch (err) {
         console.warn('[FeaturedListings] /api/featured fetch error:', err);
+      } finally {
+        if (!isCancelled) setIsFeaturedLoading(false);
       }
     };
     fetchFeatured();
     return () => { isCancelled = true; };
-  }, [activeCategory, products, overrideProducts, filterAndSortFeatured, registerProduct]);
+  }, [activeCategory, overrideProducts, filterAndSortFeatured, registerProduct]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -160,8 +171,9 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
     setCurrentView('featured-listings');
   };
 
-  // If loading and no products yet
-  if (!overrideProducts && (!products || products.length === 0) && featuredProducts.length === 0) {
+  // If the initial /api/featured fetch is still in flight and we have no
+  // data to show yet (neither an override nor a previous fetch's result)
+  if (!overrideProducts && isFeaturedLoading && featuredProducts.length === 0) {
     return (
       <div className="w-full mb-8 bg-white rounded-3xl p-4 sm:p-6 shadow-xs animate-pulse">
         <div className="flex items-center justify-between mb-4">
