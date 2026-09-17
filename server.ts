@@ -2239,6 +2239,74 @@ app.get(['/api/trending', '/api/products/trending'], serverRateLimiter(60 * 1000
   }
 });
 
+// "Similar Listings" on a product detail page. Previously both web
+// (ProductDetail.tsx) and mobile (ProductDetailScreen.tsx) derived this
+// from whatever paginated products array was already loaded client-side
+// (capped at 200-ish items, sorted by recency) -- the same class of gap
+// Featured/Trending had before those were fixed, except there was no
+// existing dedicated endpoint to redirect to for this one. This is that
+// endpoint: queries the same full-catalog cache /api/featured and
+// /api/trending already use, so a genuinely matching item sitting further
+// back in the catalog (outside the client's already-loaded page) is no
+// longer invisible.
+app.get(['/api/similar', '/api/products/similar'], serverRateLimiter(60 * 1000, 600, "similar-listings"), async (req, res) => {
+  try {
+    const excludeId = typeof req.query.productId === 'string' ? req.query.productId.trim() : '';
+    const queryCategory = typeof req.query.category === 'string' ? req.query.category.trim().toLowerCase() : '';
+    if (!queryCategory) {
+      return res.status(400).json({ success: false, error: 'Missing required parameter: category' });
+    }
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit as string, 10) || 4));
+
+    const cacheKey = `similar:cat:${queryCategory}`;
+    const cacheTTL = 30; // 30s TTL cache, matches featured/trending
+    res.setHeader('Cache-Control', 'public, max-age=30');
+
+    const cached = serverCache.get<any>(cacheKey);
+    if (cached) {
+      res.setHeader('ETag', cached.etag);
+      if (req.headers['if-none-match'] === cached.etag) {
+        return res.status(304).end();
+      }
+      // Exclusion and limit are applied per-request, not baked into the
+      // shared per-category cache entry, so the same cached pool serves
+      // every product detail page in that category correctly.
+      const filtered = (cached.value.products || []).filter((p: any) => p.id !== excludeId).slice(0, limit);
+      return res.json({ success: true, products: filtered, total: filtered.length, cached: true });
+    }
+
+    const { products } = await getProductsListData();
+
+    const matching = products
+      .filter((p: any) => {
+        if (!p) return false;
+        if (p.status === 'hidden' || p.isSold || p.status === 'sold') return false;
+        const pCat = String(p.category || '').trim().toLowerCase();
+        return pCat === queryCategory;
+      })
+      .map((p: any) => serializeProductSummary(p));
+
+    // Newest first, matching web/mobile's previous (unpaginated) behavior
+    // for this feature -- this isn't a ranking-sensitive section like
+    // Trending, just "other things in this category," so recency is a
+    // reasonable, simple default.
+    matching.sort((a: any, b: any) => {
+      const aTime = parseServerDate(a.createdAt)?.getTime() || 0;
+      const bTime = parseServerDate(b.createdAt)?.getTime() || 0;
+      return bTime - aTime;
+    });
+
+    const etag = serverCache.set(cacheKey, { products: matching }, cacheTTL);
+    res.setHeader('ETag', etag);
+
+    const filtered = matching.filter((p: any) => p.id !== excludeId).slice(0, limit);
+    return res.json({ success: true, products: filtered, total: filtered.length });
+  } catch (err: any) {
+    console.error('[Similar Products API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to retrieve similar products' });
+  }
+});
+
 app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "products-list"), async (req, res) => {
   try {
     const querySearch = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';

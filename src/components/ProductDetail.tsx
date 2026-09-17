@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ArrowLeft, MessageSquare, MapPin, Eye, Calendar, UserPlus, UserCheck, ChevronRight, ShieldAlert, Bookmark, X, Camera, ChevronLeft, Maximize2, Edit2, Trash2, Share2, Check, Package, RefreshCw, Plus, Sparkles, Video, Loader2, Flame, FileText, Send } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { ListingModal } from './ListingModal';
-import { isUserVerified, calculateTrustScore, normalizeCategory, isUserAdmin, Category } from '../types';
+import { isUserVerified, calculateTrustScore, normalizeCategory, isUserAdmin, Category, Product } from '../types';
 import { SellerBadge } from './SellerBadge';
 import { slugify } from '../utils/slugify';
 import { auth } from '../firebase';
@@ -105,6 +105,38 @@ export const ProductDetail: React.FC = () => {
       isSubscribed = false;
     };
   }, [selectedProductId, product, registerProduct]);
+
+  // "Similar Listings" -- previously derived from the general `products`
+  // context array (whatever page happens to be loaded, recency-sorted),
+  // the same class of gap Featured/Trending had before those were fixed to
+  // use a dedicated endpoint. /api/similar queries the full catalog
+  // server-side, so a genuine match sitting further back in the catalog is
+  // no longer invisible just because it wasn't part of the initially
+  // loaded page.
+  useEffect(() => {
+    if (!product?.id || !product?.category) {
+      setSimilarProducts([]);
+      return;
+    }
+    let isSubscribed = true;
+    const fetchSimilar = async () => {
+      try {
+        const res = await fetch(`/api/similar?productId=${encodeURIComponent(product.id)}&category=${encodeURIComponent(product.category)}&limit=4`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isSubscribed && data.success && Array.isArray(data.products)) {
+          data.products.forEach((p: Product) => registerProduct(p));
+          setSimilarProducts(data.products);
+        }
+      } catch (err) {
+        console.warn('[ProductDetail] /api/similar fetch error:', err);
+      }
+    };
+    fetchSimilar();
+    return () => {
+      isSubscribed = false;
+    };
+  }, [product?.id, product?.category, registerProduct]);
   const sellerUser = users?.find(u => u.id === product?.sellerId);
   const isSellerVerified = isUserVerified(sellerUser);
   const sellerReviews = reviews.filter(r => r.sellerId === product?.sellerId);
@@ -124,6 +156,7 @@ export const ProductDetail: React.FC = () => {
   const [isAdminBoosting, setIsAdminBoosting] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [selectedFreePlan, setSelectedFreePlan] = useState('7days');
+  const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
@@ -1211,10 +1244,6 @@ export const ProductDetail: React.FC = () => {
     month: 'long',
     day: 'numeric'
   });
-
-  const similarProducts = products
-    .filter(p => p.id !== product.id && p.category && product.category && p.category.toLowerCase() === product.category.toLowerCase())
-    .slice(0, 4);
 
   const cleanPrice = typeof product.price === 'number'
     ? product.price
