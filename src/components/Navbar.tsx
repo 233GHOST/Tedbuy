@@ -53,6 +53,7 @@ export const Navbar: React.FC = () => {
   } = useApp();
 
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [isResendingCode, setIsResendingCode] = useState(false);
   const [linkPasswordInput, setLinkPasswordInput] = useState('');
 
   const [loginIdentifierInput, setLoginIdentifierInput] = useState('');
@@ -302,8 +303,22 @@ export const Navbar: React.FC = () => {
       setOtpInput('');
       setOtpDebugCode('');
       setRegisterConfirmPasswordInput('');
+      setIsResendingCode(false);
+      // authMode/passwordResetSuccess/resetEmailInput weren't reset here --
+      // most call sites that reopen this modal pair setShowAuthModal(true)
+      // with setAuthMode('login') themselves, but not all of them do
+      // (SellerDashboard's "Sign In / Register", SellersDiscoveryView's
+      // follow-toggle prompt, ChatInterface's "Sign In to View Inbox").
+      // Someone who'd switched to Register, or requested a password reset,
+      // and closed with the X saw the modal reopen still on that stale
+      // screen from one of those three triggers. Resetting centrally here
+      // on close is more robust than requiring every future call site to
+      // remember to do it themselves.
+      setAuthMode('login');
+      setPasswordResetSuccess(false);
+      setResetEmailInput('');
     }
-  }, [showAuthModal, setGoogleLinkingData]);
+  }, [showAuthModal, setGoogleLinkingData, setAuthMode]);
 
   // Secure countdown timers for Registration OTP verification
   useEffect(() => {
@@ -311,10 +326,17 @@ export const Navbar: React.FC = () => {
     if (isVerifyingOtp && showAuthModal) {
       interval = setInterval(() => {
         setOtpTimeRemaining((prev) => {
-          if (prev <= 1) {
+          // `prev <= 1` used to match every tick once expired (prev pinned
+          // at 0 forever after), so setAuthError re-fired every second --
+          // dismissing the "code expired" banner via its own close button
+          // undid itself within ~1s, and this re-rendered the modal every
+          // second indefinitely for no reason. Only fire on the actual
+          // 1->0 transition.
+          if (prev === 1) {
             setAuthError('Your verification code has expired. Please go back and request a new code.');
             return 0;
           }
+          if (prev <= 0) return 0;
           return prev - 1;
         });
         setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
@@ -777,13 +799,26 @@ export const Navbar: React.FC = () => {
                       ) : (
                         <button
                           type="button"
+                          disabled={isResendingCode}
                           onClick={async () => {
+                            // Guards a fast double-click/double-tap: the cooldown span
+                            // that normally hides this button only takes effect on the
+                            // NEXT render, so without this a second click landing before
+                            // that commits could fire two resend requests (two OTP
+                            // emails). Also switched to the same cleanEmailString()
+                            // sanitization the initial submit uses -- this previously
+                            // sent registerEmailInput.trim().toLowerCase() directly,
+                            // which could desync pendingRegistrationRef's stored email
+                            // from what verifyAndCompleteRegistration later compares
+                            // against if the typed email had smart quotes/stray spaces.
+                            if (isResendingCode) return;
+                            setIsResendingCode(true);
                             setAuthError('');
                             setResendCooldown(60);
                             try {
                               const initRes = await initiateRegistration(
                                 usernameInput.trim(),
-                                registerEmailInput.trim().toLowerCase(),
+                                cleanEmailString(registerEmailInput),
                                 registerPhoneInput.trim(),
                                 registerPasswordInput,
                                 registerPhotoUrlInput || undefined
@@ -794,9 +829,11 @@ export const Navbar: React.FC = () => {
                               }
                             } catch (err: any) {
                               setAuthError(err?.message || 'Failed to resend code.');
+                            } finally {
+                              setIsResendingCode(false);
                             }
                           }}
-                          className="font-extrabold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer bg-transparent border-0 p-0 focus:outline-none text-xs"
+                          className="font-extrabold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer bg-transparent border-0 p-0 focus:outline-none text-xs disabled:opacity-50 disabled:cursor-wait"
                         >
                           Resend Code
                         </button>
@@ -1162,7 +1199,7 @@ export const Navbar: React.FC = () => {
                 <button
                   type="button"
                   id="google-signin-btn"
-                  disabled={isGoogleSigningIn}
+                  disabled={isGoogleSigningIn || isAuthSubmitting}
                   onClick={handleGoogleSignIn}
                   className="w-full py-2.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold rounded-xl transition duration-200 text-sm shadow-2xs flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
                 >

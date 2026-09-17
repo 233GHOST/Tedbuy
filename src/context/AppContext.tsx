@@ -2833,21 +2833,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           } catch (_) {}
         }
       } else {
-        try {
-          const authHeaders = await getAuthHeader();
-          const syncRes = await fetch('/api/users/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders },
-            body: JSON.stringify({ user: newUser })
-          });
-          const syncJson = await syncRes.json().catch(() => ({}));
-          if (!syncJson.success) {
-            throw new Error(syncJson.error || 'Failed to persist registered profile.');
-          }
-          console.log(`[Registration] Server-authoritative profile sync succeeded, store name reserved for UID: ${uid}`);
-        } catch (dbErr) {
-          console.warn('[Registration] Server-authoritative profile sync failed:', dbErr);
+        const authHeaders = await getAuthHeader();
+        const syncRes = await fetch('/api/users/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ user: newUser })
+        });
+        const syncJson = await syncRes.json().catch(() => ({}));
+        if (!syncJson.success) {
+          // Correctness fix: this used to be caught by its own try/catch
+          // right here and only console.warn'd -- registerUser proceeded
+          // past it regardless, set local state, and returned newUser
+          // successfully, so verifyAndCompleteRegistration reported
+          // success:true and Navbar showed "Account registered and
+          // verified successfully!" even though no Supabase profile row
+          // was ever created. The Firebase Auth account above IS real by
+          // this point though (createUserWithEmailAndPassword already
+          // succeeded), so this throw does leave a real auth account with
+          // no server profile behind it if sync keeps failing -- narrower
+          // and far better than silently pretending the whole thing
+          // worked, but a full fix (e.g. rolling back the auth account,
+          // or a retry path on next login) is still open.
+          throw new Error(syncJson.error || 'Failed to persist registered profile.');
         }
+        console.log(`[Registration] Server-authoritative profile sync succeeded, store name reserved for UID: ${uid}`);
       }
 
       // Back up to localized database backups
