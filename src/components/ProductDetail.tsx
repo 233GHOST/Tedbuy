@@ -1964,10 +1964,10 @@ export const ProductDetail: React.FC = () => {
                           </div>
                         )}
                         <div className="flex-1 text-left min-w-0">
-                          <h4 id="detail-seller-name" className="text-sm font-bold text-slate-900 flex items-center gap-1.5 min-w-0 flex-wrap">
+                          <h2 id="detail-seller-name" className="text-sm font-bold text-slate-900 flex items-center gap-1.5 min-w-0 flex-wrap">
                             <span className="truncate">{sellerUser?.username || product.sellerName || 'TedBuy Merchant'}</span>
                             <SellerBadge seller={sellerUser} size="sm" />
-                          </h4>
+                          </h2>
                           <p className="text-[11px] text-slate-500 font-medium mt-0.5">
                             {formatTedbuyTenure(product.sellerJoinDate || sellerUser?.joinDate)}
                           </p>

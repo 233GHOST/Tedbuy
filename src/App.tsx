@@ -904,6 +904,11 @@ const MarketplaceContent: React.FC = () => {
               </Suspense>
             ) : (
               <>
+                {/* Visually hidden -- the most-visited page in the app had no
+                    top-level heading at all for a screen reader user
+                    navigating by heading to orient by (and no on-page h1
+                    signal for SEO). Purely additive, no visual change. */}
+                <h1 className="sr-only">TedBuy Ghana — Discover, Buy &amp; Sell</h1>
                 {/* Category selection ribbon */}
                 <section className="space-y-4 mb-8 text-left">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
