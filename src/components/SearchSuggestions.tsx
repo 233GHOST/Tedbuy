@@ -51,19 +51,31 @@ export const SearchSuggestions: React.FC<SearchSuggestionsProps> = ({
   const [serverSuggestions, setServerSuggestions] = useState<AutocompleteSuggestion[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  // The 150ms debounce below prevents most overlap for rapid typing (each
+  // new keystroke cancels a still-pending timer), but doesn't prevent two
+  // genuinely separate, already-in-flight requests from resolving out of
+  // order (type, pause >150ms so a fetch fires, type again before that
+  // first one resolves, pause again so a second fires) -- without this,
+  // a slower response for an older query could land after a faster one
+  // for a newer query and silently overwrite it with stale suggestions.
+  const suggestionRequestIdRef = useRef(0);
 
   // 1. Fetch server suggestions in the background with a 150ms debounce
   useEffect(() => {
     if (!trimmedQuery) {
+      suggestionRequestIdRef.current += 1;
       setServerSuggestions([]);
       return;
     }
 
     const timer = setTimeout(async () => {
+      const requestId = ++suggestionRequestIdRef.current;
       try {
         const res = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}&limit=8`);
+        if (requestId !== suggestionRequestIdRef.current) return;
         if (res.ok) {
           const data = await res.json();
+          if (requestId !== suggestionRequestIdRef.current) return;
           if (data && Array.isArray(data.items)) {
             setServerSuggestions(data.items);
           } else if (data && Array.isArray(data.suggestions)) {

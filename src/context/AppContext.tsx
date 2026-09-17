@@ -2541,10 +2541,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     console.log(`[Chats Sync] Polling chat list via API for user: ${currentUserId}`);
     let active = true;
+    // Guards against overlapping in-flight polls, not just unmount -- if a
+    // poll is slow and resolves after a later poll (already in flight when
+    // the slow one was still pending) has already resolved, the slow one's
+    // stale chat list would otherwise silently win via setChats below,
+    // reverting a chat's last-message preview/unread count to stale data
+    // for up to one more poll cycle.
+    let requestId = 0;
 
     const load = async () => {
+      const thisRequestId = ++requestId;
       const apiChats = (await fetchChatsFromApi()).map((c: any) => normalizeChat(c)) as Chat[];
-      if (!active) return;
+      if (!active || thisRequestId !== requestId) return;
       setChats(prev => {
         // Preserve any admin-only TedBuy Support chat merged in by the
         // effect below — the API never returns it (see that effect's
