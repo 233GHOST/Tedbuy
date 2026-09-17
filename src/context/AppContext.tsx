@@ -5224,6 +5224,16 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       notificationPreferences: finalNotificationPreferences
     };
 
+    // Snapshot for rollback-on-failure below -- matches updateProduct's
+    // equivalent fix. Without this, a failed persist (network error, an
+    // expired session, a real server rejection) left the optimistic
+    // profile change on screen indefinitely: e.g. SellerProfilePage's
+    // avatar upload would show the new photo as if it saved even though
+    // nothing was actually persisted, with only a console.error to say
+    // otherwise -- a refresh would silently revert it with no explanation
+    // of why.
+    const previousUser = currentUser;
+
     // --- INSTANT OPTIMISTIC STATE UPDATE (Saves are now 100% instantaneous) ---
     setCurrentUserState(updatedUser);
     
@@ -5365,6 +5375,22 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       }
     } catch (err: any) {
       console.error('[Profile Update] Critical error persisting profile to the database:', err);
+      setCurrentUserState(previousUser);
+      setUsers(prevUsers => {
+        const reverted = prevUsers.map(u => u.id === previousUser.id ? previousUser : u);
+        try {
+          safeLocalStorage.setItem('tedbuy_local_users_backup', JSON.stringify(reverted));
+        } catch (_) {}
+        return reverted;
+      });
+      try {
+        safeLocalStorage.setItem('tedbuy_simulated_user', JSON.stringify(previousUser));
+        safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(previousUser));
+        const cacheStr = safeLocalStorage.getItem('tedbuy_user_profiles_cache') || '{}';
+        const cache = JSON.parse(cacheStr);
+        cache[previousUser.id] = previousUser;
+        safeLocalStorage.setItem('tedbuy_user_profiles_cache', JSON.stringify(cache));
+      } catch (_) {}
       throw err;
     }
   };

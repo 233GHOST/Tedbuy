@@ -29,7 +29,8 @@ export const SellerProfilePage: React.FC = () => {
     setShowAuthModal,
     setAuthMode,
     updateUserProfile,
-    sellerListingCounts
+    sellerListingCounts,
+    showToast
   } = useApp();
 
   const handleGoBack = () => {
@@ -43,6 +44,9 @@ export const SellerProfilePage: React.FC = () => {
 
   const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string; isEditable?: boolean } | null>(null);
   const [showFollowModal, setShowFollowModal] = useState(false);
+  const [isTogglingFollow, setIsTogglingFollow] = useState(false);
+  const [togglingFollowUserId, setTogglingFollowUserId] = useState<string | null>(null);
+  const [isStartingChat, setIsStartingChat] = useState(false);
   const [activeFollowTab, setActiveFollowTab] = useState<'following' | 'followers'>('following');
   const [showSafetyTips, setShowSafetyTips] = useState(false);
   const [safetyTipsPendingAction, setSafetyTipsPendingAction] = useState<'whatsapp' | null>(null);
@@ -240,16 +244,67 @@ export const SellerProfilePage: React.FC = () => {
   const isOwner = currentUser?.id === seller.id;
   const isFollowing = currentUser?.followingSellers?.includes(seller.id) || false;
 
-  const handleToggleFollow = () => {
+  const handleToggleFollow = async () => {
     if (!currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    if (isFollowing) {
-      unfollowSeller(seller.id);
-    } else {
-      followSeller(seller.id);
+    // Previously fired followSeller/unfollowSeller without await/catch --
+    // both throw via handleBackendError on any real failure (network,
+    // expired session, server error), so an unhandled rejection left the
+    // button appearing to do nothing with zero feedback. No in-flight
+    // guard either, so a fast double-click fired two concurrent requests.
+    if (isTogglingFollow) return;
+    setIsTogglingFollow(true);
+    try {
+      if (isFollowing) {
+        await unfollowSeller(seller.id);
+      } else {
+        await followSeller(seller.id);
+      }
+    } catch (err: any) {
+      let msg = isFollowing ? 'Could not unfollow this store.' : 'Could not follow this store.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
+    } finally {
+      setIsTogglingFollow(false);
+    }
+  };
+
+  // Shared by the Following/Followers modal's per-row Unfollow/Follow/Follow
+  // Back buttons, which previously fired followSeller/unfollowSeller with no
+  // await/catch at all -- same silent-no-op-on-failure bug as
+  // handleToggleFollow above, plus no in-flight guard per row.
+  const handleModalFollowToggle = async (targetUserId: string, currentlyFollowing: boolean) => {
+    if (togglingFollowUserId) return;
+    setTogglingFollowUserId(targetUserId);
+    try {
+      if (currentlyFollowing) {
+        await unfollowSeller(targetUserId);
+      } else {
+        await followSeller(targetUserId);
+      }
+    } catch (err: any) {
+      let msg = currentlyFollowing ? 'Could not unfollow this store.' : 'Could not follow this store.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
+    } finally {
+      setTogglingFollowUserId(null);
     }
   };
 
@@ -259,8 +314,9 @@ export const SellerProfilePage: React.FC = () => {
       setShowAuthModal(true);
       return;
     }
-    if (isOwner) return;
+    if (isOwner || isStartingChat) return;
 
+    setIsStartingChat(true);
     try {
       const targetProduct = sellerProducts[0] || {
         id: `general_${seller.id}`,
@@ -275,8 +331,25 @@ export const SellerProfilePage: React.FC = () => {
         setActiveChatId(chatId);
         setCurrentView('chats');
       }
-    } catch (err) {
+    } catch (err: any) {
+      // startChat throws for a client-side rate limit ("You can only start 5
+      // chats within 5 minutes...") or, via handleBackendError, for any
+      // other real failure -- previously only console.error'd, so under
+      // rate-limiting or a transient server error the button appeared
+      // simply broken with no explanation.
       console.error('Failed to initialize direct chat:', err);
+      let msg = 'Could not start chat. Please try again.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          msg = parsed.error || err.message;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
+    } finally {
+      setIsStartingChat(false);
     }
   };
 
@@ -302,6 +375,17 @@ export const SellerProfilePage: React.FC = () => {
         cleanNumber = '233' + cleanNumber.substring(1);
       } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
         cleanNumber = '233' + cleanNumber;
+      }
+      // Anything that doesn't normalize to a well-formed Ghana MSISDN
+      // (233 + 9 digits = 12 digits total) was previously used as-is to
+      // build the wa.me link and opened in a new tab regardless -- the
+      // user would land on WhatsApp's own "invalid phone number" page
+      // with no explanation that it's this seller's contact number on
+      // file that's bad, not something the user did wrong.
+      if (!/^233\d{9}$/.test(cleanNumber)) {
+        showToast("This seller's WhatsApp number on file looks invalid. Try messaging them on TedBuy chat instead.", 'error');
+        setSafetyTipsPendingAction(null);
+        return;
       }
       const prefilledText = `Hello ${seller.username}! I see your store on Tedbuy marketplace and would love to chat.`;
       const finalUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(prefilledText)}`;
@@ -371,9 +455,6 @@ export const SellerProfilePage: React.FC = () => {
       setIsSubmittingReview(false);
     }
   };
-
-  // Generate an approximate follow count based on seed/active metrics
-  const totalFollowersCount = seller.id === 'user_john' ? 15 : seller.id === 'user_kelvin' ? 8 : isFollowing ? 1 : 0;
 
   // Dynamic Average Response Time calculation based on historical chat records
   const getAverageResponseTime = () => {
@@ -505,8 +586,22 @@ export const SellerProfilePage: React.FC = () => {
                       if (viewedPhoto && viewedPhoto.isEditable) {
                         setViewedPhoto({ url: optimized, name: `${currentUser.username}'s Profile Picture`, isEditable: true });
                       }
-                    } catch (err) {
+                    } catch (err: any) {
+                      // updateUserProfile now rolls back its own optimistic
+                      // state on failure (matching updateProduct's pattern),
+                      // but the user still needs to be told the upload
+                      // didn't save -- this previously only console.error'd.
                       console.error('Error updating seller avatar: ', err);
+                      let msg = 'Could not update your profile photo. Please try again.';
+                      if (err instanceof Error) {
+                        try {
+                          const parsed = JSON.parse(err.message);
+                          if (parsed.error) msg = parsed.error;
+                        } catch {
+                          msg = err.message;
+                        }
+                      }
+                      showToast(msg, 'error');
                     }
                   } catch (err) {
                     console.error('Failed to compress avatar:', err);
@@ -523,8 +618,18 @@ export const SellerProfilePage: React.FC = () => {
                           if (viewedPhoto && viewedPhoto.isEditable) {
                             setViewedPhoto({ url: reader.result, name: `${currentUser.username}'s Profile Picture`, isEditable: true });
                           }
-                        } catch (err) {
+                        } catch (err: any) {
                           console.error('Error updating seller avatar: ', err);
+                          let msg = 'Could not update your profile photo. Please try again.';
+                          if (err instanceof Error) {
+                            try {
+                              const parsed = JSON.parse(err.message);
+                              if (parsed.error) msg = parsed.error;
+                            } catch {
+                              msg = err.message;
+                            }
+                          }
+                          showToast(msg, 'error');
                         }
                       }
                     };
@@ -663,7 +768,8 @@ export const SellerProfilePage: React.FC = () => {
             <button
               id="seller-profile-chat-btn"
               onClick={handleStartDirectChat}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-slate-700 shadow-xs cursor-pointer active:scale-95"
+              disabled={isStartingChat}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-slate-700 shadow-xs cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-wait"
             >
               <MessageCircle className="w-4 h-4 text-emerald-400" />
               <span>Chat on TedBuy</span>
@@ -685,7 +791,8 @@ export const SellerProfilePage: React.FC = () => {
             <button
               id="seller-profile-follow-btn"
               onClick={handleToggleFollow}
-              className={`px-4 py-2.5 rounded-xl font-bold transition duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5 shrink-0 cursor-pointer active:scale-95 ${
+              disabled={isTogglingFollow}
+              className={`px-4 py-2.5 rounded-xl font-bold transition duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5 shrink-0 cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-wait ${
                 isFollowing
                   ? 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-750'
                   : 'bg-white hover:bg-slate-100 text-slate-900 shadow-xs'
@@ -1293,8 +1400,9 @@ export const SellerProfilePage: React.FC = () => {
                             amIFollowing ? (
                               <button
                                 type="button"
-                                onClick={() => unfollowSeller(user.id)}
-                                className="px-2.5 py-1 text-[10px] font-bold text-rose-600 hover:text-white border border-rose-200 hover:border-rose-600 hover:bg-rose-600 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-0.5 animate-duration-150"
+                                disabled={togglingFollowUserId === user.id}
+                                onClick={() => handleModalFollowToggle(user.id, true)}
+                                className="px-2.5 py-1 text-[10px] font-bold text-rose-600 hover:text-white border border-rose-200 hover:border-rose-600 hover:bg-rose-600 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-0.5 animate-duration-150 disabled:opacity-60 disabled:cursor-wait"
                               >
                                 <UserMinus className="w-3 h-3" />
                                 <span>Unfollow</span>
@@ -1302,8 +1410,9 @@ export const SellerProfilePage: React.FC = () => {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => followSeller(user.id)}
-                                className="px-2.5 py-1 text-[10px] font-bold text-slate-950 hover:text-white border border-slate-300 hover:border-slate-950 hover:bg-slate-955 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-0.5 animate-duration-150"
+                                disabled={togglingFollowUserId === user.id}
+                                onClick={() => handleModalFollowToggle(user.id, false)}
+                                className="px-2.5 py-1 text-[10px] font-bold text-slate-950 hover:text-white border border-slate-300 hover:border-slate-950 hover:bg-slate-955 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-0.5 animate-duration-150 disabled:opacity-60 disabled:cursor-wait"
                               >
                                 <UserPlus className="w-3 h-3" />
                                 <span>Follow</span>
@@ -1367,8 +1476,9 @@ export const SellerProfilePage: React.FC = () => {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => followSeller(user.id)}
-                                className="px-2.5 py-1 text-[10px] font-bold text-slate-950 hover:text-white border border-slate-300 hover:border-slate-950 hover:bg-slate-955 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-0.5 animate-duration-150"
+                                disabled={togglingFollowUserId === user.id}
+                                onClick={() => handleModalFollowToggle(user.id, false)}
+                                className="px-2.5 py-1 text-[10px] font-bold text-slate-950 hover:text-white border border-slate-300 hover:border-slate-950 hover:bg-slate-955 rounded-lg transition shrink-0 cursor-pointer flex items-center gap-0.5 animate-duration-150 disabled:opacity-60 disabled:cursor-wait"
                               >
                                 <UserPlus className="w-3 h-3" />
                                 <span>Follow</span>
