@@ -900,6 +900,8 @@ const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const AI_GENERATION_TIMEOUT_MS = 25000;
 const AI_LISTING_MAX_IMAGES = 3;
 
+type AiDescriptionStyle = 'short' | 'standard' | 'detailed';
+
 interface ListingDescriptionInput {
   category: string;
   title: string;
@@ -910,7 +912,30 @@ interface ListingDescriptionInput {
   negotiable?: boolean;
   isExchangeable?: boolean;
   existingDescription?: string;
+  style: AiDescriptionStyle;
 }
+
+// Shared source of truth for the three length/tone options -- both the
+// system instruction and the user-facing reminder line read from this, so
+// the word-count promise the model is actually held to always matches what
+// the response schema and prompt describe, however this gets tuned later.
+const AI_STYLE_PRESETS: Record<AiDescriptionStyle, { min: number; max: number; toneHint: string }> = {
+  short: {
+    min: 25,
+    max: 60,
+    toneHint: 'Keep it tight and scannable: lead with the single most compelling fact, then only the remaining essentials. No filler sentences, no scene-setting.',
+  },
+  standard: {
+    min: 50,
+    max: 150,
+    toneHint: 'Balanced length: cover the essentials plus a little context and persuasion, without padding.',
+  },
+  detailed: {
+    min: 120,
+    max: 250,
+    toneHint: 'Elaborate more than usual: explain condition nuances, what exactly the buyer gets, why this specific item is worth it, and relevant well-known specs where appropriate (per rule C below) -- still strictly honest and non-repetitive, never inventing a fact that was not given to you.',
+  },
+};
 
 // --- Image input handling -------------------------------------------------
 // Each requested image arrives as either:
@@ -1046,7 +1071,10 @@ function sanitizeAiDescription(raw: string): string {
   text = text.replace(/<[^>]*>/g, ''); // strip any HTML/XML tags
   text = text.replace(/```[a-zA-Z]*\n?/g, '').replace(/`/g, ''); // strip markdown code fences/backticks
   text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  if (text.length > 1500) text = text.slice(0, 1500).trim(); // hard safety cap regardless of model output
+  // Hard safety cap regardless of model output -- raised from 1500 to 2200
+  // to comfortably fit the "detailed" style's 250-word ceiling (roughly
+  // 1500-1800 chars in practice) without clipping a valid response.
+  if (text.length > 2200) text = text.slice(0, 2200).trim();
   return text;
 }
 
@@ -1073,14 +1101,21 @@ function buildListingDescriptionPrompt(input: ListingDescriptionInput, imageCoun
   // Restating the requirement right next to the facts (not just in the
   // system instruction) measurably improves compliance on smaller/faster
   // models that otherwise default to a single lazy sentence.
-  const reminder = `Remember: mention every one of the seller-given facts above somewhere in the description, and write at least 50 words.`;
+  const { min } = AI_STYLE_PRESETS[input.style];
+  const reminder = `Remember: mention every one of the seller-given facts above somewhere in the description, and write at least ${min} words.`;
 
   return `${facts.join('\n')}\n\n${reminder}`;
 }
 
 // Business/prompt logic lives entirely here, server-side, so web and mobile
 // get byte-identical generation behavior through the one shared endpoint.
-const AI_LISTING_SYSTEM_INSTRUCTION = `You write short product listing descriptions for TedBuy, a Ghanaian online marketplace (like a local Craigslist/OLX equivalent). You may be given product photo(s) alongside the structured listing data below — when photos are attached, reason over both together rather than treating them separately.
+// A function of style rather than a flat constant: the three length/tone
+// presets (short/standard/detailed) need rule 9's word range and tone
+// swapped in per request, everything else about the model's behavior stays
+// identical regardless of which one was picked.
+function buildSystemInstruction(style: AiDescriptionStyle): string {
+  const { min, max, toneHint } = AI_STYLE_PRESETS[style];
+  return `You write short product listing descriptions for TedBuy, a Ghanaian online marketplace (like a local Craigslist/OLX equivalent). You may be given product photo(s) alongside the structured listing data below — when photos are attached, reason over both together rather than treating them separately.
 
 You work with three kinds of information, in this priority order:
 A) SELLER-GIVEN FACTS (authoritative) — the category, title, condition, price, brand, location, negotiability, exchange, and the seller's own notes given to you below. These always win over anything else.
@@ -1096,25 +1131,29 @@ Rules you must follow exactly:
 6. You MUST work every single seller-given fact into the description — category/item type, condition, price, brand, location, negotiability, exchange-possible, and the seller's own notes, whichever were provided. Do not silently drop a provided fact just to keep the text short.
 7. If more than one photo is attached, they are different views/angles of the same single item for sale — consider them together, do not describe them as separate items.
 8. Write naturally for a Ghanaian marketplace buyer: concise, honest, persuasive without being misleading, easy to skim.
-9. Write at least 50 words and up to 150 words for the "description" field — even when only a few facts were given, expand on what you do have (what the item is, its condition, why a buyer would want it, relevant well-known specs, genuinely visible characteristics) instead of writing one short sentence. A one-line description is not acceptable.
+9. Write at least ${min} words and up to ${max} words for the "description" field — even when only a few facts were given, expand on what you do have (what the item is, its condition, why a buyer would want it, relevant well-known specs, genuinely visible characteristics) instead of writing one short sentence. A one-line description is not acceptable regardless of the target length. ${toneHint}
 10. Do not repeat the title verbatim as the first sentence. Do not repeat the price more than once.
 11. No emojis. No markdown formatting, no HTML, no code fences — plain text only, short paragraphs or a short bullet list if helpful.
 12. Respond with the required JSON object only — "description" holds the description text itself with no preamble/labels/quotes, and "warning" is included only per rule 4 above.`;
+}
 
-const AI_LISTING_RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    description: {
-      type: Type.STRING,
-      description: 'The marketplace description, 50-150 words, plain text, per the system instructions.',
+function buildResponseSchema(style: AiDescriptionStyle) {
+  const { min, max } = AI_STYLE_PRESETS[style];
+  return {
+    type: Type.OBJECT,
+    properties: {
+      description: {
+        type: Type.STRING,
+        description: `The marketplace description, ${min}-${max} words, plain text, per the system instructions.`,
+      },
+      warning: {
+        type: Type.STRING,
+        description: 'ONLY set when a seller-given fact and a visual observation genuinely conflict in a way that could mislead a buyer. One short sentence. Omit entirely otherwise.',
+      },
     },
-    warning: {
-      type: Type.STRING,
-      description: 'ONLY set when a seller-given fact and a visual observation genuinely conflict in a way that could mislead a buyer. One short sentence. Omit entirely otherwise.',
-    },
-  },
-  required: ['description'],
-};
+    required: ['description'],
+  };
+}
 
 app.post(
   '/api/ai/generate-listing-description',
@@ -1152,6 +1191,9 @@ app.post(
         return res.status(400).json({ success: false, error: 'Add a little more information about your item for a better description.' });
       }
 
+      const requestedStyle: AiDescriptionStyle =
+        body.style === 'short' || body.style === 'detailed' ? body.style : 'standard';
+
       const input: ListingDescriptionInput = {
         category,
         title,
@@ -1162,6 +1204,7 @@ app.post(
         negotiable: body.negotiable === true,
         isExchangeable: body.isExchangeable === true,
         existingDescription: typeof body.existingDescription === 'string' ? body.existingDescription.trim().slice(0, 2000) || undefined : undefined,
+        style: requestedStyle,
       };
 
       const images = await normalizeRequestImages(body.images);
@@ -1198,7 +1241,7 @@ app.post(
               model: AI_LISTING_MODEL,
               contents: parts,
               config: {
-                systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
+                systemInstruction: buildSystemInstruction(requestedStyle),
                 // Lower than a typical "creative writing" temperature on purpose —
                 // this endpoint needs reliable instruction-following (use every
                 // given fact, hit the word-count floor, stay conservative about
@@ -1224,7 +1267,7 @@ app.post(
                 maxOutputTokens: 2048,
                 abortSignal: controller.signal,
                 responseMimeType: 'application/json',
-                responseSchema: AI_LISTING_RESPONSE_SCHEMA,
+                responseSchema: buildResponseSchema(requestedStyle),
               },
             });
             break;

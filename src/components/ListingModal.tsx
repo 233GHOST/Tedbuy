@@ -9,7 +9,7 @@ import { validateImageFile } from '../utils/fileValidation';
 import { toUserFriendlyError } from '../utils/authErrorHelper';
 import { uploadToCloudinary, uploadVideoDirectToCloudinary, cleanupOrphanedCloudinaryAssets, getCloudinaryVideoPoster } from '../utils/cloudinary';
 import { resolveProductImages } from '../utils/productUtils';
-import { generateListingDescription } from '../utils/aiListingDescription';
+import { generateListingDescription, AiDescriptionStyle } from '../utils/aiListingDescription';
 
 interface ListingModalProps {
   isOpen: boolean;
@@ -48,6 +48,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [aiDescriptionError, setAiDescriptionError] = useState('');
   const [aiDescriptionWarning, setAiDescriptionWarning] = useState('');
+  const [aiDescriptionStyle, setAiDescriptionStyle] = useState<AiDescriptionStyle>('standard');
   const lastAiGeneratedTextRef = useRef('');
 
   // Auto-resize description textarea as user types
@@ -960,6 +961,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         isExchangeable,
         existingDescription: description.trim() || undefined,
         images: imagesForAi.length > 0 ? imagesForAi : undefined,
+        style: aiDescriptionStyle,
       });
 
       if (result.success && result.description) {
@@ -1723,6 +1725,35 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                     )}
                   </button>
                 </div>
+              </div>
+              {/* Length/tone picker — server.ts's AI_STYLE_PRESETS defines
+                  what each option actually means (word-count range + tone);
+                  this just lets the seller pick one before generating.
+                  Switching styles after already generating doesn't
+                  auto-regenerate — the seller presses Generate/Regenerate
+                  again, same as changing any other field first. */}
+              <div className="flex items-center gap-1.5 mb-2" role="radiogroup" aria-label="Description length">
+                {([
+                  { value: 'short', label: 'Short' },
+                  { value: 'standard', label: 'Standard' },
+                  { value: 'detailed', label: 'Detailed' },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={aiDescriptionStyle === opt.value}
+                    onClick={() => setAiDescriptionStyle(opt.value)}
+                    disabled={isGeneratingDescription}
+                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
+                      aiDescriptionStyle === opt.value
+                        ? 'bg-slate-900 border-slate-900 text-white'
+                        : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
               <textarea
                 ref={descriptionTextareaRef}

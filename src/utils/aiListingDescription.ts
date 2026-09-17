@@ -9,6 +9,11 @@
 
 import { getAuthHeader } from '../firebase';
 
+/** Length/tone preset — mirrors server.ts's AI_STYLE_PRESETS exactly (that's
+ * the only place word-count ranges are actually defined; this type just
+ * names the three valid choices for the UI). */
+export type AiDescriptionStyle = 'short' | 'standard' | 'detailed';
+
 export interface ListingDescriptionInput {
   category: string;
   title: string;
@@ -21,6 +26,8 @@ export interface ListingDescriptionInput {
   existingDescription?: string;
   /** Up to 3 `data:image/jpeg;base64,...` strings — a small AI-only copy, never the original listing image data. */
   images?: string[];
+  /** Defaults server-side to 'standard' when omitted. */
+  style?: AiDescriptionStyle;
 }
 
 export interface ListingDescriptionResult {

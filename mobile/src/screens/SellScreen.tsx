@@ -21,7 +21,7 @@ import { RefreshCw, Plus, Video, FolderOpen } from 'lucide-react-native';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
-import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile } from '../firebase';
+import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile, AiDescriptionStyleMobile } from '../firebase';
 import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
@@ -322,6 +322,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [aiDescriptionError, setAiDescriptionError] = useState('');
   const [aiDescriptionWarning, setAiDescriptionWarning] = useState('');
+  const [aiDescriptionStyle, setAiDescriptionStyle] = useState<AiDescriptionStyleMobile>('standard');
   const lastAiGeneratedTextRef = useRef('');
   // Auto-grows as the user types (onContentSizeChange below) so nothing they
   // type is ever hidden below the visible box — while focused, growth also
@@ -1509,6 +1510,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           isExchangeable,
           existingDescription: description.trim() || undefined,
           images: imagesForAi.length > 0 ? imagesForAi : undefined,
+          style: aiDescriptionStyle,
         });
         if (result.success && result.description) {
           setDescription(result.description);
@@ -1800,6 +1802,36 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
               )}
             </Pressable>
           </View>
+        </View>
+        {/* Length/tone picker — mirrors web's ListingModal.tsx exactly.
+            server.ts's AI_STYLE_PRESETS defines what each option actually
+            means (word-count range + tone); this just lets the seller pick
+            one before generating. Switching after already generating
+            doesn't auto-regenerate — tap Generate/Regenerate again. */}
+        <View style={styles.aiStyleRow} accessibilityRole="radiogroup" accessibilityLabel="Description length">
+          {([
+            { value: 'short', label: 'Short' },
+            { value: 'standard', label: 'Standard' },
+            { value: 'detailed', label: 'Detailed' },
+          ] as const).map((opt) => (
+            <Pressable
+              key={opt.value}
+              onPress={() => setAiDescriptionStyle(opt.value)}
+              disabled={isGeneratingDescription}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: aiDescriptionStyle === opt.value, disabled: isGeneratingDescription }}
+              accessibilityLabel={opt.label}
+              style={[
+                styles.aiStylePill,
+                aiDescriptionStyle === opt.value && styles.aiStylePillActive,
+                isGeneratingDescription && styles.aiStylePillDisabled,
+              ]}
+            >
+              <Text style={[styles.aiStylePillText, aiDescriptionStyle === opt.value && styles.aiStylePillTextActive]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
         <TextInput
           value={description}
@@ -2530,6 +2562,19 @@ const styles = StyleSheet.create({
   aiGenerateButtonDisabled: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
   aiGenerateButtonText: { fontSize: 13.5, fontFamily: fonts.extrabold, color: '#ffffff' },
   aiGenerateButtonTextDisabled: { color: '#cbd5e1' },
+  aiStyleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  aiStylePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+  },
+  aiStylePillActive: { backgroundColor: '#0f172a', borderColor: '#0f172a' },
+  aiStylePillDisabled: { opacity: 0.6 },
+  aiStylePillText: { fontSize: 11.5, fontFamily: fonts.bold, color: '#64748b' },
+  aiStylePillTextActive: { color: '#ffffff' },
   aiHintText: { fontSize: 11, color: '#94a3b8', fontFamily: fonts.medium, marginTop: 6 },
   aiErrorText: { fontSize: 11, color: '#e11d48', fontFamily: fonts.semibold, marginTop: 6 },
   aiWarningText: { fontSize: 11, color: '#b45309', fontFamily: fonts.semibold, marginTop: 6 },

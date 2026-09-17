@@ -368,6 +368,11 @@ export async function createProduct(productData: any) {
   return data.product || finalProduct;
 }
 
+/** Length/tone preset — mirrors server.ts's AI_STYLE_PRESETS exactly (that's
+ * the only place word-count ranges are actually defined; this type just
+ * names the three valid choices for the UI). */
+export type AiDescriptionStyleMobile = 'short' | 'standard' | 'detailed';
+
 export interface ListingDescriptionInputMobile {
   category: string;
   title: string;
@@ -380,6 +385,8 @@ export interface ListingDescriptionInputMobile {
   existingDescription?: string;
   /** Up to 3 entries — each either an already-uploaded Cloudinary URL (typical case, since photos upload on pick) or a `data:image/jpeg;base64,...` fallback for one not yet uploaded. */
   images?: string[];
+  /** Defaults server-side to 'standard' when omitted. */
+  style?: AiDescriptionStyleMobile;
 }
 
 // Thin client for POST /api/ai/generate-listing-description — all prompt
