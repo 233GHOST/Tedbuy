@@ -530,6 +530,23 @@ const MarketplaceContent: React.FC = () => {
   const [selectedCity, setSelectedCity] = useState<string>('All');
   const [minPrice, setMinPrice] = useState<string>('');
   const [maxPrice, setMaxPrice] = useState<string>('');
+  // Debounced separately from the input fields themselves (which stay bound
+  // to the raw, instantly-responsive minPrice/maxPrice below) -- unlike
+  // searchQuery, which already had this via AppContext's
+  // debouncedSearchQuery, every keystroke in these two boxes previously
+  // drove a full re-filter+re-sort+re-rank of the entire loaded product
+  // list (selectProducts, including its O(n) ranking-score computation per
+  // item) synchronously. Typing "5000" caused 4 full recomputations in
+  // rapid succession.
+  const [debouncedMinPrice, setDebouncedMinPrice] = useState<string>('');
+  const [debouncedMaxPrice, setDebouncedMaxPrice] = useState<string>('');
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedMinPrice(minPrice);
+      setDebouncedMaxPrice(maxPrice);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [minPrice, maxPrice]);
   const [sortByAds, setSortByAds] = useState<'newest' | 'oldest'>('newest');
   const [sortByPrice, setSortByPrice] = useState<'default' | 'asc' | 'desc'>('default');
   const [displayLimit, setDisplayLimit] = useState<number>(24);
@@ -554,18 +571,18 @@ const MarketplaceContent: React.FC = () => {
       debouncedSearchQuery,
       selectedRegion,
       selectedCity,
-      minPrice,
-      maxPrice,
+      debouncedMinPrice,
+      debouncedMaxPrice,
       sortByPrice,
       sortByAds,
       extraFilters
     );
-  }, [products, users, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters]);
+  }, [products, users, selectedCategory, debouncedSearchQuery, selectedRegion, selectedCity, debouncedMinPrice, debouncedMaxPrice, sortByPrice, sortByAds, extraFilters]);
 
   // Reset pagination limit to first batch (24 items) when any category, search or filter parameters change
   React.useEffect(() => {
     setDisplayLimit(24);
-  }, [selectedCategory, debouncedSearchQuery, searchQuery, selectedRegion, selectedCity, minPrice, maxPrice, sortByPrice, sortByAds, extraFilters]);
+  }, [selectedCategory, debouncedSearchQuery, searchQuery, selectedRegion, selectedCity, debouncedMinPrice, debouncedMaxPrice, sortByPrice, sortByAds, extraFilters]);
 
   // Prefetch cover images of the first few products dynamically to make browsing feel instant
   const prefetchedImagesRef = React.useRef<Set<string>>(new Set());
