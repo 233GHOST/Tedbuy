@@ -1159,24 +1159,48 @@ app.post(
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), AI_GENERATION_TIMEOUT_MS);
 
+      // Gemini's shared-capacity tier returns a plain 503 "UNAVAILABLE" /
+      // "currently experiencing high demand" when momentarily overloaded --
+      // a real, common, and usually short-lived condition (confirmed live in
+      // production), completely unrelated to the model name being wrong.
+      // Previously this failed the whole request on the very first such
+      // blip. Retries a couple of times with a short backoff before giving
+      // up, all still inside the one AI_GENERATION_TIMEOUT_MS/abort budget
+      // above so this can never run longer than a normal single attempt's
+      // worst case by more than the retry delays themselves.
+      const OVERLOAD_RETRY_DELAYS_MS = [800, 1800];
+      let response: Awaited<ReturnType<typeof client.models.generateContent>> | null = null;
       try {
-        const response = await client.models.generateContent({
-          model: AI_LISTING_MODEL,
-          contents: parts,
-          config: {
-            systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
-            // Lower than a typical "creative writing" temperature on purpose —
-            // this endpoint needs reliable instruction-following (use every
-            // given fact, hit the word-count floor, stay conservative about
-            // the image) far more than creative variety, and higher
-            // temperatures measurably hurt compliance.
-            temperature: 0.5,
-            maxOutputTokens: 650,
-            abortSignal: controller.signal,
-            responseMimeType: 'application/json',
-            responseSchema: AI_LISTING_RESPONSE_SCHEMA,
-          },
-        });
+        for (let attempt = 0; ; attempt++) {
+          try {
+            response = await client.models.generateContent({
+              model: AI_LISTING_MODEL,
+              contents: parts,
+              config: {
+                systemInstruction: AI_LISTING_SYSTEM_INSTRUCTION,
+                // Lower than a typical "creative writing" temperature on purpose —
+                // this endpoint needs reliable instruction-following (use every
+                // given fact, hit the word-count floor, stay conservative about
+                // the image) far more than creative variety, and higher
+                // temperatures measurably hurt compliance.
+                temperature: 0.5,
+                maxOutputTokens: 650,
+                abortSignal: controller.signal,
+                responseMimeType: 'application/json',
+                responseSchema: AI_LISTING_RESPONSE_SCHEMA,
+              },
+            });
+            break;
+          } catch (attemptErr: any) {
+            const isOverloaded = attemptErr?.status === 503 || attemptErr?.status === 429;
+            const isAbort = attemptErr?.name === 'AbortError' || controller.signal.aborted;
+            if (isAbort || !isOverloaded || attempt >= OVERLOAD_RETRY_DELAYS_MS.length) {
+              throw attemptErr;
+            }
+            console.warn(`[AI Listing Description] Model overloaded (status=${attemptErr?.status}) on attempt ${attempt + 1}, retrying in ${OVERLOAD_RETRY_DELAYS_MS[attempt]}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, OVERLOAD_RETRY_DELAYS_MS[attempt]));
+          }
+        }
         clearTimeout(timeoutId);
 
         const rawText = response?.text;
@@ -1219,6 +1243,13 @@ app.post(
         );
         if (err?.status === 404) {
           console.error(`[AI Listing Description] Model "${AI_LISTING_MODEL}" appears to be invalid or retired by Google. Check this exact error's "message" field above -- Google's 404 response usually names the current replacement model directly. Set GEMINI_MODEL to that model to fix this without a code change (do not assume any specific model name is safe without checking a live error like this one first -- Google retires these fast).`);
+        }
+        if (err?.status === 503 || err?.status === 429) {
+          // Already retried a couple of times above -- if it's still failing
+          // this is a genuinely sustained overload, not a one-off blip, so
+          // "try again manually in a bit" is more accurate/actionable here
+          // than the generic message.
+          return res.status(503).json({ success: false, error: "TedBuy's AI assistant is unusually busy right now. Please try again in a minute, or write your description manually." });
         }
         return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
       }
