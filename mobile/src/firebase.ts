@@ -699,28 +699,25 @@ export function observeAuthState(callback: (user: any) => void) {
 // network failure apart from a genuinely empty catalog instead of both
 // silently rendering as "no products").
 export async function fetchProductsWithStatus(limitCount = 24, searchQuery?: string, category?: string, noCache = false): Promise<{ products: any[]; failed: boolean }> {
-  try {
-    const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://www.tedbuy.store';
-    let apiUrl = `${origin}/api/products?page=1&limit=${limitCount}`;
-    if (searchQuery && searchQuery.trim()) {
-      apiUrl += `&q=${encodeURIComponent(searchQuery.trim())}`;
-    }
-    if (category && category !== 'All' && category !== 'all') {
-      apiUrl += `&category=${encodeURIComponent(category.trim())}`;
-    }
-    if (noCache) {
-      apiUrl += '&nocache=true';
-    }
-    const res = await fetch(apiUrl);
-    const data = await res.json();
-    if (data.success && Array.isArray(data.products)) {
-      return { products: data.products, failed: false };
-    }
-    console.warn('[mobile fetchProducts] Server returned an unsuccessful response:', data?.error);
-  } catch (err) {
-    console.warn('[mobile fetchProducts Error]', err);
-    return { products: [], failed: true };
+  let apiUrl = `/api/products?page=1&limit=${limitCount}`;
+  if (searchQuery && searchQuery.trim()) {
+    apiUrl += `&q=${encodeURIComponent(searchQuery.trim())}`;
   }
+  if (category && category !== 'All' && category !== 'all') {
+    apiUrl += `&category=${encodeURIComponent(category.trim())}`;
+  }
+  if (noCache) {
+    apiUrl += '&nocache=true';
+  }
+  // Routed through apiFetch() -- a raw fetch() here had no AbortController,
+  // so a stalled connection left watchProducts() (and every screen it feeds)
+  // spinning forever with no error to recover from, same failure mode
+  // fetchProductById used to have before it was fixed the same way.
+  const data = await apiFetch(apiUrl);
+  if (data.success && Array.isArray(data.products)) {
+    return { products: data.products, failed: false };
+  }
+  console.warn('[mobile fetchProducts] Server returned an unsuccessful response:', data?.error);
   return { products: [], failed: true };
 }
 
@@ -737,13 +734,8 @@ export async function fetchProducts(limitCount = 24, searchQuery?: string, categ
  * beyond it that web's server-backed suggestions would surface. */
 export async function fetchSearchSuggestions(query: string, limitCount = 8): Promise<import('./utils/searchAutocomplete').AutocompleteSuggestion[]> {
   if (!query.trim()) return [];
-  try {
-    const res = await fetch(`${apiOrigin()}/api/search/suggestions?q=${encodeURIComponent(query)}&limit=${limitCount}`);
-    const data = await res.json();
-    if (data.success && Array.isArray(data.items)) return data.items;
-  } catch (err) {
-    console.warn('[fetchSearchSuggestions Error]', err);
-  }
+  const data = await apiFetch(`/api/search/suggestions?q=${encodeURIComponent(query)}&limit=${limitCount}`);
+  if (data.success && Array.isArray(data.items)) return data.items;
   return [];
 }
 
@@ -754,19 +746,13 @@ export async function fetchSearchSuggestions(query: string, limitCount = 8): Pro
  * grid, with no onEndReached handler — it silently stopped once scrolled
  * past all video items in that page, unlike web's effectively endless feed. */
 export async function fetchVideoAds(limitCount = 5, excludeIds: string[] = []): Promise<any[]> {
-  try {
-    const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://www.tedbuy.store';
-    let apiUrl = `${origin}/api/video-ads?limit=${limitCount}`;
-    if (excludeIds.length > 0) {
-      apiUrl += `&exclude=${encodeURIComponent(excludeIds.join(','))}`;
-    }
-    const res = await fetch(apiUrl);
-    const data = await res.json();
-    if (data.success && Array.isArray(data.products)) {
-      return data.products;
-    }
-  } catch (err) {
-    console.warn('[fetchVideoAds Error]', err);
+  let apiUrl = `/api/video-ads?limit=${limitCount}`;
+  if (excludeIds.length > 0) {
+    apiUrl += `&exclude=${encodeURIComponent(excludeIds.join(','))}`;
+  }
+  const data = await apiFetch(apiUrl);
+  if (data.success && Array.isArray(data.products)) {
+    return data.products;
   }
   return [];
 }
@@ -1568,35 +1554,20 @@ export async function trackProductView(productId: string) {
 }
 
 export async function fetchSellerListingCounts(): Promise<Record<string, number>> {
-  try {
-    const res = await fetch(`${apiOrigin()}/api/sellers/counts?nocache=true`);
-    if (res.ok) {
-      const data = await res.json();
-      return data?.counts || {};
-    }
-  } catch (err) {
-    console.warn('[fetchSellerListingCounts] error:', err);
-  }
-  return {};
+  const data = await apiFetch('/api/sellers/counts?nocache=true');
+  return data?.counts || {};
 }
 
 export async function fetchProductsForSeller(sellerId: string, sellerEmail?: string): Promise<Product[]> {
-  try {
-    const query = new URLSearchParams({
-      sellerId,
-      limit: '1000',
-      nocache: 'true',
-    });
-    if (sellerEmail) query.set('sellerEmail', sellerEmail);
-    const res = await fetch(`${apiOrigin()}/api/products?${query.toString()}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.products)) {
-        return data.products;
-      }
-    }
-  } catch (err) {
-    console.warn('[fetchProductsForSeller] error:', err);
+  const query = new URLSearchParams({
+    sellerId,
+    limit: '1000',
+    nocache: 'true',
+  });
+  if (sellerEmail) query.set('sellerEmail', sellerEmail);
+  const data = await apiFetch(`/api/products?${query.toString()}`);
+  if (data && Array.isArray(data.products)) {
+    return data.products;
   }
   return [];
 }
