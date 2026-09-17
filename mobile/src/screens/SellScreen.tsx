@@ -333,6 +333,15 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   // window where a fast double-tap on Publish could start two overlapping
   // createProduct calls before `loading` ever flips true.
   const isPublishingRef = useRef(false);
+  // Video uploads (unlike image uploads, which are scoped by their own id
+  // via updateImage) previously applied their completion unconditionally --
+  // removing a video mid-upload didn't cancel anything, so the upload
+  // finishing moments later would call setVideo({...status:'done',...})
+  // and resurrect the video the user had just explicitly discarded,
+  // possibly into a fresh draft that had already moved on. Bumped by
+  // handleRemoveVideo, resetForm, and at the start of every new upload;
+  // uploadPickedVideo checks it still matches before ever calling setVideo.
+  const videoUploadGenerationRef = useRef(0);
   // A single publish *attempt* keeps the same product id across retries, so
   // if the server actually saved the listing but the response/network was
   // lost, retrying reuses the same id — /api/products/sync upserts by id,
@@ -726,6 +735,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   };
 
   const uploadPickedVideo = async (localUri: string, durationSec: number, trimStart: number, trimEnd: number) => {
+    const myGeneration = ++videoUploadGenerationRef.current;
     setVideo({ localUri, durationSec, trimStart, trimEnd, status: 'uploading', progress: 0 });
     try {
       // A real trim is sent to the sign endpoint so Cloudinary bakes so_/eo_
@@ -740,19 +750,29 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       const result = await uploadVideoDirectToCloudinaryMobile(
         localUri,
         (percent) => {
+          if (videoUploadGenerationRef.current !== myGeneration) return;
           setVideo((prev) => (prev ? { ...prev, progress: percent } : prev));
         },
         hasRealTrim ? trimStart : undefined,
         hasRealTrim ? trimEnd : undefined
       );
+      if (videoUploadGenerationRef.current !== myGeneration) {
+        // Removed (or replaced) while this upload was in flight -- clean up
+        // the now-orphaned Cloudinary asset instead of silently resurrecting
+        // it into whatever the video slot holds now.
+        if (result?.secure_url) deleteCloudinaryAssetMobile(result.secure_url);
+        return;
+      }
       const finalDuration = durationSec || result.duration || (trimEnd - trimStart);
       setVideo({ localUri, durationSec: finalDuration, trimStart, trimEnd, status: 'done', progress: 100, remoteUrl: result.secure_url, posterUrl: result.posterUrl });
     } catch (err: any) {
+      if (videoUploadGenerationRef.current !== myGeneration) return;
       setVideo({ localUri, durationSec, trimStart, trimEnd, status: 'error', progress: 0, error: err?.message || 'Video upload failed' });
     }
   };
 
   const handleRemoveVideo = () => {
+    videoUploadGenerationRef.current++;
     if (video?.status === 'done' && video.remoteUrl) {
       deleteCloudinaryAssetMobile(video.remoteUrl);
     }
@@ -1365,6 +1385,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         // This draft is done (published) — a later publish should mint a
         // fresh id, not silently overwrite this listing.
         pendingProductIdRef.current = null;
+        videoUploadGenerationRef.current++;
         setTitle('');
         setPrice('');
         setDescription('');
