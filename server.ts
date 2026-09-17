@@ -4547,7 +4547,38 @@ app.get('/api/chats', serverRateLimiter(60 * 1000, 120, "chats-list"), async (re
       });
     }
 
-    const chats = chatList.map((c: any) => ({ ...c, unreadCount: unreadByChat[c.id] || 0 }));
+    // /api/chats/start never wrote buyerPhoto/sellerPhoto when a chat row
+    // was first created (only the *Name fields), so every chat's avatar
+    // fell back to initials regardless of whether either party actually
+    // has a profile photo -- confirmed via a full read of that endpoint,
+    // not guessed at. Rather than a one-time backfill (which would still
+    // go stale the next time someone changes their photo), always overlay
+    // each party's CURRENT photoUrl here at read time, in one batched
+    // lookup per response -- this fixes every existing chat immediately,
+    // not just new ones, and keeps photos fresh going forward instead of
+    // freezing them at whatever they were when the chat started.
+    const counterpartIds = new Set<string>();
+    chatList.forEach((c: any) => {
+      if (c.buyerId) counterpartIds.add(String(c.buyerId));
+      if (c.sellerId) counterpartIds.add(String(c.sellerId));
+    });
+    let photoByUserId: Record<string, string> = {};
+    if (counterpartIds.size > 0) {
+      const { data: photoRows } = await backendSupabase
+        .from('users')
+        .select('id, photoUrl')
+        .in('id', Array.from(counterpartIds));
+      (photoRows || []).forEach((u: any) => {
+        if (u.id && u.photoUrl) photoByUserId[String(u.id)] = u.photoUrl;
+      });
+    }
+
+    const chats = chatList.map((c: any) => ({
+      ...c,
+      unreadCount: unreadByChat[c.id] || 0,
+      buyerPhoto: (c.buyerId && photoByUserId[String(c.buyerId)]) || c.buyerPhoto || '',
+      sellerPhoto: (c.sellerId && photoByUserId[String(c.sellerId)]) || c.sellerPhoto || '',
+    }));
     return res.json({ success: true, chats });
   } catch (err: any) {
     console.error('[Chats List API Error]:', err);
