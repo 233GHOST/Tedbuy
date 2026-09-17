@@ -2615,10 +2615,22 @@ async function getSellersSummaryData(forceRefresh = false): Promise<{ sellers: a
   let usersList: any[] = [];
   if (backendSupabase) {
     try {
-      const { data: uData } = await backendSupabase
+      // "lastSeen" requested optimistically for the online-presence dot,
+      // same fallback-on-missing-column pattern as /api/users/list -- an
+      // explicit column list fails its entire select if any one column
+      // doesn't exist yet, which would otherwise empty out "Popular
+      // Stores" entirely pre-migration, not just leave presence blank.
+      let { data: uData, error: uErr2 } = await backendSupabase
         .from('users')
-        .select('id, username, displayName, email, photoUrl, location, region, emailVerified, role')
+        .select('id, username, displayName, email, photoUrl, location, region, emailVerified, role, lastSeen')
         .limit(2000);
+      if (uErr2) {
+        const fallback = await backendSupabase
+          .from('users')
+          .select('id, username, displayName, email, photoUrl, location, region, emailVerified, role')
+          .limit(2000);
+        uData = fallback.data;
+      }
       if (Array.isArray(uData)) usersList = uData;
     } catch (uErr) {
       console.warn('[getSellersSummaryData] Supabase users query failed:', uErr);
@@ -2730,7 +2742,8 @@ async function getSellersSummaryData(forceRefresh = false): Promise<{ sellers: a
       soldListingCount: soldCount,
       primaryCategory,
       categories,
-      totalViews
+      totalViews,
+      isOnline: computeIsOnline(matchedUser?.lastSeen),
     };
 
     sellers.push(sellerObj);
@@ -4162,7 +4175,7 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
             return res.status(404).json({ success: false, error: 'User not found' });
           }
         }
-        return res.json({ success: true, user: redactUserSecrets(data) });
+        return res.json({ success: true, user: redactUserSecrets({ ...data, isOnline: computeIsOnline(data.lastSeen) }) });
       }
     }
     return res.status(404).json({ success: false, error: 'User not found' });
@@ -4319,9 +4332,24 @@ app.get('/api/users/list', serverRateLimiter(60 * 1000, 30, "users-list"), async
     // `user?.isVerified || user?.emailVerified || ...`) already treat a
     // missing field as absent gracefully, so simply not selecting them here
     // is behaviorally identical to them never having existed.
-    const { data, error } = await backendSupabase
+    // "lastSeen" requested optimistically for the online-presence dot
+    // (SellerCard.tsx/computeDiscoverSellers) -- falls back to the column
+    // list without it if the migration adding that column hasn't run yet,
+    // same defensive pattern as getProductsListData's own summaryColumns
+    // fallback. An explicit column list fails its ENTIRE select the moment
+    // one requested column doesn't exist, unlike select('*'), so this
+    // can't just be added to the list above without risking the whole
+    // endpoint (every seller card, every follower list) 500ing pre-migration.
+    let { data, error } = await backendSupabase
       .from('users')
-      .select('id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin, email, isDeleted, status');
+      .select('id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin, email, isDeleted, status, lastSeen');
+    if (error) {
+      const fallback = await backendSupabase
+        .from('users')
+        .select('id, username, photoUrl, role, joinDate, followingSellers, savedProductIds, emailVerified, isAdmin, email, isDeleted, status');
+      data = fallback.data;
+      error = fallback.error;
+    }
     if (error) throw error;
 
     const users = (data || [])
@@ -4336,6 +4364,7 @@ app.get('/api/users/list', serverRateLimiter(60 * 1000, 30, "users-list"), async
         savedProductIds: u.savedProductIds,
         emailVerified: u.emailVerified,
         isAdmin: u.isAdmin === true || (u.email ? String(u.email).trim().toLowerCase() === 'asumaduvincent7@gmail.com' : false),
+        isOnline: computeIsOnline(u.lastSeen),
       }));
 
     return res.json({ success: true, users });
@@ -5249,6 +5278,44 @@ app.post('/api/users/push-token', serverRateLimiter(60 * 1000, 20, "users-push-t
   } catch (err: any) {
     console.error('[Push Token API] Failed to save push token:', err?.message || err);
     return res.status(500).json({ success: false, error: err?.message || 'Failed to save push token' });
+  }
+});
+
+// Online presence — matches WhatsApp's model: no realtime push, just a
+// "how recently was this user active" timestamp that the client refreshes
+// periodically while foregrounded (see web's AppContext.tsx and mobile's
+// App.tsx, both call this every 2 minutes). "Online" is always DERIVED
+// from lastSeen at read time (computeIsOnline below), never stored as its
+// own boolean -- a stored isOnline flag would get stuck "true" forever
+// the moment a client stops calling this (app killed, backgrounded,
+// network lost) with no reliable moment to ever flip it back to false.
+const ONLINE_THRESHOLD_MS = 3 * 60 * 1000; // a bit more than the 2-minute heartbeat interval, to tolerate one missed beat
+function computeIsOnline(lastSeen: any): boolean {
+  if (!lastSeen) return false;
+  const t = new Date(lastSeen).getTime();
+  return !isNaN(t) && (Date.now() - t) < ONLINE_THRESHOLD_MS;
+}
+
+app.post('/api/users/heartbeat', serverRateLimiter(60 * 1000, 20, "users-heartbeat"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+  try {
+    const { error } = await backendSupabase
+      .from('users')
+      .update({ lastSeen: new Date().toISOString() })
+      .eq('id', verified.uid);
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (err: any) {
+    // Best-effort, cosmetic feature -- same tolerance as push-token
+    // registration right above. Clients already swallow this silently.
+    console.warn('[Heartbeat API] Failed to update lastSeen:', err?.message || err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to update presence' });
   }
 });
 
