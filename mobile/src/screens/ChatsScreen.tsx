@@ -52,6 +52,15 @@ export function ChatsScreen() {
   // over an already-working chat list.
   const [chatsLoadFailed, setChatsLoadFailed] = useState(false);
   const hasLoadedChatsRef = useRef(false);
+  // Shared across the 15s background poll below AND the manual refreshes
+  // handleConfirmDelivered/handleConfirmPickedUp trigger after confirming a
+  // trade step -- those two call setChats from completely outside the
+  // poll's own local staleness guard, so a poll that started just before a
+  // confirm action (and so is still carrying the PRE-confirmation chat
+  // list) could resolve after the confirm's own refresh lands and silently
+  // revert tradeStatus back to its old value, making the just-confirmed
+  // "Delivered"/"Picked Up" button reappear and inviting a redundant tap.
+  const chatsRequestIdRef = useRef(0);
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -83,6 +92,27 @@ export function ChatsScreen() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  // rating/comment were previously only reset on a SUCCESSFUL submit, and
+  // every place that opens this modal (this helper's two call sites below)
+  // just set reviewModalChat/showReviewModal directly -- so dismissing the
+  // modal without submitting (the X button) left a draft rating/comment
+  // sitting in state, and it silently carried over into the next,
+  // completely unrelated trade's review modal. Since reviews are public and
+  // tied to seller reputation, submitting an old draft against the wrong
+  // seller is a real trust-signal bug, not just a cosmetic one.
+  const openReviewModal = (chat: any) => {
+    setReviewRating(5);
+    setReviewComment('');
+    setReviewModalChat(chat);
+    setShowReviewModal(true);
+  };
+  const closeReviewModal = () => {
+    setShowReviewModal(false);
+    setReviewModalChat(null);
+    setReviewRating(5);
+    setReviewComment('');
+  };
   const [sellerReviews, setSellerReviews] = useState<any[]>([]);
   // Matches web's currentUser.emailVerified gate before sending a message.
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
@@ -143,18 +173,33 @@ export function ChatsScreen() {
         text: 'Delete', style: 'destructive', onPress: async () => {
           const uid = auth.currentUser?.uid;
           if (!uid) return;
+          let nextChatIds!: Set<string>;
           setDeletedChatIds((prev) => {
-            const next = new Set(prev).add(chatId);
-            AsyncStorage.setItem(`tedbuy_deleted_chat_ids_${uid}`, JSON.stringify(Array.from(next))).catch(() => {});
-            return next;
+            nextChatIds = new Set(prev).add(chatId);
+            return nextChatIds;
           });
+          let nextMessageIds!: Set<string>;
           setDeletedMessageIds((prev) => {
-            const next = new Set(prev);
-            messages.filter((m) => m.chatId === chatId).forEach((m) => next.add(m.id));
-            AsyncStorage.setItem(`tedbuy_deleted_message_ids_${uid}`, JSON.stringify(Array.from(next))).catch(() => {});
-            return next;
+            nextMessageIds = new Set(prev);
+            messages.filter((m) => m.chatId === chatId).forEach((m) => nextMessageIds.add(m.id));
+            return nextMessageIds;
           });
           if (activeChatId === chatId) setActiveChatId(null);
+          // Previously these AsyncStorage writes were fire-and-forget
+          // (.catch(() => {})) with no error surfaced at all -- the chat
+          // visibly vanished from the inbox immediately (in-memory state),
+          // but if the write failed (storage pressure, permission
+          // revocation), the deletion never persisted and the "deleted"
+          // chat silently reappeared on next app launch with zero
+          // indication anything had gone wrong.
+          try {
+            await Promise.all([
+              AsyncStorage.setItem(`tedbuy_deleted_chat_ids_${uid}`, JSON.stringify(Array.from(nextChatIds))),
+              AsyncStorage.setItem(`tedbuy_deleted_message_ids_${uid}`, JSON.stringify(Array.from(nextMessageIds))),
+            ]);
+          } catch (err) {
+            Alert.alert('Delete Not Saved', "This chat was removed from view, but couldn't be saved permanently on this device. It may reappear next time you open the app.");
+          }
         },
       },
     ]);
@@ -167,11 +212,16 @@ export function ChatsScreen() {
         text: 'Delete', style: 'destructive', onPress: async () => {
           const uid = auth.currentUser?.uid;
           if (!uid) return;
+          let nextMessageIds!: Set<string>;
           setDeletedMessageIds((prev) => {
-            const next = new Set(prev).add(messageId);
-            AsyncStorage.setItem(`tedbuy_deleted_message_ids_${uid}`, JSON.stringify(Array.from(next))).catch(() => {});
-            return next;
+            nextMessageIds = new Set(prev).add(messageId);
+            return nextMessageIds;
           });
+          try {
+            await AsyncStorage.setItem(`tedbuy_deleted_message_ids_${uid}`, JSON.stringify(Array.from(nextMessageIds)));
+          } catch (err) {
+            Alert.alert('Delete Not Saved', "This message was removed from view, but couldn't be saved permanently on this device. It may reappear next time you open the app.");
+          }
         },
       },
     ]);
@@ -248,7 +298,7 @@ export function ChatsScreen() {
       return;
     }
     if (!currentUserProfile?.emailVerified) {
-      setShowReviewModal(false);
+      closeReviewModal();
       setBlockedActionType('review');
       return;
     }
@@ -256,10 +306,7 @@ export function ChatsScreen() {
     try {
       const newRev = await addReview(reviewModalChat.sellerId, reviewRating, reviewComment.trim(), reviewModalChat.productTitle, reviewModalChat.id);
       setSellerReviews((prev) => [newRev, ...prev]);
-      setShowReviewModal(false);
-      setReviewModalChat(null);
-      setReviewComment('');
-      setReviewRating(5);
+      closeReviewModal();
     } catch (err: any) {
       Alert.alert('Could Not Submit Review', err?.message || 'Please try again.');
     } finally {
@@ -285,19 +332,20 @@ export function ChatsScreen() {
     // the slow one was still pending) has already resolved, the slow one's
     // stale chat list would otherwise silently win via setChats below,
     // reverting a chat's last-message preview/unread count to stale data
-    // for up to one more poll cycle.
-    let requestId = 0;
+    // for up to one more poll cycle. Uses the shared chatsRequestIdRef (see
+    // its own comment) so a manual refresh from confirming a trade step
+    // also participates in this same ordering check, not just poll-vs-poll.
     const load = async () => {
-      const thisRequestId = ++requestId;
+      const thisRequestId = ++chatsRequestIdRef.current;
       try {
         const result = await fetchChatsApi();
-        if (!active || thisRequestId !== requestId) return;
+        if (!active || thisRequestId !== chatsRequestIdRef.current) return;
         setChats(result);
         setLoading(false);
         setChatsLoadFailed(false);
         hasLoadedChatsRef.current = true;
       } catch (err) {
-        if (!active || thisRequestId !== requestId) return;
+        if (!active || thisRequestId !== chatsRequestIdRef.current) return;
         setLoading(false);
         // A failed background poll after we already have a working list is
         // invisible to the user by design — only the very first load (or a
@@ -535,8 +583,9 @@ export function ChatsScreen() {
     try {
       setIsDelivering(true);
       await markAsDelivered(activeChatId);
+      const thisRequestId = ++chatsRequestIdRef.current;
       const result = await fetchChatsApi();
-      setChats(result);
+      if (thisRequestId === chatsRequestIdRef.current) setChats(result);
     } catch (err: any) {
       Alert.alert('Could Not Confirm Delivery', err?.message || 'Please try again.');
     } finally {
@@ -559,11 +608,13 @@ export function ChatsScreen() {
       // tradeStatus the server just set) without waiting for anything.
       const optimisticChat = { ...(activeChat || {}), tradeStatus: 'completed' };
       setActiveChat(optimisticChat);
-      setReviewModalChat(optimisticChat);
-      setShowReviewModal(true);
+      openReviewModal(optimisticChat);
       // Refresh the full list in the background so the inbox and trade
       // banner reflect it too — not awaited, since the modal doesn't need it.
-      fetchChatsApi().then(setChats).catch(() => {});
+      const thisRequestId = ++chatsRequestIdRef.current;
+      fetchChatsApi().then((result) => {
+        if (thisRequestId === chatsRequestIdRef.current) setChats(result);
+      }).catch(() => {});
     } catch (err: any) {
       Alert.alert('Could Not Confirm Pickup', err?.message || 'Please try again.');
     } finally {
@@ -737,7 +788,7 @@ export function ChatsScreen() {
 
                 {isBuyer && currentStatus === 'completed' && !existingReview && (
                   <Pressable
-                    onPress={() => { setReviewModalChat(activeChat); setShowReviewModal(true); }}
+                    onPress={() => openReviewModal(activeChat)}
                     style={[styles.tradeActionBtn, styles.tradeActionBtnAmber]}
                   >
                     <Text style={[styles.tradeActionBtnText, { color: '#0f172a' }]}>Leave Review</Text>
@@ -1070,7 +1121,7 @@ export function ChatsScreen() {
       {/* Inline review modal — matches web's ReviewModal wired from within
           ChatInterface.tsx, rather than sending the buyer away to a
           different screen to leave feedback on a just-completed trade. */}
-      <Modal visible={showReviewModal} transparent animationType="fade" onRequestClose={() => setShowReviewModal(false)}>
+      <Modal visible={showReviewModal} transparent animationType="fade" onRequestClose={closeReviewModal}>
         <View style={styles.reviewModalOverlay}>
           {/* Absolutely-positioned background catcher for "tap outside to
               dismiss keyboard" — deliberately a SIBLING behind the card, not
@@ -1092,7 +1143,7 @@ export function ChatsScreen() {
           <View style={styles.reviewModalCard}>
             <View style={styles.reviewModalHeader}>
               <Text style={styles.reviewModalTitle}>Leave a Review</Text>
-              <Pressable onPress={() => setShowReviewModal(false)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
+              <Pressable onPress={closeReviewModal} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
                 <X size={18} color="#64748b" />
               </Pressable>
             </View>
