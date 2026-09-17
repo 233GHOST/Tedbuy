@@ -6807,45 +6807,29 @@ async function updateFirebaseAuthPassword(email: string, newPassword: string): P
 // Also validates the reset token — same brute-force exposure as
 // verify-password-reset-code, worth limiting independently of it.
 app.post("/api/auth/confirm-password-reset", serverRateLimiter(15 * 60 * 1000, 10, "confirm-password-reset"), async (req: express.Request, res: express.Response) => {
-  const { token, newPassword, email: directEmail, clientConfirmed } = req.body;
+  const { token, newPassword } = req.body;
   if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
     return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
   }
-
-  const providedEmail = directEmail && typeof directEmail === 'string' && directEmail.includes('@')
-    ? directEmail.trim().toLowerCase()
-    : '';
-
-  let cleanEmail = '';
-  let confirmedEmail: string | null = null;
-
-  if (token && typeof token === 'string') {
-    confirmedEmail = await confirmFirebasePasswordResetViaRest(token, newPassword);
-    if (!confirmedEmail && getAdminApps().length) {
-      try {
-        const adminAuth = getAdminAuth();
-        const userRecord = await adminAuth.getUserByEmail(providedEmail || '');
-        if (userRecord) {
-          await updateFirebaseAuthPassword(userRecord.email || providedEmail, newPassword);
-          confirmedEmail = (userRecord.email || providedEmail).trim().toLowerCase();
-        }
-      } catch (fbCodeErr: any) {
-        console.warn('[Confirm Password Reset] Firebase Admin fallback failed:', fbCodeErr?.message || fbCodeErr);
-      }
-    }
-
-    if (!confirmedEmail && clientConfirmed && providedEmail) {
-      cleanEmail = providedEmail;
-    } else if (confirmedEmail) {
-      cleanEmail = confirmedEmail;
-    }
-  } else if (clientConfirmed && providedEmail) {
-    cleanEmail = providedEmail;
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ success: false, error: 'A valid password reset code is required.' });
   }
 
-  if (!cleanEmail) {
-    return res.status(400).json({ success: false, error: 'Valid account email or password reset token is required.' });
+  // The ONLY acceptable proof of ownership here is a real Firebase reset
+  // code verified via Firebase's own resetPassword REST call, which
+  // atomically checks the oobCode and sets the real Firebase Auth
+  // password in one step. This used to also accept a client-asserted
+  // `clientConfirmed` flag with a plain `email` field and NO token at
+  // all -- and even when a token WAS present but failed real
+  // verification, fell back to an Admin SDK lookup keyed purely by that
+  // same client-asserted email, updating the account's password with
+  // zero proof the caller had ever seen a real reset code. Both were a
+  // complete account takeover by email address alone; removed entirely.
+  const confirmedEmail = await confirmFirebasePasswordResetViaRest(token, newPassword);
+  if (!confirmedEmail) {
+    return res.status(400).json({ success: false, error: 'Invalid or expired password reset code.' });
   }
+  const cleanEmail = confirmedEmail;
 
   try {
     // Generate secure salt and PBKDF2 hash using sha512. Iteration count
