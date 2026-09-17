@@ -23,6 +23,9 @@ export const SellerDashboard: React.FC = () => {
     users,
     setShowAuthModal,
     showToast,
+    isProductsLoading,
+    productsLoadError,
+    retryLoadProducts,
   } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -48,7 +51,16 @@ export const SellerDashboard: React.FC = () => {
       );
     } catch (err: any) {
       console.error("Failed to toggle sold status", err);
-      showToast(err?.message || 'Could not update listing status.', 'error');
+      let msg = 'Could not update listing status.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
     } finally {
       setTogglingSoldId(null);
     }
@@ -335,8 +347,28 @@ export const SellerDashboard: React.FC = () => {
       </div>
 
       {activeTab === 'listings' ? (
-        /* Products list or blank slate for owned products */
-        myProducts.length === 0 ? (
+        /* Products list, or a distinct blank/loading/error slate -- a
+           genuinely-failed products fetch used to render the exact same
+           "no products" empty state as a real zero-listings seller, with
+           no way to tell the difference or retry. */
+        myProducts.length === 0 && productsLoadError ? (
+          <div className="bg-red-50 border border-red-200 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-xs">
+            <AlertTriangle className="w-14 h-14 mx-auto stroke-[1.2] text-red-400 mb-3" />
+            <h2 className="text-base font-bold text-slate-900 font-sans">Could not load your listings</h2>
+            <p className="text-xs text-slate-500 mt-1 mb-5">Something went wrong fetching your listings from the server. Your products are safe -- this is just a loading problem.</p>
+            <button
+              onClick={retryLoadProducts}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition duration-200 inline-flex items-center gap-1 shadow-xs hover:shadow-md cursor-pointer"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : myProducts.length === 0 && isProductsLoading ? (
+          <div className="bg-slate-100 border border-slate-200 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-xs">
+            <Loader2 className="w-10 h-10 mx-auto text-slate-400 animate-spin mb-3" />
+            <p className="text-xs text-slate-500">Loading your listings...</p>
+          </div>
+        ) : myProducts.length === 0 ? (
           <div className="bg-slate-100 border border-slate-200 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-xs">
             <ShoppingBag className="w-14 h-14 mx-auto stroke-[1.2] text-slate-350 mb-3" />
             <h2 className="text-base font-bold text-slate-900 font-sans">No products listed matching your account</h2>

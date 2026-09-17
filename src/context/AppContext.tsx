@@ -3868,6 +3868,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateProduct = async (id: string, productData: Partial<Product>, localOnly = false): Promise<string | undefined> => {
+    // Snapshot of local state before any optimistic mutation below, so a
+    // failed sync can be rolled back instead of leaving the optimistic
+    // change in place while the caller is told it failed -- matches
+    // deleteProduct's existing rollback-on-failure pattern. Without this,
+    // e.g. SellerDashboard's Mark Sold/Available toggle showed the new
+    // status as if it had saved even when the server rejected it.
+    const existedInStateBefore = products.some(p => p.id === id);
+    const originalStateProduct = products.find(p => p.id === id);
     try {
       let localProduct = products.find(p => p.id === id);
       if (!localProduct) {
@@ -4185,6 +4193,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       refreshSellerCounts().catch(() => {});
       return id;
     } catch (err) {
+      // Never actually persisted server-side -- roll back to the
+      // pre-optimistic snapshot rather than leave the caller believing
+      // the change stuck.
+      setProducts(prev => {
+        if (existedInStateBefore) {
+          return prev.map(p => p.id === id ? originalStateProduct! : p);
+        }
+        return prev.filter(p => p.id !== id);
+      });
       handleBackendError(err, OperationType.UPDATE, `products/${id}`);
     }
   };
