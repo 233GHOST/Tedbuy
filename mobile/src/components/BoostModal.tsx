@@ -168,7 +168,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
               <Text style={styles.headerTitle}>{currentlyBoosted ? 'Extend / Renew Boost' : 'Boost Your Listing'}</Text>
               <Text style={styles.headerSubtitle}>Place your ad at the absolute top of the feed</Text>
             </View>
-            <Pressable onPress={onClose} hitSlop={10}>
+            <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
               <X size={20} color={colors.textMuted} />
             </Pressable>
           </View>
@@ -198,7 +198,8 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
 
             {step === 'plan-select' && (
               <>
-                <Text style={styles.sectionLabel}>1. Select Boost Duration</Text>
+                <Text style={styles.sectionLabel} nativeID="boost-duration-label">1. Select Boost Duration</Text>
+                <View accessibilityRole="radiogroup" accessibilityLabelledBy="boost-duration-label">
                 {BOOST_PLANS.map((plan) => {
                   const selected = selectedPlanId === plan.id;
                   return (
@@ -206,6 +207,9 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
                       key={plan.id}
                       onPress={() => setSelectedPlanId(plan.id)}
                       style={[styles.planCard, selected && styles.planCardSelected]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected, checked: selected }}
+                      accessibilityLabel={`${plan.name}, promoted for ${plan.durationDays} full days, GH₵ ${plan.priceGHS}`}
                     >
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 }}>
                         <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
@@ -230,12 +234,16 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
                     </Pressable>
                   );
                 })}
+                </View>
 
-                <Text style={styles.sectionLabel}>2. Select Payment Method</Text>
-                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <Text style={styles.sectionLabel} nativeID="boost-payment-label">2. Select Payment Method</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }} accessibilityRole="radiogroup" accessibilityLabelledBy="boost-payment-label">
                   <Pressable
                     onPress={() => setPaymentMethod('momo')}
                     style={[styles.methodBtn, paymentMethod === 'momo' && styles.methodBtnActive]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: paymentMethod === 'momo', checked: paymentMethod === 'momo' }}
+                    accessibilityLabel="Mobile Money"
                   >
                     <Phone size={16} color={paymentMethod === 'momo' ? '#fff' : colors.textMuted} />
                     <Text style={[styles.methodBtnText, paymentMethod === 'momo' && styles.methodBtnTextActive]}>Mobile Money</Text>
@@ -243,6 +251,9 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
                   <Pressable
                     onPress={() => setPaymentMethod('card')}
                     style={[styles.methodBtn, paymentMethod === 'card' && styles.methodBtnActive]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: paymentMethod === 'card', checked: paymentMethod === 'card' }}
+                    accessibilityLabel="Visa or Mastercard"
                   >
                     <CreditCard size={16} color={paymentMethod === 'card' ? '#fff' : colors.textMuted} />
                     <Text style={[styles.methodBtnText, paymentMethod === 'card' && styles.methodBtnTextActive]}>Visa / Mastercard</Text>
@@ -251,6 +262,9 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
                     <Pressable
                       onPress={() => setPaymentMethod('admin')}
                       style={[styles.methodBtn, styles.methodBtnAdmin, paymentMethod === 'admin' && styles.methodBtnAdminActive]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: paymentMethod === 'admin', checked: paymentMethod === 'admin' }}
+                      accessibilityLabel="Free Admin Boost"
                     >
                       <Text style={[styles.methodBtnText, { color: colors.danger }, paymentMethod === 'admin' && styles.methodBtnTextActive]}>Free Admin Boost</Text>
                     </Pressable>
@@ -340,6 +354,8 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
           <Pressable
             onPress={handleCheckoutClose}
             hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
           >
             <X size={20} color={colors.textMuted} />
           </Pressable>
