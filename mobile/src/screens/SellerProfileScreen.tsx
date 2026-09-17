@@ -82,8 +82,36 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
 
   const currentUser = auth.currentUser;
 
+  // React Navigation reuses this screen's mounted instance (only updating
+  // `sellerId`) when navigating here from another seller's followers/
+  // following list rather than remounting -- so without this, switching
+  // from seller A to seller B kept rendering A's stale name/avatar/bio/
+  // listings/reviews/follow-state until B's fetches individually resolved,
+  // and if B didn't exist at all, the not-found screen never rendered
+  // because `seller` was still truthy (A's leftover data). Tracks the last
+  // sellerId this effect actually started fetching for, so the reset below
+  // only fires on a genuine seller change -- not on the effect's own
+  // redundant re-run right after `setSeller` lands (its dependency array
+  // includes seller?.id/username/email).
+  const lastFetchedSellerIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     let isMounted = true;
+
+    if (lastFetchedSellerIdRef.current !== sellerId) {
+      lastFetchedSellerIdRef.current = sellerId;
+      setSeller(null);
+      setSellerNotFound(false);
+      setProducts([]);
+      setReviewsList([]);
+      setIsFollowing(false);
+      setLoading(true);
+      // Also closes the P3 "in-flight guard is instance-scoped, not
+      // seller-scoped" gap -- without this, a follow toggle still in
+      // flight for seller A silently swallowed a tap on seller B's Follow
+      // button until A's request resolved.
+      isTogglingFollowRef.current = false;
+    }
 
     fetchSellerListingCounts().then((counts) => {
       if (isMounted && counts && Object.keys(counts).length > 0) {
@@ -252,6 +280,18 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
       cleanNumber = '233' + cleanNumber.substring(1);
     } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
       cleanNumber = '233' + cleanNumber;
+    }
+    // updateUserProfile only validates whatsAppNumber/phoneNumber for
+    // length, not digit format -- a seller could have free text saved
+    // (e.g. "call me", "N/A"). That previously fell through both branches
+    // above unchanged, stripped to an empty string by the \D removal, and
+    // produced a syntactically-valid-but-useless `https://wa.me/?text=...`
+    // link that Linking.openURL happily resolved -- so the .catch() below
+    // never fired and the user was silently dropped on a dead WhatsApp
+    // landing page after already clicking through the safety modal.
+    if (!/^233\d{9}$/.test(cleanNumber)) {
+      Alert.alert('Invalid Contact Number', "This merchant's WhatsApp number on file looks invalid. Try messaging them on TedBuy chat instead.");
+      return;
     }
     const msg = encodeURIComponent(`Hello ${sellerName}! I see your store on Tedbuy marketplace and would love to chat.`);
     const url = `https://wa.me/${cleanNumber}?text=${msg}`;
