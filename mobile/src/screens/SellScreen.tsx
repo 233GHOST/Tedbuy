@@ -837,6 +837,25 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
 
   const handleStartRecording = async () => {
     if (!cameraRef.current || isRecording) return;
+    // Was only checked in the new wizard's own recording path
+    // (handleWizardStartRecording) -- edit mode's camera (this function)
+    // recorded straight away with no equivalent check, so a listing edited
+    // with mic access previously denied could silently record video with
+    // no audio (or hit a less-friendly native error) with no proactive
+    // warning, unlike the identical action during listing creation.
+    if (!micPermission?.granted) {
+      const res = await requestMicPermission();
+      if (!res.granted) {
+        Alert.alert(
+          'Microphone Access Needed',
+          res.canAskAgain === false
+            ? 'TedBuy needs microphone access to record sound with your listing video. Please enable it in your device Settings.'
+            : 'TedBuy needs microphone access to record sound with your listing video.',
+          res.canAskAgain === false ? [{ text: 'Open Settings', onPress: () => Linking.openSettings() }, { text: 'Cancel', style: 'cancel' }] : undefined
+        );
+        return;
+      }
+    }
     setIsRecording(true);
     setRecordingSeconds(0);
 
