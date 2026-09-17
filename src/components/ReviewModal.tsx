@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Star, X, MessageSquare, ShieldCheck } from 'lucide-react';
 
 interface ReviewModalProps {
@@ -23,6 +23,24 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   const [comment, setComment] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ChatInterface.tsx mounts this modal unconditionally for whichever chat
+  // is open (not keyed per-chat), so this component instance -- and its
+  // local rating/comment state -- persists across both "dismissed without
+  // submitting, then reopened for the same chat" AND "switched to a
+  // completely different chat/seller, then opened its review modal too."
+  // Only resetting on a successful submit (see handleSubmit) left a stale
+  // draft rating/comment visible the next time this modal opened for any
+  // trade, risking a review meant for one seller being submitted against a
+  // different one. Same bug class just found and fixed in mobile's
+  // ChatsScreen.tsx equivalent.
+  useEffect(() => {
+    if (isOpen) {
+      setRating(5);
+      setComment('');
+      setError('');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
