@@ -367,7 +367,13 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
           {sellerName}'s Store
         </Text>
         {!isOwner && (
-          <Pressable onPress={handleToggleFollow} style={[styles.followTopBtn, isFollowing && styles.followingTopBtn]}>
+          <Pressable
+            onPress={handleToggleFollow}
+            style={[styles.followTopBtn, isFollowing && styles.followingTopBtn]}
+            accessibilityRole="button"
+            accessibilityLabel={isFollowing ? 'Unfollow' : 'Follow'}
+            accessibilityState={{ selected: isFollowing }}
+          >
             <Text style={[styles.followTopBtnText, isFollowing && styles.followingTopBtnText]}>
               {isFollowing ? '✓ Following' : '+ Follow'}
             </Text>
@@ -489,10 +495,12 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
         </View>
 
         {/* Navigation Tabs */}
-        <View style={styles.tabBar}>
+        <View style={styles.tabBar} accessibilityRole="tablist">
           <Pressable
             onPress={() => setActiveTab('listings')}
             style={[styles.tabItem, activeTab === 'listings' && styles.tabItemActive]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'listings' }}
           >
             <Text style={[styles.tabItemText, activeTab === 'listings' && styles.tabItemTextActive]}>
               Active Listings ({Math.max(
@@ -510,6 +518,8 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
           <Pressable
             onPress={() => setActiveTab('reviews')}
             style={[styles.tabItem, activeTab === 'reviews' && styles.tabItemActive]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'reviews' }}
           >
             <Text style={[styles.tabItemText, activeTab === 'reviews' && styles.tabItemTextActive]}>
               Reviews ({reviewsList.length})
@@ -529,9 +539,15 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                   placeholder="Search store inventory..."
                   placeholderTextColor="#94a3b8"
                   style={styles.storeSearchInput}
+                  accessibilityLabel="Search store inventory"
                 />
                 {!!storeSearchQuery && (
-                  <Pressable onPress={() => setStoreSearchQuery('')} style={styles.storeSearchClearBtn}>
+                  <Pressable
+                    onPress={() => setStoreSearchQuery('')}
+                    style={styles.storeSearchClearBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear search"
+                  >
                     <Text style={{ color: '#94a3b8', fontSize: 13 }}>✕</Text>
                   </Pressable>
                 )}
@@ -544,6 +560,9 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                 <Pressable
                   onPress={() => setStoreSelectedCategory(null)}
                   style={[styles.storeCategoryChip, storeSelectedCategory === null && styles.storeCategoryChipActive]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: storeSelectedCategory === null, checked: storeSelectedCategory === null }}
+                  accessibilityLabel={`All, ${products.length} items`}
                 >
                   <Text style={[styles.storeCategoryChipText, storeSelectedCategory === null && styles.storeCategoryChipTextActive]}>
                     All ({products.length})
@@ -557,6 +576,9 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                       key={cat}
                       onPress={() => setStoreSelectedCategory(isSelected ? null : cat)}
                       style={[styles.storeCategoryChip, isSelected && styles.storeCategoryChipActive]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: isSelected, checked: isSelected }}
+                      accessibilityLabel={`${cat}, ${count} items`}
                     >
                       <Text style={[styles.storeCategoryChipText, isSelected && styles.storeCategoryChipTextActive]}>
                         {cat} ({count})
@@ -725,6 +747,8 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                         navigation.navigate('SellerProfile', { sellerId: item.id });
                       }}
                       style={styles.followListUser}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${item.username || 'TedBuy User'}'s profile`}
                     >
                       {itemAvatar ? (
                         <Image source={{ uri: itemAvatar }} style={styles.followListAvatar} />
@@ -743,6 +767,9 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                         onPress={() => handleToggleFollowInList(item.id)}
                         disabled={togglingFollowUserId === item.id}
                         style={[styles.followListActionBtn, amIFollowing && styles.followListActionBtnActive]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${amIFollowing ? 'Unfollow' : 'Follow'} ${item.username || 'TedBuy User'}`}
+                        accessibilityState={{ selected: amIFollowing, disabled: togglingFollowUserId === item.id }}
                       >
                         {togglingFollowUserId === item.id ? (
                           <ActivityIndicator size="small" color={amIFollowing ? '#e11d48' : '#0f172a'} />
