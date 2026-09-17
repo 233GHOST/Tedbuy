@@ -5395,9 +5395,15 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     }
   };
 
-  const deleteAccount = async () => {
-    if (!currentUser) return;
-    
+  const deleteAccount = async (password?: string) => {
+    // Previously returned silently here (resolved as success with nothing
+    // done) -- if the session was already invalid by the time this ran, the
+    // caller still showed "account closed and anonymized" for an account
+    // never touched.
+    if (!currentUser) {
+      throw new Error('Your session has expired. Please sign in again before deleting your account.');
+    }
+
     // Crucial Security Guard: Block administrator account deletion
     const userEmail = currentUser.email?.trim()?.toLowerCase();
     if (userEmail === 'asumaduvincent7@gmail.com') {
@@ -5408,28 +5414,62 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     const authUser = auth.currentUser;
     const isSimulated = !(import.meta as any).env.PROD && safeLocalStorage.getItem('tedbuy_simulated_mode') === 'true';
 
+    // Real re-authentication before an irreversible action -- this was
+    // entirely missing despite every piece being in place to do it:
+    // AccountSecuritySettingsTab.tsx already collects a password and passes
+    // it here (`deleteAccount(deletePasswordText)`), this function's own
+    // type signature already declares an optional `password` param, and
+    // EmailAuthProvider/reauthenticateWithCredential are already imported
+    // into this file -- but the actual implementation never read the
+    // parameter or called either import. The UI's only check was
+    // `deletePasswordText.length < 6`, which any 6-character string
+    // satisfies regardless of whether it's the account's real password --
+    // meaning the "enter your password to confirm" step was pure security
+    // theater providing zero actual protection (e.g. on a shared/unlocked
+    // device) despite visibly presenting as a real safeguard.
+    if (!isSimulated && authUser && authUser.email) {
+      const isGoogleAuth = (authUser.providerData || []).some(p => p.providerId === 'google.com');
+      if (!isGoogleAuth) {
+        if (!password) {
+          throw new Error('Password is required to confirm account deletion.');
+        }
+        try {
+          const credential = EmailAuthProvider.credential(authUser.email, password);
+          await reauthenticateWithCredential(authUser, credential);
+        } catch (reauthErr: any) {
+          throw new Error('Incorrect password. Please re-enter your password to confirm account deletion.');
+        }
+      }
+    }
+
     let deletionResult: any = null;
 
     // 1. If not simulated, call backend soft-deletion endpoint
     if (!isSimulated && authUser) {
-      try {
-        const idToken = await authUser.getIdToken(true).catch(() => '');
-        const res = await fetch('/api/auth/delete-account', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
-          }
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok && !data.success) {
-          throw new Error(data.error || 'Server soft-deletion workflow failed.');
+      const idToken = await authUser.getIdToken(true).catch(() => '');
+      const res = await fetch('/api/auth/delete-account', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
         }
-        deletionResult = data;
-        console.log('[Account Deletion] Server soft-deletion response:', data);
-      } catch (apiErr: any) {
-        console.warn('[Account Deletion] Server soft-deletion API error:', apiErr);
+      });
+      const data = await res.json().catch(() => ({}));
+      // Correctness fix, same shape as adminToggleSecurityHold's earlier fix
+      // this session: this was `!res.ok && !data.success` (both required),
+      // so a 200 OK carrying `{success:false, error:...}` was never even
+      // detected as a failure -- and the whole thing sat in a try/catch
+      // that only console.warn'd, never rethrew. On the single highest-
+      // stakes action in the app, every failure mode (network error, a
+      // 500, or the above) fell through to the local cleanup below running
+      // unconditionally: products marked archived, local user data wiped,
+      // the user signed out, and told "closed and anonymized" -- while
+      // their real account and data sat completely untouched server-side.
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Server soft-deletion workflow failed.');
       }
+      deletionResult = data;
+      console.log('[Account Deletion] Server soft-deletion response:', data);
     }
 
     // 2. Mark user's listings as archived locally
