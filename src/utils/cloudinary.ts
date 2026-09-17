@@ -270,87 +270,110 @@ export async function uploadToCloudinary(
  */
 export async function uploadVideoDirectToCloudinary(
   file: File | Blob,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  maxRetries: number = 3
 ): Promise<CloudinaryUploadResult> {
-  const authHeaders = await getAuthHeader();
-  const signRes = await fetch('/api/cloudinary/sign-video-upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders }
-  });
-
-  if (!signRes.ok) {
-    let errMsg = `Failed to get upload authorization (status ${signRes.status})`;
+  // Unlike uploadToCloudinary() (images, 3x retry with backoff), this made
+  // a single attempt with no retry at all -- any transient network error
+  // during a large video upload failed the entire submit immediately, while
+  // the same flakiness during image upload was quietly retried. Re-signs on
+  // every attempt (signatures/timestamps are short-lived, and the previous
+  // one may no longer be valid by the time a retry fires) rather than
+  // reusing the first attempt's signature.
+  let lastError: any = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const errBody = await signRes.json();
-      if (errBody?.error) errMsg = errBody.error;
-    } catch (_) {}
-    throw new Error(errMsg);
-  }
+      const authHeaders = await getAuthHeader();
+      const signRes = await fetch('/api/cloudinary/sign-video-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders }
+      });
 
-  const signData = await signRes.json();
-  if (!signData?.success) {
-    throw new Error(signData?.error || 'Failed to get upload authorization');
-  }
-
-  const { signature, timestamp, apiKey, cloudName, folder } = signData;
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('api_key', apiKey);
-  formData.append('timestamp', String(timestamp));
-  formData.append('signature', signature);
-  formData.append('folder', folder);
-
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`, true);
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        onProgress(Math.round((event.loaded / event.total) * 100));
-      }
-    };
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
+      if (!signRes.ok) {
+        let errMsg = `Failed to get upload authorization (status ${signRes.status})`;
         try {
-          const response = JSON.parse(xhr.responseText);
-          const secureUrl = response.secure_url;
-          if (!secureUrl) {
-            reject(new Error('Cloudinary upload succeeded but returned no secure URL.'));
-            return;
-          }
-          resolve({
-            url: response.url || secureUrl,
-            secure_url: secureUrl,
-            public_id: response.public_id || '',
-            format: response.format || 'mp4',
-            resource_type: 'video',
-            bytes: response.bytes || 0,
-            width: response.width,
-            height: response.height,
-            duration: response.duration,
-            thumbnail_url: getCloudinaryVideoPoster(secureUrl),
-            small_url: getCloudinaryResponsiveUrl(secureUrl, 400),
-            medium_url: getCloudinaryResponsiveUrl(secureUrl, 800),
-            large_url: getCloudinaryResponsiveUrl(secureUrl, 1200)
-          });
-        } catch (e) {
-          reject(new Error('Invalid JSON response from Cloudinary.'));
-        }
-      } else {
-        let errorDetails = `Cloudinary upload error status: ${xhr.status}`;
-        try {
-          const errParsed = JSON.parse(xhr.responseText);
-          if (errParsed?.error?.message) errorDetails = errParsed.error.message;
+          const errBody = await signRes.json();
+          if (errBody?.error) errMsg = errBody.error;
         } catch (_) {}
-        reject(new Error(errorDetails));
+        throw new Error(errMsg);
       }
-    };
 
-    xhr.onerror = () => reject(new Error('Network error during direct Cloudinary upload.'));
-    xhr.send(formData);
-  });
+      const signData = await signRes.json();
+      if (!signData?.success) {
+        throw new Error(signData?.error || 'Failed to get upload authorization');
+      }
+
+      const { signature, timestamp, apiKey, cloudName, folder } = signData;
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('api_key', apiKey);
+      formData.append('timestamp', String(timestamp));
+      formData.append('signature', signature);
+      formData.append('folder', folder);
+
+      const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`, true);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && onProgress) {
+            onProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              const secureUrl = response.secure_url;
+              if (!secureUrl) {
+                reject(new Error('Cloudinary upload succeeded but returned no secure URL.'));
+                return;
+              }
+              resolve({
+                url: response.url || secureUrl,
+                secure_url: secureUrl,
+                public_id: response.public_id || '',
+                format: response.format || 'mp4',
+                resource_type: 'video',
+                bytes: response.bytes || 0,
+                width: response.width,
+                height: response.height,
+                duration: response.duration,
+                thumbnail_url: getCloudinaryVideoPoster(secureUrl),
+                small_url: getCloudinaryResponsiveUrl(secureUrl, 400),
+                medium_url: getCloudinaryResponsiveUrl(secureUrl, 800),
+                large_url: getCloudinaryResponsiveUrl(secureUrl, 1200)
+              });
+            } catch (e) {
+              reject(new Error('Invalid JSON response from Cloudinary.'));
+            }
+          } else {
+            let errorDetails = `Cloudinary upload error status: ${xhr.status}`;
+            try {
+              const errParsed = JSON.parse(xhr.responseText);
+              if (errParsed?.error?.message) errorDetails = errParsed.error.message;
+            } catch (_) {}
+            reject(new Error(errorDetails));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during direct Cloudinary upload.'));
+        xhr.send(formData);
+      });
+
+      return result;
+    } catch (err) {
+      lastError = err;
+      console.warn(`[uploadVideoDirectToCloudinary Attempt ${attempt}/${maxRetries} Failed]:`, err);
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      }
+    }
+  }
+
+  throw new Error(`Failed to upload video to Cloudinary after ${maxRetries} attempts: ${lastError?.message || lastError}`);
 }
 
 /**
