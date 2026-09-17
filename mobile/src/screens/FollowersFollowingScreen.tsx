@@ -24,11 +24,26 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'followers' | 'following'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
-  const [togglingId, setTogglingId] = useState<string | null>(null);
+  // A Set, not a single id -- a single shared value rejected a tap on ANY
+  // row while a different row's request was still in flight (only the
+  // in-flight row got the disabled/spinner treatment, so other rows looked
+  // tappable but silently dropped the tap with zero feedback).
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
 
   const currentUser = auth.currentUser;
 
   useEffect(() => {
+    // Preemptive fix for the same "stale data across in-place navigation"
+    // bug just found and fixed in SellerProfileScreen.tsx/SellerProfilePage.tsx
+    // this session -- not reachable today (the only caller always passes
+    // the signed-in user's own uid, so `userId` never actually changes
+    // across a reused screen instance), but this screen's own header
+    // comment says it's meant to replace SellerProfileScreen's identical
+    // modal for arbitrary target users next, at which point switching
+    // targets via React Navigation reusing this instance would otherwise
+    // show the previous target's stale username/list until the new fetch
+    // resolves.
+    setTargetProfile(null);
     fetchUserById(userId).then((profile) => {
       if (profile) setTargetProfile(profile);
     });
@@ -51,10 +66,18 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
     () => allUsers.filter((u) => Array.isArray(u.followingSellers) && u.followingSellers.includes(userId)),
     [allUsers, userId]
   );
-  const following = useMemo(
-    () => (targetProfile ? allUsers.filter((u) => Array.isArray(targetProfile.followingSellers) && targetProfile.followingSellers.includes(u.id)) : []),
-    [allUsers, targetProfile]
-  );
+  const following = useMemo(() => {
+    // When viewing your own Following list (the only case reachable today
+    // -- ProfileScreen.tsx always passes your own uid), targetProfile and
+    // currentUserProfile represent the same account, but only
+    // currentUserProfile.followingSellers gets updated by
+    // handleToggleFollow's optimistic update below. Preferring that live
+    // copy here means following/unfollowing someone from this screen
+    // updates the list and count immediately instead of requiring the user
+    // to leave and re-enter the screen to see the change.
+    const sourceProfile = (currentUser && targetProfile?.id === currentUser.uid) ? currentUserProfile : targetProfile;
+    return sourceProfile ? allUsers.filter((u) => Array.isArray(sourceProfile.followingSellers) && sourceProfile.followingSellers.includes(u.id)) : [];
+  }, [allUsers, targetProfile, currentUserProfile, currentUser]);
 
   const activeList = activeTab === 'following' ? following : followers;
   const filteredList = useMemo(() => {
@@ -64,9 +87,9 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
   }, [activeList, searchQuery]);
 
   const handleToggleFollow = async (targetUserId: string) => {
-    if (!currentUser || togglingId) return;
+    if (!currentUser || togglingIds.has(targetUserId)) return;
+    setTogglingIds((prev) => new Set(prev).add(targetUserId));
     try {
-      setTogglingId(targetUserId);
       await toggleFollowSeller(targetUserId, currentUser.uid);
       setCurrentUserProfile((prev: any) => {
         if (!prev) return prev;
@@ -77,7 +100,11 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Could not update follow status.');
     } finally {
-      setTogglingId(null);
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(targetUserId);
+        return next;
+      });
     }
   };
 
@@ -163,10 +190,10 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
               {!isMe && currentUser && (
                 <Pressable
                   onPress={() => handleToggleFollow(item.id)}
-                  disabled={togglingId === item.id}
+                  disabled={togglingIds.has(item.id)}
                   style={[styles.actionBtn, amIFollowing && styles.actionBtnActive]}
                 >
-                  {togglingId === item.id ? (
+                  {togglingIds.has(item.id) ? (
                     <ActivityIndicator size="small" color={amIFollowing ? '#e11d48' : '#0f172a'} />
                   ) : (
                     <>
