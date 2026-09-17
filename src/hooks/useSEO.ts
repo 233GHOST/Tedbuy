@@ -43,7 +43,13 @@ export function useSEO({
           ? product.description.slice(0, 160) + (product.description.length > 160 ? '...' : '')
           : `Buy ${product.title} safely on TedBuy Ghana. Verified seller in ${product.location || 'Ghana'}.`;
         
-        canonical = `${origin}/#/product/${selectedProductId}`;
+        // Real path, not a hash fragment -- a hash URL is never sent to the
+        // server, so no crawler that only reads static HTML (most link-
+        // preview bots) would ever see this canonical/schema URL as
+        // crawlable. Real paths are already correctly parsed both
+        // server-side (server.ts's SSR handler) and client-side
+        // (AppContext.tsx's parseUrlState).
+        canonical = `${origin}/product/${selectedProductId}`;
         
         if (product.images && product.images.length > 0) {
           ogImage = product.images[0];
@@ -53,6 +59,19 @@ export function useSEO({
 
         schemaType = "Product";
         const cleanPrice = product.price ? String(product.price).replace(/[^\d.]/g, '') : '0';
+        // Matches server.ts's injectMetaTags fix -- was hardcoded regardless
+        // of the actual listing (a brand-new item reported "Used", a
+        // sold/removed one still reported "InStock").
+        const conditionSchemaMap: Record<string, string> = {
+          'brand new': 'https://schema.org/NewCondition',
+          'new': 'https://schema.org/NewCondition',
+          'refurbished': 'https://schema.org/RefurbishedCondition',
+          'slightly used': 'https://schema.org/UsedCondition',
+          'used - good': 'https://schema.org/UsedCondition',
+          'used - fair': 'https://schema.org/UsedCondition',
+        };
+        const itemConditionSchema = conditionSchemaMap[String(product.condition || '').trim().toLowerCase()] || 'https://schema.org/UsedCondition';
+        const availabilitySchema = product.isSold ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock';
         schemaData = {
           "@context": "https://schema.org",
           "@type": "Product",
@@ -63,8 +82,8 @@ export function useSEO({
             "@type": "Offer",
             "priceCurrency": "GHS",
             "price": cleanPrice || '0',
-            "itemCondition": "https://schema.org/UsedCondition",
-            "availability": "https://schema.org/InStock"
+            "itemCondition": itemConditionSchema,
+            "availability": availabilitySchema
           }
         };
       }
@@ -72,7 +91,7 @@ export function useSEO({
       const sellerName = seller?.username || seller?.displayName || 'Verified Merchant';
       title = `${sellerName}'s Official Store | TedBuy Ghana`;
       description = seller?.bio || `View verified listings, ratings, and contact info for ${sellerName} on TedBuy Ghana.`;
-      canonical = `${origin}/#/seller/${selectedSellerId}`;
+      canonical = `${origin}/seller/${selectedSellerId}`;
       if (seller?.photoUrl) ogImage = seller.photoUrl;
 
       schemaData = {
@@ -87,7 +106,7 @@ export function useSEO({
       title = `Verified ${selectedCategory} for Sale in Ghana | TedBuy`;
       description = `Discover top deals on ${selectedCategory} from verified sellers in Accra, Kumasi, and across Ghana on TedBuy.`;
       const catSlug = selectedCategory.toLowerCase().replace(/\s+/g, '-');
-      canonical = `${origin}/#/${catSlug}`;
+      canonical = `${origin}/${catSlug}`;
 
       schemaData = {
         "@context": "https://schema.org",
@@ -99,7 +118,7 @@ export function useSEO({
     } else if (currentView === 'post-ad') {
       title = "Post Free Ad | TedBuy Ghana Marketplace";
       description = "List your item for sale for free on TedBuy Ghana. Reach verified buyers in Accra, Kumasi, and across Ghana.";
-      canonical = `${origin}/#/post-ad`;
+      canonical = `${origin}/post-ad`;
     } else if (searchQuery && searchQuery.trim()) {
       title = `Search results for "${searchQuery.trim()}" | TedBuy Ghana`;
       description = `Find deals matching "${searchQuery.trim()}" on TedBuy Ghana marketplace. Verified sellers & direct chat.`;

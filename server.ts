@@ -1757,6 +1757,62 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
     .replace('</head>', `${metaTags}\n</head>`);
 }
 
+// Seller storefront SSR meta tags -- previously the SSR handler checked
+// req.path against /store/:id (server.ts's dead leftover from an earlier
+// URL scheme) while the app's real seller URLs have always been
+// /seller/:id (confirmed via useHashRouting.ts, AppContext.tsx's
+// parseUrlState, sitemap.ts), so this code path never actually matched
+// real traffic -- and even when it matched, it only checked 404/noindex,
+// never built real per-seller title/description/og:image the way
+// injectMetaTags does for products. A seller sharing their storefront
+// link got a generic "TedBuy Ghana" preview card everywhere it was
+// pasted, not their shop. Mirrors injectMetaTags's structure.
+function injectSellerMetaTags(html: string, seller: any, shareUrl: string): string {
+  const displayName = seller.username || seller.displayName || 'This seller';
+  const title = `${displayName}'s Store | TedBuy Ghana`;
+  const rawBio = typeof seller.bio === 'string' ? seller.bio.trim() : '';
+  const description = rawBio
+    ? `${rawBio.slice(0, 160)}${rawBio.length > 160 ? '...' : ''}`
+    : `Shop ${displayName}'s listings on TedBuy Ghana — phones, laptops, fashion, and more.`;
+
+  let ogImageUrl = (typeof seller.photoUrl === 'string' && seller.photoUrl.trim())
+    ? seller.photoUrl
+    : 'https://www.tedbuy.store/icon-192.png';
+  if (ogImageUrl.includes('res.cloudinary.com') && ogImageUrl.includes('/upload/') && !ogImageUrl.includes('w_1200')) {
+    ogImageUrl = ogImageUrl.replace('/upload/', '/upload/c_fill,w_1200,h_630,g_auto,f_auto,q_auto/');
+  }
+
+  const metaTags = `
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <link rel="canonical" href="${escapeHtml(shareUrl)}" />
+
+    <meta property="og:type" content="profile" />
+    <meta property="og:url" content="${escapeHtml(shareUrl)}" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:image" content="${escapeHtml(ogImageUrl)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(ogImageUrl)}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="${escapeHtml(displayName)}" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="${escapeHtml(shareUrl)}" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}" />
+  `;
+
+  return html
+    .replace(/<title>.*?<\/title>/gi, '')
+    .replace(/<meta\s+name="description".*?>/gi, '')
+    .replace(/<meta\s+property="og:.*?".*?>/gi, '')
+    .replace(/<meta\s+name="twitter:.*?".*?>/gi, '')
+    .replace(/<link\s+rel="canonical".*?>/gi, '')
+    .replace('</head>', `${metaTags}\n</head>`);
+}
+
 // -------------------------------------------------------------
 // Product Normalization & Retrieval Helpers
 // -------------------------------------------------------------
@@ -8743,7 +8799,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
     const robotsTxt = `User-agent: *
 Allow: /
 Allow: /product/
-Allow: /store/
+Allow: /seller/
 Allow: /category/
 Allow: /favicon*
 Allow: /icon*
@@ -8759,7 +8815,7 @@ Disallow: /*?*q={*
 User-agent: Googlebot
 Allow: /
 Allow: /product/
-Allow: /store/
+Allow: /seller/
 Allow: /category/
 Allow: /favicon*
 Allow: /icon*
@@ -8974,23 +9030,27 @@ async function startServer() {
             } catch (_) {}
           }
         } else {
-          // Handle seller store SSR meta tags
-          const storeMatch = req.path.match(/^\/store\/([^\/?#]+)/);
-          if (storeMatch) {
-            const sellerId = storeMatch[1];
+          // Handle seller store SSR meta tags -- real seller URLs are
+          // /seller/:id (and /sellers/:id, matching parseUrlState's own
+          // regex client-side), not /store/:id.
+          const sellerMatch = req.path.match(/^\/sellers?\/([^\/?#]+)/);
+          if (sellerMatch) {
+            const sellerId = sellerMatch[1];
             if (sellerId && backendSupabase) {
               try {
                 const { data: user } = await backendSupabase.from('users').select('id, username, displayName, bio, photoUrl').eq('id', sellerId).maybeSingle();
                 if (!user) {
-                  // Non-existent seller store -> return 404
+                  // Non-existent seller -> return 404
                   html = html.replace(/<link\s+rel="canonical".*?>/gi, '');
                   html = html.replace('</head>', '<meta name="robots" content="noindex, nofollow" /></head>');
                   return res.status(404).send(html);
                 }
+                html = injectSellerMetaTags(html, user, `${protocol}://${host}${req.originalUrl}`);
               } catch (_) {}
             }
+          } else {
+            html = html.replace(/<link\s+rel="canonical".*?>/gi, `<link rel="canonical" href="${currentCanonicalUrl}/" />`);
           }
-          html = html.replace(/<link\s+rel="canonical".*?>/gi, `<link rel="canonical" href="${currentCanonicalUrl}/" />`);
         }
 
         // Inject pre-cached top products into HTML for 0ms initial render of main feed

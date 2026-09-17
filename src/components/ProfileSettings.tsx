@@ -603,7 +603,15 @@ CEO, Tedbuy Inc`;
 
   const handleShareStore = () => {
     if (!currentUser) return;
-    const storeUrl = `${window.location.origin}/#seller/${currentUser.id}`;
+    // A real path, not a hash fragment -- a hash URL (/#seller/...) is never
+    // sent to the server on a fresh load, so any link-preview crawler
+    // (WhatsApp, Facebook, Twitter) fetching it always saw the generic
+    // site-wide meta tags, never this seller's actual name/photo/bio. Real
+    // paths are already correctly parsed both server-side (server.ts's SSR
+    // handler) and client-side (AppContext.tsx's parseUrlState) -- matches
+    // ProductDetail.tsx's own "Share Product" link, which already does this
+    // correctly.
+    const storeUrl = `${window.location.origin}/seller/${currentUser.id}`;
     if (navigator.clipboard) {
       navigator.clipboard.writeText(storeUrl);
       showToast('Storefront link copied to clipboard!', 'success');
