@@ -10,6 +10,8 @@
 
 `tsc --noEmit` and `npm run build`/mobile `tsc --noEmit` clean after every commit this round.
 
+**Follow-up — final sweep for the WhatsApp-link-validation gap, both platforms (`3c572a6`).** After fixing this pattern 4x across the session (web `SellerProfilePage.tsx`/`ProductDetail.tsx`, mobile `SellerProfileScreen.tsx`, spotted while reviewing `ChatsScreen.tsx`), grepped every `wa.me/` reference in both `src/` and `mobile/src/` to confirm completeness. Found three more real instances: web `ChatInterface.tsx`'s in-chat-header WhatsApp button was the worst of all of them — it did *zero* country-code normalization (just stripped non-digits), so since nothing on save normalizes a phone number to international format, the common case (a number stored in local Ghana format like "0244123456") built a link WhatsApp can't resolve at all — likely broken for most users' actual stored format, not a rare edge case. Hidden entirely now when the number doesn't normalize to a valid one (this button has no confirmation-step to show an error through, unlike the other fixes). Mobile `HomeScreen.tsx`'s video-feed contact option and `ProductDetailScreen.tsx`'s WhatsApp button both had normalization but no validation — same explicit-Alert fix as the others. The remaining `wa.me` references in the codebase are confirmed to be hardcoded TedBuy support numbers, not user data.
+
 ---
 
 **✅ Eighth autonomous session — account deletion's fake password check (both platforms), FollowersFollowingScreen, 2026-09-17.** Continuing the same unattended stretch. Two background audits (mobile `AccountSecuritySettingsScreen.tsx`, `FollowersFollowingScreen.tsx`) surfaced the most consequential finding of this whole session on the app's single most irreversible action.
