@@ -270,7 +270,7 @@ export const ProductCard = React.memo(function ProductCard({
         {!isTrendingVariant && (
           <Pressable
             style={styles.sellerTouchpointRow}
-            onPress={() => onSellerPress?.(product.sellerId)}
+            onPress={() => { if (product.sellerId) onSellerPress?.(product.sellerId); }}
             hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
             accessibilityRole="button"
             accessibilityLabel={`View seller ${product.sellerName || 'profile'}${product.location ? `, ${product.location}` : ''}`}

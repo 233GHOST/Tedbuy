@@ -1,4 +1,4 @@
-import { ChatItem, Product, UserProfile } from './types';
+import { ChatItem, Product } from './types';
 
 export const products: Product[] = [
   {
@@ -91,13 +91,3 @@ export const chats: ChatItem[] = [
   { id: 'c2', name: 'Ama R.', lastMessage: 'The laptop is still available.', time: 'Yesterday', avatar: 'AR' },
   { id: 'c3', name: 'Kojo M.', lastMessage: 'Please send me your preferred pickup point.', time: 'Mon', avatar: 'KM' },
 ];
-
-export const profile: UserProfile = {
-  id: 'u1',
-  name: 'David Boateng',
-  username: '@dboateng',
-  rating: 4.9,
-  listings: 12,
-  joined: 'Joined March 2024',
-  bio: 'I buy and sell verified gadgets and fashion pieces across Ghana.',
-};

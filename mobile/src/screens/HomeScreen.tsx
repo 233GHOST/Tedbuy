@@ -1361,7 +1361,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // followed seller's videos can surface as more pages load).
   const displayedVideoFeedItems: Product[] = useMemo(() => {
     if (feedMode === 'following') {
-      return videoFeedItems.filter((item) => followingSellerIds.includes(item.sellerId));
+      return videoFeedItems.filter((item) => !!item.sellerId && followingSellerIds.includes(item.sellerId));
     }
     return videoFeedItems;
   }, [feedMode, videoFeedItems, followingSellerIds]);
@@ -1379,7 +1379,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     if (mode === feedMode) return;
     setFeedMode(mode);
     const targetList = mode === 'following'
-      ? videoFeedItems.filter((item) => followingSellerIds.includes(item.sellerId))
+      ? videoFeedItems.filter((item) => !!item.sellerId && followingSellerIds.includes(item.sellerId))
       : videoFeedItems;
     const targetIndex = Math.min(lastIndexByModeRef.current[mode], Math.max(0, targetList.length - 1));
     setActiveVideoIndex(targetIndex);
