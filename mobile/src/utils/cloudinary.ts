@@ -38,7 +38,36 @@ export async function uploadVideoDirectToCloudinaryMobile(
   // that endpoint's comment for why this can't be a client-side URL rewrite
   // applied after the fact.
   trimStart?: number,
-  trimEnd?: number
+  trimEnd?: number,
+  maxRetries: number = 3
+): Promise<CloudinaryVideoUploadResult> {
+  // Matches web's uploadVideoDirectToCloudinary (src/utils/cloudinary.ts) --
+  // this had no retry at all (a single transient network blip mid-upload
+  // failed the whole attempt immediately), unlike web's own 3x-with-backoff
+  // fix applied earlier this session. Re-signs on every attempt (the
+  // signature/timestamp are short-lived, and the first attempt's may no
+  // longer be valid by the time a retry fires) rather than reusing one
+  // signature across retries.
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await attemptUploadVideoDirectToCloudinaryMobile(fileUri, onProgress, trimStart, trimEnd);
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[uploadVideoDirectToCloudinaryMobile Attempt ${attempt}/${maxRetries} Failed]:`, err?.message || err);
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+async function attemptUploadVideoDirectToCloudinaryMobile(
+  fileUri: string,
+  onProgress: ((percent: number) => void) | undefined,
+  trimStart: number | undefined,
+  trimEnd: number | undefined
 ): Promise<CloudinaryVideoUploadResult> {
   const authHeaders = await getAuthHeaderMobile();
   // Was previously unbounded — a stalled connection here (before any video

@@ -229,17 +229,67 @@ async function apiFetch(path: string, options: { method?: string; body?: any; ti
   return data;
 }
 
-export async function uploadMediaToCloudinaryMobile(
+async function attemptUploadMediaToCloudinaryMobile(
   fileUriOrBase64: string,
-  resourceType: 'image' | 'video' = 'image',
-  onProgress?: (percent: number) => void
+  resourceType: 'image' | 'video',
+  onProgress: ((percent: number) => void) | undefined,
+  authHeaders: Record<string, string>
 ): Promise<string> {
-  if (!fileUriOrBase64) return '';
-  if (fileUriOrBase64.startsWith('https://res.cloudinary.com')) return fileUriOrBase64;
-
   const serverUrl = typeof window !== 'undefined' && window.location?.origin
     ? `${window.location.origin}/api/cloudinary/upload`
     : 'https://www.tedbuy.store/api/cloudinary/upload';
+
+  const result = await new Promise<{ success: boolean; result?: any; error?: string }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', serverUrl, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    if (authHeaders.Authorization) {
+      xhr.setRequestHeader('Authorization', authHeaders.Authorization);
+    }
+    // Was previously unset — a stalled connection (server hung, wifi died
+    // mid-request) left this promise pending forever, which left the
+    // image's status stuck at 'uploading' and Publish disabled with no way
+    // out. 60s is generous for a single (already-compressed) photo.
+    xhr.timeout = 60000;
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      try {
+        resolve(JSON.parse(xhr.responseText));
+      } catch (e) {
+        reject(new Error('Invalid JSON response from upload server.'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload.'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out. Please check your connection and try again.'));
+    xhr.onabort = () => reject(new Error('Upload was cancelled.'));
+    xhr.send(JSON.stringify({ file: fileUriOrBase64, resource_type: resourceType }));
+  });
+
+  if (result.success && result.result?.secure_url) {
+    return result.result.secure_url;
+  }
+  if (result.success && result.result?.url) {
+    return result.result.url;
+  }
+  throw new Error(result.error || 'Cloudinary mobile upload failed');
+}
+
+export async function uploadMediaToCloudinaryMobile(
+  fileUriOrBase64: string,
+  resourceType: 'image' | 'video' = 'image',
+  onProgress?: (percent: number) => void,
+  maxRetries: number = 3
+): Promise<string> {
+  if (!fileUriOrBase64) return '';
+  if (fileUriOrBase64.startsWith('https://res.cloudinary.com')) return fileUriOrBase64;
 
   // Security fix (matches the server-side fix to /api/cloudinary/upload,
   // same commit): that endpoint now requires authentication. Fetched
@@ -247,53 +297,25 @@ export async function uploadMediaToCloudinaryMobile(
   // synchronously at that point.
   const authHeaders = await getAuthHeaderMobile();
 
-  try {
-    const result = await new Promise<{ success: boolean; result?: any; error?: string }>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', serverUrl, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      if (authHeaders.Authorization) {
-        xhr.setRequestHeader('Authorization', authHeaders.Authorization);
+  // Matches web's uploadToCloudinary (src/utils/cloudinary.ts) -- this had
+  // no retry at all (a single transient network blip failed the whole
+  // attempt immediately), unlike web's own 3x-with-backoff. Same reused
+  // auth header across attempts is fine here (unlike the direct-to-
+  // Cloudinary video path, this token isn't a short-lived upload signature).
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await attemptUploadMediaToCloudinaryMobile(fileUriOrBase64, resourceType, onProgress, authHeaders);
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[uploadMediaToCloudinaryMobile Attempt ${attempt}/${maxRetries} Failed]:`, err?.message || err);
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
       }
-      // Was previously unset — a stalled connection (server hung, wifi died
-      // mid-request) left this promise pending forever, which left the
-      // image's status stuck at 'uploading' and Publish disabled with no way
-      // out. 60s is generous for a single (already-compressed) photo.
-      xhr.timeout = 60000;
-
-      if (xhr.upload && onProgress) {
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            onProgress(Math.round((event.loaded / event.total) * 100));
-          }
-        };
-      }
-
-      xhr.onload = () => {
-        try {
-          resolve(JSON.parse(xhr.responseText));
-        } catch (e) {
-          reject(new Error('Invalid JSON response from upload server.'));
-        }
-      };
-      xhr.onerror = () => reject(new Error('Network error during upload.'));
-      xhr.ontimeout = () => reject(new Error('Upload timed out. Please check your connection and try again.'));
-      xhr.onabort = () => reject(new Error('Upload was cancelled.'));
-      xhr.send(JSON.stringify({ file: fileUriOrBase64, resource_type: resourceType }));
-    });
-
-    if (result.success && result.result?.secure_url) {
-      return result.result.secure_url;
     }
-    if (result.success && result.result?.url) {
-      return result.result.url;
-    }
-    throw new Error(result.error || 'Cloudinary mobile upload failed');
-  } catch (err: any) {
-    console.warn('[uploadMediaToCloudinaryMobile Warning]:', err?.message || err);
-    if (fileUriOrBase64.startsWith('http')) return fileUriOrBase64;
-    throw err;
   }
+  if (fileUriOrBase64.startsWith('http')) return fileUriOrBase64;
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 export async function createProduct(productData: any) {
