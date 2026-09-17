@@ -1185,6 +1185,31 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     );
   };
 
+  // Shared by both the create-mode and edit-mode success paths (hoisted out
+  // of create-mode's local scope, where it previously lived unreachable
+  // from the edit branch above it). A successful edit used to only clear
+  // editProduct, leaving every other field -- title/price/description/
+  // images/video/brand/condition/etc. -- exactly as they were. The next
+  // time this same screen instance was used to post a genuinely NEW
+  // listing, it silently started pre-filled with the just-edited listing's
+  // old data (or, worse, its images/video, immediately visible in Screen 1's
+  // "resume" badge) unless the seller happened to notice and manually
+  // cleared every field themselves.
+  const resetForm = () => {
+    // This draft is done (published/saved) — a later publish should mint a
+    // fresh id, not silently overwrite this listing.
+    pendingProductIdRef.current = null;
+    videoUploadGenerationRef.current++;
+    setTitle('');
+    setPrice('');
+    setDescription('');
+    setImages([]);
+    setVideo(null);
+    setIsExchangeable(false);
+    setPostOption('normal');
+    setPostFlow('select');
+  };
+
   const handlePublish = async () => {
     // Synchronous — closes the double-tap race window entirely, unlike
     // relying on the Pressable's `disabled` prop (which only takes effect
@@ -1337,6 +1362,10 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         });
         setLoading(false);
         setEditProduct(null);
+        // Clears title/price/description/images/video/etc. -- see
+        // resetForm's own comment for why a successful edit needs this too,
+        // not just create-mode's success path.
+        resetForm();
         Alert.alert('Ad Updated', 'Your listing was updated successfully!', [
           {
             text: 'OK',
@@ -1380,21 +1409,6 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
 
       const created = await createProduct(productData);
       setLoading(false);
-
-      const resetForm = () => {
-        // This draft is done (published) — a later publish should mint a
-        // fresh id, not silently overwrite this listing.
-        pendingProductIdRef.current = null;
-        videoUploadGenerationRef.current++;
-        setTitle('');
-        setPrice('');
-        setDescription('');
-        setImages([]);
-        setVideo(null);
-        setIsExchangeable(false);
-        setPostOption('normal');
-        setPostFlow('select');
-      };
 
       if (postOption === 'boost') {
         resetForm();
