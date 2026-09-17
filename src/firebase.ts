@@ -194,7 +194,10 @@ export const requestFcmToken = async (): Promise<string | null> => {
     const messagingInstance = getMessaging(app);
     const vapidKey = 'BJHv5e_fO77N-1UunKsz_vG_X-W8Bv97Q4Q1bH_p16PZg72lX8y9nL0P3g5Nq1T1z-67O8276y-X8y7';
     const token = await getToken(messagingInstance, { vapidKey });
-    console.log('[FCM] Token retrieved successfully:', token);
+    // Truncated -- an FCM token can be used to target push notifications at
+    // this specific device, so logging it in full is unnecessary production
+    // debug residue (minor info-leak in browser devtools).
+    console.log('[FCM] Token retrieved successfully:', token ? `${token.slice(0, 12)}...` : token);
     return token;
   } catch (tokenErr) {
     console.warn('[FCM] Gracefully handled token extraction exception (expected in iframe previews):', tokenErr);

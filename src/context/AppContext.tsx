@@ -1822,7 +1822,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const token = await requestFcmToken();
         if (token && isMounted) {
-          console.log('[FCM] Successfully fetched cloud messaging device registration token:', token);
+          console.log('[FCM] Successfully fetched cloud messaging device registration token:', `${token.slice(0, 12)}...`);
           
           const existingTokens = currentUser.fcmTokens || [];
           if (!existingTokens.includes(token)) {
