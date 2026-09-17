@@ -159,8 +159,21 @@ export const ProductCard = React.memo(function ProductCard({
   // getCloudinaryThumbnailMobile's own comment for why.
   const coverImageUrl = getCloudinaryThumbnailMobile(resolveProductImageUri(product));
 
+  const cardAccessibilityLabel = [
+    product.title,
+    formattedPrice,
+    product.condition,
+    product.sellerName ? `by ${product.sellerName}` : null,
+    (product as any).isSold ? 'Sold' : null,
+  ].filter(Boolean).join(', ');
+
   return (
-    <Pressable style={styles.cardContainer} onPress={onPress}>
+    <Pressable
+      style={styles.cardContainer}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={cardAccessibilityLabel}
+    >
       {/* 1. Image cover section with 1:1 Aspect Ratio */}
       <View style={styles.imageContainer}>
         {/* Main Product Image — an honest category placeholder when there's
@@ -207,10 +220,13 @@ export const ProductCard = React.memo(function ProductCard({
         )}
 
         {/* Absolute Floating Save Button (Bookmark) */}
-        <Pressable 
-          style={[styles.bookmarkButton, localIsSaved && styles.bookmarkButtonActive]} 
+        <Pressable
+          style={[styles.bookmarkButton, localIsSaved && styles.bookmarkButtonActive]}
           onPress={handleSaveClick}
           disabled={isLiking}
+          accessibilityRole="button"
+          accessibilityLabel={localIsSaved ? 'Remove from saved' : 'Save to favorites'}
+          accessibilityState={{ selected: localIsSaved, disabled: isLiking }}
         >
           {isLiking ? (
             <ActivityIndicator size="small" color={localIsSaved ? '#ffffff' : '#94a3b8'} />
@@ -256,6 +272,8 @@ export const ProductCard = React.memo(function ProductCard({
             style={styles.sellerTouchpointRow}
             onPress={() => onSellerPress?.(product.sellerId)}
             hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel={`View seller ${product.sellerName || 'profile'}${product.location ? `, ${product.location}` : ''}`}
           >
             <View style={styles.sellerLeftCol}>
               <View style={styles.sellerAvatarSmall}>
@@ -312,6 +330,9 @@ export const ProductCard = React.memo(function ProductCard({
             onPress={handleSoldToggle}
             disabled={updatingSold}
             hitSlop={6}
+            accessibilityRole="checkbox"
+            accessibilityLabel="Mark sold"
+            accessibilityState={{ checked: !!(product as any).isSold, disabled: updatingSold }}
           >
             <Text style={styles.soldToggleLabel}>Status</Text>
             {updatingSold ? (
