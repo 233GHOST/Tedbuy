@@ -184,7 +184,14 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
     try {
       setIsLiking(true);
-      await toggleSaved(productId);
+      // product?.id, not the productId prop -- the "Other Deals from this
+      // Seller" quick-switch below updates `product` in place (deliberately,
+      // to keep a failure scoped to the right item rather than falling back
+      // to a mismatched retry) without ever changing this screen's
+      // productId prop/closure. Reading the prop here meant bookmarking
+      // after a quick-switch silently saved the ORIGINAL listing, not the
+      // one actually on screen.
+      await toggleSaved(product?.id || productId);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Could not update favorites.');
     } finally {
@@ -207,7 +214,10 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     if (isSubmittingReport) return;
     try {
       setIsSubmittingReport(true);
-      await reportProduct(productId, reportReason, reportComment);
+      // See handleLike's comment -- product?.id reflects whichever listing
+      // is actually on screen after a seller-modal quick-switch, unlike the
+      // productId prop.
+      await reportProduct(product?.id || productId, reportReason, reportComment);
       setIsReportModalVisible(false);
       Alert.alert('Report Submitted', 'Thank you — our moderators will review it shortly.');
     } catch (err: any) {
@@ -277,7 +287,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
       const chosenMsg = (customMessage && customMessage.trim()) 
         ? customMessage.trim() 
         : (inlineMessage.trim() || `Hi, is "${product.title}" still available?`);
-      const chatId = await startChatApi(productId, chosenMsg);
+      // product.id, not the productId prop -- see handleLike's comment.
+      const chatId = await startChatApi(product.id, chosenMsg);
       if (chatId) {
         setInlineMessage('');
         navigation.navigate('MainTabs', { screen: 'Chats', params: { activeChatId: chatId } });
