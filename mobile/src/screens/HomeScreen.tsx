@@ -1301,7 +1301,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // prop but never actually filters by it, so the same top sellers show
   // regardless of the active category filter. Not passing it here on purpose.
   const discoverSellers = useMemo(
-    () => computeDiscoverSellers(products, users, undefined, 12, sellerListingCounts),
+    () => computeDiscoverSellers(products, users, undefined, 24, sellerListingCounts),
     [users, products, sellerListingCounts]
   );
 
@@ -2377,9 +2377,6 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                       <View style={styles.carouselHeaderLeft}>
                         <Store size={16} color="#0f172a" strokeWidth={2.2} />
                         <Text style={styles.carouselTitle}>Popular Stores</Text>
-                        <View style={styles.verifiedCountBadge}>
-                          <Text style={styles.verifiedCountBadgeText}>{discoverSellers.length}</Text>
-                        </View>
                       </View>
                       <Pressable
                         onPress={() => navigation?.navigate('DiscoverSellers')}
@@ -3707,19 +3704,6 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontFamily: fonts.semibold,
     color: '#64748b',
-  },
-  verifiedCountBadge: {
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  verifiedCountBadgeText: {
-    fontSize: 10,
-    fontFamily: fonts.extrabold,
-    color: '#475569',
   },
   sellerDiscoverCard: { width: 220 },
 });

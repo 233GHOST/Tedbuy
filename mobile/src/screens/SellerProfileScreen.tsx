@@ -385,15 +385,21 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
         {/* Cover / Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatarRow}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarContainer} resizeMode="cover" />
-            ) : (
-              <View style={styles.avatarContainer}>
-                <Text style={styles.avatarText}>
-                  {sellerName.substring(0, 2).toUpperCase()}
-                </Text>
-              </View>
-            )}
+            <View style={styles.avatarWrapper}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatarContainer} resizeMode="cover" />
+              ) : (
+                <View style={styles.avatarContainer}>
+                  <Text style={styles.avatarText}>
+                    {sellerName.substring(0, 2).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              {/* WhatsApp-style presence dot -- only rendered when the
+                  seller is actually online (server-derived via
+                  /api/users/get's computeIsOnline), never unconditional. */}
+              {seller?.isOnline && <View style={styles.onlineDot} />}
+            </View>
             <View style={styles.profileMeta}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                 {isUserAdmin(seller) ? (
@@ -831,6 +837,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   avatarRow: { flexDirection: 'row', alignItems: 'center' },
+  avatarWrapper: { position: 'relative', marginRight: 12 },
   avatarContainer: {
     width: 54,
     height: 54,
@@ -838,7 +845,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+  },
+  onlineDot: {
+    position: 'absolute', bottom: 0, right: 0, width: 14, height: 14, borderRadius: 7,
+    backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#ffffff',
   },
   avatarText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 18 },
   profileMeta: { flex: 1 },

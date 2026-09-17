@@ -28,6 +28,7 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
   const cardAccessibilityLabel = [
     seller.name,
     seller.isVerified ? 'Verified' : null,
+    seller.isOnline ? 'Online' : null,
     seller.location,
     `${seller.listingCount} ${seller.listingCount === 1 ? 'item' : 'items'}`,
   ].filter(Boolean).join(', ');
@@ -54,6 +55,11 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
                 <CheckCircle2 size={15} color="#ffffff" fill="#059669" strokeWidth={0} />
               </View>
             )}
+            {/* WhatsApp-style presence dot -- only rendered when the seller
+                is actually online (server-derived, see discoverSellers.ts),
+                never shown unconditionally. Bottom-left, since the verified
+                checkmark already owns bottom-right. */}
+            {seller.isOnline && <View style={styles.onlineDot} />}
           </View>
           <View style={styles.categoryPill}>
             <Text style={styles.categoryPillText} numberOfLines={1}>{seller.primaryCategory}</Text>
@@ -136,6 +142,10 @@ const styles = StyleSheet.create({
   verifiedBadge: {
     position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
     borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+  },
+  onlineDot: {
+    position: 'absolute', bottom: -1, left: -1, width: 14, height: 14, borderRadius: 7,
+    backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#ffffff',
   },
   categoryPill: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
   categoryPillText: { fontSize: 9.5, color: '#c2410c', fontFamily: fonts.extrabold },

@@ -6,9 +6,13 @@ export interface DiscoverSeller {
   photo: string;
   location: string;
   isVerified: boolean;
+  isOnline: boolean;
   rating: number;
   listingCount: number;
   totalViews: number;
+  /** Epoch ms of this seller's most recent active listing's createdAt --
+   * drives the "who's posting right now" ordering, not exposed in the UI. */
+  lastPostedAt: number;
   primaryCategory: string;
 }
 
@@ -93,6 +97,10 @@ export function computeDiscoverSellers(
         (user?.email && sellerListingCounts[user.email.trim().toLowerCase()])
       )) || sellerListingCount[id] || 0;
       const totalViews = sellerListings.reduce((sum, p) => sum + (Number((p as any).viewsCount) || 0), 0);
+      const lastPostedAt = sellerListings.reduce((latest, p) => {
+        const t = new Date((p as any).createdAt || 0).getTime();
+        return (!isNaN(t) && t > latest) ? t : latest;
+      }, 0);
 
       return {
         id,
@@ -100,30 +108,26 @@ export function computeDiscoverSellers(
         photo,
         location,
         isVerified,
+        // Server-derived (see server.ts's computeIsOnline) off /api/users/list's
+        // lastSeen -- never trust a stored boolean for this, it would get
+        // stuck "true" the moment a client stops calling the heartbeat.
+        isOnline: Boolean(user?.isOnline),
         rating,
         listingCount: count,
         totalViews,
+        lastPostedAt,
         primaryCategory: sellerListings[0]?.category || 'General',
       };
     })
-    // Ranked by real popularity signals (per explicit product decision, not
-    // web parity — web has no equivalent ranking to match): how many active
-    // listings a seller has, and how often people actually view them. Each
-    // listing is worth a flat 5 points (so a seller with more inventory
-    // ranks ahead of one with fewer listings even if a single old listing
-    // of theirs went viral), plus 1 point per view across all their active
-    // listings. Was previously sorted by listingCount alone (with a hard
-    // "verified sellers always first" rule) — views never factored in at
-    // all, and the store list looked arbitrary to a seller who had lots of
-    // profile visits but hadn't listed many items yet.
-    .sort((a, b) => {
-      const scoreA = a.listingCount * 5 + a.totalViews;
-      const scoreB = b.listingCount * 5 + b.totalViews;
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      if (a.isVerified && !b.isVerified) return -1;
-      if (!a.isVerified && b.isVerified) return 1;
-      return 0;
-    });
+    // Explicit product decision: "Popular Stores" is who's actively
+    // posting right now, not who has accumulated the most inventory/views
+    // over time -- a seller who just listed something new jumps straight
+    // to the front, and one who hasn't posted in a while drifts down and
+    // eventually off the list entirely once newer sellers push past the
+    // caller's limit (24 on the home carousel). Was previously ranked by
+    // listingCount*5 + totalViews, which favored long-established sellers
+    // and never moved regardless of how recently anyone actually posted.
+    .sort((a, b) => b.lastPostedAt - a.lastPostedAt);
 
   return limit ? result.slice(0, limit) : result;
 }

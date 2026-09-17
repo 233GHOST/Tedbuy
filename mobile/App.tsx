@@ -1,5 +1,6 @@
 import 'react-native-gesture-handler';
 import { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -13,7 +14,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { AppNavigator } from './src/navigation';
 import { applyGlobalFont } from './src/applyGlobalFont';
-import { configureGoogleSignIn, observeAuthState, registerPushToken } from './src/firebase';
+import { configureGoogleSignIn, observeAuthState, registerPushToken, sendPresenceHeartbeat } from './src/firebase';
 import { registerForPushNotificationsAsync } from './src/utils/pushNotifications';
 import { SuspensionGate } from './src/components/SuspensionGate';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -59,6 +60,50 @@ export default function App() {
       });
     });
     return unsub;
+  }, []);
+
+  // Online presence — WhatsApp-style: a signed-in user is "online" as long
+  // as the server has heard from them recently (see server.ts's
+  // computeIsOnline), so this just needs to keep sending a heartbeat while
+  // the app is actually in the foreground. No heartbeat while backgrounded
+  // or signed out -- both correctly let the user fall back to "offline"
+  // server-side once ONLINE_THRESHOLD_MS elapses, with nothing here needing
+  // to explicitly announce "I'm going offline now" (unreliable anyway --
+  // an app kill or lost connection never gets a chance to run that).
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let signedIn = false;
+
+    const startHeartbeat = () => {
+      if (interval) return;
+      sendPresenceHeartbeat();
+      interval = setInterval(() => {
+        if (AppState.currentState === 'active') sendPresenceHeartbeat();
+      }, 120000);
+    };
+    const stopHeartbeat = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    const unsubAuth = observeAuthState((user) => {
+      signedIn = !!user;
+      if (signedIn) startHeartbeat();
+      else stopHeartbeat();
+    });
+
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (!signedIn) return;
+      if (nextState === 'active') sendPresenceHeartbeat();
+    });
+
+    return () => {
+      unsubAuth();
+      appStateSub.remove();
+      stopHeartbeat();
+    };
   }, []);
 
   if (!fontsLoaded && !fontError) {

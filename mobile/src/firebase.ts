@@ -646,6 +646,28 @@ export async function registerPushToken(token: string) {
   }
 }
 
+/**
+ * Marks the signed-in user as active right now. "Online" is always derived
+ * server-side from how recently this was last called (see server.ts's
+ * computeIsOnline), not a stored boolean -- matches the WhatsApp-style
+ * presence model App.tsx calls this from every 2 minutes while foregrounded
+ * and signed in. Best-effort, same as registerPushToken -- a missed
+ * heartbeat (offline, backgrounded, server hiccup) just means this user
+ * shows as offline a little sooner than they actually went offline, never
+ * an error the caller needs to handle.
+ */
+export async function sendPresenceHeartbeat() {
+  if (!auth.currentUser) return;
+  try {
+    const data = await apiFetch('/api/users/heartbeat', { method: 'POST' });
+    if (!data.success) {
+      console.warn('[sendPresenceHeartbeat] Server rejected heartbeat:', data.error);
+    }
+  } catch (err) {
+    console.warn('[sendPresenceHeartbeat] Failed to send heartbeat:', err);
+  }
+}
+
 export async function logOut() {
   // The native Google Sign-In SDK keeps its own signed-in session on the
   // device, entirely separate from Firebase Auth -- signOut(auth) alone
