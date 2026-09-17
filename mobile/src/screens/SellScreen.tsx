@@ -496,9 +496,19 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  // Mirrors recordingSeconds, kept in sync in the same interval tick below.
+  // handleStartRecording is a closure created once (whenever the record
+  // button was pressed) and never redefined while `await recordAsync()` is
+  // pending -- reading the `recordingSeconds` STATE from inside it after
+  // that await resolves would still see its value from render time (0,
+  // since recording had just started), not the live final count. A ref
+  // doesn't have that staleness problem, since reading `.current` always
+  // gets whatever the interval most recently wrote, regardless of which
+  // render's closure is doing the reading.
+  const recordingSecondsRef = useRef(0);
   const cameraRef = useRef<CameraView>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cameraOnCaptureRef = useRef<((kind: 'photo' | 'video', uri: string) => void) | null>(null);
+  const cameraOnCaptureRef = useRef<((kind: 'photo' | 'video', uri: string, durationSec?: number) => void) | null>(null);
 
   useEffect(() => {
     return () => {
@@ -615,7 +625,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   const formCategories = categories.filter((c) => c !== 'All');
   const conditions = ['Brand New', 'Slightly Used', 'Refurbished', 'Used - Fair'];
 
-  const openCamera = async (defaultMode: 'photo' | 'video', toggleable: boolean, onCapture: (kind: 'photo' | 'video', uri: string) => void) => {
+  const openCamera = async (defaultMode: 'photo' | 'video', toggleable: boolean, onCapture: (kind: 'photo' | 'video', uri: string, durationSec?: number) => void) => {
     if (!cameraPermission?.granted) {
       const res = await requestCameraPermission();
       if (!res.granted) {
@@ -868,13 +878,16 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     }
     setIsRecording(true);
     setRecordingSeconds(0);
+    recordingSecondsRef.current = 0;
 
     recordingTimerRef.current = setInterval(() => {
       setRecordingSeconds((prev) => {
-        if (prev + 1 >= MAX_VIDEO_DURATION_SECONDS) {
+        const next = prev + 1;
+        recordingSecondsRef.current = next;
+        if (next >= MAX_VIDEO_DURATION_SECONDS) {
           handleStopRecording();
         }
-        return prev + 1;
+        return next;
       });
     }, 1000);
 
@@ -887,7 +900,12 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       setIsRecording(false);
       setShowCameraModal(false);
       if (result?.uri) {
-        cameraOnCaptureRef.current?.('video', result.uri);
+        // recordingSecondsRef.current -- not the MAX_VIDEO_DURATION_SECONDS
+        // constant this used to hardcode regardless of how long the user
+        // actually recorded (confirmed via the ref specifically to avoid
+        // reading recordingSeconds' stale, render-time-captured state value
+        // here -- see the ref's own comment).
+        cameraOnCaptureRef.current?.('video', result.uri, Math.max(1, recordingSecondsRef.current));
       }
     } catch (err: any) {
       if (recordingTimerRef.current) {
@@ -2034,7 +2052,15 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                   ) : (
                     <View style={styles.videoActionRow}>
                       <Pressable
-                        onPress={() => openCamera('video', false, (kind, uri) => { if (kind === 'video') uploadPickedVideo(uri, MAX_VIDEO_DURATION_SECONDS, 0, MAX_VIDEO_DURATION_SECONDS); })}
+                        onPress={() => openCamera('video', false, (kind, uri, durationSec) => {
+                          // Was previously hardcoded to MAX_VIDEO_DURATION_SECONDS
+                          // regardless of how long the user actually recorded --
+                          // handleStartRecording now passes the real elapsed time.
+                          if (kind === 'video') {
+                            const actualDuration = durationSec ?? MAX_VIDEO_DURATION_SECONDS;
+                            uploadPickedVideo(uri, actualDuration, 0, actualDuration);
+                          }
+                        })}
                         style={styles.videoActionBtn}
                       >
                         <View style={styles.videoActionBtnIconWrap}>
