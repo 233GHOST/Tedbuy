@@ -279,26 +279,6 @@ export function createProductSelector() {
       scoringMap.set(p.id, getAdRankingScore(p));
     });
 
-    // Logging diagnostics
-    if (typeof window !== 'undefined' && filtered.length > 0) {
-      console.groupCollapsed('[Tedbuy Smart Ad Ranking Diagnostics] Evaluated Ads:', filtered.length);
-      filtered.forEach(p => {
-        const scores = scoringMap.get(p.id);
-        if (scores) {
-          console.log({
-            adId: p.id,
-            title: p.title,
-            rankingScore: scores.rankingScore,
-            sellerActivityScore: scores.sellerActivityScore,
-            popularityScore: scores.popularityScore,
-            freshnessScore: scores.freshnessScore,
-            qualityScore: scores.qualityScore
-          });
-        }
-      });
-      console.groupEnd();
-    }
-
     const sorted = [...filtered].sort((a, b) => {
       const scoresA = scoringMap.get(a.id) || { rankingScore: 0 };
       const scoresB = scoringMap.get(b.id) || { rankingScore: 0 };

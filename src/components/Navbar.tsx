@@ -374,6 +374,7 @@ export const Navbar: React.FC = () => {
             <input
               type="text"
               id="header-search-bar"
+              aria-label="Search listings"
               autoComplete="off"
               value={searchQuery}
               onChange={(e) => {
@@ -417,6 +418,7 @@ export const Navbar: React.FC = () => {
                 }}
                 className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white transition cursor-pointer"
                 title="Clear Search"
+                aria-label="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -642,8 +644,9 @@ export const Navbar: React.FC = () => {
                 )}
 
                 <div className="space-y-1.5 animate-slide-up">
-                  <label className="text-xs font-bold text-slate-700">Account Password</label>
+                  <label htmlFor="auth-link-password-input" className="text-xs font-bold text-slate-700">Account Password</label>
                   <input
+                    id="auth-link-password-input"
                     type="password"
                     required
                     value={linkPasswordInput}
@@ -750,10 +753,11 @@ export const Navbar: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5 text-center">
+                      <label htmlFor="auth-otp-input" className="block text-xs font-bold text-slate-700 mb-1.5 text-center">
                         Enter 6-Digit Code *
                       </label>
                       <input
+                        id="auth-otp-input"
                         type="text"
                         maxLength={6}
                         required
@@ -832,7 +836,7 @@ export const Navbar: React.FC = () => {
                 ) : (
                   <>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Username / Store Name *</label>
+                      <label htmlFor="auth-username-input" className="block text-xs font-bold text-slate-700 mb-1.5">Username / Store Name *</label>
                       <input
                         type="text"
                         id="auth-username-input"
@@ -844,7 +848,7 @@ export const Navbar: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Email Address *</label>
+                      <label htmlFor="auth-email-input" className="block text-xs font-bold text-slate-700 mb-1.2">Email Address *</label>
                       <input
                         type="email"
                         id="auth-email-input"
@@ -856,7 +860,7 @@ export const Navbar: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number *</label>
+                      <label htmlFor="auth-phone-input" className="block text-xs font-bold text-slate-700 mb-1.2">Phone Number *</label>
                       <input
                         type="text"
                         id="auth-phone-input"
@@ -868,7 +872,7 @@ export const Navbar: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Account Password *</label>
+                      <label htmlFor="auth-password-input" className="block text-xs font-bold text-slate-700 mb-1.2">Account Password *</label>
                       <div className="relative">
                         <input
                           type={showRegisterPassword ? 'text' : 'password'}
@@ -890,7 +894,7 @@ export const Navbar: React.FC = () => {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.2">Confirm Password *</label>
+                      <label htmlFor="auth-confirm-password-input" className="block text-xs font-bold text-slate-700 mb-1.2">Confirm Password *</label>
                       <div className="relative">
                         <input
                           type={showRegisterConfirmPassword ? 'text' : 'password'}
@@ -1028,7 +1032,7 @@ export const Navbar: React.FC = () => {
               {authMode === 'login' && (
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Email Address or Phone Number</label>
+                    <label htmlFor="auth-login-identifier-input" className="block text-xs font-bold text-slate-700 mb-1.5">Email Address or Phone Number</label>
                     <input
                       type="text"
                       id="auth-login-identifier-input"
@@ -1042,7 +1046,7 @@ export const Navbar: React.FC = () => {
                   </div>
                   <div>
                     <div className="flex justify-between items-center mb-1.5">
-                      <label className="block text-xs font-bold text-slate-700 font-sans">Password</label>
+                      <label htmlFor="auth-login-password-input" className="block text-xs font-bold text-slate-700 font-sans">Password</label>
                       <button
                         type="button"
                         onClick={() => {
@@ -1104,7 +1108,7 @@ export const Navbar: React.FC = () => {
                     </div>
                   ) : (
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Registered Email Address</label>
+                      <label htmlFor="auth-reset-email-input" className="block text-xs font-bold text-slate-700 mb-1.5">Registered Email Address</label>
                       <input
                         type="email"
                         id="auth-reset-email-input"
