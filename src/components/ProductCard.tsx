@@ -282,7 +282,20 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
       ref={cardRef as any}
       id={`product-card-${product.id}`}
       onClick={onDetailsClick}
-      className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.015] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group animate-fade-in"
+      role="button"
+      tabIndex={0}
+      aria-label={`View ${product.title || 'listing'}`}
+      onKeyDown={(e) => {
+        // ProductCard is the primary browsing unit on the home feed,
+        // category pages, and trending/featured views -- without this, a
+        // keyboard-only or screen-reader user couldn't open a single
+        // product from the grid at all.
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onDetailsClick();
+        }
+      }}
+      className="relative bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-md hover:scale-[1.015] hover:border-slate-300 transition-all duration-300 cursor-pointer flex flex-col h-full group animate-fade-in focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
     >
       {/* Listing image / video section */}
       <div className="relative w-full bg-slate-100 overflow-hidden shrink-0 aspect-square flex items-center justify-center" style={{ aspectRatio: '1/1' }}>
@@ -411,6 +424,7 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
               : 'bg-white/95 backdrop-blur-xs text-slate-400 hover:text-slate-800 hover:bg-white'
           }`}
           title={isSaved ? "Remove from saved items" : "Save to wishlist"}
+          aria-label={isSaved ? "Remove from saved items" : "Save to wishlist"}
         >
           <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill={isSaved ? "currentColor" : "none"} />
         </button>
@@ -449,7 +463,17 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
         {!isTrendingVariant && (
           <div
             onClick={(e) => onSellerClick(sellerId, e)}
-            className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1 text-slate-600 hover:text-slate-900 group/seller transition-colors cursor-pointer"
+            role="button"
+            tabIndex={0}
+            aria-label={`Visit ${sellerName}'s storefront`}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                onSellerClick(sellerId, e as unknown as React.MouseEvent);
+              }
+            }}
+            className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1 text-slate-600 hover:text-slate-900 group/seller transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-1 rounded-lg"
             title={`Visit ${sellerName}'s storefront`}
           >
             {/* Seller Avatar & Name */}
