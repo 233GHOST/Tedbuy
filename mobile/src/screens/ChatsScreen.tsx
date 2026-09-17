@@ -278,16 +278,24 @@ export function ChatsScreen() {
     }
 
     let active = true;
+    // Guards against overlapping in-flight polls, not just unmount -- if a
+    // poll is slow and resolves after a later poll (already in flight when
+    // the slow one was still pending) has already resolved, the slow one's
+    // stale chat list would otherwise silently win via setChats below,
+    // reverting a chat's last-message preview/unread count to stale data
+    // for up to one more poll cycle.
+    let requestId = 0;
     const load = async () => {
+      const thisRequestId = ++requestId;
       try {
         const result = await fetchChatsApi();
-        if (!active) return;
+        if (!active || thisRequestId !== requestId) return;
         setChats(result);
         setLoading(false);
         setChatsLoadFailed(false);
         hasLoadedChatsRef.current = true;
       } catch (err) {
-        if (!active) return;
+        if (!active || thisRequestId !== requestId) return;
         setLoading(false);
         // A failed background poll after we already have a working list is
         // invisible to the user by design — only the very first load (or a
