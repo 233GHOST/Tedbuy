@@ -42,7 +42,13 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
     >
       <View>
         <View style={styles.avatarRow}>
-          <View style={[styles.avatarRing, seller.isVerified ? styles.avatarRingVerified : styles.avatarRingPlain]}>
+          {/* Plain ring regardless of verification -- the emerald
+              "verified" ring used to double up with the online dot right
+              next to it (similar green, same corner of the avatar),
+              confirmed via testing to read as "online" at a glance even
+              though it never meant that. The checkmark badge below already
+              conveys verified status clearly on its own. */}
+          <View style={[styles.avatarRing, styles.avatarRingPlain]}>
             {seller.photo ? (
               <Image source={{ uri: seller.photo }} style={styles.avatarImg} cachePolicy="memory-disk" />
             ) : (
@@ -128,13 +134,14 @@ const styles = StyleSheet.create({
   avatarRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 },
   // The "story ring" — a colored border around the photo itself is what
   // reads as an intentional, branded design choice rather than a plain
-  // thumbnail; verified sellers get the brand emerald, everyone else a
-  // quiet slate so the ring never looks like an error state.
+  // thumbnail. Used to vary by verified status (brand emerald vs. quiet
+  // slate), but that emerald sat right next to the online dot in the same
+  // corner and got mistaken for it -- now always the same quiet slate;
+  // verifiedBadge below is the one and only verified signal.
   avatarRing: {
     width: 60, height: 60, borderRadius: 30, borderWidth: 2.5,
     justifyContent: 'center', alignItems: 'center', position: 'relative',
   },
-  avatarRingVerified: { borderColor: '#10b981' },
   avatarRingPlain: { borderColor: '#e2e8f0' },
   avatarImg: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#e2e8f0' },
   avatarFallback: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
@@ -143,11 +150,13 @@ const styles = StyleSheet.create({
     position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
     borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
   },
-  // Deliberately blue, not green -- avatarRingVerified above is already a
-  // similar green (emerald) shown on every verified seller regardless of
-  // presence, and a same-hue dot sitting right at that ring's edge was too
-  // easy to mistake for "online" at a glance, especially in a small
-  // screenshot. Blue has no other meaning on this card, so it can only
+  // Deliberately blue, not green -- confirmed live (production data showed
+  // every user correctly isOnline: false while this card still appeared to
+  // show everyone online) that the avatar's old verified-status ring, a
+  // similar green shown for every verified seller regardless of presence,
+  // was being read as "online" at a glance since it sat right at this same
+  // corner. That ring is gone now (see avatarRing above), but blue stays
+  // deliberate anyway -- nothing else on this card uses it, so it can only
   // ever mean one thing.
   onlineDot: {
     position: 'absolute', bottom: -1, left: -1, width: 15, height: 15, borderRadius: 8,
