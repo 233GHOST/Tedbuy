@@ -7,7 +7,7 @@ import { initializeAuth, onAuthStateChanged, signInWithEmailAndPassword, createU
 // bundled .d.ts doesn't pick up that condition, a long-standing upstream typing
 // gap (firebase-js-sdk#9316, #8332, #7584) — this is a types-only miss.
 import { getReactNativePersistence } from 'firebase/auth';
-import { getFirestore, collection, getDocs, query, orderBy, limit, where, onSnapshot, doc, getDoc, addDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, query, where, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { Product } from './types';
 
 const firebaseConfig = {
@@ -757,22 +757,6 @@ export async function fetchVideoAds(limitCount = 5, excludeIds: string[] = []): 
   return [];
 }
 
-export async function fetchChatsForUser(userId: string) {
-  const qBuyer = query(collection(db, 'chats'), where('buyerId', '==', userId));
-  const qSeller = query(collection(db, 'chats'), where('sellerId', '==', userId));
-  const [buyerSnap, sellerSnap] = await Promise.all([getDocs(qBuyer), getDocs(qSeller)]);
-  
-  const chatMap = new Map<string, any>();
-  buyerSnap.docs.forEach((docSnap) => chatMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() }));
-  sellerSnap.docs.forEach((docSnap) => chatMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() }));
-  
-  return Array.from(chatMap.values()).sort((a, b) => {
-    const timeA = a.lastMessageTime || '';
-    const timeB = b.lastMessageTime || '';
-    return timeB.localeCompare(timeA);
-  });
-}
-
 // Throws on a genuine network/timeout/malformed-response failure — a reachable
 // server saying "not found" still resolves to null, exactly as before. This
 // lets ProductDetailScreen show "check your connection, try again" instead of
@@ -925,62 +909,6 @@ export function watchUsers(callback: (users: any[]) => void) {
     clearInterval(interval);
     subscription.remove();
   };
-}
-
-// ---------------------------------------------------------------------------
-// LEGACY (Firestore direct access) — superseded by the authenticated API
-// functions below (fetchChatsApi, fetchMessagesApi, startChatApi,
-// sendMessageApi, markChatReadApi). No screen calls these anymore; kept
-// temporarily, unused, as a rollback reference until the API path has been
-// validated on real devices. Firestore chat/message/user data itself is left
-// untouched — nothing here deletes it.
-// ---------------------------------------------------------------------------
-export function watchChats(userId: string, callback: (chats: any[]) => void) {
-  const qBuyer = query(collection(db, 'chats'), where('buyerId', '==', userId));
-  const qSeller = query(collection(db, 'chats'), where('sellerId', '==', userId));
-  
-  const chatMap = new Map<string, any>();
-  
-  const triggerUpdate = () => {
-    const combined = Array.from(chatMap.values()).sort((a, b) => {
-      const timeA = a.lastMessageTime || '';
-      const timeB = b.lastMessageTime || '';
-      return timeB.localeCompare(timeA);
-    });
-    callback(combined);
-  };
-
-  const unsub1 = onSnapshot(qBuyer, (snap) => {
-    snap.forEach(docSnap => {
-      chatMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-    });
-    triggerUpdate();
-  });
-
-  const unsub2 = onSnapshot(qSeller, (snap) => {
-    snap.forEach(docSnap => {
-      chatMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-    });
-    triggerUpdate();
-  });
-
-  return () => {
-    unsub1();
-    unsub2();
-  };
-}
-
-export function watchMessages(chatId: string, callback: (messages: any[]) => void) {
-  const q = query(collection(db, 'messages'), where('chatId', '==', chatId));
-  return onSnapshot(q, (snap) => {
-    const msgs = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-    msgs.sort((a: any, b: any) => {
-      const dateA = a.createdAt || '';
-      const dateB = b.createdAt || '';
-      return dateA.localeCompare(dateB);
-    });
-    callback(msgs);
-  });
 }
 
 /** Matches web's toggleSaveProduct (src/context/AppContext.tsx) — the real
@@ -1288,86 +1216,6 @@ export async function updateUserProfile(profileData: {
   }
 
   return updatedUser;
-}
-
-export async function startChat(productId: string, initialMessage?: string) {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error('Authentication Required: Please sign in or create an account from the Profile tab.');
-
-  const product = await fetchProductById(productId);
-  if (!product) return '';
-
-  // Prevent starting chat with yourself
-  if (product.sellerId === currentUser.uid) {
-    throw new Error('Self-Trade Action: You cannot start a trade conversation on your own listing.');
-  }
-
-  // Check if chat already exists
-  const qBuyer = query(
-    collection(db, 'chats'),
-    where('productId', '==', productId),
-    where('buyerId', '==', currentUser.uid),
-    where('sellerId', '==', product.sellerId)
-  );
-  const buyerSnap = await getDocs(qBuyer);
-  if (!buyerSnap.empty) {
-    const existingChatId = buyerSnap.docs[0].id;
-    if (initialMessage) {
-      await sendMessage(existingChatId, initialMessage);
-    }
-    return existingChatId;
-  }
-
-  const chatId = `chat_${currentUser.uid}_${product.sellerId}_${product.id}_${Date.now()}`;
-  const newChat = {
-    id: chatId,
-    productId: product.id,
-    productTitle: product.title,
-    productPrice: product.price,
-    // Real photo/video-poster only — an empty string here (never a random
-    // stock photo) tells ChatsScreen's thumbnail to fall back to its own
-    // honest category placeholder instead.
-    productImage: resolveProductImageUri(product) || '',
-    buyerId: currentUser.uid,
-    sellerId: product.sellerId,
-    buyerName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Buyer',
-    sellerName: product.sellerName || 'Seller',
-    lastMessageText: initialMessage || 'Chat started',
-    lastMessageTime: new Date().toISOString(),
-    tradeStatus: 'pending'
-  };
-
-  await setDoc(doc(db, 'chats', chatId), newChat);
-  if (initialMessage) {
-    await sendMessage(chatId, initialMessage);
-  }
-  return chatId;
-}
-
-export async function sendMessage(chatId: string, text: string) {
-  const currentUser = auth.currentUser;
-  if (!currentUser) return;
-
-  const chatDoc = await getDoc(doc(db, 'chats', chatId));
-  if (!chatDoc.exists()) return;
-  const chat = chatDoc.data() as any;
-
-  const msgId = `msg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-  const newMsg = {
-    id: msgId,
-    chatId,
-    senderId: currentUser.uid,
-    recipientId: chat.buyerId === currentUser.uid ? chat.sellerId : chat.buyerId,
-    text,
-    createdAt: new Date().toISOString(),
-    read: false
-  };
-
-  await setDoc(doc(db, 'messages', msgId), newMsg);
-  await updateDoc(doc(db, 'chats', chatId), {
-    lastMessageText: text,
-    lastMessageTime: newMsg.createdAt
-  });
 }
 
 // ---------------------------------------------------------------------------
