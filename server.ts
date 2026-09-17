@@ -1020,6 +1020,27 @@ async function normalizeRequestImages(raw: any): Promise<InlineImagePart[]> {
 // no live HTML-injection path today — but AI output is untrusted content
 // regardless, so it's stripped of markup defensively before it ever leaves
 // this endpoint.
+// Best-effort recovery for a response that got cut off mid-string before
+// its closing quote/brace (e.g. hit maxOutputTokens) -- rather than
+// discarding an otherwise perfectly good, on-topic, mostly-complete
+// description just because the JSON wrapper never closed. Only ever used as
+// a fallback after a real JSON.parse attempt has already failed; a
+// well-formed response never reaches this path.
+function tryExtractTruncatedDescription(rawText: string): string | null {
+  const match = /"description"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(rawText);
+  if (!match) return null;
+  const unescaped = match[1]
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+  const trimmed = unescaped.trim();
+  // Too short to be a usable description on its own -- likely truncated
+  // right at the start, not worth showing as a "generated" result.
+  if (trimmed.length < 40) return null;
+  return trimmed;
+}
+
 function sanitizeAiDescription(raw: string): string {
   let text = raw || '';
   text = text.replace(/<[^>]*>/g, ''); // strip any HTML/XML tags
@@ -1184,7 +1205,23 @@ app.post(
                 // the image) far more than creative variety, and higher
                 // temperatures measurably hurt compliance.
                 temperature: 0.5,
-                maxOutputTokens: 650,
+                // gemini-3.6-flash is a "thinking" model -- its internal
+                // reasoning tokens count against maxOutputTokens same as the
+                // visible output. At the old 650-token cap, thinking alone
+                // was eating most/all of the budget, so the actual JSON
+                // response got cut off mid-string before its closing quote
+                // and brace (confirmed live: logged raw output was a real,
+                // sensible, on-topic description that just stopped mid-word)
+                // -- valid generations were being thrown away as
+                // "unparseable" purely because of truncation, not because
+                // the model produced anything wrong. This task needs zero
+                // multi-step reasoning (it's a short structured rewrite of
+                // given facts), so thinking is disabled outright rather than
+                // just budgeted for, and the token ceiling raised well
+                // beyond what a plain <=150-word JSON response could ever
+                // need, as a second independent safety margin.
+                thinkingConfig: { thinkingBudget: 0 },
+                maxOutputTokens: 2048,
                 abortSignal: controller.signal,
                 responseMimeType: 'application/json',
                 responseSchema: AI_LISTING_RESPONSE_SCHEMA,
@@ -1212,13 +1249,22 @@ app.post(
         let parsed: { description?: unknown; warning?: unknown } | null = null;
         try { parsed = JSON.parse(rawText); } catch { parsed = null; }
 
+        let recoveredDescription: string | null = null;
         if (!parsed || typeof parsed.description !== 'string' || !parsed.description.trim()) {
-          console.warn('[AI Listing Description] Provider returned unparseable/empty structured output:', rawText.slice(0, 300));
-          return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+          recoveredDescription = tryExtractTruncatedDescription(rawText);
+          if (!recoveredDescription) {
+            console.warn('[AI Listing Description] Provider returned unparseable/empty structured output:', rawText.slice(0, 300));
+            return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
+          }
+          console.warn('[AI Listing Description] JSON response was truncated (likely maxOutputTokens); recovered a partial description instead of failing outright:', rawText.slice(0, 300));
         }
 
-        const description = sanitizeAiDescription(parsed.description);
-        const warning = typeof parsed.warning === 'string' && parsed.warning.trim()
+        const description = sanitizeAiDescription(recoveredDescription ?? (parsed!.description as string));
+        // parsed can be null when recoveredDescription came from the
+        // truncated-response fallback above (JSON.parse never succeeded at
+        // all) -- the optional "warning" field simply isn't available in
+        // that case, which is fine since it's non-critical.
+        const warning = typeof parsed?.warning === 'string' && parsed.warning.trim()
           ? sanitizeAiDescription(parsed.warning).slice(0, 300)
           : undefined;
 
