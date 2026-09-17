@@ -118,8 +118,15 @@ export function AccountSecuritySettingsScreen({ onBack }: Props) {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            await logOut();
-            onBack();
+            // logOut()'s underlying signOut(auth) call is unguarded --
+            // matches the same fix just made in ProfileScreen.tsx's own
+            // handleSignOut for the identical gap.
+            try {
+              await logOut();
+              onBack();
+            } catch (err: any) {
+              Alert.alert('Sign Out Failed', err?.message || 'Could not sign out. Please try again.');
+            }
           },
         },
       ]
@@ -134,10 +141,16 @@ export function AccountSecuritySettingsScreen({ onBack }: Props) {
     if (isDeletingAccount) return;
     try {
       setIsDeletingAccount(true);
-      await deleteAccount();
+      const result = await deleteAccount();
       setIsDeleteModalVisible(false);
       setDeleteConfirmText('');
-      Alert.alert('Account Closed', 'Your account has been closed and your personal details anonymized.');
+      // The server has two materially different outcomes behind the same
+      // success:true response -- a security-hold account is frozen/queued
+      // for compliance review (nothing anonymized, evidence preserved)
+      // rather than the normal soft-delete/anonymize path. This previously
+      // always showed the same hardcoded "closed and anonymized" message
+      // regardless of which one actually happened.
+      Alert.alert(result.underInvestigation ? 'Account Under Review' : 'Account Closed', result.message);
       onBack();
     } catch (err: any) {
       Alert.alert('Could Not Delete Account', err?.message || 'Please try again.');

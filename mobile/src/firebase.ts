@@ -688,9 +688,16 @@ export async function logOut() {
 /** Matches web's deleteAccount (src/context/AppContext.tsx) — same
  * super-admin guard, same server soft-deletion endpoint, then signs out.
  * Was entirely missing on mobile: there was no way to close an account. */
-export async function deleteAccount() {
+export async function deleteAccount(): Promise<{ message: string; underInvestigation: boolean }> {
   const currentUser = auth.currentUser;
-  if (!currentUser) return;
+  // Previously returned silently here (resolved successfully with no server
+  // call at all) -- if the session had already been invalidated elsewhere
+  // (e.g. handleSessionExpired's signOut firing from some other in-flight
+  // request while the delete modal was still open), the screen still showed
+  // "Account Closed... anonymized" for an account that was never touched.
+  if (!currentUser) {
+    throw new Error('Your session has expired. Please sign in again before deleting your account.');
+  }
 
   const userEmail = currentUser.email?.trim()?.toLowerCase();
   if (userEmail === 'asumaduvincent7@gmail.com') {
@@ -709,6 +716,17 @@ export async function deleteAccount() {
   }
 
   await signOut(auth);
+  // The server has two materially different outcomes for this same
+  // success:true response -- a security-hold account is frozen/queued for
+  // compliance review (evidence preserved, nothing anonymized) rather than
+  // the normal soft-delete/anonymize path. The caller previously always
+  // showed a hardcoded "closed and anonymized" message regardless of which
+  // one actually happened, telling a user under investigation something
+  // factually wrong about their own account and data.
+  return {
+    message: data.message || 'Your account has been closed.',
+    underInvestigation: !!data.underInvestigation,
+  };
 }
 
 export function observeAuthState(callback: (user: any) => void) {
