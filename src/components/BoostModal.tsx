@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
 import { X, Sparkles, Check, CreditCard, Phone, ShieldCheck, AlertCircle, TrendingUp, Clock, ArrowRight, Info } from 'lucide-react';
@@ -46,6 +46,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
   const [verificationError, setVerificationError] = useState<string>('');
   const [momoSecondsLeft, setMomoSecondsLeft] = useState<number>(10);
   const [paymentReference, setPaymentReference] = useState<string>('');
+  const cardDemoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Dynamically load Paystack script if client-side public key is present
   useEffect(() => {
@@ -66,14 +67,37 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
 
   useEffect(() => {
     if (isOpen) {
+      // SellerDashboard reuses a single BoostModal instance across every
+      // product (isOpen/product are just props), so this component never
+      // actually unmounts between boost sessions -- previously card
+      // number/expiry/CVV and the last-picked payment method silently
+      // carried over into the next product's boost session, including
+      // into a different product's checkout entirely.
       setCheckoutStep('plan-select');
       setSelectedPlanId('7days');
       setPaymentReference('');
       setVerificationError('');
+      setPaymentMethod('momo');
+      setCardNumber('');
+      setCardExpiry('');
+      setCardCvv('');
       if (currentUser) {
         setPhoneNumber(currentUser.phoneNumber || currentUser.whatsAppNumber || '');
         setCardName(currentUser.username || '');
       }
+    } else {
+      // Since the component stays mounted, a pending MoMo countdown or the
+      // card demo's delayed auto-verify (below) kept running in the
+      // background after the user closed the modal, and could silently
+      // activate a boost once its timer elapsed with nobody watching.
+      // Resetting checkoutStep away from 'momo-push' lets that effect's
+      // own cleanup cancel its pending tick; the card-demo timeout is
+      // cancelled explicitly since it isn't tied to any step-driven effect.
+      if (cardDemoTimeoutRef.current) {
+        clearTimeout(cardDemoTimeoutRef.current);
+        cardDemoTimeoutRef.current = null;
+      }
+      setCheckoutStep('plan-select');
     }
   }, [isOpen]);
 
@@ -189,7 +213,9 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
     setPaymentReference(`TEDBUY_DEMO_CARD_${Date.now()}_${Math.random().toString(36).substr(2, 5).toUpperCase()}`);
     setCheckoutStep('verifying');
     // Start verification immediately for card
-    setTimeout(() => {
+    if (cardDemoTimeoutRef.current) clearTimeout(cardDemoTimeoutRef.current);
+    cardDemoTimeoutRef.current = setTimeout(() => {
+      cardDemoTimeoutRef.current = null;
       handleVerifyPaymentBackend();
     }, 1800);
   };
