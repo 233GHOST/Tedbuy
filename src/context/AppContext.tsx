@@ -5665,26 +5665,32 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     console.log(`[Admin Security Hold] Setting hold=${hold} for ${targetUser.username} (${userId})`);
 
     const adminAuthHeader = await getAuthHeader();
-    try {
-      const res = await fetch('/api/admin/accounts/security-hold', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(adminAuthHeader ? { 'Authorization': adminAuthHeader['Authorization'] } : {}),
-          'x-admin-email': currentUser.email || 'admin'
-        },
-        body: JSON.stringify({
-          targetUserId: userId,
-          hold,
-          reason: reason || 'Administrative compliance review'
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok && !data.success) {
-        throw new Error(data.error || 'Failed to update security hold on server.');
-      }
-    } catch (apiErr: any) {
-      console.warn('[Admin Security Hold] Server API warning:', apiErr);
+    const res = await fetch('/api/admin/accounts/security-hold', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(adminAuthHeader ? { 'Authorization': adminAuthHeader['Authorization'] } : {}),
+        'x-admin-email': currentUser.email || 'admin'
+      },
+      body: JSON.stringify({
+        targetUserId: userId,
+        hold,
+        reason: reason || 'Administrative compliance review'
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    // Correctness fix: this used to be `!res.ok && !data.success` (both
+    // must be true to count as a failure), which a 200 OK response
+    // carrying `{success:false, error:...}` -- a normal "handled"
+    // business-logic rejection -- satisfies neither half of, so it was
+    // never even detected as an error. The whole check was then also
+    // wrapped in a try/catch that only console.warn'd, never rethrew --
+    // meaning ANY failure (this one, a network error, a 500) fell through
+    // to the code below unconditionally updating local state to show the
+    // hold as applied and toasting "Security hold placed" success, on a
+    // fraud/security control an admin relies on to actually be true.
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to update security hold on server.');
     }
 
     // Update local state

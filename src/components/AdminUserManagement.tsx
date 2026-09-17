@@ -12,10 +12,12 @@ export const AdminUserManagement: React.FC = () => {
   
   const [auditLogs, setAuditLogs] = useState<ImpersonationAuditLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [logsError, setLogsError] = useState('');
   const [showLogsModal, setShowLogsModal] = useState(false);
 
   const [deletedAccounts, setDeletedAccounts] = useState<any[]>([]);
   const [isLoadingDeleted, setIsLoadingDeleted] = useState(false);
+  const [deletedError, setDeletedError] = useState('');
   const [showDeletedModal, setShowDeletedModal] = useState(false);
   const [isPurging, setIsPurging] = useState(false);
 
@@ -56,15 +58,24 @@ export const AdminUserManagement: React.FC = () => {
 
   const handleFetchAuditLogs = async () => {
     setIsLoadingLogs(true);
+    setLogsError('');
     try {
       const headers = await getAuthHeader();
       const res = await fetch('/api/admin/impersonate/logs', { headers });
       const data = await res.json();
       if (data.success && Array.isArray(data.logs)) {
         setAuditLogs(data.logs);
+      } else {
+        // Previously silent (console.error only) -- a failed fetch left
+        // auditLogs at [] indistinguishable from a genuinely empty, healthy
+        // result ("No impersonation audit logs recorded yet."), which is
+        // misleading in exactly the security-review context this panel
+        // exists for.
+        setLogsError(data.error || 'Failed to load audit logs.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[AdminUserManagement] Audit logs error:', err);
+      setLogsError(err?.message || 'Network error loading audit logs.');
     } finally {
       setIsLoadingLogs(false);
     }
@@ -72,15 +83,19 @@ export const AdminUserManagement: React.FC = () => {
 
   const handleFetchDeletedAccounts = async () => {
     setIsLoadingDeleted(true);
+    setDeletedError('');
     try {
       const headers = await getAuthHeader();
       const res = await fetch('/api/admin/accounts/deleted', { headers });
       const data = await res.json();
       if (data.success && Array.isArray(data.accounts)) {
         setDeletedAccounts(data.accounts);
+      } else {
+        setDeletedError(data.error || 'Failed to load deleted/retention accounts.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[AdminUserManagement] Deleted accounts fetch error:', err);
+      setDeletedError(err?.message || 'Network error loading deleted/retention accounts.');
     } finally {
       setIsLoadingDeleted(false);
     }
@@ -404,6 +419,10 @@ export const AdminUserManagement: React.FC = () => {
 
           {isLoadingDeleted ? (
             <div className="p-6 text-center text-xs text-slate-400">Loading deleted accounts...</div>
+          ) : deletedError ? (
+            <div className="p-4 text-center text-xs text-rose-400 font-mono bg-rose-950/30 border border-rose-900/60 rounded-xl">
+              Could not load this list: {deletedError}
+            </div>
           ) : deletedAccounts.length === 0 ? (
             <div className="p-6 text-center text-xs text-slate-500 font-mono">No soft-deleted or under-investigation accounts found.</div>
           ) : (
@@ -457,6 +476,10 @@ export const AdminUserManagement: React.FC = () => {
 
           {isLoadingLogs ? (
             <div className="p-6 text-center text-xs text-slate-400">Loading audit records...</div>
+          ) : logsError ? (
+            <div className="p-4 text-center text-xs text-rose-400 font-mono bg-rose-950/30 border border-rose-900/60 rounded-xl">
+              Could not load this list: {logsError}
+            </div>
           ) : auditLogs.length === 0 ? (
             <div className="p-6 text-center text-xs text-slate-500 font-mono">No impersonation audit logs recorded yet.</div>
           ) : (
