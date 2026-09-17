@@ -127,11 +127,15 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
     setActiveIndex(index);
   }, []);
 
-  // Auto-swipe carousel every 1.5 seconds
+  // Auto-swipe carousel every 1.5 seconds. Skips the actual scroll (a state
+  // update plus a layout read) while the tab is backgrounded -- previously
+  // this kept ticking and scrolling regardless of tab visibility, needless
+  // CPU/battery cost with nothing visible to show for it.
   useEffect(() => {
     if (featuredProducts.length <= 1 || isPaused) return;
 
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       const nextIndex = (activeIndexRef.current + 1) % featuredProducts.length;
       scrollToIndex(nextIndex);
     }, 1500);
