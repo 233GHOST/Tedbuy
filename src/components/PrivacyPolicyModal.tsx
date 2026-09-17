@@ -33,6 +33,7 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ isOpen, 
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             className="p-1.5 hover:bg-slate-100 hover:text-slate-900 rounded-lg text-slate-400 transition cursor-pointer"
           >
             <X className="w-4 h-4" />

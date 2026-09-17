@@ -108,6 +108,7 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
             onClick={onClose}
             className="absolute top-4 right-4 p-2 text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-colors"
             title="Close"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>

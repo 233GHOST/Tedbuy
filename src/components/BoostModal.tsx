@@ -286,8 +286,9 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
             </h2>
             <p className="text-[11px] text-slate-500 font-sans mt-0.5">Place your ad at the absolute top of the feed</p>
           </div>
-          <button 
+          <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1.5 hover:bg-slate-200 rounded-xl transition text-slate-500 hover:text-slate-900 cursor-pointer"
           >
             <X className="w-5 h-5" />
