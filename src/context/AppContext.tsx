@@ -1905,37 +1905,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentUserId]);
 
+  // Online presence — WhatsApp-style: a signed-in user is "online" as long
+  // as the server has heard from them recently (server.ts's
+  // computeIsOnline, currently a 90s threshold). This used to only update
+  // local React state (setCurrentUserState below) and never actually
+  // reached the server at all -- 'lastSeen'/'isOnline' were never in
+  // dbAdapter.ts's write allow-list from the RLS migration, so every write
+  // here was a pure no-op the entire time, confirmed by reading that
+  // allow-list directly, not assumed. POST /api/users/heartbeat (added
+  // alongside mobile's equivalent in App.tsx) is the real write path now.
+  const sendPresenceHeartbeat = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const authHeaders = await getAuthHeader();
+      await fetch('/api/users/heartbeat', { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' } });
+    } catch (err) {
+      // Best-effort, cosmetic feature -- a missed beat just means this
+      // user shows offline a little sooner than they actually went offline.
+    }
+    setCurrentUserState(prev => (prev ? { ...prev, lastSeen: new Date().toISOString(), isOnline: true } : null));
+  }, [currentUser?.id]);
+
   useEffect(() => {
     if (!currentUser) return;
+
+    sendPresenceHeartbeat();
     const interval = setInterval(() => {
       // Skip the write while backgrounded — a hidden tab doesn't need to keep
       // announcing presence, and this write is what drives the users-table
       // refresh cadence above, so a quieter heartbeat matters for egress too.
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      sendPresenceHeartbeat();
+    }, 60000);
 
-      const nowIso = new Date().toISOString();
-
-      // Update local state copy every 2 minutes.
-      // RLS-migration Phase 1: the direct-write persists that used to sit
-      // here (and in this effect's unmount cleanup below) were removed --
-      // same reasoning as the visitCount/isOnline block above: neither
-      // 'lastSeen' nor 'isOnline' has ever been in dbAdapter.ts's
-      // TABLE_COLUMNS allow-list, so both writes have been pure no-ops the
-      // entire time.
-      setCurrentUserState(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          lastSeen: nowIso,
-          isOnline: true
-        };
-      });
-    }, 120000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sendPresenceHeartbeat();
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [currentUser?.id]);
+  }, [currentUser?.id, sendPresenceHeartbeat]);
 
   // Notification security migration (see
   // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §18): these three used to
