@@ -847,8 +847,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   onlineDot: {
-    position: 'absolute', bottom: 0, right: 0, width: 14, height: 14, borderRadius: 7,
-    backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#ffffff',
+    // Blue, not green -- matches SellerCard.tsx's own online dot; kept
+    // visually distinct from any verified-seller green elsewhere on this
+    // screen so it can only ever mean "online."
+    position: 'absolute', bottom: 0, right: 0, width: 15, height: 15, borderRadius: 8,
+    backgroundColor: '#2563eb', borderWidth: 2.5, borderColor: '#ffffff',
   },
   avatarText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 18 },
   profileMeta: { flex: 1 },

@@ -143,9 +143,15 @@ const styles = StyleSheet.create({
     position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
     borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
   },
+  // Deliberately blue, not green -- avatarRingVerified above is already a
+  // similar green (emerald) shown on every verified seller regardless of
+  // presence, and a same-hue dot sitting right at that ring's edge was too
+  // easy to mistake for "online" at a glance, especially in a small
+  // screenshot. Blue has no other meaning on this card, so it can only
+  // ever mean one thing.
   onlineDot: {
-    position: 'absolute', bottom: -1, left: -1, width: 14, height: 14, borderRadius: 7,
-    backgroundColor: '#22c55e', borderWidth: 2, borderColor: '#ffffff',
+    position: 'absolute', bottom: -1, left: -1, width: 15, height: 15, borderRadius: 8,
+    backgroundColor: '#2563eb', borderWidth: 2.5, borderColor: '#ffffff',
   },
   categoryPill: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
   categoryPillText: { fontSize: 9.5, color: '#c2410c', fontFamily: fonts.extrabold },
