@@ -209,7 +209,23 @@ const ReelItem: React.FC<ReelItemProps> = ({
       return;
     }
     if (product?.sellerId) {
-      await followSeller(product.sellerId);
+      // followSeller throws via handleBackendError on any real failure --
+      // previously unguarded, so a transient error was an unhandled
+      // rejection with zero user feedback.
+      try {
+        await followSeller(product.sellerId);
+      } catch (err: any) {
+        let msg = 'Could not follow this store.';
+        if (err instanceof Error) {
+          try {
+            const parsed = JSON.parse(err.message);
+            if (parsed.error) msg = parsed.error;
+          } catch {
+            msg = err.message;
+          }
+        }
+        showToast?.(msg, 'error');
+      }
     }
   };
 
@@ -1306,14 +1322,31 @@ export const VideoAdsFeed: React.FC = () => {
                     e.stopPropagation();
                     setIsMuted(prev => !prev);
                   }}
-                  onSaveClick={(e) => {
+                  onSaveClick={async (e) => {
                     e.stopPropagation();
                     if (!currentUser) {
                       setAuthMode('login');
                       setShowAuthModal(true);
                       return;
                     }
-                    toggleSaveProduct(product.id);
+                    // toggleSaveProduct throws via handleBackendError on any
+                    // real failure -- previously fired with no await/catch,
+                    // so a transient error was an unhandled rejection with
+                    // zero user feedback.
+                    try {
+                      await toggleSaveProduct(product.id);
+                    } catch (err: any) {
+                      let msg = 'Could not update saved listings.';
+                      if (err instanceof Error) {
+                        try {
+                          const parsed = JSON.parse(err.message);
+                          if (parsed.error) msg = parsed.error;
+                        } catch {
+                          msg = err.message;
+                        }
+                      }
+                      showToast(msg, 'error');
+                    }
                   }}
                   isSaved={isSaved}
                   onMessageSeller={(e) => {
@@ -1388,7 +1421,7 @@ export const VideoAdsFeed: React.FC = () => {
               <div className="space-y-3.5">
                 {/* 1. Direct WhatsApp Option */}
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const sellerUser = users?.find(u => u.id === contactingProduct.sellerId);
                     const hasWhatsApp = !!sellerUser?.whatsAppNumber;
 
@@ -1410,11 +1443,30 @@ export const VideoAdsFeed: React.FC = () => {
                     if (!hasWhatsApp) {
                       // Custom graceful automatic fallback to SECURE IN-APP CHAT
                       showToast(`@${contactingProduct.sellerName} hasn't listed a WhatsApp link yet. Let's message them in-app instead!`, 'info');
+                      // Previously called startChat without await inside a
+                      // sync handler -- the try/catch never saw the async
+                      // rejection, and setCurrentView('chats') fired
+                      // unconditionally the instant startChat was CALLED,
+                      // not when it actually succeeded. A failed chat-create
+                      // (rate limit, network blip, server error) silently
+                      // dropped the user onto the Chats screen with no chat
+                      // created and no error shown.
                       try {
-                        startChat(contactingProduct.id, "Hi, I saw your video ad! Is this item still available?");
-                        setCurrentView('chats');
-                      } catch (err) {
-                        showToast("Failed to initiate in-app chat", "error");
+                        const chatId = await startChat(contactingProduct.id, "Hi, I saw your video ad! Is this item still available?");
+                        if (chatId) {
+                          setCurrentView('chats');
+                        }
+                      } catch (err: any) {
+                        let msg = 'Failed to initiate in-app chat';
+                        if (err instanceof Error) {
+                          try {
+                            const parsed = JSON.parse(err.message);
+                            if (parsed.error) msg = parsed.error;
+                          } catch {
+                            msg = err.message;
+                          }
+                        }
+                        showToast(msg, "error");
                         console.error(err);
                       }
                       setContactingProduct(null);
@@ -1452,19 +1504,33 @@ export const VideoAdsFeed: React.FC = () => {
 
                 {/* 2. Direct In-App Chat Option */}
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (!currentUser) {
                       setContactingProduct(null);
                       setAuthMode('login');
                       setShowAuthModal(true);
                       return;
                     }
+                    // Same fire-and-forget fix as the WhatsApp-fallback
+                    // button above -- now awaits and only navigates/closes
+                    // on a confirmed success.
                     try {
-                      startChat(contactingProduct.id, "Hi, I saw your video ad! Is this item still available?");
-                      setCurrentView('chats');
-                      setContactingProduct(null);
-                    } catch (err) {
-                      showToast("Failed to initiate secure in-app chat", "error");
+                      const chatId = await startChat(contactingProduct.id, "Hi, I saw your video ad! Is this item still available?");
+                      if (chatId) {
+                        setCurrentView('chats');
+                        setContactingProduct(null);
+                      }
+                    } catch (err: any) {
+                      let msg = 'Failed to initiate secure in-app chat';
+                      if (err instanceof Error) {
+                        try {
+                          const parsed = JSON.parse(err.message);
+                          if (parsed.error) msg = parsed.error;
+                        } catch {
+                          msg = err.message;
+                        }
+                      }
+                      showToast(msg, "error");
                       console.error("Failed to start chat:", err);
                     }
                   }}
