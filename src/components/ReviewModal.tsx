@@ -7,7 +7,7 @@ interface ReviewModalProps {
   sellerId: string;
   sellerName: string;
   productTitle?: string;
-  onSubmit: (rating: number, comment: string) => void;
+  onSubmit: (rating: number, comment: string) => void | Promise<void>;
 }
 
 export const ReviewModal: React.FC<ReviewModalProps> = ({
@@ -22,11 +22,13 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [comment, setComment] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (rating < 1 || rating > 5) {
       setError('Please choose a rating between 1 and 5 stars.');
       return;
@@ -36,10 +38,22 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
       return;
     }
     setError('');
-    onSubmit(rating, comment.trim());
-    setComment('');
-    setRating(5);
-    onClose();
+    setIsSubmitting(true);
+    try {
+      await onSubmit(rating, comment.trim());
+      // Only reset/close once the submission is confirmed -- previously
+      // this fired-and-forgot onSubmit and closed immediately regardless
+      // of outcome, so a failed submit silently discarded the user's
+      // rating and comment with only a toast (and the modal already gone)
+      // to explain why.
+      setComment('');
+      setRating(5);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Could not submit your review. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -162,15 +176,17 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-xl text-xs font-bold transition hover:border-slate-300 cursor-pointer"
+              disabled={isSubmitting}
+              className="flex-1 py-2.5 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 rounded-xl text-xs font-bold transition hover:border-slate-300 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+              disabled={isSubmitting}
+              className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-wait"
             >
-              Submit Review
+              {isSubmitting ? 'Submitting...' : 'Submit Review'}
             </button>
           </div>
         </form>

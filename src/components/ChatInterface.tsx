@@ -149,6 +149,7 @@ export const ChatInterface: React.FC = () => {
   } = useApp();
 
   const [inputText, setInputText] = useState('');
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'buying' | 'selling'>('all');
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
@@ -411,9 +412,9 @@ export const ChatInterface: React.FC = () => {
     }
   };
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !activeChatId) return;
+    if (!inputText.trim() || !activeChatId || isSendingMessage) return;
 
     if (!currentUser?.emailVerified) {
       setBlockedActionType('chat');
@@ -424,8 +425,31 @@ export const ChatInterface: React.FC = () => {
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     sendTypingStatus(activeChatId, false);
 
-    sendMessage(activeChatId, inputText.trim());
+    const textToSend = inputText.trim();
+    setIsSendingMessage(true);
     setInputText('');
+    try {
+      await sendMessage(activeChatId, textToSend);
+    } catch (err: any) {
+      // sendMessage only throws for validation-level failures (rate limit,
+      // empty/oversized text) that happen before the optimistic bubble is
+      // added -- a real network failure never reaches here, it's queued
+      // for offline retry instead. Restore the draft so the user doesn't
+      // lose what they typed.
+      let msg = 'Could not send message. Please try again.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
+      setInputText(textToSend);
+    } finally {
+      setIsSendingMessage(false);
+    }
   };
 
   // Find info about the peer (other person) in active chat
@@ -1140,7 +1164,16 @@ export const ChatInterface: React.FC = () => {
                               showToast('Delivery confirmed successfully.', 'success');
                             } catch (err: any) {
                               console.error('[ChatInterface] markAsDelivered error:', err);
-                              showToast(err?.message || 'Could not confirm delivery. Please try again.', 'error');
+                              let msg = 'Could not confirm delivery. Please try again.';
+                              if (err instanceof Error) {
+                                try {
+                                  const parsed = JSON.parse(err.message);
+                                  if (parsed.error) msg = parsed.error;
+                                } catch {
+                                  msg = err.message;
+                                }
+                              }
+                              showToast(msg, 'error');
                             } finally {
                               setIsDelivering(false);
                             }
@@ -1167,7 +1200,16 @@ export const ChatInterface: React.FC = () => {
                                     showToast('Pickup confirmed. You can now rate the seller.', 'success');
                                   } catch (err: any) {
                                     console.error('[ChatInterface] markAsPickedUp error:', err);
-                                    showToast(err?.message || 'Could not confirm pickup. Please try again.', 'error');
+                                    let msg = 'Could not confirm pickup. Please try again.';
+                                    if (err instanceof Error) {
+                                      try {
+                                        const parsed = JSON.parse(err.message);
+                                        if (parsed.error) msg = parsed.error;
+                                      } catch {
+                                        msg = err.message;
+                                      }
+                                    }
+                                    showToast(msg, 'error');
                                   } finally {
                                     setIsPickingUp(false);
                                   }
@@ -1432,16 +1474,19 @@ export const ChatInterface: React.FC = () => {
                 <input
                   type="text"
                   required
+                  maxLength={5000}
                   id="chat-writing-input"
                   value={inputText}
                   onChange={handleInputChange}
+                  disabled={isSendingMessage}
                   placeholder={`Write a reply to ${otherUserName}...`}
-                  className="flex-1 px-4 py-3 bg-slate-105 bg-slate-100 hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-450 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:bg-white text-base md:text-sm transition placeholder:text-slate-450"
+                  className="flex-1 px-4 py-3 bg-slate-105 bg-slate-100 hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-450 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:bg-white text-base md:text-sm transition placeholder:text-slate-450 disabled:opacity-60"
                 />
                 <button
                   type="submit"
                   id="chat-send-btn"
-                  className="w-12 h-12 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition shadow-xs flex items-center justify-center shrink-0 active:scale-95 touch-manipulation cursor-pointer"
+                  disabled={isSendingMessage || !inputText.trim()}
+                  className="w-12 h-12 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition shadow-xs flex items-center justify-center shrink-0 active:scale-95 touch-manipulation cursor-pointer disabled:opacity-60 disabled:active:scale-100"
                   title="Send message"
                 >
                   <Send className="w-4 h-4" />
@@ -1495,11 +1540,13 @@ export const ChatInterface: React.FC = () => {
                 // 'completed' from this exact chat rather than trusting the
                 // client, so this can't be spoofed even though the UI here
                 // only ever shows "Leave Review" once that's already true.
-                try {
-                  await addReview(activeChat.sellerId, rating, comment, activeChat.productTitle, activeChat.id);
-                } catch (err: any) {
-                  showToast(err?.message || 'Could not submit your review. Please try again.', 'error');
-                }
+                //
+                // Intentionally not caught here: ReviewModal awaits this
+                // call and only clears/closes on success, showing the
+                // error inline itself on failure so the user's rating and
+                // comment aren't silently discarded.
+                await addReview(activeChat.sellerId, rating, comment, activeChat.productTitle, activeChat.id);
+                showToast('Review submitted. Thank you!', 'success');
               }}
             />
           )}
