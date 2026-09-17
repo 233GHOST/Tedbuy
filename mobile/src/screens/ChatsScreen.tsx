@@ -865,6 +865,7 @@ export function ChatsScreen() {
             <TextInput
               style={styles.chatTextInput}
               value={messageText}
+              accessibilityLabel={`Reply to ${displayPeerName}`}
               onChangeText={(text) => {
                 setMessageText(text);
                 if (!activeChatId) return;
@@ -888,6 +889,8 @@ export function ChatsScreen() {
                 !messageText.trim() && styles.sendBtnDisabled,
               ]}
               disabled={!messageText.trim() || sending}
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
             >
               {sending ? (
                 <ActivityIndicator color="#ffffff" size="small" />
@@ -918,16 +921,22 @@ export function ChatsScreen() {
             onChangeText={setSearchQuery}
             placeholder="Search messages..."
             placeholderTextColor="#94a3b8"
+            accessibilityLabel="Search messages"
           />
           {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
+            <Pressable
+              onPress={() => setSearchQuery('')}
+              style={styles.clearSearchBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
               <Text style={styles.clearSearchText}>✕</Text>
             </Pressable>
           )}
         </View>
 
         {/* Filter chips */}
-        <View style={styles.filterRow}>
+        <View style={styles.filterRow} accessibilityRole="tablist">
           {(['all', 'unread', 'buying', 'selling'] as const).map((mode) => {
             const isActive = filterMode === mode;
             const labels = { all: 'All Chats', unread: 'Unread', buying: 'Buying', selling: 'Selling' };
@@ -936,6 +945,9 @@ export function ChatsScreen() {
                 key={mode}
                 onPress={() => setFilterMode(mode)}
                 style={[styles.filterChip, isActive && styles.filterChipActive]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={labels[mode]}
               >
                 <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                   {labels[mode]}
@@ -1004,6 +1016,13 @@ export function ChatsScreen() {
                   onPress={() => setActiveChatId(item.id)}
                   onLongPress={() => handleDeleteChat(item.id)}
                   style={styles.chatCard}
+                  accessibilityRole="button"
+                  accessibilityLabel={[
+                    displayPeerName,
+                    item.productTitle || 'Marketplace Item',
+                    item.lastMessageText || 'No messages yet',
+                    item.unreadCount > 0 && item.tradeStatus !== 'completed' ? `${item.unreadCount} unread` : null,
+                  ].filter(Boolean).join(', ')}
                 >
                   <View style={styles.avatar}>
                     {displayPeerPhoto ? (
@@ -1074,7 +1093,7 @@ export function ChatsScreen() {
           <View style={styles.reviewModalCard}>
             <View style={styles.reviewModalHeader}>
               <Text style={styles.reviewModalTitle}>Leave a Review</Text>
-              <Pressable onPress={() => setShowReviewModal(false)} hitSlop={8}>
+              <Pressable onPress={() => setShowReviewModal(false)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
                 <X size={18} color="#64748b" />
               </Pressable>
             </View>
@@ -1083,9 +1102,15 @@ export function ChatsScreen() {
                 Rate your trade for "{reviewModalChat.productTitle}" with {reviewModalChat.sellerName}
               </Text>
             )}
-            <View style={styles.starRow}>
+            <View style={styles.starRow} accessibilityRole="radiogroup" accessibilityLabel={`Rating: ${reviewRating} of 5 stars`}>
               {[1, 2, 3, 4, 5].map((star) => (
-                <Pressable key={star} onPress={() => setReviewRating(star)}>
+                <Pressable
+                  key={star}
+                  onPress={() => setReviewRating(star)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: star <= reviewRating }}
+                  accessibilityLabel={`Rate ${star} star${star === 1 ? '' : 's'}`}
+                >
                   <Star
                     size={30}
                     color={star <= reviewRating ? '#eab308' : '#cbd5e1'}
