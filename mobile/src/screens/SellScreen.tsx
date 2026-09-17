@@ -619,9 +619,18 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     if (!cameraPermission?.granted) {
       const res = await requestCameraPermission();
       if (!res.granted) {
+        // Was previously text-only ("enable it in your device Settings")
+        // with no actual button to do that -- unlike the mic-permission
+        // Alert right below in handleStartRecording, and the wizard's own
+        // dedicated camera-permission screen, both of which already offer
+        // a real "Open Settings" action once canAskAgain is false (meaning
+        // a plain re-request would just silently no-op forever).
         Alert.alert(
           'Camera Access Needed',
-          'TedBuy needs camera access to take a photo or record a video for your listing. Please enable it in your device Settings.'
+          res.canAskAgain === false
+            ? 'TedBuy needs camera access to take a photo or record a video for your listing. Please enable it in your device Settings.'
+            : 'TedBuy needs camera access to take a photo or record a video for your listing.',
+          res.canAskAgain === false ? [{ text: 'Open Settings', onPress: () => Linking.openSettings() }, { text: 'Cancel', style: 'cancel' }] : undefined
         );
         return;
       }
