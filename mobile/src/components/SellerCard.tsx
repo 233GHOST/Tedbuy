@@ -25,8 +25,20 @@ interface SellerCardProps {
  * from the real user record's photoUrl (see computeDiscoverSellers) — this
  * only changes how it's presented, not whether it's there. */
 export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow, isTogglingFollow }: SellerCardProps) {
+  const cardAccessibilityLabel = [
+    seller.name,
+    seller.isVerified ? 'Verified' : null,
+    seller.location,
+    `${seller.listingCount} ${seller.listingCount === 1 ? 'item' : 'items'}`,
+  ].filter(Boolean).join(', ');
+
   return (
-    <Pressable onPress={onPress} style={[styles.card, style]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.card, style]}
+      accessibilityRole="button"
+      accessibilityLabel={cardAccessibilityLabel}
+    >
       <View>
         <View style={styles.avatarRow}>
           <View style={[styles.avatarRing, seller.isVerified ? styles.avatarRingVerified : styles.avatarRingPlain]}>
@@ -71,6 +83,9 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
           onPress={(e: any) => { e?.stopPropagation?.(); onToggleFollow(); }}
           disabled={isTogglingFollow}
           style={[styles.followBtn, isFollowing && styles.followBtnActive]}
+          accessibilityRole="button"
+          accessibilityLabel={isFollowing ? `Unfollow ${seller.name}` : `Follow ${seller.name}`}
+          accessibilityState={{ selected: isFollowing, disabled: isTogglingFollow }}
         >
           {isTogglingFollow ? (
             <ActivityIndicator size="small" color={isFollowing ? '#475569' : '#ffffff'} />
