@@ -114,7 +114,16 @@ export const SellersDiscoveryView: React.FC = () => {
         showToast(`Now following ${sellerName}`, 'success');
       }
     } catch (err: any) {
-      showToast(err?.message || 'Could not update follow status.', 'error');
+      let msg = 'Could not update follow status.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
     } finally {
       setTogglingId(null);
     }
