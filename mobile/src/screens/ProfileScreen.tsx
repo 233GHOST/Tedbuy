@@ -401,6 +401,7 @@ export function ProfileScreen() {
                   placeholder="e.g. Nana Gadgets, Ama Fashion"
                   placeholderTextColor="#94a3b8"
                   style={styles.textInput}
+                  accessibilityLabel="Store or Display Name"
                 />
               </View>
             )}
@@ -415,6 +416,7 @@ export function ProfileScreen() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 style={styles.textInput}
+                accessibilityLabel="Email Address"
               />
             </View>
 
@@ -430,6 +432,7 @@ export function ProfileScreen() {
                     autoCapitalize="none"
                     keyboardType="email-address"
                     style={styles.textInput}
+                    accessibilityLabel="Email Address"
                   />
                 </View>
                 <Pressable
@@ -467,11 +470,15 @@ export function ProfileScreen() {
                       secureTextEntry={!isPasswordVisible}
                       autoCapitalize="none"
                       style={[styles.textInput, styles.passwordFieldInput]}
+                      accessibilityLabel="Password"
                     />
                     <Pressable
                       onPress={() => setIsPasswordVisible((prev) => !prev)}
                       hitSlop={10}
                       style={styles.passwordVisibilityBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={isPasswordVisible ? 'Hide password' : 'Show password'}
+                      accessibilityState={{ selected: isPasswordVisible }}
                     >
                       {isPasswordVisible ? (
                         <EyeOff size={18} color="#64748b" strokeWidth={2} />
@@ -532,7 +539,13 @@ export function ProfileScreen() {
         <View style={styles.container}>
           {/* Header */}
           <View style={styles.profileHeader}>
-            <Pressable onPress={handleAvatarPress} style={styles.avatar} disabled={isUploadingAvatar}>
+            <Pressable
+              onPress={handleAvatarPress}
+              style={styles.avatar}
+              disabled={isUploadingAvatar}
+              accessibilityRole="button"
+              accessibilityLabel="Change profile photo"
+            >
               {isUploadingAvatar ? (
                 <ActivityIndicator size="small" color="#ffffff" />
               ) : userProfile?.photoUrl ? (
@@ -550,7 +563,13 @@ export function ProfileScreen() {
               <Text style={styles.merchantEmail}>{user.email}</Text>
               <Text style={styles.merchantBadge}>✓ Authorized Partner</Text>
             </View>
-            <Pressable onPress={() => setActiveTab('settings')} style={styles.headerSettingsBtn} hitSlop={10}>
+            <Pressable
+              onPress={() => setActiveTab('settings')}
+              style={styles.headerSettingsBtn}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Open settings"
+            >
               <SettingsIcon size={22} color="#ffffff" />
             </Pressable>
           </View>
