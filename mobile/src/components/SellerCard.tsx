@@ -46,7 +46,7 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
             since the dot code was fully removed yet still reportedly
             visible. Remove once that's settled either way. */}
         <View style={{ backgroundColor: '#ff00ff', padding: 4, marginBottom: 6, borderRadius: 6 }}>
-          <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>BUILD-CHECK-4070344</Text>
+          <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>BUILD-CHECK-STRIPPED-BADGE</Text>
         </View>
         <View style={styles.avatarRow}>
           {/* Plain ring regardless of verification -- the emerald
@@ -55,17 +55,16 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
               confirmed via testing to read as "online" at a glance even
               though it never meant that. The checkmark badge below already
               conveys verified status clearly on its own. */}
+          {/* TEMPORARY: verifiedBadge stripped out too, to isolate exactly
+              what's producing a green dot that's been confirmed to persist
+              even after removing every known dot/ring style from this
+              file. Restore once settled. */}
           <View style={[styles.avatarRing, styles.avatarRingPlain]}>
             {seller.photo ? (
               <Image source={{ uri: seller.photo }} style={styles.avatarImg} cachePolicy="memory-disk" />
             ) : (
               <View style={styles.avatarFallback}>
                 <Text style={styles.avatarInitial}>{seller.name.charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
-            {seller.isVerified && (
-              <View style={styles.verifiedBadge}>
-                <CheckCircle2 size={15} color="#ffffff" fill="#059669" strokeWidth={0} />
               </View>
             )}
           </View>
