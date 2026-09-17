@@ -24,6 +24,11 @@ export interface CloudinaryUploadResult {
   large_url: string;
   video_poster_url?: string;
   streaming_url?: string;
+  // True only when the last-resort base64-data-URL fallback below fired
+  // (all real Cloudinary retries failed) -- lets a caller warn the user
+  // instead of the previous silent behavior, where this was indistinguishable
+  // from a real upload (secure_url is truthy either way).
+  isFallback?: boolean;
 }
 
 /**
@@ -251,7 +256,8 @@ export async function uploadToCloudinary(
       thumbnail_url: base64Payload,
       small_url: base64Payload,
       medium_url: base64Payload,
-      large_url: base64Payload
+      large_url: base64Payload,
+      isFallback: true
     };
   }
 

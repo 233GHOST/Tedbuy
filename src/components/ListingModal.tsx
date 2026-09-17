@@ -1087,7 +1087,16 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     try {
       // Phase 1 Cloudinary Media Upload Processing
       setUploadStatus('Uploading media to Cloudinary...');
-      
+
+      // uploadToCloudinary() silently falls back to embedding the raw
+      // base64 data URL directly (rather than a real Cloudinary URL) if
+      // every retry fails -- previously indistinguishable from a real
+      // success (secure_url is truthy either way), so the listing quietly
+      // published/saved with a multi-megabyte string in images/videos
+      // instead of a CDN link, with zero indication to the user. Tracked
+      // here so they can be told, since this can't be caught any other way.
+      let hadFallbackUpload = false;
+
       const cloudinaryImages: string[] = [];
       for (let i = 0; i < finalImages.length; i++) {
         const img = finalImages[i];
@@ -1096,6 +1105,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           try {
             const res = await uploadToCloudinary(img, 'image');
             if (res && res.secure_url) {
+              if (res.isFallback) hadFallbackUpload = true;
               cloudinaryImages.push(res.secure_url);
             } else {
               throw new Error(`Cloudinary returned empty response for image ${i + 1}`);
@@ -1129,6 +1139,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
                 })
               : await uploadToCloudinary(vid, 'video');
             if (res && res.secure_url) {
+              if (res.isFallback) hadFallbackUpload = true;
               cloudinaryVideos.push(res.secure_url);
             } else {
               throw new Error(`Cloudinary returned empty response for video ${i + 1}`);
@@ -1212,7 +1223,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           sellerJoinDate: productToEdit.sellerJoinDate
         });
 
-        showToast("Ad updated successfully!", "success");
+        showToast(
+          hadFallbackUpload
+            ? "Ad updated, but one or more photos/videos couldn't reach our image service and were saved in a lower-quality fallback format. Consider re-uploading them."
+            : "Ad updated successfully!",
+          hadFallbackUpload ? "info" : "success"
+        );
         setSelectedProductId(productToEdit.id);
         setCurrentView('product-detail');
       } else {
@@ -1237,7 +1253,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           exchangePossible: finalIsExchangeable
         });
 
-        showToast("Ad posted successfully!", "success");
+        showToast(
+          hadFallbackUpload
+            ? "Ad posted, but one or more photos/videos couldn't reach our image service and were saved in a lower-quality fallback format. Consider re-uploading them."
+            : "Ad posted successfully!",
+          hadFallbackUpload ? "info" : "success"
+        );
 
         // Explicitly reset the form states
         setTitle('');
