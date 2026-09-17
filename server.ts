@@ -4211,7 +4211,25 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
     if (backendSupabase) {
       const { error } = await safeBackendSupabaseUpsert('users', cleanUser, { onConflict: 'id' });
       if (error) {
-        console.warn('[Users Sync API] Supabase upsert warning:', error.message || error);
+        // Correctness fix, same shape as this session's other "write
+        // failure reported as success" fixes (deleteAccount,
+        // adminToggleSecurityHold, updateProduct's rollback) -- this used
+        // to only console.warn and fall through to the unconditional
+        // success response below, meaning a genuine database rejection
+        // (a unique-constraint violation, a transient Supabase error,
+        // anything) here was invisible to the caller. This is the single
+        // endpoint behind every profile save AND registration itself on
+        // both platforms -- registerUser (AppContext.tsx) already correctly
+        // rethrows on `!data.success` (fixed earlier this session), but
+        // that fix was useless against this specific failure mode, since
+        // the server never actually told it anything had gone wrong.
+        console.error('[Users Sync API] Supabase users upsert failed:', error.message || error);
+        return res.status(500).json({
+          success: false,
+          error: (error as any)?.code === '23505'
+            ? 'That username is already taken. Please choose another.'
+            : (error.message || 'Failed to save your profile. Please try again.')
+        });
       }
 
       if (cleanUser.username) {
