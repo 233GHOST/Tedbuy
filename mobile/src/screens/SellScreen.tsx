@@ -1450,7 +1450,14 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           {formCategories.map((cat) => {
             const isSelected = selectedCategory === cat;
             return (
-              <Pressable key={cat} onPress={() => setSelectedCategory(cat)} style={[styles.chip, isSelected && styles.chipActive]}>
+              <Pressable
+                key={cat}
+                onPress={() => setSelectedCategory(cat)}
+                style={[styles.chip, isSelected && styles.chipActive]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected, checked: isSelected }}
+                accessibilityLabel={cat}
+              >
                 <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{cat}</Text>
               </Pressable>
             );
@@ -1467,6 +1474,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           style={styles.input}
           placeholderTextColor="#94a3b8"
           maxLength={150}
+          accessibilityLabel={selectedCategory === 'Jobs & Employment' ? 'Job Title' : 'Listing Title'}
         />
       </View>
 
@@ -1477,7 +1485,14 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             {SERVICE_TYPES.map((svc) => {
               const isSelected = serviceSubCategory === svc;
               return (
-                <Pressable key={svc} onPress={() => setServiceSubCategory(svc)} style={[styles.chip, isSelected && styles.chipActive]}>
+                <Pressable
+                  key={svc}
+                  onPress={() => setServiceSubCategory(svc)}
+                  style={[styles.chip, isSelected && styles.chipActive]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected, checked: isSelected }}
+                  accessibilityLabel={svc}
+                >
                   <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{svc}</Text>
                 </Pressable>
               );
@@ -1490,6 +1505,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
               placeholder="e.g. Catering, Plumbing, Cleaning"
               style={[styles.input, { marginTop: 10 }]}
               placeholderTextColor="#94a3b8"
+              accessibilityLabel="Custom Service Type"
             />
           )}
         </View>
@@ -1507,9 +1523,16 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
               keyboardType="numeric"
               style={[styles.input, { flex: 1, borderWidth: 0, paddingLeft: 6, height: 44 }]}
               placeholderTextColor="#94a3b8"
+              accessibilityLabel="Price in Ghana Cedis"
             />
           </View>
-          <Pressable onPress={() => setNegotiable((prev) => !prev)} style={styles.negotiableRow}>
+          <Pressable
+            onPress={() => setNegotiable((prev) => !prev)}
+            style={styles.negotiableRow}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: negotiable }}
+            accessibilityLabel="Price is negotiable"
+          >
             <View style={[styles.negotiableCheckbox, negotiable && styles.negotiableCheckboxChecked]}>
               {negotiable && <Text style={styles.negotiableCheckMark}>✓</Text>}
             </View>
@@ -1527,6 +1550,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             placeholder="e.g. Apple, Nike, Samsung, Toyota"
             style={styles.input}
             placeholderTextColor="#94a3b8"
+            accessibilityLabel="Brand or Manufacturer"
           />
         </View>
       )}
@@ -1547,12 +1571,20 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             placeholder="e.g. Brand New, Slightly Used (optional)"
             style={[styles.input, { marginBottom: 8 }]}
             placeholderTextColor="#94a3b8"
+            accessibilityLabel="Item Condition"
           />
           <View style={styles.chipRow}>
             {conditions.map((cond) => {
               const isSelected = condition === cond;
               return (
-                <Pressable key={cond} onPress={() => setCondition(isSelected ? '' : cond)} style={[styles.chip, isSelected && styles.chipActive]}>
+                <Pressable
+                  key={cond}
+                  onPress={() => setCondition(isSelected ? '' : cond)}
+                  style={[styles.chip, isSelected && styles.chipActive]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected, checked: isSelected }}
+                  accessibilityLabel={cond}
+                >
                   <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{cond}</Text>
                 </Pressable>
               );
@@ -1582,7 +1614,14 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           {GHANA_REGIONS.map((reg) => {
             const isSelected = adRegion === reg.name;
             return (
-              <Pressable key={reg.name} onPress={() => setAdRegion(reg.name)} style={[styles.chip, isSelected && styles.chipActive]}>
+              <Pressable
+                key={reg.name}
+                onPress={() => setAdRegion(reg.name)}
+                style={[styles.chip, isSelected && styles.chipActive]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected, checked: isSelected }}
+                accessibilityLabel={reg.name}
+              >
                 <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{reg.name}</Text>
               </Pressable>
             );
@@ -1596,7 +1635,14 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           {activeRegionObj?.cities.map((city) => {
             const isSelected = adCity === city;
             return (
-              <Pressable key={city} onPress={() => setAdCity(city)} style={[styles.chip, isSelected && styles.chipActive]}>
+              <Pressable
+                key={city}
+                onPress={() => setAdCity(city)}
+                style={[styles.chip, isSelected && styles.chipActive]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected, checked: isSelected }}
+                accessibilityLabel={city}
+              >
                 <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>{city}</Text>
               </Pressable>
             );
@@ -1614,6 +1660,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           placeholder={selectedCategory === 'Jobs & Employment' ? 'e.g. Airport Residential Area, Remote' : 'e.g. East Legon, Spintex Road'}
           style={styles.input}
           placeholderTextColor="#94a3b8"
+          accessibilityLabel={selectedCategory === 'Jobs & Employment' ? 'Specific Office Area or Work Location' : 'Neighborhood'}
         />
       </View>
 
@@ -1656,6 +1703,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         <TextInput
           value={description}
           onChangeText={setDescription}
+          accessibilityLabel={selectedCategory === 'Jobs & Employment' ? 'Detailed Job Description and Requirements' : 'Detailed Description'}
           onFocus={() => {
             setIsDescFocused(true);
             // Jump to the full focused height immediately, don't wait for
@@ -1785,7 +1833,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                             </Pressable>
                           </View>
                         )}
-                        <Pressable onPress={() => handleRemoveImage(img.id)} style={styles.removePhotoBtn} hitSlop={6}>
+                        <Pressable
+                          onPress={() => handleRemoveImage(img.id)}
+                          style={styles.removePhotoBtn}
+                          hitSlop={6}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove photo ${idx + 1}`}
+                        >
                           <Text style={styles.removePhotoBtnText}>✕</Text>
                         </Pressable>
                       </Pressable>
@@ -1824,7 +1878,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                             </Pressable>
                           </View>
                         )}
-                        <Pressable onPress={handleRemoveVideo} style={styles.removePhotoBtn} hitSlop={6}>
+                        <Pressable
+                          onPress={handleRemoveVideo}
+                          style={styles.removePhotoBtn}
+                          hitSlop={6}
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove video"
+                        >
                           <Text style={styles.removePhotoBtnText}>✕</Text>
                         </Pressable>
                       </View>
@@ -2009,13 +2069,25 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
                     <Text style={styles.editSectionLabel}>PHOTOS — tap one to crop</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={{ flexDirection: 'row', gap: 10 }}>
-                        {images.map((img) => (
-                          <Pressable key={img.id} onPress={() => setCropTargetId(img.id)} style={styles.editThumbWrapper}>
+                        {images.map((img, idx) => (
+                          <Pressable
+                            key={img.id}
+                            onPress={() => setCropTargetId(img.id)}
+                            style={styles.editThumbWrapper}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Crop photo ${idx + 1}`}
+                          >
                             <Image source={{ uri: img.localUri }} style={styles.editThumb} />
                             <View style={styles.editThumbCropBadge}>
                               <Text style={styles.editThumbCropBadgeText}>✎</Text>
                             </View>
-                            <Pressable onPress={() => handleRemoveImage(img.id)} style={styles.removePhotoBtn} hitSlop={6}>
+                            <Pressable
+                              onPress={() => handleRemoveImage(img.id)}
+                              style={styles.removePhotoBtn}
+                              hitSlop={6}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Remove photo ${idx + 1}`}
+                            >
                               <Text style={styles.removePhotoBtnText}>✕</Text>
                             </Pressable>
                           </Pressable>
