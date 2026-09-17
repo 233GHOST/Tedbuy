@@ -878,7 +878,19 @@ function getGenAIClient(): GoogleGenAI | null {
   return genAI;
 }
 
-const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+// 'gemini-3.6-flash' (the previous default) is not a real Gemini model --
+// nowhere in the installed @google/genai SDK's own bundled docs/examples,
+// which consistently use 'gemini-2.5-flash' for this exact
+// text+image generateContent use case (the only other model name that
+// SDK version references at all is 'gemini-3-pro-image-preview', an
+// image-GENERATION model, not applicable here). That's very likely why
+// this endpoint stopped working entirely -- every call would 404 on a
+// nonexistent model, always landing in the generic catch below. If this
+// model is ever retired too, Google's 404 response is logged in full
+// detail below (status/name/message) specifically to make that
+// diagnosable from Render logs immediately, rather than silently
+// recurring as a mystery "not working" report again.
+const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 // Multimodal (image) processing genuinely needs more headroom than pure
 // text generation — measured from the start of the Gemini call only; image
 // fetching (for the Cloudinary-URL path) has its own separate, shorter
@@ -1188,9 +1200,23 @@ app.post(
       } catch (err: any) {
         clearTimeout(timeoutId);
         const isAbort = err?.name === 'AbortError' || controller.signal.aborted;
-        console.warn('[AI Listing Description] Generation failed:', isAbort ? 'timeout' : (err?.stack || err?.message || err));
         if (isAbort) {
+          console.warn('[AI Listing Description] Generation timed out.');
           return res.status(504).json({ success: false, error: 'That took too long. Please try again.' });
+        }
+        // The @google/genai SDK's ApiError exposes a real HTTP `status` for
+        // API-level failures (e.g. 404 = model not found/retired, 429 =
+        // rate-limited, 400 = bad request) -- logging it explicitly, along
+        // with the exact model name in use, means a future model
+        // retirement (this has already happened once) shows up in Render
+        // logs as an unmistakable "model not found" line instead of a
+        // generic stack trace someone has to guess the cause of.
+        console.warn(
+          `[AI Listing Description] Generation failed (model="${AI_LISTING_MODEL}", status=${err?.status ?? 'n/a'}, name=${err?.name ?? 'n/a'}):`,
+          err?.message || err
+        );
+        if (err?.status === 404) {
+          console.error(`[AI Listing Description] Model "${AI_LISTING_MODEL}" appears to be invalid or retired by Google. Set GEMINI_MODEL to a currently-supported model (e.g. gemini-2.5-flash) to fix this without a code change.`);
         }
         return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
       }
