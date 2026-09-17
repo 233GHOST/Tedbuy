@@ -182,6 +182,17 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [isExchangeable, setIsExchangeable] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Tracks whether the full-record backfill fetch below (productToEdit
+  // itself is only ever a feed-summary shape missing description/full
+  // images[]) has actually completed -- its failure used to be silently
+  // swallowed (.catch(() => {})), leaving the form showing the truncated
+  // optimistic seed with no indication anything was wrong, and Save in
+  // that state would overwrite the listing's real description/photos.
+  // See the matching fix in mobile's SellScreen.tsx for the same bug.
+  const [editDataLoadState, setEditDataLoadState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  const [editFetchRetryTick, setEditFetchRetryTick] = useState(0);
+  // See seedFrom's own comment (below) for what this captures and why.
+  const initialEditSnapshotRef = useRef<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState('');
   const [postOption, setPostOption] = useState<'normal' | 'boost'>('normal');
   const [createdProductForBoost, setCreatedProductForBoost] = useState<Product | null>(null);
@@ -318,23 +329,54 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       } else {
         setMediaType('image');
       }
+
+      // Snapshot of exactly what was just seeded, built from the same local
+      // values just used to set state (not read back from state, which
+      // wouldn't be updated yet) -- compared against current form values in
+      // handleCancelOrBack to detect a real edit, since editing an existing
+      // listing means every field starts non-empty (the old !productToEdit
+      // check on hasData never fired in edit mode at all as a result).
+      initialEditSnapshotRef.current = JSON.stringify({
+        title: productToEdit.title,
+        description: productToEdit.description,
+        price: editPrice,
+        category: normalizedCat,
+        images: initialEditImages,
+        videos: editVids,
+        brand: productToEdit.brand || '',
+        condition: productToEdit.condition || '',
+        negotiable: productToEdit.negotiable !== false,
+        isExchangeable: !!(productToEdit.isExchangeable || productToEdit.exchangePossible),
+        adRegion: foundRegion,
+        adCity: foundCity,
+        adNeighborhood: foundNeighborhood,
+      });
     };
 
     if (productToEdit) {
+      setEditDataLoadState('loading');
       seedFrom(productToEdit);
       let active = true;
       fetch(`/api/products/${productToEdit.id}`)
         .then((res) => res.json())
         .then((data) => {
-          if (active && data?.success && data.product) {
+          if (!active) return;
+          if (data?.success && data.product) {
             seedFrom(data.product);
+            setEditDataLoadState('ready');
+          } else {
+            setEditDataLoadState('failed');
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          if (active) setEditDataLoadState('failed');
+        });
       // active just guards against a stale fetch resolving after a newer
       // productToEdit (or the modal closing) has already re-run this effect.
       return () => { active = false; };
     } else {
+      setEditDataLoadState('idle');
+      initialEditSnapshotRef.current = null;
       // Clear fields
       setTitle('');
       setDescription('');
@@ -357,7 +399,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setNegotiable(true);
     }
     setErrorMsg('');
-  }, [productToEdit, isOpen]);
+  }, [productToEdit, isOpen, editFetchRetryTick]);
 
   // Object URL and trim-range reset for the video editor. Duration itself is
   // read from the visible player's own loadedmetadata event (see
@@ -386,9 +428,39 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   if (!isOpen) return null;
 
   const handleCancelOrBack = () => {
-    const hasData = title.trim() || description.trim() || images.length > 0 || videos.length > 0;
-    if (hasData && !productToEdit) {
-      if (!window.confirm("You have unsaved changes in your listing. Are you sure you want to leave?")) {
+    // A publish/save is actually in flight -- letting Cancel/Back close (or
+    // in some mount sites, fully unmount) the modal here left that async
+    // work running invisibly in the background. On success the listing
+    // still got published (or saved) anyway despite the user believing
+    // they'd canceled it, and depending on which screen mounted this modal
+    // could even silently navigate them to the "canceled" listing's detail
+    // page once the request resolved. Same guard as the submit button.
+    if (isSubmitting) return;
+
+    let hasData: boolean;
+    if (productToEdit) {
+      // Editing means every field starts non-empty (seeded from the real
+      // listing), so the old `!productToEdit` check on the raw field-has-
+      // content test below never fired here at all -- discarding real
+      // in-progress edits with zero warning. Compare against the snapshot
+      // captured right after seeding instead, to detect an actual change.
+      const currentSnapshot = JSON.stringify({
+        title, description, price, category, images, videos,
+        brand, condition, negotiable, isExchangeable,
+        adRegion, adCity, adNeighborhood,
+      });
+      hasData = initialEditSnapshotRef.current !== null && currentSnapshot !== initialEditSnapshotRef.current;
+    } else {
+      // A video sitting in the trimmer (picked, not yet confirmed into
+      // videos[]) used to be invisible to this check -- Cancel/Back while
+      // trimming discarded it with no warning even with nothing else filled.
+      hasData = !!(title.trim() || description.trim() || images.length > 0 || videos.length > 0 || oversizedVideoFile);
+    }
+
+    if (hasData) {
+      if (!window.confirm(productToEdit
+        ? "You have unsaved changes to this listing. Are you sure you want to leave?"
+        : "You have unsaved changes in your listing. Are you sure you want to leave?")) {
         return;
       }
     }
@@ -892,6 +964,20 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     setErrorMsg('');
     setRateLimitWaitSeconds(null);
 
+    // See editDataLoadState's own comment -- productToEdit is only ever a
+    // truncated feed-summary object, and saving while the full-record
+    // backfill hasn't succeeded would overwrite the listing's real
+    // description/photos with that truncated seed.
+    if (productToEdit && editDataLoadState !== 'ready') {
+      if (editDataLoadState === 'failed') {
+        setErrorMsg("Couldn't load this listing's full details (description, all photos) before editing — saving now would overwrite them with an incomplete version. Please try again.");
+        setEditFetchRetryTick((t) => t + 1);
+      } else {
+        setErrorMsg("Still loading this listing's full details — please wait a moment before saving.");
+      }
+      return;
+    }
+
     // If video is currently in the trimmer editor, clicking Next encodes the video first
     if (oversizedVideoFile) {
       if (isCompressing) return;
@@ -902,11 +988,18 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     if (category !== 'Services' && !title.trim()) {
       return setErrorMsg(category === 'Jobs & Employment' ? 'Job title is required.' : 'Product title is required.');
     }
-    if (title.length > 150) {
-      return setErrorMsg(category === 'Jobs & Employment' ? 'Job title must be 150 characters or less.' : 'Product title must be 150 characters or less.');
+    // Matches createProduct's own bounds (AppContext.tsx) exactly, applied
+    // here for both create AND edit -- previously edit had no length check
+    // at all (server-side updateProduct doesn't enforce one either), and
+    // create's own check here (150/5000) was looser than what createProduct
+    // would go on to reject, so a too-short or too-long title/description
+    // could sail through a full photo/video upload before being rejected
+    // afterward. Caught here, before any upload starts.
+    if (category !== 'Services' && (title.trim().length < 5 || title.trim().length > 100)) {
+      return setErrorMsg(category === 'Jobs & Employment' ? 'Job title must be between 5 and 100 characters.' : 'Product title must be between 5 and 100 characters.');
     }
-    if (description.length > 5000) {
-      return setErrorMsg('Description must be 5000 characters or less.');
+    if (description.trim().length < 10 || description.trim().length > 3000) {
+      return setErrorMsg('Description must be between 10 and 3000 characters.');
     }
     
     const finalTitle = category === 'Services'
@@ -1246,7 +1339,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
               <button
                 type="button"
                 onClick={handleCancelOrBack}
-                className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition flex items-center gap-1.5 font-bold text-sm cursor-pointer shrink-0"
+                disabled={isSubmitting}
+                className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition flex items-center gap-1.5 font-bold text-sm cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Back to Marketplace"
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -2165,7 +2259,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
               <button
                 type="button"
                 onClick={handleCancelOrBack}
-                className="px-5 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                disabled={isSubmitting}
+                className="px-5 py-2.5 border border-slate-300 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
