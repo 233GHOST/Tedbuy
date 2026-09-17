@@ -193,6 +193,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   const [editFetchRetryTick, setEditFetchRetryTick] = useState(0);
   // See seedFrom's own comment (below) for what this captures and why.
   const initialEditSnapshotRef = useRef<string | null>(null);
+  // See handleImageFiles' own comment for what this reserves and why.
+  const pendingImageCountRef = useRef(0);
   const [uploadStatus, setUploadStatus] = useState('');
   const [postOption, setPostOption] = useState<'normal' | 'boost'>('normal');
   const [createdProductForBoost, setCreatedProductForBoost] = useState<Product | null>(null);
@@ -471,26 +473,39 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
     setErrorMsg('');
     if (!filesList || filesList.length === 0) return;
 
-    const remainingSpots = 10 - images.length;
+    // remainingSpots used to be computed from images.length alone -- a
+    // stale value from this call's own closure, since each file is
+    // compressed asynchronously before setImages ever runs. Two file-select
+    // actions triggered back-to-back (before the first batch's compression
+    // resolved) both read the same pre-update images.length, so the
+    // 10-photo cap could be exceeded by however many files the second call
+    // added. pendingImageCountRef reserves a spot synchronously the moment
+    // a file is accepted into processing, closing that window.
+    const remainingSpots = 10 - images.length - pendingImageCountRef.current;
     if (filesList.length > remainingSpots) {
       setErrorMsg(`You can only upload up to 10 images. You have ${images.length} uploaded, meaning you can add ${remainingSpots} more.`);
       return;
     }
 
+    pendingImageCountRef.current += filesList.length;
+
     filesList.forEach(async (file) => {
       const validation = validateImageFile(file);
       if (!validation.isValid) {
+        pendingImageCountRef.current--;
         setErrorMsg(validation.error || 'Invalid image file.');
         return;
       }
 
       try {
         const compressed = await compressImage(file, 1200, 1200, 0.80);
+        pendingImageCountRef.current--;
         setImages((prev) => [...prev, compressed]);
       } catch (err) {
         console.error('Failed to compress image:', err);
         const reader = new FileReader();
         reader.onloadend = () => {
+          pendingImageCountRef.current--;
           if (typeof reader.result === 'string') {
             setImages((prev) => [...prev, reader.result as string]);
           }
