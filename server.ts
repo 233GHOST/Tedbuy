@@ -7613,7 +7613,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
   // -------------------------------------------------------------
 
   // Safe Soft-Deletion & Anonymization Endpoint
-  app.post('/api/auth/delete-account', async (req, res) => {
+  app.post('/api/auth/delete-account', serverRateLimiter(60 * 1000, 5, "auth-delete-account"), async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       const verified = await verifyUser(authHeader);
@@ -8508,15 +8508,23 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
   });
 
   // API to manually clear the server-side products cache (used when seller updates their profile or store name)
-  app.post('/api/products/invalidate-cache', async (req, res) => {
+  // Admin-only, rate-limited -- previously any authenticated user (not just
+  // an admin) could call this repeatedly to force every homepage/search/
+  // product-detail request behind the shared server cache to hit the
+  // database cold, degrading response times for every concurrent visitor.
+  // No client-side caller anywhere in src/ or mobile/src/ actually calls
+  // this endpoint, so it's a manually-triggered admin/dev tool, not a
+  // feature real users depend on -- safe to lock down fully.
+  app.post('/api/products/invalidate-cache', serverRateLimiter(60 * 1000, 5, "products-invalidate-cache"), async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       const verified = await verifyUser(authHeader);
-      if (!verified) {
-        return res.status(401).json({ success: false, error: "Unauthorized: Invalid or expired authorization token." });
+      const isAdmin = verified?.isAdmin || verified?.originalAdmin;
+      if (!verified || !isAdmin) {
+        return res.status(403).json({ success: false, error: "Unauthorized: Administrator privileges required." });
       }
 
-      console.log(`[Products Cache] Invalidation requested by authenticated user: ${verified.uid} (${verified.email})`);
+      console.log(`[Products Cache] Invalidation requested by admin: ${verified.uid} (${verified.email})`);
       serverCache.clear();
 
       return res.json({ success: true, message: "Server-side products cache has been successfully invalidated." });
