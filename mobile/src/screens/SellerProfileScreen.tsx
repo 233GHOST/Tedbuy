@@ -395,6 +395,13 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                   </Text>
                 </View>
               )}
+              {/* WhatsApp-style presence dot -- only rendered when the
+                  seller is actually online (server-derived via
+                  /api/users/get's computeIsOnline). This screen's verified/
+                  admin signals are separate text pills next to the avatar,
+                  not overlaid on it, so there's no risk of confusing them
+                  with this the way SellerCard.tsx's badge and dot were. */}
+              {seller?.isOnline && <View style={styles.onlineDot} />}
             </View>
             <View style={styles.profileMeta}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
@@ -841,6 +848,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  onlineDot: {
+    position: 'absolute', bottom: 0, right: 0, width: 15, height: 15, borderRadius: 8,
+    backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
   },
   avatarText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 18 },
   profileMeta: { flex: 1 },

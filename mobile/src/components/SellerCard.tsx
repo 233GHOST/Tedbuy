@@ -17,13 +17,21 @@ interface SellerCardProps {
 }
 
 /** A more eye-catching take on web's SellersToDiscover card: a larger
- * circular photo with a colored "story ring" (emerald for a verified
- * seller, slate otherwise — instant visual signal before you even read the
- * name), a proper elevated white card instead of a flat gray+border one so
- * it actually pops off the page background, and a warm branded category
- * pill instead of a plain gray one. seller.photo already flows straight
- * from the real user record's photoUrl (see computeDiscoverSellers) — this
- * only changes how it's presented, not whether it's there. */
+ * circular photo, a proper elevated white card instead of a flat
+ * gray+border one so it actually pops off the page background, and a warm
+ * branded category pill instead of a plain gray one. seller.photo already
+ * flows straight from the real user record's photoUrl (see
+ * computeDiscoverSellers) — this only changes how it's presented, not
+ * whether it's there.
+ *
+ * Two small status signals sit on the avatar, deliberately different
+ * colors so they can never be confused for each other (they were,
+ * extensively, during testing -- a small blue-on-white checkmark at
+ * ~15px reads as "just a green/blue dot" at a glance, especially in a
+ * screenshot): verifiedBadge (blue, bottom-right) means the account is
+ * verified and never changes once set; onlineDot (green, bottom-left)
+ * means the seller sent a heartbeat within the last ~90s (server.ts's
+ * computeIsOnline) and can appear/disappear from one poll to the next. */
 export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow, isTogglingFollow }: SellerCardProps) {
   const cardAccessibilityLabel = [
     seller.name,
@@ -41,24 +49,12 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
       accessibilityLabel={cardAccessibilityLabel}
     >
       <View>
-        {/* TEMPORARY, unmissable marker -- confirms whether this exact
-            file version is what's actually rendering on the test device,
-            since the dot code was fully removed yet still reportedly
-            visible. Remove once that's settled either way. */}
-        <View style={{ backgroundColor: '#ff00ff', padding: 4, marginBottom: 6, borderRadius: 6 }}>
-          <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>BUILD-CHECK-STRIPPED-BADGE</Text>
-        </View>
         <View style={styles.avatarRow}>
-          {/* Plain ring regardless of verification -- the emerald
-              "verified" ring used to double up with the online dot right
-              next to it (similar green, same corner of the avatar),
-              confirmed via testing to read as "online" at a glance even
-              though it never meant that. The checkmark badge below already
-              conveys verified status clearly on its own. */}
-          {/* TEMPORARY: verifiedBadge stripped out too, to isolate exactly
-              what's producing a green dot that's been confirmed to persist
-              even after removing every known dot/ring style from this
-              file. Restore once settled. */}
+          {/* Plain ring regardless of verification -- it used to vary
+              (emerald for verified, slate otherwise), but that emerald ring
+              sat in the same visual neighborhood as the status badges below
+              and added to the confusion during testing. verifiedBadge is
+              the one and only verified signal now. */}
           <View style={[styles.avatarRing, styles.avatarRingPlain]}>
             {seller.photo ? (
               <Image source={{ uri: seller.photo }} style={styles.avatarImg} cachePolicy="memory-disk" />
@@ -67,6 +63,12 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
                 <Text style={styles.avatarInitial}>{seller.name.charAt(0).toUpperCase()}</Text>
               </View>
             )}
+            {seller.isVerified && (
+              <View style={styles.verifiedBadge}>
+                <CheckCircle2 size={13} color="#ffffff" fill="#2563eb" strokeWidth={0} />
+              </View>
+            )}
+            {seller.isOnline && <View style={styles.onlineDot} />}
           </View>
           <View style={styles.categoryPill}>
             <Text style={styles.categoryPillText} numberOfLines={1}>{seller.primaryCategory}</Text>
@@ -135,10 +137,8 @@ const styles = StyleSheet.create({
   avatarRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 },
   // The "story ring" — a colored border around the photo itself is what
   // reads as an intentional, branded design choice rather than a plain
-  // thumbnail. Used to vary by verified status (brand emerald vs. quiet
-  // slate), but that emerald sat right next to the online dot in the same
-  // corner and got mistaken for it -- now always the same quiet slate;
-  // verifiedBadge below is the one and only verified signal.
+  // thumbnail. Always the same quiet slate (see the JSX comment above for
+  // why it no longer varies by verified status).
   avatarRing: {
     width: 60, height: 60, borderRadius: 30, borderWidth: 2.5,
     justifyContent: 'center', alignItems: 'center', position: 'relative',
@@ -147,9 +147,19 @@ const styles = StyleSheet.create({
   avatarImg: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#e2e8f0' },
   avatarFallback: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
   avatarInitial: { color: '#334155', fontSize: 18, fontFamily: fonts.extrabold },
+  // Blue, not green -- deliberately the opposite corner and a different
+  // color family from onlineDot below, so the two can never be confused
+  // for each other the way the old green-on-both version was.
   verifiedBadge: {
     position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
     borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+  },
+  // WhatsApp-style green, bottom-left -- only rendered when seller.isOnline
+  // is true (server-derived, see discoverSellers.ts / server.ts's
+  // computeIsOnline). Opposite corner from verifiedBadge on purpose.
+  onlineDot: {
+    position: 'absolute', bottom: -1, left: -1, width: 15, height: 15, borderRadius: 8,
+    backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
   },
   categoryPill: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
   categoryPillText: { fontSize: 9.5, color: '#c2410c', fontFamily: fonts.extrabold },
