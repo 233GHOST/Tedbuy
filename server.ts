@@ -4395,6 +4395,30 @@ app.post('/api/users/merge-account', serverRateLimiter(60 * 1000, 10, "users-mer
     return res.status(403).json({ success: false, error: 'A verified email is required to merge an existing account' });
   }
 
+  // emailVerified/isGoogleAuth/authProvider are derived from Firebase
+  // Admin's own record of the CALLER (targetUid), same pattern as
+  // /api/users/sync above -- never taken from the client body. This is
+  // now also a real authorization gate, not just metadata for the merged
+  // record: Firebase's createUserWithEmailAndPassword lets a brand-new
+  // account claim ANY email string with no proof of ownership at all
+  // (emailVerified starts false), so `verified.email` matching the old
+  // account's email is not itself proof the caller controls that inbox.
+  // Without this gate, an attacker could sign up claiming a victim's real
+  // email and use this endpoint to inherit the victim's entire account
+  // (products, chats, username) below, permanently deleting the original.
+  let realEmailVerified = false;
+  let isGoogleUser = false;
+  try {
+    const fbUser = await getAdminAuth().getUser(targetUid);
+    realEmailVerified = fbUser.emailVerified === true;
+    isGoogleUser = (fbUser.providerData || []).some((p: any) => p.providerId === 'google.com');
+  } catch (fbErr) {
+    console.warn('[Users Merge API] Could not read Firebase Auth user:', fbErr);
+  }
+  if (!realEmailVerified) {
+    return res.status(403).json({ success: false, error: 'Please verify your email before merging accounts.' });
+  }
+
   try {
     const { data: oldRow, error: fetchErr } = await backendSupabase
       .from('users')
@@ -4412,19 +4436,6 @@ app.post('/api/users/merge-account', serverRateLimiter(60 * 1000, 10, "users-mer
     const oldEmail = oldRow.email ? String(oldRow.email).trim().toLowerCase() : '';
     if (!oldEmail || oldEmail !== verified.email) {
       return res.status(403).json({ success: false, error: 'Forbidden: old account email does not match your verified email' });
-    }
-
-    // emailVerified/isGoogleAuth/authProvider are derived from Firebase
-    // Admin's own record of the CALLER (targetUid), same pattern as
-    // /api/users/sync above -- never taken from the client body.
-    let realEmailVerified = false;
-    let isGoogleUser = false;
-    try {
-      const fbUser = await getAdminAuth().getUser(targetUid);
-      realEmailVerified = fbUser.emailVerified === true;
-      isGoogleUser = (fbUser.providerData || []).some((p: any) => p.providerId === 'google.com');
-    } catch (fbErr) {
-      console.warn('[Users Merge API] Could not read Firebase Auth user, proceeding with defaults:', fbErr);
     }
 
     const oldRowSafe = redactUserSecrets(oldRow);
