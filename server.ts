@@ -5289,7 +5289,7 @@ app.post('/api/users/push-token', serverRateLimiter(60 * 1000, 20, "users-push-t
 // own boolean -- a stored isOnline flag would get stuck "true" forever
 // the moment a client stops calling this (app killed, backgrounded,
 // network lost) with no reliable moment to ever flip it back to false.
-const ONLINE_THRESHOLD_MS = 3 * 60 * 1000; // a bit more than the 2-minute heartbeat interval, to tolerate one missed beat
+const ONLINE_THRESHOLD_MS = 90 * 1000; // a bit more than the 60-second heartbeat interval (App.tsx / AppContext.tsx), to tolerate one missed beat
 function computeIsOnline(lastSeen: any): boolean {
   if (!lastSeen) return false;
   const t = new Date(lastSeen).getTime();

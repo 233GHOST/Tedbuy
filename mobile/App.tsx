@@ -79,7 +79,7 @@ export default function App() {
       sendPresenceHeartbeat();
       interval = setInterval(() => {
         if (AppState.currentState === 'active') sendPresenceHeartbeat();
-      }, 120000);
+      }, 60000);
     };
     const stopHeartbeat = () => {
       if (interval) {

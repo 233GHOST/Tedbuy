@@ -892,7 +892,11 @@ export function watchProducts(callback: (products: any[], failed?: boolean) => v
 // that would re-download every user's record on any single user's presence
 // write, anywhere in the app — the same O(users^2) egress bug already fixed
 // on web (see AppContext.tsx). A periodic pull keeps names/photos/online
-// status fresh enough for a marketplace without that blowup.
+// status fresh enough for a marketplace without that blowup. Interval
+// matches the 90s online-presence threshold (server.ts's
+// ONLINE_THRESHOLD_MS) rather than being independently chosen -- polling
+// slower than that would show a stale "online" for longer than the status
+// itself is actually considered valid server-side.
 //
 // Goes through /api/users/list (Supabase), NOT a direct Firestore read of
 // `users` like this used to do. That Firestore collection is only a mirror
@@ -921,7 +925,7 @@ export function watchUsers(callback: (users: any[]) => void) {
   };
 
   fetchOnce();
-  const interval = setInterval(fetchOnce, 3 * 60 * 1000);
+  const interval = setInterval(fetchOnce, 60 * 1000);
   const subscription = AppState.addEventListener('change', (state) => {
     if (state === 'active') fetchOnce();
   });
