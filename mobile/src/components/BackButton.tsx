@@ -19,6 +19,8 @@ export function BackButton({ onPress, color = '#0f172a', size = 26, style }: Bac
     <Pressable
       onPress={onPress}
       hitSlop={12}
+      accessibilityRole="button"
+      accessibilityLabel="Go back"
       style={[{ width: 34, height: 34, alignItems: 'flex-start', justifyContent: 'center' }, style]}
     >
       <ArrowLeft size={size} color={color} strokeWidth={2.75} />
