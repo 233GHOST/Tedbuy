@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal, PanResponder, TouchableWithoutFeedback, Keyboard, Image } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View, TextInput, Alert, KeyboardAvoidingView, Platform, Dimensions, ScrollView, Linking, AppState, Modal, TouchableWithoutFeedback, Keyboard, Image } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, fetchChatsApi, fetchMessagesApi, sendMessageApi, markChatReadApi, markAsDelivered, markAsPickedUp, fetchUserById, sendTypingStatus, watchTypingStatus, fetchReviewsForSeller, addReview, isRetryableApiError } from '../firebase';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
 import { BackButton } from '../components/BackButton';
+import { useSwipeBackGesture } from '../hooks/useSwipeBack';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { CheckCircle, ShoppingBag, Star, X } from 'lucide-react-native';
 import { fonts } from '../theme';
@@ -575,24 +577,13 @@ export function ChatsScreen() {
   };
 
   // Swipe-right-to-go-back on the open conversation, matching the standard
-  // messaging-app gesture (Telegram/iMessage). Only claims the gesture once
-  // the drag is clearly horizontal and rightward, so it doesn't fight the
-  // message list's vertical scroll or the quick-replies row's own
-  // horizontal ScrollView (which they win by moving with a much smaller
-  // horizontal-vs-vertical margin — a deliberate swipe needs to travel
-  // further right than that).
-  const chatRoomPanResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_evt, gestureState) => {
-        return gestureState.dx > 24 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2.5;
-      },
-      onPanResponderRelease: (_evt, gestureState) => {
-        if (gestureState.dx > 80 && Math.abs(gestureState.dy) < 60) {
-          handleBackToInbox();
-        }
-      },
-    })
-  ).current;
+  // messaging-app gesture (Telegram/iMessage). Was a bespoke PanResponder
+  // with its own dx/dy-ratio heuristic; now shares the same gesture-handler
+  // based hook (and the same proven thresholds) as HomeScreen's grid/video
+  // swipe and ProfileScreen's settings/dashboard swipe -- gesture-handler
+  // composes correctly with the message FlatList's own native scroll
+  // recognizer, which the old manual heuristic didn't do as reliably.
+  const chatRoomSwipeBack = useSwipeBackGesture(handleBackToInbox);
 
   // Filter chats by query and tab
   const filteredChats = useMemo(() => {
@@ -652,7 +643,8 @@ export function ChatsScreen() {
       : ['Yes, it is still available!', 'Price is negotiable.', 'Where are you located?', 'When can we meet?'];
 
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']} {...chatRoomPanResponder.panHandlers}>
+      <GestureDetector gesture={chatRoomSwipeBack}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardContainer}
@@ -907,6 +899,7 @@ export function ChatsScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      </GestureDetector>
     );
   }
 
