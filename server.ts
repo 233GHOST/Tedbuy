@@ -5586,6 +5586,53 @@ async function verifyPaystackTransaction(reference: string): Promise<{ ok: boole
   }
 }
 
+// Business-logic fix (found via a dedicated boost/payment correctness audit,
+// distinct from the earlier security pass on this same endpoint): there was
+// no locking of any kind around the read-existing-boost -> verify-with-
+// Paystack -> compute-extension -> upsert sequence below, and
+// upsertProductToSupabase does its own separate read-then-write too. Two
+// DIFFERENT, both-genuine payment references for the SAME product,
+// verified in overlapping windows (very plausible given the multi-second
+// Paystack round trip -- e.g. a seller buys a 3-day boost, then a few
+// seconds later buys a 7-day one before the first request has finished),
+// both read the same stale boostEndDate/boostHistory and each compute
+// their own extension independently. Whichever upsert lands second
+// silently overwrites the first's boostEndDate/boostHistory entirely --
+// the two purchases don't stack, and the loser's paid-for boost duration
+// and audit-trail entry are lost even though its own boost_purchases
+// ledger row still correctly records the payment as used. This is a
+// distinct bug from the already-fixed same-reference replay: both
+// references here are unique and legitimate, so no anti-replay check
+// catches it.
+//
+// Fixed with an in-process, per-productId async mutex: serializes the
+// entire read-modify-write critical section below so a second purchase
+// for the same product always sees the first one's already-applied
+// extension before computing its own. This closes the race completely for
+// a single server instance/process (this app's current Render deployment
+// shape) -- it would NOT protect against the same race across multiple
+// concurrent server processes/instances, which would need a real
+// DB-level lock or optimistic-concurrency column instead; out of scope
+// for a same-session fix without live DB access to verify a schema change
+// against.
+const productBoostLocks = new Map<string, Promise<unknown>>();
+function withProductBoostLock<T>(productId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = productBoostLocks.get(productId) || Promise.resolve();
+  const run = previous.then(fn, fn);
+  const chained = run.then(() => undefined, () => undefined);
+  productBoostLocks.set(productId, chained);
+  chained.finally(() => {
+    // Only clear the map entry if nothing newer has queued behind this
+    // call -- avoids the map growing forever for productIds that are
+    // rarely boosted, without risking dropping a still-relevant lock for
+    // one that's mid-queue.
+    if (productBoostLocks.get(productId) === chained) {
+      productBoostLocks.delete(productId);
+    }
+  });
+  return run;
+}
+
 app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment"), async (req: express.Request, res: express.Response) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
@@ -5605,6 +5652,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
   const expectedPriceGHS = BOOST_PLAN_PRICE_GHS[planId] || BOOST_PLAN_PRICE_GHS['7days'];
 
   try {
+   await withProductBoostLock(productId, async () => {
     // P0 fix: Paystack's verify endpoint is idempotent -- it just reports a
     // transaction's historical status, and will happily keep reporting
     // "success" for the same reference forever. Nothing here previously
@@ -5812,6 +5860,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
       reference: paymentReference,
       product: finalProduct
     });
+   });
   } catch (err: any) {
     console.error('[Verify Payment API Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Payment verification failed' });
@@ -5957,7 +6006,21 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
       };
       const durationDays = planDurationMap[planId] || 7;
       const boostStartDate = now.toISOString();
-      const boostEndDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+      // Matches /api/verify-payment's real-purchase extension logic
+      // (extend from max(now, existingEnd), never discard remaining time) --
+      // this admin path used to always reset to `now + durationDays`
+      // regardless of an existing active boost. Concrete case: a seller has
+      // 10 days left on a paid boost; an admin grants a free 7-day boost as
+      // a courtesy -- this silently threw away the 10 already-paid days
+      // instead of extending to 17.
+      let startTime = now.getTime();
+      if (existingProduct?.boostEndDate) {
+        const existingEnd = new Date(existingProduct.boostEndDate).getTime();
+        if (!isNaN(existingEnd) && existingEnd > startTime) {
+          startTime = existingEnd;
+        }
+      }
+      const boostEndDate = new Date(startTime + durationDays * 24 * 60 * 60 * 1000).toISOString();
 
       let boostPriorityLevel = 1;
       if (planId === '1month' || planId === '90days') boostPriorityLevel = 5;
