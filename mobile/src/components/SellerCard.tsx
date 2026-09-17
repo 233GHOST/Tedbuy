@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { CheckCircle2, MapPin, Package, ArrowUpRight, Plus, Check } from 'lucide-react-native';
+import { MapPin, Package, ArrowUpRight, Plus, Check } from 'lucide-react-native';
 import { fonts } from '../theme';
 import { DiscoverSeller } from '../utils/discoverSellers';
 
@@ -24,14 +24,12 @@ interface SellerCardProps {
  * computeDiscoverSellers) — this only changes how it's presented, not
  * whether it's there.
  *
- * Two small status signals sit on the avatar, deliberately different
- * colors so they can never be confused for each other (they were,
- * extensively, during testing -- a small blue-on-white checkmark at
- * ~15px reads as "just a green/blue dot" at a glance, especially in a
- * screenshot): verifiedBadge (blue, bottom-right) means the account is
- * verified and never changes once set; onlineDot (green, bottom-left)
- * means the seller sent a heartbeat within the last ~90s (server.ts's
- * computeIsOnline) and can appear/disappear from one poll to the next. */
+ * onlineDot (green, bottom-left of the avatar) is the only status signal
+ * here -- only rendered when seller.isOnline is true (server-derived, see
+ * server.ts's computeIsOnline; the seller sent a heartbeat within the last
+ * ~90s). A verified-seller checkmark badge used to sit at the opposite
+ * corner too, but was removed per explicit request -- it wasn't serving a
+ * purpose and, at this size, kept getting mistaken for the online dot. */
 export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow, isTogglingFollow }: SellerCardProps) {
   const cardAccessibilityLabel = [
     seller.name,
@@ -50,22 +48,12 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
     >
       <View>
         <View style={styles.avatarRow}>
-          {/* Plain ring regardless of verification -- it used to vary
-              (emerald for verified, slate otherwise), but that emerald ring
-              sat in the same visual neighborhood as the status badges below
-              and added to the confusion during testing. verifiedBadge is
-              the one and only verified signal now. */}
           <View style={[styles.avatarRing, styles.avatarRingPlain]}>
             {seller.photo ? (
               <Image source={{ uri: seller.photo }} style={styles.avatarImg} cachePolicy="memory-disk" />
             ) : (
               <View style={styles.avatarFallback}>
                 <Text style={styles.avatarInitial}>{seller.name.charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
-            {seller.isVerified && (
-              <View style={styles.verifiedBadge}>
-                <CheckCircle2 size={13} color="#ffffff" fill="#2563eb" strokeWidth={0} />
               </View>
             )}
             {seller.isOnline && <View style={styles.onlineDot} />}
@@ -147,16 +135,9 @@ const styles = StyleSheet.create({
   avatarImg: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#e2e8f0' },
   avatarFallback: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
   avatarInitial: { color: '#334155', fontSize: 18, fontFamily: fonts.extrabold },
-  // Blue, not green -- deliberately the opposite corner and a different
-  // color family from onlineDot below, so the two can never be confused
-  // for each other the way the old green-on-both version was.
-  verifiedBadge: {
-    position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
-    borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
-  },
   // WhatsApp-style green, bottom-left -- only rendered when seller.isOnline
   // is true (server-derived, see discoverSellers.ts / server.ts's
-  // computeIsOnline). Opposite corner from verifiedBadge on purpose.
+  // computeIsOnline).
   onlineDot: {
     position: 'absolute', bottom: -1, left: -1, width: 15, height: 15, borderRadius: 8,
     backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
