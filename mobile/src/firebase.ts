@@ -1077,7 +1077,18 @@ export async function activateBoost(
     method: 'POST',
     body: { productId, planId, paymentMethod, amountGHS, paymentReference },
   });
-  if (!data.success) throw new Error(data.error || 'Payment verification failed.');
+  if (!data.success) {
+    const err: any = new Error(data.error || 'Payment verification failed.');
+    // Lets callers (BoostModal's checkout-close reconciliation) tell "we
+    // genuinely couldn't reach/parse the verification call, so we don't
+    // actually know if the payment went through" apart from "the server
+    // ran the check and confirmed this reference was never paid" -- the
+    // first case is worth surfacing to the user (a real charge could have
+    // gone through with nothing to show for it), the second is a safe,
+    // silent cancel.
+    err.errorCode = data.errorCode;
+    throw err;
+  }
   return data.product;
 }
 

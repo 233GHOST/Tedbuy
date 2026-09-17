@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, Modal, ActivityIndicator, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, Text, Pressable, Modal, ActivityIndicator, StyleSheet, ScrollView, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { Check, Phone, CreditCard, ShieldCheck, AlertCircle, Clock, X } from 'lucide-react-native';
@@ -146,11 +146,21 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
         const updated = await activateBoost(product.id, selectedPlanId, pendingMethod, pendingAmount, pendingRef);
         setStep('success');
         if (onSuccess) onSuccess(updated);
-      } catch (_) {
-        // Genuine cancel (or a real failure) -- no charge went through, or
-        // it did and something else is wrong. Either way, return quietly to
-        // plan selection rather than showing an alarming error for what
-        // was most likely just changing their mind.
+      } catch (err: any) {
+        // NETWORK/TIMEOUT/PARSE means we never actually got a confirmed
+        // answer from our own server about whether this reference was
+        // paid -- unlike a clean "not successful" response (a genuine
+        // cancel), silently returning to plan-select here risks a real
+        // charge going through with nothing to show for it and no warning
+        // before the user might try paying again. Any other failure is a
+        // real, server-confirmed "not paid" -- return quietly, most likely
+        // just changing their mind.
+        if (err?.errorCode === 'NETWORK' || err?.errorCode === 'TIMEOUT' || err?.errorCode === 'PARSE') {
+          Alert.alert(
+            'Could Not Confirm Payment',
+            "We couldn't reach TedBuy to confirm your payment. If you were charged, check this listing's boost status in a moment or contact support before paying again."
+          );
+        }
         setStep('plan-select');
       } finally {
         isPayingRef.current = false;
