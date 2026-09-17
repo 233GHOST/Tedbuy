@@ -395,12 +395,10 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
                   </Text>
                 </View>
               )}
-              {/* Online-presence dot deliberately removed -- see
-                  SellerCard.tsx's matching comment for why (live testing
-                  kept showing it for accounts confirmed offline
-                  server-side, root cause not yet pinned down). Backend
-                  (seller.isOnline, server.ts's heartbeat/computeIsOnline)
-                  is untouched. */}
+              {/* WhatsApp-style presence dot -- only rendered when the
+                  seller is actually online (server-derived via
+                  /api/users/get's computeIsOnline), never unconditional. */}
+              {seller?.isOnline && <View style={styles.onlineDot} />}
             </View>
             <View style={styles.profileMeta}>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
@@ -847,6 +845,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  onlineDot: {
+    // WhatsApp-style green -- matches SellerCard.tsx's own online dot,
+    // back to green now that the conflicting verified-seller ring it used
+    // to be confused with is removed there. This screen never had that
+    // ring on the avatar, so no similar risk here either.
+    position: 'absolute', bottom: 0, right: 0, width: 15, height: 15, borderRadius: 8,
+    backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
   },
   avatarText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 18 },
   profileMeta: { flex: 1 },
