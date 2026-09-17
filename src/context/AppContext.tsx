@@ -1917,7 +1917,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const sendPresenceHeartbeat = useCallback(async () => {
     if (!currentUser) return;
     try {
+      // Deliberately strips any impersonation header, even mid-active
+      // impersonation -- getAuthHeader() auto-attaches
+      // x-impersonation-session-id from localStorage for every other call
+      // (intentional there: an impersonated action should act AS the
+      // impersonated user), and server.ts's verifyUser() honors it by
+      // resolving the caller to session.targetUserId instead of the real
+      // admin's own uid. Left un-stripped here, every heartbeat sent while
+      // an admin had (even briefly, even long since forgotten) an active
+      // impersonation session open would silently record presence under
+      // the IMPERSONATED seller's account, not the admin's real one --
+      // making a genuinely inactive seller falsely show as online for as
+      // long as that browser tab kept polling. Presence must always
+      // reflect who is REALLY at this device right now.
       const authHeaders = await getAuthHeader();
+      delete authHeaders['x-impersonation-session-id'];
       await fetch('/api/users/heartbeat', { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' } });
     } catch (err) {
       // Best-effort, cosmetic feature -- a missed beat just means this

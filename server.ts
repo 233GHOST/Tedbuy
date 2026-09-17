@@ -5297,7 +5297,19 @@ function computeIsOnline(lastSeen: any): boolean {
 }
 
 app.post('/api/users/heartbeat', serverRateLimiter(60 * 1000, 20, "users-heartbeat"), async (req, res) => {
-  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  // Deliberately does NOT pass an impersonation session id to verifyUser()
+  // here, unlike nearly every other endpoint -- this must always resolve
+  // to whichever Firebase account the request is really signed in as, even
+  // while an admin has an active "view as this seller" session open
+  // elsewhere in the app. Presence represents who is REALLY at a device
+  // right now; honoring impersonation here would let a real admin's own
+  // ordinary activity get silently recorded as the impersonated seller
+  // being online, making a genuinely inactive account falsely show as
+  // active for as long as that admin's browser/app kept polling. The web
+  // client also strips this header before calling (AppContext.tsx) --
+  // this is the authoritative half of that fix, since a client can't be
+  // trusted alone to always remember to omit it.
+  const verified = await verifyUser(req.headers.authorization);
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
   }
