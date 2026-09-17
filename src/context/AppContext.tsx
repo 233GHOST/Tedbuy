@@ -2683,18 +2683,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // unified, already-authenticated path -- no special branch needed.
 
     let active = true;
+    // Same overlapping-poll guard already applied to the chat-list poll
+    // (and to mobile's equivalent message poll, ChatsScreen.tsx) -- without
+    // it, a slow tick resolving after a later, faster tick already landed
+    // could revert the open thread to a stale message list (a just-arrived
+    // message disappearing until the next poll cycle corrects it).
+    let requestId = 0;
     const load = async () => {
-      const result = await fetchMessagesFromApi(activeChatId) as Message[];
-      if (!active) return;
-      setMessages(prevMessages => {
-        if (result.length > prevMessages.length) {
-          const lastMsg = result[result.length - 1];
-          if (lastMsg && lastMsg.senderId !== currentUser?.id) {
-            playMessageChime();
+      const thisRequestId = ++requestId;
+      try {
+        const result = await fetchMessagesFromApi(activeChatId) as Message[];
+        if (!active || thisRequestId !== requestId) return;
+        setMessages(prevMessages => {
+          if (result.length > prevMessages.length) {
+            const lastMsg = result[result.length - 1];
+            if (lastMsg && lastMsg.senderId !== currentUser?.id) {
+              playMessageChime();
+            }
           }
-        }
-        return result;
-      });
+          return result;
+        });
+      } catch (err) {
+        // A failed poll leaves whatever messages are already on screen
+        // exactly as they were, matching mobile's own equivalent fix --
+        // an unhandled rejection here previously had no fallback at all.
+      }
     };
     load();
     const interval = setInterval(load, 4000);
