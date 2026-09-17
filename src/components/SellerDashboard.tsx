@@ -667,9 +667,26 @@ export const SellerDashboard: React.FC = () => {
                   <div className="col-span-1 md:col-span-2 flex items-center justify-end gap-2 text-right relative z-30">
                     <button
                       id={`btn-unsave-${prod.id}`}
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        toggleSaveProduct(prod.id);
+                        // toggleSaveProduct throws via handleBackendError on
+                        // any real failure -- previously fired with no
+                        // await/catch, so a transient failure was an
+                        // unhandled rejection with zero user feedback.
+                        try {
+                          await toggleSaveProduct(prod.id);
+                        } catch (err: any) {
+                          let msg = 'Could not update saved listings.';
+                          if (err instanceof Error) {
+                            try {
+                              const parsed = JSON.parse(err.message);
+                              if (parsed.error) msg = parsed.error;
+                            } catch {
+                              msg = err.message;
+                            }
+                          }
+                          showToast(msg, 'error');
+                        }
                       }}
                       className="p-2 border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-200 rounded-xl hover:bg-rose-50/20 transition-all shadow-3xs flex items-center justify-center cursor-pointer"
                       title="Remove Bookmark"

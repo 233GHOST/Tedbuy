@@ -56,14 +56,31 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
     }
   };
 
-  const handleSaveClick = (e: React.MouseEvent) => {
+  const handleSaveClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    toggleSaveProduct(product.id);
+    // toggleSaveProduct throws via handleBackendError on any real failure
+    // (network, expired session, server error) -- previously fired with no
+    // await/catch, so a transient failure was an unhandled rejection with
+    // zero user feedback on the app's single most-rendered card component.
+    try {
+      await toggleSaveProduct(product.id);
+    } catch (err: any) {
+      let msg = 'Could not update saved listings.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
+    }
   };
 
   const isAdminOrSeller = !!(currentUser?.isAdmin || currentUser?.id === product.sellerId);
