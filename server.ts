@@ -7432,7 +7432,19 @@ app.post('/api/admin/impersonate/start', serverRateLimiter(60 * 1000, 10, "admin
 });
 
 // 3. IMPERSONATE VERIFY ENDPOINT
-app.post('/api/admin/impersonate/verify', serverRateLimiter(60 * 1000, 20, "admin-impersonate-verify"), (req: express.Request, res: express.Response) => {
+app.post('/api/admin/impersonate/verify', serverRateLimiter(60 * 1000, 20, "admin-impersonate-verify"), async (req: express.Request, res: express.Response) => {
+  // Was unauthenticated -- unlike /start and /logs (both verifyAdmin()-gated),
+  // anyone holding a sessionId string could read the full session record
+  // (admin email, target user id/email) with no admin check at all. The
+  // sessionId itself is a 128-bit random token (crypto.randomBytes(16)), so
+  // this was never guessable in practice, but there's no reason this one
+  // endpoint should be the exception to every other admin-impersonation
+  // route requiring a real admin token.
+  const isAdmin = await verifyAdmin(req.headers.authorization);
+  if (!isAdmin) {
+    return res.status(403).json({ success: false, error: 'Unauthorized: Admin authorization required' });
+  }
+
   const { sessionId } = req.body || {};
   if (!sessionId) {
     return res.status(400).json({ success: false, error: 'Session ID is required' });
@@ -7462,7 +7474,17 @@ app.post('/api/admin/impersonate/verify', serverRateLimiter(60 * 1000, 20, "admi
 // 4. IMPERSONATE EXIT ENDPOINT
 app.post('/api/admin/impersonate/exit', serverRateLimiter(60 * 1000, 20, "admin-impersonate-exit"), async (req: express.Request, res: express.Response) => {
   const { sessionId } = req.body || {};
-  const verifiedUser = await verifyUser(req.headers.authorization);
+  // Was fetching the verified identity and never actually checking it --
+  // AppContext.tsx's exitImpersonation() already sends a real auth header
+  // on this call, so the server ignoring it entirely meant anyone who
+  // obtained a sessionId (not guessable -- see the /verify fix above for
+  // why this is low-severity in practice, but still inconsistent with
+  // every other admin-impersonation route) could end someone else's
+  // active session with no admin check at all.
+  const isAdmin = await verifyAdmin(req.headers.authorization);
+  if (!isAdmin) {
+    return res.status(403).json({ success: false, error: 'Unauthorized: Admin authorization required' });
+  }
 
   if (sessionId) {
     const session = activeImpersonationSessions.get(sessionId);
