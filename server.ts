@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import nodemailer from "nodemailer";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import compression from "compression";
@@ -271,29 +270,6 @@ function cleanObject(obj: any): any {
   }
   return result;
 }
-
-function getMailTransporter() {
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const host = process.env.SMTP_HOST || 'smtp.brevo.com';
-  const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass }
-  });
-}
-
-async function diagnoseSMTPAndVerify(transporter: any): Promise<{ success: boolean; details?: any }> {
-  try {
-    await transporter.verify();
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, details: { error: err?.message || err } };
-  }
-}
-
 
 const lookupAsync = promisify(dns.lookup);
 
