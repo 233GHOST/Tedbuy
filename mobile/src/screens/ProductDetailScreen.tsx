@@ -503,6 +503,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                     setLightboxIndex(Math.max(0, imageIdx));
                     setIsLightboxVisible(true);
                   }}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel={`Photo ${idx + 1} of ${mediaGallery.length}`}
                 >
                   <Image source={{ uri: item.url }} style={styles.carouselImage} />
                   {/* Clean, feint Tedbuy Watermark Overlay */}
@@ -705,6 +707,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                 setIsSellerModalVisible(true);
               }
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`View seller ${seller?.username || product.sellerName || 'profile'}`}
           >
             <View style={styles.sellerRow}>
               <View style={styles.sellerAvatar}>
@@ -993,6 +997,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                       });
                     }}
                     style={styles.otherItemCard}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${otherItem.title}, ${formatProductPrice(otherItem.price)}`}
                   >
                     {resolveProductImageUri(otherItem) ? (
                       <Image source={{ uri: resolveProductImageUri(otherItem)! }} style={styles.otherItemImg} />
