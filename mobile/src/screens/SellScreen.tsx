@@ -212,6 +212,15 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   // flow that was already carefully built and tested this session.
   const [editProduct, setEditProduct] = useState<any>(null);
   const isEditMode = !!editProduct;
+  // Tracks whether the full-record backfill fetch below (editProduct itself
+  // is only ever a feed-summary shape missing description/full images[])
+  // has actually completed. Previously that fetch's failure was silently
+  // swallowed (.catch(() => {})) -- the form stayed showing editProduct's
+  // truncated optimistic seed with no indication anything was wrong, and
+  // hitting Save in that state would overwrite the listing's real
+  // description/photos with the truncated version. handlePublish's edit
+  // branch now refuses to save until this reaches 'ready'.
+  const [editDataLoadState, setEditDataLoadState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
 
   useEffect(() => {
     if (route?.params?.editProduct) {
@@ -420,9 +429,18 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     }
   };
 
+  // Bumped to force the effect below to re-run on a manual retry (its own
+  // dependency is just editProduct?.id, which doesn't change between
+  // attempts on the same listing).
+  const [editFetchRetryTick, setEditFetchRetryTick] = useState(0);
+
   useEffect(() => {
-    if (!editProduct) return;
+    if (!editProduct) {
+      setEditDataLoadState('idle');
+      return;
+    }
     let active = true;
+    setEditDataLoadState('loading');
     seedFormFrom(editProduct);
     // Optimistic immediate seed in case editProduct already happened to be
     // a full record (e.g. re-opening edit within the same session) — the
@@ -431,13 +449,21 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     // had the field.
     seedMediaAndDescriptionFrom(editProduct);
     fetchProductById(editProduct.id).then((full) => {
-      if (active && full) {
+      if (!active) return;
+      if (full) {
         seedFormFrom(full);
         seedMediaAndDescriptionFrom(full);
+        setEditDataLoadState('ready');
+      } else {
+        // Resolved with no product (not a thrown error) -- treat the same
+        // as a failure rather than silently trusting the truncated seed.
+        setEditDataLoadState('failed');
       }
-    }).catch(() => {});
+    }).catch(() => {
+      if (active) setEditDataLoadState('failed');
+    });
     return () => { active = false; };
-  }, [editProduct?.id]);
+  }, [editProduct?.id, editFetchRetryTick]);
 
   useEffect(() => {
     if (auth.currentUser) {
@@ -1155,6 +1181,27 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
 
     if (!currentUserProfile?.emailVerified) {
       setBlockedActionType('post-ad');
+      return;
+    }
+
+    // See editDataLoadState's own comment -- editProduct is only ever a
+    // truncated feed-summary object, and saving while the full-record
+    // backfill hasn't succeeded would overwrite the listing's real
+    // description/photos with that truncated seed. Block rather than
+    // silently trust whatever happens to be in the form.
+    if (isEditMode && editDataLoadState !== 'ready') {
+      if (editDataLoadState === 'failed') {
+        Alert.alert(
+          'Could Not Load Full Listing',
+          "TedBuy couldn't load this listing's full details (description, all photos) before editing — saving now would overwrite them with an incomplete version. Please check your connection and try again.",
+          [
+            { text: 'Retry', onPress: () => setEditFetchRetryTick((t) => t + 1) },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else {
+        Alert.alert('Please Wait', "Still loading this listing's full details before you can save.");
+      }
       return;
     }
 
