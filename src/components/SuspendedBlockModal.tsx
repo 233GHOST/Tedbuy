@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 export const SuspendedBlockModal: React.FC = () => {
   const {
     isSuspendedBlockOpen,
-    setIsSuspendedBlockOpen
+    setIsSuspendedBlockOpen,
+    logoutUser
   } = useApp();
 
   if (!isSuspendedBlockOpen) return null;
@@ -68,14 +69,26 @@ export const SuspendedBlockModal: React.FC = () => {
 
             <button
               onClick={async () => {
-                // Clear all session cache
-                localStorage.removeItem('tedbuy_simulated_mode');
-                localStorage.removeItem('tedbuy_simulated_user');
-                localStorage.removeItem('tedbuy_local_current_user_backup');
+                // Was a hand-rolled partial cleanup (3 localStorage keys +
+                // signOut) that never touched tedbuy_impersonation_session /
+                // tedbuy_original_admin_user or tedbuy_custom_auth_token --
+                // unlike the shared logoutUser() in AppContext.tsx, which
+                // clears all of those plus properly exits any active
+                // impersonation session first. That gap matters here
+                // specifically: AppContext's "Absolute high-security
+                // reactive check for account suspension" effect can open
+                // this exact modal while `currentUser` reflects an
+                // impersonated target's isSuspended flag, with a real
+                // tedbuy_impersonation_session/tedbuy_original_admin_user
+                // pair still in localStorage. On reload, AppContext
+                // rehydrates impersonationSession straight from those keys
+                // (see its useState initializer), so "Log Out & Exit" could
+                // reload back into a stale, still-active impersonation
+                // banner/state instead of a genuinely logged-out app. Route
+                // through the same logoutUser() every other sign-out in the
+                // app uses so this can't drift out of sync again.
                 try {
-                  const { signOut } = await import('firebase/auth');
-                  const { auth } = await import('../firebase');
-                  await signOut(auth);
+                  await logoutUser();
                 } catch (_) {}
                 setIsSuspendedBlockOpen(false);
                 window.location.reload();
