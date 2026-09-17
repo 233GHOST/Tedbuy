@@ -41,6 +41,13 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
       accessibilityLabel={cardAccessibilityLabel}
     >
       <View>
+        {/* TEMPORARY, unmissable marker -- confirms whether this exact
+            file version is what's actually rendering on the test device,
+            since the dot code was fully removed yet still reportedly
+            visible. Remove once that's settled either way. */}
+        <View style={{ backgroundColor: '#ff00ff', padding: 4, marginBottom: 6, borderRadius: 6 }}>
+          <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '900' }}>BUILD-CHECK-4070344</Text>
+        </View>
         <View style={styles.avatarRow}>
           {/* Plain ring regardless of verification -- the emerald
               "verified" ring used to double up with the online dot right
