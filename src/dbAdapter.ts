@@ -1302,12 +1302,17 @@ export function onSnapshot(
 
     let active = true;
     const selectCols = getTableSelectColumns(table);
-    supabase!
-      .from(table)
-      .select(selectCols)
-      .eq('id', id)
-      .maybeSingle()
-      .then(({ data, error }) => {
+    // Wrapped in Promise.resolve() -- the Supabase query builder's own
+    // .then() returns a PromiseLike, not a real Promise, so it has no
+    // .catch() of its own to attach to directly.
+    Promise.resolve(
+      supabase!
+        .from(table)
+        .select(selectCols)
+        .eq('id', id)
+        .maybeSingle()
+    )
+      .then(({ data, error }: any) => {
          if (!active) return;
          if (error) {
            if (onError) onError(error);
@@ -1319,6 +1324,18 @@ export function onSnapshot(
            exists: () => !!transformed,
            data: () => transformed
          });
+      })
+      .catch((err: any) => {
+        // Unlike the sibling collection-query path (runQueryAndNotify,
+        // below), this single-document path had no .catch() at all -- if
+        // the underlying fetch threw instead of resolving with an `error`
+        // field (offline, DNS failure, CORS), this was a genuine unhandled
+        // promise rejection: onNext/onError never fired, leaving any
+        // component subscribed to a single doc (a user profile, a
+        // specific product, a specific chat) permanently stuck in its
+        // initial/loading state with no error surfaced and no retry.
+        if (!active) return;
+        if (onError) onError(err);
       });
 
     const channel = supabase!
