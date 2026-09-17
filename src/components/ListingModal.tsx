@@ -240,6 +240,19 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   // once immediately (so the form isn't blank while a fetch is in flight),
   // then again once the full record has been fetched by id.
   useEffect(() => {
+    // SellerDashboard.tsx mounts one ListingModal instance unconditionally
+    // (isOpen just toggles a prop) and reuses it across every separate
+    // "create new"/"edit X" session rather than remounting -- so without
+    // this, an AI generation error/warning from one session, or a
+    // previously-picked Short/Detailed style, silently carried over into
+    // the next, completely unrelated listing. This is transient per-session
+    // UI state, not form data tied to a specific product, so it always
+    // resets on open regardless of which branch below runs.
+    setAiDescriptionError('');
+    setAiDescriptionWarning('');
+    setAiDescriptionStyle('standard');
+    lastAiGeneratedTextRef.current = '';
+
     const seedFrom = (productToEdit: Product) => {
       setTitle(productToEdit.title);
       setDescription(productToEdit.description);
@@ -400,6 +413,12 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       setAdCity('Accra');
       setAdNeighborhood('');
       setNegotiable(true);
+      // Missing from this reset block (though the post-submit-success reset
+      // elsewhere in this file already includes it) -- toggling "Exchange
+      // Possible" on, then cancelling instead of submitting, left it stuck
+      // true the next time "create new" reopened on this same reused
+      // instance.
+      setIsExchangeable(false);
     }
     setErrorMsg('');
   }, [productToEdit, isOpen, editFetchRetryTick]);
