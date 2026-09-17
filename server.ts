@@ -3855,7 +3855,17 @@ app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "product
   }
 });
 
-app.post('/api/sitemap/clear', serverRateLimiter(60 * 1000, 5, "sitemap-clear"), (req, res) => {
+app.post('/api/sitemap/clear', serverRateLimiter(60 * 1000, 5, "sitemap-clear"), async (req, res) => {
+  // AppContext.tsx's 4 callers already send a real auth header after their
+  // own create/update/delete product call succeeds -- this endpoint just
+  // wasn't checking it, so it was reachable by anyone with no session at
+  // all. Low real-world impact (it only busts an in-memory cache, already
+  // rate-limited to 5/min), but there's no reason a routine post-save
+  // side-effect should be the one open door.
+  const verified = await verifyUser(req.headers.authorization);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
   clearSitemapCache();
   res.json({ success: true, message: 'Sitemap cache cleared' });
 });
@@ -5273,11 +5283,6 @@ app.post('/api/users/follow', serverRateLimiter(60 * 1000, 30, "users-follow"), 
     console.error('[Users Follow API Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to update follow status' });
   }
-});
-
-app.post('/api/cache/clear', serverRateLimiter(60 * 1000, 5, "cache-clear"), (req, res) => {
-  clearSitemapCache();
-  res.json({ success: true, message: 'Cache cleared' });
 });
 
 // -------------------------------------------------------------
