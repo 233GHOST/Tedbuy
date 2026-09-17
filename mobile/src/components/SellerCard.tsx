@@ -150,17 +150,17 @@ const styles = StyleSheet.create({
     position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
     borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
   },
-  // Deliberately blue, not green -- confirmed live (production data showed
-  // every user correctly isOnline: false while this card still appeared to
-  // show everyone online) that the avatar's old verified-status ring, a
-  // similar green shown for every verified seller regardless of presence,
-  // was being read as "online" at a glance since it sat right at this same
-  // corner. That ring is gone now (see avatarRing above), but blue stays
-  // deliberate anyway -- nothing else on this card uses it, so it can only
-  // ever mean one thing.
+  // WhatsApp-style green -- was temporarily blue while diagnosing a report
+  // of every seller appearing online, to rule in/out the avatar's old
+  // verified-status ring (a similar green shown for every verified seller
+  // regardless of presence, sitting at this same corner) as the real
+  // cause. Confirmed live that it was: production data showed everyone
+  // correctly isOnline: false the whole time, and no blue ever appeared.
+  // That ring is gone now (see avatarRing above), so green is unambiguous
+  // again -- nothing else on this card uses it.
   onlineDot: {
     position: 'absolute', bottom: -1, left: -1, width: 15, height: 15, borderRadius: 8,
-    backgroundColor: '#2563eb', borderWidth: 2.5, borderColor: '#ffffff',
+    backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
   },
   categoryPill: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
   categoryPillText: { fontSize: 9.5, color: '#c2410c', fontFamily: fonts.extrabold },

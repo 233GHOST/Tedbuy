@@ -847,11 +847,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   onlineDot: {
-    // Blue, not green -- matches SellerCard.tsx's own online dot; kept
-    // visually distinct from any verified-seller green elsewhere on this
-    // screen so it can only ever mean "online."
+    // WhatsApp-style green -- matches SellerCard.tsx's own online dot,
+    // back to green now that the conflicting verified-seller ring it used
+    // to be confused with is removed there. This screen never had that
+    // ring on the avatar, so no similar risk here either.
     position: 'absolute', bottom: 0, right: 0, width: 15, height: 15, borderRadius: 8,
-    backgroundColor: '#2563eb', borderWidth: 2.5, borderColor: '#ffffff',
+    backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
   },
   avatarText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 18 },
   profileMeta: { flex: 1 },
