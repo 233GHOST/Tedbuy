@@ -61,11 +61,19 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
                 <CheckCircle2 size={15} color="#ffffff" fill="#059669" strokeWidth={0} />
               </View>
             )}
-            {/* WhatsApp-style presence dot -- only rendered when the seller
-                is actually online (server-derived, see discoverSellers.ts),
-                never shown unconditionally. Bottom-left, since the verified
-                checkmark already owns bottom-right. */}
-            {seller.isOnline && <View style={styles.onlineDot} />}
+            {/* Online-presence dot deliberately removed (was here, gated on
+                seller.isOnline) -- live testing kept showing it on cards
+                for accounts confirmed offline server-side (verified
+                directly against /api/users/list and via in-app diagnostic
+                logging, both showing the correct single online account),
+                with no root cause pinned down yet despite ruling out the
+                data layer, the old verified-ring visual collision, and
+                Metro bundler caching. Pulled out rather than keep shipping
+                a status indicator that doesn't reliably reflect reality.
+                seller.isOnline itself, and the server infrastructure
+                behind it (server.ts's /api/users/heartbeat,
+                computeIsOnline), are untouched -- only the render is
+                gone, so this can come back once actually root-caused. */}
           </View>
           <View style={styles.categoryPill}>
             <Text style={styles.categoryPillText} numberOfLines={1}>{seller.primaryCategory}</Text>
@@ -149,18 +157,6 @@ const styles = StyleSheet.create({
   verifiedBadge: {
     position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ffffff',
     borderRadius: 10, padding: 1.5, shadowColor: '#0f172a', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
-  },
-  // WhatsApp-style green -- was temporarily blue while diagnosing a report
-  // of every seller appearing online, to rule in/out the avatar's old
-  // verified-status ring (a similar green shown for every verified seller
-  // regardless of presence, sitting at this same corner) as the real
-  // cause. Confirmed live that it was: production data showed everyone
-  // correctly isOnline: false the whole time, and no blue ever appeared.
-  // That ring is gone now (see avatarRing above), so green is unambiguous
-  // again -- nothing else on this card uses it.
-  onlineDot: {
-    position: 'absolute', bottom: -1, left: -1, width: 15, height: 15, borderRadius: 8,
-    backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
   },
   categoryPill: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
   categoryPillText: { fontSize: 9.5, color: '#c2410c', fontFamily: fonts.extrabold },
