@@ -643,7 +643,13 @@ export function ChatsScreen() {
       if (deletedChatIds.has(c.id)) return false;
       if (filterMode === 'buying' && c.buyerId !== currentUser.uid) return false;
       if (filterMode === 'selling' && c.sellerId !== currentUser.uid) return false;
-      if (filterMode === 'unread' && !((c.unreadCount || 0) > 0)) return false;
+      // Also excludes a completed-trade chat, matching web's identical fix
+      // and this same screen's own per-row unread badge (which already skips
+      // tradeStatus === 'completed') -- without this, a chat with a
+      // completed trade and a genuine new unreadCount could appear in this
+      // "Unread" tab while showing no unread badge anywhere else (the tab
+      // bar's global badge and this chat's own row both already exclude it).
+      if (filterMode === 'unread' && (!((c.unreadCount || 0) > 0) || c.tradeStatus === 'completed')) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const peer = (c.buyerId === currentUser.uid ? c.sellerName : c.buyerName) || '';

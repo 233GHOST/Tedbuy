@@ -258,7 +258,15 @@ export const ChatInterface: React.FC = () => {
         // counts here, since the server doesn't know about that client-only
         // local hide-state; this only affects the rare case of an unread
         // message someone already deleted locally.
-        if ((c.unreadCount || 0) === 0) return false;
+        //
+        // Also excludes a completed-trade chat, matching getUnreadChatCount/
+        // getUnreadMessageCount (chatStateUtils.ts) and every per-row unread
+        // badge elsewhere in this file -- without this, a chat with a
+        // completed trade and a genuine new unreadCount could appear in this
+        // "Unread" tab while showing no unread badge anywhere else in the
+        // app (the global nav badge and this same chat's own row badge both
+        // already exclude it), a confusing "why is this here" inconsistency.
+        if ((c.unreadCount || 0) === 0 || c.tradeStatus === 'completed') return false;
       }
 
       // Search query filter
