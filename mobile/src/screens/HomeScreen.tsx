@@ -1917,13 +1917,25 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   </Pressable>
                   <Pressable
                     onPress={() => { console.log('VIDEO_TIMING feed_open', videoFeedItems[0]?.id, Date.now()); setViewMode('video'); }}
-                    style={[styles.toggleBtn, viewMode === 'video' && styles.toggleBtnActive]}
+                    style={styles.toggleBtn}
                     accessibilityRole="tab"
-                    accessibilityState={{ selected: viewMode === 'video' }}
+                    // This whole toggle row only renders inside the
+                    // viewMode === 'grid' branch of the screen's main
+                    // ternary (it's part of the grid FlatList's own list
+                    // header), so viewMode can never actually be 'video'
+                    // here -- the "Video Feed" button is reachable only as
+                    // a switch-TO action, never as a currently-selected
+                    // state, unlike its "Standard Grid" sibling above.
+                    // Previously compared against viewMode === 'video'
+                    // anyway, which TypeScript correctly flagged as an
+                    // impossible comparison in this branch (a real,
+                    // pre-existing type error, not new) -- removed rather
+                    // than silenced, since it never evaluated true.
+                    accessibilityState={{ selected: false }}
                     accessibilityLabel="Video Feed"
                   >
                     <Video size={19} color="#10b981" fill="#10b981" strokeWidth={1.6} />
-                    <Text style={[styles.toggleBtnText, viewMode === 'video' && styles.toggleBtnTextActive]}>Video Feed</Text>
+                    <Text style={styles.toggleBtnText}>Video Feed</Text>
                   </Pressable>
                 </View>
 
