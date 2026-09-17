@@ -24,12 +24,12 @@ interface SellerCardProps {
  * computeDiscoverSellers) — this only changes how it's presented, not
  * whether it's there.
  *
- * onlineDot (green, bottom-left of the avatar) is the only status signal
+ * onlineDot (green, bottom-right of the avatar) is the only status signal
  * here -- only rendered when seller.isOnline is true (server-derived, see
  * server.ts's computeIsOnline; the seller sent a heartbeat within the last
- * ~90s). A verified-seller checkmark badge used to sit at the opposite
- * corner too, but was removed per explicit request -- it wasn't serving a
- * purpose and, at this size, kept getting mistaken for the online dot. */
+ * ~90s). A verified-seller checkmark badge used to sit here too, but was
+ * removed per explicit request -- it wasn't serving a purpose and, at this
+ * size, kept getting mistaken for the online dot. */
 export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow, isTogglingFollow }: SellerCardProps) {
   const cardAccessibilityLabel = [
     seller.name,
@@ -135,11 +135,11 @@ const styles = StyleSheet.create({
   avatarImg: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#e2e8f0' },
   avatarFallback: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
   avatarInitial: { color: '#334155', fontSize: 18, fontFamily: fonts.extrabold },
-  // WhatsApp-style green, bottom-left -- only rendered when seller.isOnline
-  // is true (server-derived, see discoverSellers.ts / server.ts's
-  // computeIsOnline).
+  // WhatsApp-style green, bottom-right -- only rendered when
+  // seller.isOnline is true (server-derived, see discoverSellers.ts /
+  // server.ts's computeIsOnline).
   onlineDot: {
-    position: 'absolute', bottom: -1, left: -1, width: 15, height: 15, borderRadius: 8,
+    position: 'absolute', bottom: -1, right: -1, width: 15, height: 15, borderRadius: 8,
     backgroundColor: '#22c55e', borderWidth: 2.5, borderColor: '#ffffff',
   },
   categoryPill: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fed7aa', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 90 },
