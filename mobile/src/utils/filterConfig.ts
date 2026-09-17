@@ -412,6 +412,19 @@ export const CATEGORY_FILTERS: Record<string, FilterField[]> = {
   ]
 };
 
+// Real, verified bug: this map's key was only ever 'Laptops' (the legacy
+// name), but mobile's own category chips use the canonical
+// 'Laptops & Computers' (confirmed via HomeScreen.tsx's own
+// CATEGORY_ICONS-style map, which keys this exact category under
+// 'Laptops & Computers') -- so CATEGORY_FILTERS[selectedCategory] at
+// HomeScreen.tsx's filter-fields lookup silently returned undefined
+// (falling back to an empty array) for the Laptops & Computers category
+// specifically, meaning its brand/RAM/storage/etc. filter fields never
+// rendered on mobile at all, while web's equivalent lookup works correctly
+// (web keeps both keys, via the same alias pattern applied here). Alias
+// both directions so the lookup works regardless of which name reaches it.
+(CATEGORY_FILTERS as any)['Laptops & Computers'] = CATEGORY_FILTERS['Laptops'];
+
 // Hierarchical Brand to Model mapping (verbatim from web's filterConfig.ts —
 // only Phones/Vehicles/Laptops brands actually have a `model` filter field
 // above, so only those brands' entries are ever looked up in practice).
@@ -631,7 +644,16 @@ export function getModelsForBrand(brand: string, category: string): string[] {
   if (!brand) return [];
   const cleanBrand = brand.trim().toLowerCase();
 
-  if (category === 'Laptops') {
+  // Same 'Laptops' vs 'Laptops & Computers' mismatch just fixed for
+  // CATEGORY_FILTERS above -- selectedCategory (HomeScreen.tsx's real call
+  // site) is always the canonical 'Laptops & Computers', so this check
+  // never matched. Worse than just "no models show": with the category
+  // check failing, execution fell through to the generic brand-name lookup
+  // below, which DOES have plain 'Apple'/'Samsung' keys (phone model
+  // lists) -- so selecting Apple as the brand while filtering/creating a
+  // Laptops & Computers listing showed iPhone models instead of MacBook
+  // models.
+  if (category === 'Laptops & Computers' || category === 'Laptops') {
     if (cleanBrand === 'apple') {
       return BRAND_MODELS_DATA['Apple (Laptops)'] || [];
     }
