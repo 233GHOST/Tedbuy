@@ -175,7 +175,16 @@ export const ProductDetail: React.FC = () => {
       );
     } catch (err: any) {
       console.error("Failed to update product isSold flag", err);
-      showToast(err?.message || 'Could not update listing status.', 'error');
+      let msg = 'Could not update listing status.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
     } finally {
       setIsTogglingSold(false);
     }
@@ -189,6 +198,8 @@ export const ProductDetail: React.FC = () => {
 
   const [inlineChatMessage, setInlineChatMessage] = useState('');
   const [isStartingChat, setIsStartingChat] = useState(false);
+  const [isTogglingSave, setIsTogglingSave] = useState(false);
+  const [isTogglingFollow, setIsTogglingFollow] = useState(false);
 
   const [isDetailFetching, setIsDetailFetching] = useState(false);
   const [videoErrors, setVideoErrors] = useState<Record<string, boolean>>({});
@@ -260,7 +271,16 @@ export const ProductDetail: React.FC = () => {
       await reportProduct(product.id, reportReason, reportComment);
       setIsReportModalOpen(false);
     } catch (err: any) {
-      showToast(err.message || "Failed to submit report.", "error");
+      let msg = 'Failed to submit report.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, "error");
     } finally {
       setIsSubmittingReport(false);
     }
@@ -819,13 +839,35 @@ export const ProductDetail: React.FC = () => {
     'TEDBUY SELLER'
   ).trim().toUpperCase();
 
-  const handleToggleSave = () => {
+  const handleToggleSave = async () => {
     if (!currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    toggleSaveProduct(product.id);
+    // Previously fired without await/catch -- toggleSaveProduct throws via
+    // handleBackendError on any real failure (network, expired session,
+    // server error), so a transient failure was an unhandled rejection:
+    // the bookmark icon never changed and nothing told the user their tap
+    // did anything.
+    if (isTogglingSave) return;
+    setIsTogglingSave(true);
+    try {
+      await toggleSaveProduct(product.id);
+    } catch (err: any) {
+      let msg = 'Could not update saved listings.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
+    } finally {
+      setIsTogglingSave(false);
+    }
   };
 
   const handleSellerClick = () => {
@@ -852,7 +894,16 @@ export const ProductDetail: React.FC = () => {
         setCurrentView('chats');
       }
     } catch (err: any) {
-      showToast(err?.message || 'Could not initiate chat with the seller.', 'error');
+      let msg = 'Could not initiate chat with the seller.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
     }
   };
 
@@ -884,7 +935,16 @@ export const ProductDetail: React.FC = () => {
         setCurrentView('chats');
       }
     } catch (err: any) {
-      showToast(err?.message || 'Could not initiate chat with the seller.', 'error');
+      let msg = 'Could not initiate chat with the seller.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
     } finally {
       setIsStartingChat(false);
     }
@@ -932,16 +992,33 @@ export const ProductDetail: React.FC = () => {
     setSafetyTipsPendingAction(null);
   };
 
-  const handleToggleFollow = () => {
+  const handleToggleFollow = async () => {
     if (!currentUser) {
       setAuthMode('login');
       setShowAuthModal(true);
       return;
     }
-    if (isFollowing) {
-      unfollowSeller(product.sellerId);
-    } else {
-      followSeller(product.sellerId);
+    if (isTogglingFollow) return;
+    setIsTogglingFollow(true);
+    try {
+      if (isFollowing) {
+        await unfollowSeller(product.sellerId);
+      } else {
+        await followSeller(product.sellerId);
+      }
+    } catch (err: any) {
+      let msg = isFollowing ? 'Could not unfollow this store.' : 'Could not follow this store.';
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.error) msg = parsed.error;
+        } catch {
+          msg = err.message;
+        }
+      }
+      showToast(msg, 'error');
+    } finally {
+      setIsTogglingFollow(false);
     }
   };
 
@@ -1869,7 +1946,8 @@ export const ProductDetail: React.FC = () => {
                     <button
                       id="btn-save-detail"
                       onClick={handleToggleSave}
-                      className={`px-3 sm:px-4 py-3 sm:py-3.5 rounded-2xl border transition duration-200 text-xs sm:text-sm flex items-center justify-center shrink-0 active:scale-98 min-h-[44px] ${
+                      disabled={isTogglingSave}
+                      className={`px-3 sm:px-4 py-3 sm:py-3.5 rounded-2xl border transition duration-200 text-xs sm:text-sm flex items-center justify-center shrink-0 active:scale-98 min-h-[44px] disabled:opacity-60 disabled:cursor-wait ${
                         isSaved
                           ? 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
                           : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
@@ -1999,7 +2077,8 @@ export const ProductDetail: React.FC = () => {
                           <button
                             id="btn-toggle-follow"
                             onClick={handleToggleFollow}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 ${
+                            disabled={isTogglingFollow}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer active:scale-95 disabled:opacity-60 disabled:cursor-wait ${
                               isFollowing
                                 ? 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200'
                                 : 'bg-slate-900 text-white hover:bg-slate-800'
