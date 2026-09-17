@@ -166,22 +166,24 @@ export function ProfileScreen() {
 
   // Matches web's SellerDashboard "Mark as Sold" / "Mark as Available" toggle.
   const handleToggleSold = async (item: any) => {
+    // The Pressable's own `disabled={togglingSoldId === item.id}` lags a
+    // render behind (same lag handleAuth explicitly guards against
+    // elsewhere in this file), so a fast double-tap could fire two
+    // concurrent updateProduct calls before the first re-render lands.
+    if (togglingSoldId) return;
     setTogglingSoldId(item.id);
     const nextSold = !item.isSold;
     try {
+      // updateProduct now always throws rather than silently resolving
+      // to undefined on a load failure (mobile/src/firebase.ts), so
+      // `updated` is guaranteed real here -- no fallback-to-optimistic
+      // needed, which previously masked a failed update as a success.
       const updated = await updateProduct(item.id, {
         isSold: nextSold,
         status: nextSold ? 'sold' : 'active',
         soldAt: nextSold ? new Date().toISOString() : null
       });
-      setProducts((prev) => prev.map((p) => (p.id === item.id ? {
-        ...p,
-        ...(updated || {
-          isSold: nextSold,
-          status: nextSold ? 'sold' : 'active',
-          soldAt: nextSold ? new Date().toISOString() : null
-        })
-      } : p)));
+      setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, ...updated } : p)));
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Could not update listing status.');
     } finally {
@@ -240,7 +242,17 @@ export function ProfileScreen() {
       // that just happened elsewhere (e.g. Mark as Sold on the product's own
       // detail page); trusting the ordinary ~60s server cache here would
       // defeat the point on a focus that lands within that window.
-      watchProducts((result) => setProducts(result), true);
+      //
+      // The `failed` flag was previously discarded -- watchProducts resolves
+      // to [] on a transient server failure indistinguishably from a
+      // genuinely empty catalog, so any hiccup on focus wiped the user's
+      // real "My Classified Listings"/"Saved Bookmarks" (both derived from
+      // this same `products` state) down to their empty states with no
+      // error shown, even though nothing had actually changed server-side.
+      watchProducts((result, failed) => {
+        if (failed) return;
+        setProducts(result);
+      }, true);
     });
     return unsubscribeFocus;
   }, [navigation]);
@@ -346,8 +358,18 @@ export function ProfileScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            await logOut();
-            setActiveTab('dashboard');
+            // logOut() -> firebase.ts's signOut(auth) call is unguarded
+            // (only the Google-SDK signOut inside it is try/caught) -- a
+            // rejection here previously became an unhandled rejection with
+            // the dialog already closed and no indication sign-out failed,
+            // leaving the user still logged in with nothing telling them
+            // why.
+            try {
+              await logOut();
+              setActiveTab('dashboard');
+            } catch (err: any) {
+              Alert.alert('Sign Out Failed', err?.message || 'Could not sign out. Please try again.');
+            }
           },
         },
       ]
@@ -398,6 +420,7 @@ export function ProfileScreen() {
                 <TextInput
                   value={username}
                   onChangeText={setUsername}
+                  maxLength={50}
                   placeholder="e.g. Nana Gadgets, Ama Fashion"
                   placeholderTextColor="#94a3b8"
                   style={styles.textInput}

@@ -1187,8 +1187,18 @@ export async function updateUserProfile(profileData: {
   if (!myProfile) throw new Error('Could not load your profile.');
 
   const finalUsername = profileData.username !== undefined ? profileData.username.trim() : (myProfile.username || '');
-  if (!finalUsername) throw new Error('Store Name is required.');
-  if (finalUsername.length > 50) throw new Error('Store Name must be 50 characters or less.');
+  // Only validate the username when THIS call is actually changing it --
+  // these checks used to run unconditionally, so a stored username that
+  // predates this validation (or was ever grandfathered in over the 50-char
+  // cap through some other path) permanently blocked every future
+  // profile-only edit (avatar, bio, phone, notification prefs -- anything
+  // that omits `username` and so falls back to the stale stored value)
+  // with a "Store Name must be 50 characters or less" error that had
+  // nothing to do with what the user was actually trying to save.
+  if (profileData.username !== undefined) {
+    if (!finalUsername) throw new Error('Store Name is required.');
+    if (finalUsername.length > 50) throw new Error('Store Name must be 50 characters or less.');
+  }
   const isStoreNameChanged = profileData.username !== undefined && finalUsername !== myProfile.username;
   if (isStoreNameChanged && isReservedStoreName(finalUsername)) {
     throw new Error('This store name is reserved by TedBuy.');
@@ -1364,7 +1374,17 @@ export async function updateProduct(id: string, data: Partial<any>) {
   // not Firestore — a raw Firestore write here would never reach the record
   // fetchProducts/fetchProductById actually read.
   const product = await fetchProductById(id, true);
-  if (!product) return;
+  if (!product) {
+    // Previously returned undefined silently instead of throwing --
+    // fetchProductById collapses "genuinely not found" and "server
+    // responded but with success:false" into the same null result (it only
+    // throws for NETWORK/TIMEOUT/PARSE), so a transient non-network failure
+    // here looked identical to nothing having gone wrong at all. Callers
+    // (ProfileScreen.tsx/ProductCard.tsx handleSoldToggle) then showed a
+    // "Listing Sold!" success alert regardless, since nothing told them the
+    // call had actually failed.
+    throw new Error('Could not load this listing to update it. Please try again.');
+  }
 
   const patchData = { ...data };
   if (patchData.isSold !== undefined) {
