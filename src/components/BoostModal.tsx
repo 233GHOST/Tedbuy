@@ -335,17 +335,30 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
             <>
               {/* Step 1: Select Plan */}
               <div className="space-y-3">
-                <h3 className="text-xs font-black text-slate-600 uppercase tracking-wider font-sans">1. Select Boost Duration</h3>
-                <div className="space-y-2.5">
+                <h3 id="boost-duration-label" className="text-xs font-black text-slate-600 uppercase tracking-wider font-sans">1. Select Boost Duration</h3>
+                <div role="radiogroup" aria-labelledby="boost-duration-label" className="space-y-2.5">
                   {BOOST_PLANS.map(plan => {
                     const isSelected = selectedPlanId === plan.id;
                     return (
-                      <div 
+                      <div
                         key={plan.id}
                         onClick={() => setSelectedPlanId(plan.id)}
-                        className={`border rounded-2xl p-4 flex items-center justify-between cursor-pointer transition-all ${
-                          isSelected 
-                            ? 'bg-amber-50/40 border-amber-400/80 ring-2 ring-amber-400/40 shadow-sm' 
+                        role="radio"
+                        aria-checked={isSelected}
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          // This custom radio-style plan picker was
+                          // mouse-only -- a keyboard user could not choose
+                          // a boost duration at all, blocking the entire
+                          // boost-purchase flow.
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedPlanId(plan.id);
+                          }
+                        }}
+                        className={`border rounded-2xl p-4 flex items-center justify-between cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 ${
+                          isSelected
+                            ? 'bg-amber-50/40 border-amber-400/80 ring-2 ring-amber-400/40 shadow-sm'
                             : 'border-slate-200/85 hover:border-slate-350 hover:bg-slate-50/50 bg-white'
                         }`}
                       >
