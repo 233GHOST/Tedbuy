@@ -457,6 +457,26 @@ export const ChatInterface: React.FC = () => {
   const otherUser = users.find(u => u.id === otherUserId);
   const otherUserName = otherUser?.username || (activeChat ? (activeChat.buyerId === currentUser.id ? activeChat.sellerName : activeChat.buyerName) : 'Other Party');
 
+  // Unlike every other wa.me link built this session (SellerProfilePage.tsx,
+  // ProductDetail.tsx), this one had no country-code normalization at all --
+  // just stripping non-digits, so the common case (a number stored in local
+  // Ghana format, e.g. "0244123456", which nothing on save normalizes) built
+  // a link to https://wa.me/0244123456, an invalid international number
+  // WhatsApp can't resolve. Rather than clicking through to a broken page
+  // with no explanation (the other fixes' approach, via a confirmation-step
+  // Alert this simple header icon button doesn't have), the button itself is
+  // now hidden when the number doesn't normalize cleanly.
+  const otherUserWhatsAppLink = (() => {
+    const raw = otherUser?.whatsAppNumber || otherUser?.phoneNumber || '';
+    let cleanNumber = raw.replace(/\D/g, '');
+    if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
+      cleanNumber = '233' + cleanNumber.substring(1);
+    } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
+      cleanNumber = '233' + cleanNumber;
+    }
+    return /^233\d{9}$/.test(cleanNumber) ? `https://wa.me/${cleanNumber}` : null;
+  })();
+
   // Check if currentUser already left a review for this seller on this product
   const existingReview = activeChat
     ? reviews.find(
@@ -959,10 +979,10 @@ export const ChatInterface: React.FC = () => {
                           <Phone className="w-4 h-4" />
                         </a>
                       )}
-                      {/* WhatsApp button if whatsapp exists */}
-                      {(otherUser?.whatsAppNumber || otherUser?.phoneNumber) && (
+                      {/* WhatsApp button if whatsapp exists and normalizes to a valid number */}
+                      {otherUserWhatsAppLink && (
                         <a
-                          href={`https://wa.me/${(otherUser?.whatsAppNumber || otherUser?.phoneNumber || '').replace(/[^0-9]/g, '')}`}
+                          href={otherUserWhatsAppLink}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition flex items-center justify-center shrink-0 shadow-2xs cursor-pointer"

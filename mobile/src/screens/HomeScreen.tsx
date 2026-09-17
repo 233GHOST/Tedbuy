@@ -1619,6 +1619,15 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
             } else if (!cleanNumber.startsWith('233') && cleanNumber.length === 9) {
               cleanNumber = '233' + cleanNumber;
             }
+            // Same format-validation gap fixed elsewhere this session
+            // (SellerProfileScreen.tsx, web's SellerProfilePage.tsx/
+            // ProductDetail.tsx) -- a non-numeric saved number silently
+            // produced a dead wa.me link that Linking.openURL resolved
+            // successfully, so its own .catch() never fired.
+            if (!/^233\d{9}$/.test(cleanNumber)) {
+              Alert.alert('Invalid Contact Number', "This seller's WhatsApp number on file looks invalid. Try TedBuy chat instead.");
+              return;
+            }
             const msg = encodeURIComponent(`Hello! I'm interested in your listed item "${product.title}" on Tedbuy marketplace. Let's chat!`);
             Linking.openURL(`https://wa.me/${cleanNumber}?text=${msg}`).catch(() => {
               Alert.alert('Error', 'Unable to open WhatsApp on your device.');
