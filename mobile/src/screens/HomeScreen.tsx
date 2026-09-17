@@ -1873,12 +1873,19 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                       style={styles.input}
                       placeholderTextColor="#64748b"
                       clearButtonMode="never"
+                      accessibilityLabel="Search listings"
                     />
                     {/* Explicit, cross-platform clear button — TextInput's
                         clearButtonMode is iOS-only, so Android had no way to
                         clear typed search text except deleting it manually. */}
                     {searchText.length > 0 && (
-                      <Pressable onPress={() => setSearchText('')} hitSlop={8} style={styles.searchClearBtn}>
+                      <Pressable
+                        onPress={() => setSearchText('')}
+                        hitSlop={8}
+                        style={styles.searchClearBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Clear search"
+                      >
                         <X size={14} color="#94a3b8" strokeWidth={2.4} />
                       </Pressable>
                     )}
@@ -1888,10 +1895,13 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                 {/* Pill Toggle Switcher for Standard Grid / Watch Video Ads —
                     matches web's App.tsx tabs (LayoutGrid / Video icons,
                     emerald fill on the video icon). */}
-                <View style={styles.toggleCapsule}>
+                <View style={styles.toggleCapsule} accessibilityRole="tablist">
                   <Pressable
                     onPress={() => setViewMode('grid')}
                     style={[styles.toggleBtn, viewMode === 'grid' && styles.toggleBtnActive]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: viewMode === 'grid' }}
+                    accessibilityLabel="Standard Grid"
                   >
                     <LayoutGrid size={18} color={viewMode === 'grid' ? '#ffffff' : '#64748b'} strokeWidth={2.4} />
                     <Text style={[styles.toggleBtnText, viewMode === 'grid' && styles.toggleBtnTextActive]}>Standard Grid</Text>
@@ -1899,6 +1909,9 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   <Pressable
                     onPress={() => { console.log('VIDEO_TIMING feed_open', videoFeedItems[0]?.id, Date.now()); setViewMode('video'); }}
                     style={[styles.toggleBtn, viewMode === 'video' && styles.toggleBtnActive]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: viewMode === 'video' }}
+                    accessibilityLabel="Video Feed"
                   >
                     <Video size={19} color="#10b981" fill="#10b981" strokeWidth={1.6} />
                     <Text style={[styles.toggleBtnText, viewMode === 'video' && styles.toggleBtnTextActive]}>Video Feed</Text>
@@ -1923,7 +1936,14 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                     {categories.map((category) => {
                       const active = selectedCategory === category;
                       return (
-                        <Pressable key={category} onPress={() => setSelectedCategory(category)} style={[styles.categoryChip, active && styles.categoryChipActive]}>
+                        <Pressable
+                          key={category}
+                          onPress={() => setSelectedCategory(category)}
+                          style={[styles.categoryChip, active && styles.categoryChipActive]}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: active, checked: active }}
+                          accessibilityLabel={category === 'All' ? 'All Categories' : category}
+                        >
                           <Text style={styles.categoryIcon}>{categoryIcons[category] || '📦'}</Text>
                           <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
                             {category === 'All' ? 'All Categories' : category}
