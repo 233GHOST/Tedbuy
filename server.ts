@@ -35,6 +35,77 @@ process.on('unhandledRejection', (reason) => {
 
 dotenv.config();
 
+// Diagnostic-only startup check -- previously a missing/malformed env var
+// only ever surfaced later, deep in a request handler, as whatever error
+// message that specific integration happens to produce (e.g. a malformed
+// GOOGLE_SERVICE_ACCOUNT_JSON is caught elsewhere and falls back to a
+// credential-less Firebase Admin app, so every subsequent verifyUser()
+// call then fails with a cryptic Google Auth Library error instead of a
+// clear "service account key malformed" message at boot). This doesn't
+// change any runtime error-handling or exit behavior -- it only makes the
+// current configuration state visible in the deploy log at startup, so a
+// missing var is a one-line scan instead of a debugging session later.
+// Each existing feature's own graceful-degradation behavior (Gemini
+// returns 503, Paystack falls back to demo mode, etc.) is unchanged.
+function logStartupEnvironmentStatus() {
+  const groups: { name: string; vars: { key: string; alt?: string; note: string }[] }[] = [
+    {
+      name: 'Database (critical -- nothing works without this)',
+      vars: [
+        { key: 'SUPABASE_URL', alt: 'VITE_SUPABASE_URL', note: 'Supabase project URL' },
+        { key: 'SUPABASE_SERVICE_ROLE_KEY', note: 'server writes fall back to the anon key if unset -- see decodeSupabaseKeyRole\'s own warning below' },
+      ],
+    },
+    {
+      name: 'Auth (critical -- admin/privileged actions fail without this)',
+      vars: [
+        { key: 'FIREBASE_SERVICE_ACCOUNT_KEY', alt: 'GOOGLE_SERVICE_ACCOUNT_JSON', note: 'Firebase Admin SDK (verifyUser/verifyAdmin token verification)' },
+      ],
+    },
+    {
+      name: 'Media uploads',
+      vars: [
+        { key: 'CLOUDINARY_CLOUD_NAME', note: 'listing photos/videos' },
+        { key: 'CLOUDINARY_API_KEY', note: 'listing photos/videos' },
+        { key: 'CLOUDINARY_API_SECRET', note: 'listing photos/videos' },
+      ],
+    },
+    {
+      name: 'Transactional email',
+      vars: [
+        { key: 'BREVO_API_KEY', note: 'OTP, password reset, welcome emails' },
+      ],
+    },
+    {
+      name: 'Payments',
+      vars: [
+        { key: 'PAYSTACK_SECRET_KEY', note: 'real boost payments -- falls back to demo/unverified mode if unset' },
+      ],
+    },
+    {
+      name: 'AI listing descriptions (optional)',
+      vars: [
+        { key: 'GEMINI_API_KEY', note: 'endpoint returns 503 gracefully if unset' },
+      ],
+    },
+  ];
+
+  console.log('[Startup Environment Check] ---');
+  for (const group of groups) {
+    for (const v of group.vars) {
+      const present = !!(process.env[v.key] || (v.alt && process.env[v.alt]));
+      const label = v.alt ? `${v.key} / ${v.alt}` : v.key;
+      if (present) {
+        console.log(`[Startup Environment Check] OK    ${label} -- ${group.name}`);
+      } else {
+        console.warn(`[Startup Environment Check] MISSING ${label} -- ${group.name}: ${v.note}`);
+      }
+    }
+  }
+  console.log('[Startup Environment Check] ---');
+}
+logStartupEnvironmentStatus();
+
 let adminDb: any = null;
 
 // -------------------------------------------------------------
