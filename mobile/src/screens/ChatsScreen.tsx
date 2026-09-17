@@ -334,10 +334,16 @@ export function ChatsScreen() {
     }
 
     let active = true;
+    // Same overlapping-poll guard as the chat-list poll above -- without it,
+    // a slow tick resolving after a later, faster tick already landed could
+    // revert the thread to a stale message list (a just-arrived message
+    // disappearing for up to one more poll cycle).
+    let requestId = 0;
     const load = async () => {
+      const thisRequestId = ++requestId;
       try {
         const result = await fetchMessagesApi(activeChatId);
-        if (!active) return;
+        if (!active || thisRequestId !== requestId) return;
         setMessages(result);
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
