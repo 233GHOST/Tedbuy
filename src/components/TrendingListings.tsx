@@ -79,7 +79,11 @@ export const TrendingListings: React.FC<TrendingListingsProps> = ({ overrideProd
         const res = await fetch(`/api/trending${catQuery}`);
         if (res.ok && !isCancelled) {
           const data = await res.json();
-          if (data.success && Array.isArray(data.products)) {
+          // Re-checked here, not just before this await -- see
+          // FeaturedListings.tsx's identical fix for why: a rapid category
+          // switch can flip isCancelled true while this second await
+          // (res.json()) is still pending.
+          if (!isCancelled && data.success && Array.isArray(data.products)) {
             data.products.forEach((p: Product) => registerProduct(p));
             setServerTrending(filterAndSortTrending(data.products, activeCategory));
           }

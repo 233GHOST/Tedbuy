@@ -33,32 +33,41 @@ export const FeaturedListingsView: React.FC = () => {
       });
   }, []);
 
-  const fetchFeaturedProducts = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch('/api/featured');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.products)) {
-          const validFeatured = filterAndSortFeatured(data.products, selectedCategory);
-          setFeaturedProducts(validFeatured);
-        }
-      }
-    } catch (err) {
-      // Keep whatever was already showing rather than falling back to the
-      // general (paginated, recency-sorted, not boost-aware) products
-      // context array -- that was the exact bug already fixed in the
-      // carousel component (FeaturedListings.tsx); reintroducing it here as
-      // a fallback would just move the same wrong-data-source problem
-      // behind a network failure instead of removing it.
-      console.warn('[FeaturedListingsView] /api/featured fetch error:', err);
-    }
-    setIsLoading(false);
-  }, [selectedCategory, filterAndSortFeatured]);
-
   useEffect(() => {
+    // /api/featured always returns the same full (uncategorized) list --
+    // filtering by selectedCategory happens client-side right after, using
+    // whichever category was captured in this effect run's own closure.
+    // Without a cancellation guard, switching categories quickly could let
+    // an OLDER request (filtered by the category you just switched AWAY
+    // from) resolve after a newer one and overwrite the list -- so the
+    // screen would show items for a different category than the one
+    // selectedCategory (and the header/chips) actually says is active.
+    let isCancelled = false;
+    const fetchFeaturedProducts = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/featured');
+        if (res.ok) {
+          const data = await res.json();
+          if (!isCancelled && data.success && Array.isArray(data.products)) {
+            const validFeatured = filterAndSortFeatured(data.products, selectedCategory);
+            setFeaturedProducts(validFeatured);
+          }
+        }
+      } catch (err) {
+        // Keep whatever was already showing rather than falling back to the
+        // general (paginated, recency-sorted, not boost-aware) products
+        // context array -- that was the exact bug already fixed in the
+        // carousel component (FeaturedListings.tsx); reintroducing it here as
+        // a fallback would just move the same wrong-data-source problem
+        // behind a network failure instead of removing it.
+        console.warn('[FeaturedListingsView] /api/featured fetch error:', err);
+      }
+      if (!isCancelled) setIsLoading(false);
+    };
     fetchFeaturedProducts();
-  }, [fetchFeaturedProducts]);
+    return () => { isCancelled = true; };
+  }, [selectedCategory, filterAndSortFeatured]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 animate-fade-in min-h-[70vh] font-sans">

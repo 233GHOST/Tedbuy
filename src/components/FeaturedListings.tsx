@@ -85,7 +85,12 @@ export const FeaturedListings: React.FC<FeaturedListingsProps> = ({ overrideProd
         const res = await fetch(`/api/featured${catQuery}`);
         if (res.ok && !isCancelled) {
           const data = await res.json();
-          if (data.success && Array.isArray(data.products)) {
+          // Re-checked here, not just before this await -- a rapid category
+          // switch can trigger cleanup (setting isCancelled) while this
+          // second await (res.json()) is still pending, and without this
+          // check a stale response for the PREVIOUS category would still
+          // overwrite the currently-selected category's list.
+          if (!isCancelled && data.success && Array.isArray(data.products)) {
             data.products.forEach((p: Product) => registerProduct(p));
             setServerFeatured(filterAndSortFeatured(data.products, activeCategory));
           }
