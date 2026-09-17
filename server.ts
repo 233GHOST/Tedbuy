@@ -2097,8 +2097,15 @@ export function serializeProductSummary(row: any): any {
 
 function normalizeServerProductSummaryRow(row: any): any {
   if (!row) return null;
-  // Exclude soft-deleted or archived products from public listing feeds
-  if (row.isDeleted === true || row.is_deleted === true || row.status === 'archived' || row.status === 'deleted') {
+  // Exclude soft-deleted, archived, or admin-hidden products from public
+  // listing feeds. This is the shared filter behind getProductsListData()
+  // (backing /api/products, /api/feed, /api/featured, /api/trending, and
+  // /api/similar) -- 'hidden' was missing here, so an admin's "hide" action
+  // (elsewhere in this file, moderation-locked alongside 'archived'/'deleted')
+  // had no actual effect on the app's primary product surfaces; a hidden
+  // listing stayed fully visible in the home feed, search, and every
+  // feature derived from this same cached dataset.
+  if (row.isDeleted === true || row.is_deleted === true || row.status === 'archived' || row.status === 'hidden' || row.status === 'deleted') {
     return null;
   }
   const imgs = parseMediaArray(row.images || row.imageUrls);
@@ -2920,7 +2927,7 @@ app.get('/api/products/:productId', serverRateLimiter(60 * 1000, 200, "product-d
       return res.status(404).json({ success: false, error: 'Product not found' });
     }
 
-    const isArchivedOrDeleted = data.isDeleted === true || data.is_deleted === true || data.status === 'archived' || data.status === 'deleted';
+    const isArchivedOrDeleted = data.isDeleted === true || data.is_deleted === true || data.status === 'archived' || data.status === 'hidden' || data.status === 'deleted';
     if (isArchivedOrDeleted) {
       const authHeader = req.headers.authorization;
       const isAdmin = authHeader ? await verifyAdmin(authHeader) : false;
@@ -9073,11 +9080,20 @@ async function startServer() {
           if (productId && backendSupabase) {
             try {
               const { data } = await backendSupabase.from('products').select('*').eq('id', productId).maybeSingle();
-              if (data) {
+              // Moderated-away listings (hidden/archived/soft-deleted) are
+              // soft-deletes -- the row still exists -- so `if (data)` alone
+              // was serving a full rich preview (title/OG image/JSON-LD) for
+              // any listing an admin took down, staying crawlable/indexable
+              // and shareable with a real-looking preview card regardless of
+              // the moderation action. Same status set /api/products/:id
+              // and the rest of the app already treat as invisible.
+              const isModerated = data && (data.isDeleted === true || data.is_deleted === true || data.status === 'archived' || data.status === 'hidden' || data.status === 'deleted');
+              if (data && !isModerated) {
                 const normalized = normalizeServerProductRow(data);
                 html = injectMetaTags(html, normalized, `${protocol}://${host}${req.originalUrl}`, host, protocol, productId);
               } else {
-                // If product is not found in database, return true 404 with noindex to prevent Soft 404 in Google Search Console
+                // Not found (or moderated away) -- return true 404 with
+                // noindex to prevent Soft 404 in Google Search Console.
                 html = html.replace(/<link\s+rel="canonical".*?>/gi, '');
                 html = html.replace('</head>', '<meta name="robots" content="noindex, nofollow" /></head>');
                 return res.status(404).send(html);

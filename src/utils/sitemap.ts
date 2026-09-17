@@ -140,8 +140,15 @@ async function fetchSitemapDataset(): Promise<CachedSitemapData> {
       const createdAt = (item as any).createdAt || today;
       const status = (item as any).status;
       const isSold = status === 'sold' || (item as any).isSold === true;
+      // Same moderation-status convention the rest of the app uses to hide
+      // a listing (server.ts's normalizeServerProductSummaryRow, the main
+      // feed's actual gate, had this exact gap until it was fixed alongside
+      // this file) -- without it, a soft-deleted/archived/admin-hidden
+      // listing still got submitted to Google's sitemap.xml and stayed
+      // indexable indefinitely regardless of the moderation action.
+      const isModerated = (item as any).isDeleted === true || (item as any).is_deleted === true || status === 'archived' || status === 'hidden' || status === 'deleted';
 
-      if (id && title && !isSold) {
+      if (id && title && !isSold && !isModerated) {
         const slug = slugify(title);
         const updateDate = new Date(createdAt).toISOString().split('T')[0] || today;
         productUrls.push({
