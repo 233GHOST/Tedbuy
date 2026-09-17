@@ -19,11 +19,19 @@ const UnreadChatsContext = createContext<number>(0);
 export function UnreadChatsProvider({ children }: { children: React.ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Bumped on every auth-state change so an in-flight load() from a user who
+  // has since signed out (or been replaced by a different signed-in user on
+  // the same device) can't apply its stale count after the fact -- fetchChatsApi
+  // resolves using whatever token was live when it was *called*, not when it
+  // *resolves*, so without this a fast account switch could show the wrong
+  // badge for up to one more poll cycle.
+  const generationRef = useRef(0);
 
   useEffect(() => {
-    const load = async (uid: string) => {
+    const load = async (uid: string, generation: number) => {
       try {
         const chats = await fetchChatsApi();
+        if (generation !== generationRef.current) return;
         let deletedIds = new Set<string>();
         try {
           const raw = await AsyncStorage.getItem(`tedbuy_deleted_chat_ids_${uid}`);
@@ -31,6 +39,7 @@ export function UnreadChatsProvider({ children }: { children: React.ReactNode })
         } catch {
           // ignore corrupt storage
         }
+        if (generation !== generationRef.current) return;
         const total = (chats || []).reduce((sum: number, chat: any) => {
           if (deletedIds.has(chat.id)) return sum;
           if (chat.tradeStatus === 'completed') return sum;
@@ -43,13 +52,14 @@ export function UnreadChatsProvider({ children }: { children: React.ReactNode })
     };
 
     const unsub = observeAuthState((user) => {
+      const generation = ++generationRef.current;
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
       if (user) {
-        load(user.uid);
-        pollRef.current = setInterval(() => load(user.uid), POLL_MS);
+        load(user.uid, generation);
+        pollRef.current = setInterval(() => load(user.uid, generation), POLL_MS);
       } else {
         setUnreadCount(0);
       }
