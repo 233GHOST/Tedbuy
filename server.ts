@@ -878,19 +878,21 @@ function getGenAIClient(): GoogleGenAI | null {
   return genAI;
 }
 
-// 'gemini-3.6-flash' (the previous default) is not a real Gemini model --
-// nowhere in the installed @google/genai SDK's own bundled docs/examples,
-// which consistently use 'gemini-2.5-flash' for this exact
-// text+image generateContent use case (the only other model name that
-// SDK version references at all is 'gemini-3-pro-image-preview', an
-// image-GENERATION model, not applicable here). That's very likely why
-// this endpoint stopped working entirely -- every call would 404 on a
-// nonexistent model, always landing in the generic catch below. If this
-// model is ever retired too, Google's 404 response is logged in full
-// detail below (status/name/message) specifically to make that
-// diagnosable from Render logs immediately, rather than silently
-// recurring as a mystery "not working" report again.
-const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// Do NOT change this default without a live Render log in hand. This was
+// briefly (wrongly) changed to 'gemini-2.5-flash' on the assumption that
+// 'gemini-3.6-flash' was a typo/hallucination, since it appears nowhere in
+// the installed @google/genai SDK's bundled README (which only shows
+// 'gemini-2.5-flash' examples) -- that assumption was wrong. A live
+// production 404 confirmed Google's API itself now says the opposite:
+// "model models/gemini-2.5-flash is no longer available to new users...
+// use models/gemini-3.6-flash for the latest features". The SDK's bundled
+// docs simply lag behind Google's actual, fast-moving model deprecation
+// schedule -- they are not authoritative for which model is currently
+// live. Reverted back to the value the original ad61bbe fix set (also
+// evidence-based, from a live 404 at the time). If this model is ever
+// retired too, the 404 handling below logs it explicitly with a pointer
+// to fix it via GEMINI_MODEL without a code change.
+const AI_LISTING_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 // Multimodal (image) processing genuinely needs more headroom than pure
 // text generation — measured from the start of the Gemini call only; image
 // fetching (for the Cloudinary-URL path) has its own separate, shorter
@@ -1216,7 +1218,7 @@ app.post(
           err?.message || err
         );
         if (err?.status === 404) {
-          console.error(`[AI Listing Description] Model "${AI_LISTING_MODEL}" appears to be invalid or retired by Google. Set GEMINI_MODEL to a currently-supported model (e.g. gemini-2.5-flash) to fix this without a code change.`);
+          console.error(`[AI Listing Description] Model "${AI_LISTING_MODEL}" appears to be invalid or retired by Google. Check this exact error's "message" field above -- Google's 404 response usually names the current replacement model directly. Set GEMINI_MODEL to that model to fix this without a code change (do not assume any specific model name is safe without checking a live error like this one first -- Google retires these fast).`);
         }
         return res.status(502).json({ success: false, error: "Couldn't generate a description right now. You can write your description manually." });
       }
