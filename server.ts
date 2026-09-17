@@ -1689,6 +1689,22 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
   const titleSlug = product.title ? slugify(product.title) : '';
   const canonicalUrl = `${protocol}://${host}/product/${productId}-${titleSlug}`;
 
+  // Previously hardcoded regardless of the actual listing -- every product
+  // reported UsedCondition/InStock to Google, even a "Brand New" listing or
+  // one already sold/removed. Real values were sitting right there on the
+  // product row the whole time.
+  const conditionSchemaMap: Record<string, string> = {
+    'brand new': 'https://schema.org/NewCondition',
+    'new': 'https://schema.org/NewCondition',
+    'refurbished': 'https://schema.org/RefurbishedCondition',
+    'slightly used': 'https://schema.org/UsedCondition',
+    'used - good': 'https://schema.org/UsedCondition',
+    'used - fair': 'https://schema.org/UsedCondition',
+  };
+  const itemConditionSchema = conditionSchemaMap[String(product.condition || '').trim().toLowerCase()] || 'https://schema.org/UsedCondition';
+  const isSoldOrInactive = product.isSold === true || product.is_sold === true || product.status === 'sold' || product.status === 'archived' || product.status === 'hidden' || product.isDeleted === true;
+  const availabilitySchema = isSoldOrInactive ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock';
+
   const productSchema = {
     "@context": "https://schema.org/",
     "@type": "Product",
@@ -1701,8 +1717,9 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
       "url": canonicalUrl,
       "priceCurrency": "GHS",
       "price": priceSchema,
-      "itemCondition": "https://schema.org/UsedCondition",
-      "availability": "https://schema.org/InStock"
+      "itemCondition": itemConditionSchema,
+      "availability": availabilitySchema,
+      ...(product.sellerName ? { "seller": { "@type": "Organization", "name": String(product.sellerName) } } : {})
     }
   };
 
