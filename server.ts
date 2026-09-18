@@ -2042,6 +2042,29 @@ function parseServerDate(dateVal: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// src/types.ts's Product.price is explicitly typed `string | number` -- a
+// deliberate, first-class feature (ListingModal.tsx/SellScreen.tsx both let a
+// seller type "Contact for Price"/"Inquire", and EVERY Services/Jobs &
+// Employment listing on both platforms always sends the literal string
+// "Inquire" as its price, never a number, by the client's own design).
+// Every place in this file that touches price used to force it through
+// Number() unconditionally -- Number("Inquire") is NaN, which
+// JSON.stringify()s to null over the wire to Supabase, so the stored value
+// became SQL NULL. Reading it back, `row.price !== undefined ? Number(row.price)
+// : 0` then computed Number(null) === 0 -- so every one of these listings
+// silently displayed "GHS 0" everywhere (product cards, detail page, SSR
+// meta tags) instead of "Inquire" or whatever text the seller actually
+// entered. Normalizes a price value the same way the client's own submit
+// logic already distinguishes numeric vs. literal-text prices, so both
+// sides agree on what gets stored/returned.
+function normalizeServerPrice(raw: any, fallback: number | string = 0): number | string {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  if (typeof raw === 'number') return isNaN(raw) ? fallback : raw;
+  const cleanStr = String(raw).replace(/GHS/gi, '').replace(/,/g, '').trim();
+  if (cleanStr !== '' && !isNaN(Number(cleanStr))) return Number(cleanStr);
+  return String(raw).trim() || fallback;
+}
+
 function getServerBoostEndDate(product: any): Date | null {
   if (!product) return null;
 
@@ -2172,7 +2195,7 @@ function normalizeServerProductRow(row: any): any {
     id: String(row.id || ''),
     title: row.title || '',
     description: row.description || '',
-    price: row.price !== undefined ? Number(row.price) : 0,
+    price: normalizeServerPrice(row.price),
     currency: row.currency || 'GHS',
     condition: row.condition || 'Used - Good',
     category: row.category || 'Other',
@@ -2302,7 +2325,7 @@ function normalizeServerProductSummaryRow(row: any): any {
   return {
     id: String(row.id || ''),
     title: row.title || '',
-    price: row.price !== undefined ? Number(row.price) : 0,
+    price: normalizeServerPrice(row.price),
     currency: row.currency || 'GHS',
     location: row.location || '',
     brand: row.brand || '',
@@ -3347,7 +3370,7 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     id: prodId,
     title: productData.title || existingRow?.title || '',
     description: productData.description || existingRow?.description || '',
-    price: productData.price !== undefined ? Number(productData.price) : (existingRow?.price !== undefined ? Number(existingRow.price) : 0),
+    price: productData.price !== undefined ? normalizeServerPrice(productData.price) : normalizeServerPrice(existingRow?.price),
     currency: productData.currency || existingRow?.currency || 'GHS',
     category: productData.category || existingRow?.category || 'Other',
     subcategory: productData.subcategory || productData.subCategory || existingRow?.subcategory || existingRow?.subCategory || null,
