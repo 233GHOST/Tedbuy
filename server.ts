@@ -706,7 +706,26 @@ function serverRateLimiter(windowMs: number, maxRequests: number, prefix: string
   }, 60000);
 
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+    // Confirmed live (2026-09-18) that this app's only production path is
+    // Client -> Cloudflare -> Render's LB -> Express, and that Cloudflare
+    // fronts 100% of this Render service's traffic unconditionally (Render's
+    // own docs: "automatic for every public-facing web service on Render...
+    // nothing to configure" -- verified against both the custom domain and
+    // the default *.onrender.com fallback, both show `server: cloudflare`).
+    // X-Forwarded-For was previously trusted here, but both Cloudflare's and
+    // Render's own documentation confirm each hop only APPENDS to that
+    // header rather than overwriting it, so its first entry is whatever the
+    // client itself sent -- trivially spoofable, defeating every rate limit
+    // in this file. cf-connecting-ip is Cloudflare's own header, set from
+    // its TCP-terminated connection to the real client and never influenced
+    // by anything the client sends, so it can't be spoofed the same way.
+    // Deliberately no X-Forwarded-For fallback and no trust-proxy/req.ip
+    // change -- this is the one header actually guaranteed correct here.
+    const clientIp = (
+      req.headers['cf-connecting-ip'] as string ||
+      req.socket.remoteAddress ||
+      'unknown'
+    ).trim();
     const key = `${prefix}_${clientIp}`;
     const now = Date.now();
 
@@ -3869,7 +3888,13 @@ app.post('/api/products/:productId/view', serverRateLimiter(60 * 1000, 60, "prod
       }
     }
 
-    const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+    // Same trusted-IP source as serverRateLimiter above, same reasoning --
+    // see its comment for the full explanation.
+    const clientIp = (
+      req.headers['cf-connecting-ip'] as string ||
+      req.socket.remoteAddress ||
+      'unknown'
+    ).trim();
     const cooldownKey = `${clientIp}_${productId}`;
     const cooldownMs = 10 * 60 * 1000;
     const existingExpiry = viewCooldownStore.get(cooldownKey);
