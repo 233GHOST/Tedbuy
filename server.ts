@@ -4067,22 +4067,38 @@ app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-dele
 
   let sellerId: string | null = null;
   let sellerEmail: string | null = null;
+  let productExists = false;
   if (backendSupabase) {
     try {
-      const { data } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      const { data, error } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      if (error) throw error;
       if (data) {
+        productExists = true;
         sellerId = data.sellerId || data.seller_id || null;
         sellerEmail = data.sellerEmail || data.seller_email || null;
       }
-    } catch (_) {}
+    } catch (err: any) {
+      // Found via a dedicated audit of never-previously-reviewed endpoints:
+      // this used to be `catch (_) {}`, silently leaving sellerId null on
+      // ANY lookup failure (a transient Supabase error, not just "product
+      // doesn't exist") -- and the ownership check below was gated on
+      // `sellerId &&`, so a null sellerId skipped the check ENTIRELY rather
+      // than denying. That's a fail-OPEN authorization bug: any transient
+      // read failure let any authenticated (non-admin) user delete ANY
+      // product, not just their own. Now fails closed: a real lookup error
+      // is a 500, not a silent bypass.
+      console.error('[Product Delete API] Ownership lookup failed:', err?.message || err);
+      return res.status(500).json({ success: false, error: 'Could not verify listing ownership. Please try again.' });
+    }
+  }
+
+  if (!productExists) {
+    return res.status(404).json({ success: false, error: 'Product not found' });
   }
 
   // Matches /api/products/sync's ownership check — sellerId can legitimately
   // be stored as the bare uid or a user_/phone_ prefixed variant (see that
-  // route's comment), or the caller can be identified by seller email. This
-  // previously only checked an exact uid match, which was never an
-  // authorization hole (it fails safe, denying access) but could wrongly
-  // 403 a real owner trying to delete their own listing.
+  // route's comment), or the caller can be identified by seller email.
   const isOwner = !!sellerId && (
     sellerId === user.uid ||
     sellerId === `user_${user.uid}` ||
@@ -4091,7 +4107,11 @@ app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-dele
   );
   const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
 
-  if (sellerId && !isOwner && !isAdmin) {
+  // No longer gated on `sellerId &&` -- the productExists check above
+  // already guarantees the row was found, so a missing/empty sellerId on an
+  // existing row now correctly denies (isOwner is false) instead of
+  // bypassing the check entirely.
+  if (!isOwner && !isAdmin) {
     return res.status(403).json({ success: false, error: 'Forbidden: You do not own this product' });
   }
 
@@ -4118,22 +4138,31 @@ app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "product
 
   let sellerId: string | null = null;
   let sellerEmail: string | null = null;
+  let productExists = false;
   if (backendSupabase) {
     try {
-      const { data } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      const { data, error } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      if (error) throw error;
       if (data) {
+        productExists = true;
         sellerId = data.sellerId || data.seller_id || null;
         sellerEmail = data.sellerEmail || data.seller_email || null;
       }
-    } catch (_) {}
+    } catch (err: any) {
+      // Same fail-open fix as POST /api/products/delete just above -- see
+      // that route's comment for the full reasoning.
+      console.error('[Product Delete API] Ownership lookup failed:', err?.message || err);
+      return res.status(500).json({ success: false, error: 'Could not verify listing ownership. Please try again.' });
+    }
+  }
+
+  if (!productExists) {
+    return res.status(404).json({ success: false, error: 'Product not found' });
   }
 
   // Matches /api/products/sync's ownership check — sellerId can legitimately
   // be stored as the bare uid or a user_/phone_ prefixed variant (see that
-  // route's comment), or the caller can be identified by seller email. This
-  // previously only checked an exact uid match, which was never an
-  // authorization hole (it fails safe, denying access) but could wrongly
-  // 403 a real owner trying to delete their own listing.
+  // route's comment), or the caller can be identified by seller email.
   const isOwner = !!sellerId && (
     sellerId === user.uid ||
     sellerId === `user_${user.uid}` ||
@@ -4142,7 +4171,7 @@ app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "product
   );
   const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
 
-  if (sellerId && !isOwner && !isAdmin) {
+  if (!isOwner && !isAdmin) {
     return res.status(403).json({ success: false, error: 'Forbidden: You do not own this product' });
   }
 

@@ -289,6 +289,47 @@ test('send-personal-email: the [user name] placeholder still substitutes correct
   assert.match(result, /Hello Alice!/);
 });
 
+// --- POST/DELETE /api/products delete routes: the ownership check must
+// fail CLOSED (deny) when the product's sellerId can't be determined, not
+// skip the check entirely -- mirrors the fixed gating logic added at
+// server.ts's two product-delete routes (~4068-4113, ~4139-4172).
+function canDeleteProduct(userUid: string, userEmail: string, isAdmin: boolean, lookup: { productExists: boolean; sellerId: string | null; sellerEmail: string | null }): { status: number; allowed: boolean } {
+  if (!lookup.productExists) return { status: 404, allowed: false };
+  const isOwner = !!lookup.sellerId && (
+    lookup.sellerId === userUid ||
+    lookup.sellerId === `user_${userUid}` ||
+    lookup.sellerId === `phone_${userUid}` ||
+    (!!userEmail && !!lookup.sellerEmail && lookup.sellerEmail.toLowerCase() === userEmail.toLowerCase())
+  );
+  if (!isOwner && !isAdmin) return { status: 403, allowed: false };
+  return { status: 200, allowed: true };
+}
+
+test('product delete: a non-admin, non-owner caller is denied even when sellerId could not be determined (fails closed, not open)', () => {
+  // This is the exact bug: sellerId is null (a lookup error, or a row with
+  // no sellerId set) for a product that DOES exist -- must still deny a
+  // non-owner, not silently skip the check.
+  const result = canDeleteProduct('attacker-uid', 'attacker@example.com', false, { productExists: true, sellerId: null, sellerEmail: null });
+  assert.equal(result.allowed, false);
+  assert.equal(result.status, 403);
+});
+
+test('product delete: the real owner (bare uid) is allowed', () => {
+  const result = canDeleteProduct('owner-uid', 'owner@example.com', false, { productExists: true, sellerId: 'owner-uid', sellerEmail: null });
+  assert.equal(result.allowed, true);
+});
+
+test('product delete: a nonexistent product returns 404, not a silent bypass', () => {
+  const result = canDeleteProduct('any-uid', 'any@example.com', false, { productExists: false, sellerId: null, sellerEmail: null });
+  assert.equal(result.allowed, false);
+  assert.equal(result.status, 404);
+});
+
+test('product delete: an admin can delete regardless of ownership', () => {
+  const result = canDeleteProduct('admin-uid', 'admin@example.com', true, { productExists: true, sellerId: 'someone-else', sellerEmail: null });
+  assert.equal(result.allowed, true);
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
