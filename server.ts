@@ -561,6 +561,16 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()");
+  // Gated on production (matches this file's own NODE_ENV convention below)
+  // rather than sent unconditionally -- HSTS is aggressively cached by
+  // browsers once seen, so sending it from a local/dev server (which may
+  // not even be on HTTPS) could permanently break http://localhost testing
+  // for whoever hits it. Production (tedbuy.store) is already fully HTTPS,
+  // so this only tells browsers to skip the plain-HTTP round trip they'd
+  // otherwise redirect through on every first visit -- no functional risk.
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  }
   next();
 });
 
