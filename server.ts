@@ -5157,6 +5157,26 @@ app.get('/api/reviews', serverRateLimiter(60 * 1000, 120, "reviews-list"), async
   if (!backendSupabase) {
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
   }
+  // Egress fix: this endpoint had no caching at all, unlike every sibling
+  // read-heavy endpoint (/api/sellers, /api/search/suggestions, /api/featured,
+  // etc, all on the same 60s serverCache+ETag pattern) -- and the no-sellerId
+  // case (AppContext.tsx's "fetch once on mount" global reviews state) returns
+  // literally every review ever created, unpaginated. Reviews change rarely
+  // relative to how often this is fetched (every web session), so a 60s cache
+  // is a real, safe win: a repeat request within the window costs a 304 with
+  // no body instead of re-transferring and re-querying the entire table.
+  // Invalidated immediately on a new review below rather than left to expire,
+  // so a just-submitted review is visible right away, not "eventually".
+  const cacheKey = `reviews:${sellerId || 'all'}`;
+  const cached = serverCache.get<any[]>(cacheKey);
+  if (cached) {
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('ETag', cached.etag);
+    if (req.headers['if-none-match'] === cached.etag) {
+      return res.status(304).end();
+    }
+    return res.json({ success: true, reviews: cached.value });
+  }
   try {
     let q = backendSupabase.from('reviews').select('*').order('createdAt', { ascending: false });
     if (sellerId) {
@@ -5164,7 +5184,11 @@ app.get('/api/reviews', serverRateLimiter(60 * 1000, 120, "reviews-list"), async
     }
     const { data, error } = await q;
     if (error) throw error;
-    return res.json({ success: true, reviews: data || [] });
+    const reviews = data || [];
+    const etag = serverCache.set(cacheKey, reviews, 60);
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('ETag', etag);
+    return res.json({ success: true, reviews });
   } catch (err: any) {
     console.error('[Reviews List API Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to fetch reviews' });
@@ -5254,6 +5278,13 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
   try {
     const { error } = await safeBackendSupabaseUpsert('reviews', newReview, { onConflict: 'id' });
     if (error) throw error;
+
+    // Invalidate GET /api/reviews' new 60s cache for both this seller's own
+    // key and the unscoped "all" key (AppContext.tsx's global reviews
+    // state) so this just-submitted review is visible immediately instead
+    // of waiting up to a minute.
+    serverCache.delete(`reviews:${sellerId}`);
+    serverCache.delete('reviews:all');
 
     // Drop a system message into the chat this review was left from, so the
     // seller sees it without having to separately check their reviews list.
