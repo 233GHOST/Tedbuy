@@ -7664,13 +7664,27 @@ app.post("/api/admin/send-personal-email", serverRateLimiter(60 * 1000, 20, "adm
     const domainBase = (process.env.APP_URL || 'https://www.tedbuy.store').replace(/\/$/, '');
     const emailSubject = subject || `Welcome to TedBuy`;
 
-    // Process message text, replace placeholders like [user name], [User Name], etc.
-    let processedMessage = customMessage || '';
-    processedMessage = processedMessage.replace(/\[user name\]/gi, displayName);
-    processedMessage = processedMessage.replace(/\[username\]/gi, displayName);
-    processedMessage = processedMessage.replace(/\[user\]/gi, displayName);
+    // Found via a dedicated audit of never-previously-reviewed endpoints,
+    // same bug shape as the registration-OTP/welcome-email fix (f8713ab):
+    // username/customMessage/subject were interpolated into this HTML
+    // template with no escaping. This endpoint is admin-only, but
+    // `displayName` is the TARGET user's real stored username, auto-passed
+    // in by the admin panel rather than freely typed -- a legacy username
+    // predating the registration-time `<`/`>` block (that fix only gates
+    // on the username actually changing, so it doesn't retroactively clean
+    // existing rows) could still carry raw HTML today. Escaping the whole
+    // raw message once, up front, then substituting the also-escaped
+    // displayName into its placeholders (safe: the placeholder syntax
+    // itself is plain ASCII, unaffected by HTML-escaping) avoids double-
+    // escaping while closing every interpolation point below.
+    const safeDisplayName = escapeHtml(displayName);
+    let processedMessage = escapeHtml(customMessage || '');
+    processedMessage = processedMessage.replace(/\[user name\]/gi, safeDisplayName);
+    processedMessage = processedMessage.replace(/\[username\]/gi, safeDisplayName);
+    processedMessage = processedMessage.replace(/\[user\]/gi, safeDisplayName);
 
-    // Convert line breaks to paragraphs/HTML
+    // Convert line breaks to paragraphs/HTML (processedMessage is already
+    // HTML-escaped above, so no further escaping needed here)
     const paragraphs = processedMessage
       .split(/\n\s*\n/)
       .map((p: string) => p.trim())
@@ -7687,7 +7701,7 @@ app.post("/api/admin/send-personal-email", serverRateLimiter(60 * 1000, 20, "adm
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="color-scheme" content="light dark">
   <meta name="supported-color-schemes" content="light dark">
-  <title>${emailSubject}</title>
+  <title>${escapeHtml(emailSubject)}</title>
   <style>
     :root {
       color-scheme: light dark;

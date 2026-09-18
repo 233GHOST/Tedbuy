@@ -246,6 +246,49 @@ test('timingSafeStringEqual: differing lengths return false instead of throwing'
   assert.equal(timingSafeStringEqual('short', 'a-much-longer-string-here'), false);
 });
 
+// --- POST /api/admin/send-personal-email: a legacy (pre-username-validation)
+// username or an admin-typed customMessage/subject must not be able to
+// inject raw HTML into the outgoing email -- mirrors the exact escape-then-
+// substitute logic added at server.ts:~7664-7692.
+function escapeHtml(unsafe: string): string {
+  return String(unsafe || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+function buildPersonalEmailParagraphs(displayName: string, customMessage: string): string {
+  const safeDisplayName = escapeHtml(displayName);
+  let processedMessage = escapeHtml(customMessage || '');
+  processedMessage = processedMessage.replace(/\[user name\]/gi, safeDisplayName);
+  processedMessage = processedMessage.replace(/\[username\]/gi, safeDisplayName);
+  processedMessage = processedMessage.replace(/\[user\]/gi, safeDisplayName);
+  return processedMessage
+    .split(/\n\s*\n/)
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+}
+
+test('send-personal-email: a legacy username containing raw HTML is escaped, not injected', () => {
+  const result = buildPersonalEmailParagraphs('<script>alert(1)</script>', 'Hello [user name], welcome back!');
+  assert.equal(result.includes('<script>'), false);
+  assert.match(result, /&lt;script&gt;/);
+});
+
+test('send-personal-email: an admin-typed message with raw HTML is escaped', () => {
+  const result = buildPersonalEmailParagraphs('Alice', 'Click <a href="evil">here</a>');
+  assert.equal(result.includes('<a href='), false);
+  assert.match(result, /&lt;a href=&quot;evil&quot;&gt;/);
+});
+
+test('send-personal-email: the [user name] placeholder still substitutes correctly after escaping', () => {
+  const result = buildPersonalEmailParagraphs('Alice', 'Hello [user name]!');
+  assert.match(result, /Hello Alice!/);
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
