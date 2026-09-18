@@ -5,6 +5,23 @@ import { getCloudinaryThumbnail, getCloudinaryVideoPoster } from './cloudinary';
 
 export const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
+// Mirrors server.ts's normalizeServerPrice() (added alongside the P1 fix for
+// non-numeric prices, commit 3a6ad43): Product.price is deliberately
+// `string | number` -- every Services/Jobs & Employment listing sends a
+// literal price phrase like "Inquire"/"Contact for Price" by design, never a
+// number. This client-side normalizer was coercing that straight through
+// Number(), which is NaN for any such string -- the exact bug already fixed
+// server-side, just reintroduced one layer later on the client (ProductCard's
+// own price formatter has no string branch to recover it once it's already
+// NaN, so it rendered literally "GHS NaN" instead of falling back cleanly).
+function normalizeClientPrice(raw: unknown): string | number {
+  if (raw === undefined || raw === null || raw === '') return 0;
+  if (typeof raw === 'number') return isNaN(raw) ? 0 : raw;
+  const cleanStr = String(raw).replace(/GHS/gi, '').replace(/,/g, '').trim();
+  if (cleanStr !== '' && !isNaN(Number(cleanStr))) return Number(cleanStr);
+  return String(raw).trim() || 0;
+}
+
 /**
  * Returns a clean SVG placeholder URL for a category
  */
@@ -297,9 +314,13 @@ export function normalizeProduct(rawProduct: any): Product {
     id,
     title: rawProduct.title || '',
     description: rawProduct.description || '',
-    price: rawProduct.price !== undefined ? Number(rawProduct.price) : 0,
+    price: normalizeClientPrice(rawProduct.price),
     currency: rawProduct.currency || 'GHS',
-    condition: rawProduct.condition || 'Used - Good',
+    // 'Slightly Used' matches the four real, selectable condition presets on
+    // both platforms (ListingModal.tsx/SellScreen.tsx) -- 'Used - Good' isn't
+    // one of them, the same fallback-value bug already standardized away in
+    // all three server-side product-serialize functions (commit e61f4d1).
+    condition: rawProduct.condition || 'Slightly Used',
     category,
     subcategory: rawProduct.subcategory || rawProduct.subCategory || '',
     location: rawProduct.location || '',
