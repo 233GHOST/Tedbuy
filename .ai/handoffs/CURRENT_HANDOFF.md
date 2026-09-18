@@ -8,6 +8,8 @@
 
 `tsc --noEmit` and `npm run build` clean after every commit this round.
 
+**Follow-up — the bundle-size audit's one flagged-not-fixed opportunity turned out safe to do (`553737f`).** That pass found `AdminUserManagement` still eagerly bundled into `ProfileSettings.tsx`'s chunk for every user (not just admins) but held off fixing it without checking whether its two render sites had animation/layout-timing assumptions. Checked both directly: plain `{condition && <Component/>}` renders, nothing Suspense-unsafe. Lazy-split it the same way `App.tsx` already does for named exports, each usage wrapped in its own small local `Suspense` (a spinner) rather than relying on `ProfileSettings`' own outer Suspense boundary, which would otherwise show a jarring full-page loader for this tiny sub-panel. Measured: `ProfileSettings-*.js` 165.12kB → 150.08kB (34.86kB → 31.74kB gzip).
+
 ---
 
 **✅ Eleventh autonomous session — P0 account-takeover fix in `/api/auth/confirm-password-reset`, 2026-09-17.** Continuing the same unattended "5 hours, improve every aspect" stretch. Found while sweeping server.ts endpoints not yet covered by this session's audits.
