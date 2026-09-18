@@ -18,6 +18,19 @@ const CHECK_INTERVAL_MS = 60 * 1000;
  * inventing new server-side enforcement mid-audit. */
 export function SuspensionGate({ children }: { children: React.ReactNode }) {
   const [isSuspended, setIsSuspended] = useState(false);
+  // Found via a dedicated audit: logOut() below is fire-and-forget, and
+  // itself awaits a native Google Sign-In signOut() call before the real
+  // Firebase signOut(auth) -- on a slow network/native module call this can
+  // take several seconds; if it ever hangs, it never resolves at all. The
+  // "Dismiss" button previously re-rendered the full app instantly
+  // regardless, so a suspended user could tap Dismiss before the real
+  // sign-out landed and keep using the app normally for as long as they kept
+  // dismissing (or indefinitely, if the sign-out call never settles) --
+  // defeating this gate's whole purpose. Dismiss now only takes effect once
+  // the real sign-out attempt has actually settled (success or failure,
+  // matching the existing .catch(() => {}) tolerance below -- this doesn't
+  // retry or block forever on a failure, it just closes the race).
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -25,8 +38,9 @@ export function SuspensionGate({ children }: { children: React.ReactNode }) {
       const profile = await fetchUserById(uid);
       if (profile?.isSuspended) {
         setIsSuspended(true);
+        setIsLoggingOut(true);
         if (intervalRef.current) clearInterval(intervalRef.current);
-        logOut().catch(() => {});
+        logOut().catch(() => {}).finally(() => setIsLoggingOut(false));
       }
     };
 
@@ -79,8 +93,12 @@ export function SuspensionGate({ children }: { children: React.ReactNode }) {
           <Text style={styles.primaryBtnText}>Contact TedBuy Support</Text>
         </Pressable>
 
-        <Pressable onPress={() => setIsSuspended(false)} style={styles.dismissBtn}>
-          <Text style={styles.dismissBtnText}>Dismiss</Text>
+        <Pressable
+          onPress={() => { if (!isLoggingOut) setIsSuspended(false); }}
+          disabled={isLoggingOut}
+          style={[styles.dismissBtn, isLoggingOut && styles.dismissBtnDisabled]}
+        >
+          <Text style={styles.dismissBtnText}>{isLoggingOut ? 'Signing out…' : 'Dismiss'}</Text>
         </Pressable>
       </View>
     </View>
@@ -100,5 +118,6 @@ const styles = StyleSheet.create({
   primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md },
   primaryBtnText: { fontFamily: fonts.extrabold, fontSize: 12, color: '#fff' },
   dismissBtn: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
+  dismissBtnDisabled: { opacity: 0.5 },
   dismissBtnText: { fontFamily: fonts.bold, fontSize: 11, color: colors.textMuted },
 });
