@@ -104,6 +104,24 @@ export async function cacheVideoInBackground(rawUrl: string): Promise<void> {
       if (match) {
         const blob = await match.blob();
         const blobUrl = URL.createObjectURL(blob);
+        // Found via a dedicated audit: unlike its sibling dataUriToBlobMap
+        // above, this map had no eviction at all -- every distinct video URL
+        // cache-hit during a long scroll session added a live Blob URL that
+        // was never freed, a genuine unbounded memory leak in exactly the
+        // long-scroll-session scenario this file's own header comment
+        // targets. Same bounded LRU-ish eviction as dataUriToBlobMap: the
+        // active mounted-video window (per VideoAdsFeed's own comment, up to
+        // ~19 videos) stays well under this cap, so only genuinely
+        // scrolled-past entries are ever evicted.
+        if (offlineBlobMap.size >= MAX_BLOB_MEMORY_ITEMS) {
+          const oldest = offlineBlobMap.keys().next().value;
+          if (oldest) {
+            try {
+              URL.revokeObjectURL(offlineBlobMap.get(oldest)!);
+            } catch (_) {}
+            offlineBlobMap.delete(oldest);
+          }
+        }
         offlineBlobMap.set(rawUrl, blobUrl);
         return;
       }
