@@ -330,6 +330,32 @@ test('product delete: an admin can delete regardless of ownership', () => {
   assert.equal(result.allowed, true);
 });
 
+// --- POST /api/products/sync and upsertProductToSupabase: a genuine
+// existing-row lookup error must throw/fail closed, never be silently
+// reinterpreted as "this id doesn't exist yet" -- mirrors the decision
+// added at server.ts's sync handler (~3653-3680) and upsertProductToSupabase
+// (~3340-3352). A silently-swallowed error taking the "new product" path
+// would skip the ownership check entirely AND let the eventual upsert (keyed
+// by id at the DB level) overwrite an existing, other-owned row.
+function resolveExistingRowOrThrow(queryResult: { data: any; error: any }): any {
+  if (queryResult.error) throw new Error('query failed');
+  return queryResult.data || null;
+}
+
+test('products/sync: a genuine query error throws instead of being treated as "no existing row"', () => {
+  assert.throws(() => resolveExistingRowOrThrow({ data: null, error: { message: 'connection reset' } }));
+});
+
+test('products/sync: a query that succeeds with no matching row is a legitimate null (new product), not an error', () => {
+  assert.doesNotThrow(() => resolveExistingRowOrThrow({ data: null, error: null }));
+  assert.equal(resolveExistingRowOrThrow({ data: null, error: null }), null);
+});
+
+test('products/sync: a query that succeeds with a matching row returns it', () => {
+  const row = { id: 'p1', sellerId: 'owner-uid' };
+  assert.deepEqual(resolveExistingRowOrThrow({ data: row, error: null }), row);
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never

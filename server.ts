@@ -3337,17 +3337,24 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
 
   const prodId = productData.id || `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   
-  // Retrieve existing record from Supabase to prevent erasing seller info or created date during updates
+  // Retrieve existing record from Supabase to prevent erasing seller info or
+  // created date during updates. A genuine query error here must NOT be
+  // treated the same as "no existing row" (silently swallowed by the old
+  // `catch (_) {}`) -- finalSellerId below falls back to productData.sellerId
+  // whenever existingRow is null, which is only safe because every current
+  // caller already pre-computes an authorization-checked sellerId before
+  // calling this function. Throwing on a real error (instead of silently
+  // proceeding as if this were a brand-new row) keeps that guarantee from
+  // becoming fragile for any future caller that doesn't.
   let existingRow: any = null;
   if (backendSupabase && prodId) {
-    try {
-      const { data } = await backendSupabase
-        .from('products')
-        .select('*')
-        .eq('id', prodId)
-        .maybeSingle();
-      if (data) existingRow = data;
-    } catch (_) {}
+    const { data, error } = await backendSupabase
+      .from('products')
+      .select('*')
+      .eq('id', prodId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) existingRow = data;
   }
 
   const imgsFromData = Array.isArray(productData.images) ? productData.images.filter((img: any) => typeof img === 'string' && img.trim().length > 0) : [];
@@ -3653,11 +3660,30 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
   let existingRow: any = null;
   if (backendSupabase) {
     try {
-      const { data } = await backendSupabase.from('products').select('*').eq('id', prodId).maybeSingle();
+      const { data, error } = await backendSupabase.from('products').select('*').eq('id', prodId).maybeSingle();
+      if (error) throw error;
       if (data) {
         existingRow = data;
       }
-    } catch (_) {}
+    } catch (err: any) {
+      // Found via the same audit that caught the fail-open bug in the two
+      // product-delete routes -- same shape, higher stakes here. This used
+      // to be `catch (_) {}`, silently treating a genuine query FAILURE
+      // (network blip, timeout) identically to "no row found" -- but "no
+      // row found" is also this endpoint's normal signal for a legitimate
+      // brand-new listing (isExistingProduct becomes false, the ownership
+      // check below is skipped, and targetSellerId falls to the caller's
+      // own uid). A swallowed read error on a request for an EXISTING
+      // product's id would take the exact same path: no ownership check,
+      // and the eventual upsert -- keyed purely by id at the DB level,
+      // independent of what this handler "thinks" -- would silently
+      // overwrite that real, other-owned listing's entire row (content
+      // and sellerId) with whatever this request submitted. Fails closed
+      // now: a genuine query error is a 500, never silently reinterpreted
+      // as "this product doesn't exist yet."
+      console.error('[Product Sync API] Existing-row lookup failed:', err?.message || err);
+      return res.status(500).json({ success: false, error: 'Could not verify listing ownership. Please try again.' });
+    }
   }
 
   const existingSellerId = existingRow?.sellerId || existingRow?.seller_id || null;
