@@ -558,8 +558,30 @@ export const SellerDashboard: React.FC = () => {
           </div>
         )
       ) : (
-        /* Watchlist list or blank slate for bookmarked products */
-        savedProducts.length === 0 ? (
+        /* Watchlist list, or a distinct blank/loading/error slate -- matching
+           the Listings tab's own fix for the same shape of bug: savedProducts
+           is derived from the shared `products` array, so a still-loading or
+           failed products fetch used to render the exact same "Saved Ads are
+           Empty" copy as a real empty watchlist, with no way to tell the
+           difference or retry. */
+        savedProducts.length === 0 && productsLoadError ? (
+          <div className="bg-red-50 border border-red-200 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-xs">
+            <AlertTriangle className="w-14 h-14 mx-auto stroke-[1.2] text-red-400 mb-3" />
+            <h2 className="text-base font-bold text-slate-900 font-sans">Could not load your saved ads</h2>
+            <p className="text-xs text-slate-500 mt-1 mb-5">Something went wrong fetching your saved products from the server. Your bookmarks are safe -- this is just a loading problem.</p>
+            <button
+              onClick={retryLoadProducts}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition duration-200 inline-flex items-center gap-1 shadow-xs hover:shadow-md cursor-pointer"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : savedProducts.length === 0 && isProductsLoading ? (
+          <div className="bg-slate-100 border border-slate-200 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-xs">
+            <Loader2 className="w-10 h-10 mx-auto text-slate-400 animate-spin mb-3" />
+            <p className="text-xs text-slate-500">Loading your saved ads...</p>
+          </div>
+        ) : savedProducts.length === 0 ? (
           <div className="bg-slate-100 border border-slate-200 rounded-3xl p-12 text-center max-w-lg mx-auto shadow-xs">
             <Bookmark className="w-14 h-14 mx-auto stroke-[1.2] text-slate-350 mb-3" />
             <h2 className="text-base font-bold text-slate-900 font-sans">Your Saved Ads are Empty</h2>

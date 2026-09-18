@@ -5,7 +5,7 @@ import { getForYouProducts } from '../utils/recommendationScore';
 import { Sparkles, ArrowLeft } from 'lucide-react';
 
 export const ForYouListingsView: React.FC = () => {
-  const { products, users, reviews, chats, currentUser, recentlyViewedIds, setCurrentView } = useApp();
+  const { products, users, reviews, chats, currentUser, recentlyViewedIds, setCurrentView, isProductsLoading } = useApp();
 
   const result = useMemo(() => {
     return getForYouProducts({
@@ -44,8 +44,20 @@ export const ForYouListingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Grid Content */}
-      {result.items.length === 0 ? (
+      {/* Grid Content -- gated on isProductsLoading the same way
+          FeaturedListingsView/TrendingListingsView gate their own fetch:
+          this view has no fetch of its own (it derives entirely from the
+          shared `products` context array), so without this check a
+          still-loading products list rendered the exact same "No
+          Recommended Listings Found" empty state as a real zero-result
+          case, with no way to tell the difference. */}
+      {result.items.length === 0 && isProductsLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <div key={i} className="h-72 bg-slate-100 rounded-2xl animate-pulse" />
+          ))}
+        </div>
+      ) : result.items.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-3">
           <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center mx-auto">
             <Sparkles className="w-6 h-6" />
