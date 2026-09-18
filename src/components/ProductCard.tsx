@@ -6,6 +6,7 @@ import { useIntersectionObserver } from '../utils/useIntersectionObserver';
 import { isBoostActive } from '../utils/dateParser';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 import { resolveProductImage, getCategoryPlaceholder } from '../utils/productUtils';
+import { getCloudinaryThumbnail } from '../utils/cloudinary';
 import { MediaRenderer, isVideoAsset } from './MediaRenderer';
 
 interface ProductCardProps {
@@ -497,8 +498,10 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
             <div className="flex items-center gap-1.5 min-w-0">
               {sellerPhoto ? (
                 <img
-                  src={sellerPhoto}
+                  src={getCloudinaryThumbnail(sellerPhoto)}
                   alt={sellerName}
+                  loading="lazy"
+                  decoding="async"
                   className="w-5 h-5 rounded-full object-cover border border-slate-200 shrink-0"
                 />
               ) : (

@@ -12,6 +12,7 @@ import { CheckCircle, ShoppingBag, Star, X } from 'lucide-react-native';
 import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT, useTabBarVisibility } from '../context/TabBarVisibility';
 import { formatProductPrice } from '../utils/formatPrice';
+import { getCloudinaryThumbnailMobile } from '../utils/cloudinary';
 
 const CHAT_LIST_POLL_MS = 15000;
 const ACTIVE_CHAT_POLL_MS = 4000;
@@ -1082,7 +1083,7 @@ export function ChatsScreen() {
                 >
                   <View style={styles.avatar}>
                     {displayPeerPhoto ? (
-                      <Image source={{ uri: displayPeerPhoto }} style={styles.avatarImg} />
+                      <Image source={{ uri: getCloudinaryThumbnailMobile(displayPeerPhoto, 96) }} style={styles.avatarImg} />
                     ) : (
                       <Text style={styles.avatarText}>
                         {String(displayPeerName).slice(0, 2).toUpperCase()}

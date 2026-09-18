@@ -4,6 +4,7 @@ import { Product, isUserVerified, isUserAdmin } from '../types';
 import { isVideoAsset } from './MediaRenderer';
 import { slugify } from '../utils/slugify';
 import { rankVideoFeedProducts } from '../utils/recommendationScore';
+import { getCloudinaryThumbnail } from '../utils/cloudinary';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Video, 
@@ -630,10 +631,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
             className="relative group/avatar cursor-pointer"
           >
             {product?.sellerPhoto && !product.sellerPhoto.includes('1549399542-7e3f8b79c341') ? (
-              <img 
-                src={product.sellerPhoto} 
-                alt="" 
-                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#FFFC00] object-cover shadow-xl transition-transform hover:scale-110 duration-200" 
+              <img
+                src={getCloudinaryThumbnail(product.sellerPhoto)}
+                alt=""
+                loading="lazy"
+                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#FFFC00] object-cover shadow-xl transition-transform hover:scale-110 duration-200"
               />
             ) : (
               <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#FFFC00] bg-slate-800 text-slate-100 flex items-center justify-center font-black text-[10px] sm:text-xs shadow-xl transition-transform hover:scale-110 duration-200 uppercase whitespace-nowrap">

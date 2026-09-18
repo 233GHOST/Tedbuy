@@ -8,6 +8,7 @@ import { getAuthErrorMessage } from '../utils/authErrorHelper';
 import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, validatePhoneSecure } from '../utils/registrationValidation';
 import { getUnreadChatCount } from '../utils/chatStateUtils';
 import { formatTedbuyTenure } from '../utils/dateParser';
+import { getCloudinaryThumbnail } from '../utils/cloudinary';
 
 export const Navbar: React.FC = () => {
   const {
@@ -572,7 +573,7 @@ export const Navbar: React.FC = () => {
                   >
                     {currentUser.photoUrl && !String(currentUser.photoUrl).includes('1549399542-7e3f8b79c341') ? (
                       <img
-                        src={currentUser.photoUrl}
+                        src={getCloudinaryThumbnail(currentUser.photoUrl)}
                         alt={currentUser.username}
                         className="w-8 h-8 rounded-full border border-slate-700 object-cover"
                       />

@@ -12,7 +12,7 @@ import { BackButton } from '../components/BackButton';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
 import { formatProductPrice } from '../utils/formatPrice';
 import { resolveProductImageUri } from '../utils/productImage';
-import { getOptimizedVideoUrlMobile } from '../utils/cloudinary';
+import { getOptimizedVideoUrlMobile, getCloudinaryThumbnailMobile } from '../utils/cloudinary';
 import { CategoryImagePlaceholder } from '../components/CategoryImagePlaceholder';
 import { useSavedProducts } from '../context/SavedProducts';
 import ImageViewing from 'react-native-image-viewing';
@@ -732,7 +732,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
             <View style={styles.sellerRow}>
               <View style={styles.sellerAvatar}>
                 {(seller?.photoUrl || product.sellerPhoto) ? (
-                  <Image source={{ uri: seller?.photoUrl || product.sellerPhoto }} style={styles.sellerAvatarImg} />
+                  <Image source={{ uri: getCloudinaryThumbnailMobile(seller?.photoUrl || product.sellerPhoto, 88) }} style={styles.sellerAvatarImg} />
                 ) : (
                   <Text style={styles.sellerAvatarText}>
                     {String(seller?.username || product.sellerName || 'M').substring(0, 2).toUpperCase()}

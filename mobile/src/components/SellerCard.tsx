@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { MapPin, Package, ArrowUpRight, Plus, Check } from 'lucide-react-native';
 import { fonts } from '../theme';
 import { DiscoverSeller } from '../utils/discoverSellers';
+import { getCloudinaryThumbnailMobile } from '../utils/cloudinary';
 
 interface SellerCardProps {
   seller: DiscoverSeller;
@@ -50,7 +51,7 @@ export function SellerCard({ seller, onPress, style, isFollowing, onToggleFollow
         <View style={styles.avatarRow}>
           <View style={[styles.avatarRing, styles.avatarRingPlain]}>
             {seller.photo ? (
-              <Image source={{ uri: seller.photo }} style={styles.avatarImg} cachePolicy="memory-disk" />
+              <Image source={{ uri: getCloudinaryThumbnailMobile(seller.photo, 104) }} style={styles.avatarImg} cachePolicy="memory-disk" />
             ) : (
               <View style={styles.avatarFallback}>
                 <Text style={styles.avatarInitial}>{seller.name.charAt(0).toUpperCase()}</Text>
