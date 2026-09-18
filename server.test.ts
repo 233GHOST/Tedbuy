@@ -175,6 +175,52 @@ test('getSellersSummaryData(): keysToRegister never contains an email-shaped key
   assert.equal(keys.has('uid-1'), true, 'canonical id key must still be registered');
 });
 
+// --- POST /api/verify-payment: the plan actually awarded must come from
+// Paystack's own transaction metadata, not the request body's planId --
+// mirrors the resolution logic added at server.ts:~5994-6007.
+
+const BOOST_PLAN_PRICE_GHS_MIRROR: Record<string, number> = {
+  '3days': 1, '7days': 3, '14days': 5, '21days': 7, '1month': 10
+};
+const BOOST_PLAN_DURATION_DAYS_MIRROR: Record<string, number> = {
+  '3days': 3, '7days': 7, '14days': 14, '21days': 21, '1month': 30
+};
+
+function resolveEffectivePlanId(requestPlanId: string, paystackMetadataPlanId: string | undefined | null): { effectivePlanId: string; durationDays: number; expectedPriceGHS: number } {
+  let effectivePlanId = requestPlanId;
+  let durationDays = BOOST_PLAN_DURATION_DAYS_MIRROR[effectivePlanId] || 7;
+  let expectedPriceGHS = BOOST_PLAN_PRICE_GHS_MIRROR[effectivePlanId] || BOOST_PLAN_PRICE_GHS_MIRROR['7days'];
+
+  if (paystackMetadataPlanId && BOOST_PLAN_PRICE_GHS_MIRROR[paystackMetadataPlanId] !== undefined) {
+    effectivePlanId = paystackMetadataPlanId;
+    durationDays = BOOST_PLAN_DURATION_DAYS_MIRROR[effectivePlanId] || 7;
+    expectedPriceGHS = BOOST_PLAN_PRICE_GHS_MIRROR[effectivePlanId];
+  }
+  return { effectivePlanId, durationDays, expectedPriceGHS };
+}
+
+test('verify-payment: a request under-claiming a cheaper plan than what Paystack metadata says was paid for is realigned to the real (paid) plan', () => {
+  // Paid for 1month (GHS 10) but the request body claims 3days (GHS 1) --
+  // without the fix this would pass the amount check (10 >= 1) and award
+  // only a 3-day boost despite the full 1month price being paid.
+  const result = resolveEffectivePlanId('3days', '1month');
+  assert.equal(result.effectivePlanId, '1month');
+  assert.equal(result.durationDays, 30);
+  assert.equal(result.expectedPriceGHS, 10);
+});
+
+test('verify-payment: falls back to the request\'s own planId when Paystack metadata has no recognized plan (e.g. a pre-fix reference)', () => {
+  const result = resolveEffectivePlanId('7days', undefined);
+  assert.equal(result.effectivePlanId, '7days');
+  assert.equal(result.durationDays, 7);
+  assert.equal(result.expectedPriceGHS, 3);
+});
+
+test('verify-payment: an unrecognized metadata planId does not override a valid request planId', () => {
+  const result = resolveEffectivePlanId('7days', 'not-a-real-plan');
+  assert.equal(result.effectivePlanId, '7days');
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never

@@ -5824,7 +5824,7 @@ const BOOST_PLAN_PRICE_GHS: Record<string, number> = {
   '1month': 10
 };
 
-async function verifyPaystackTransaction(reference: string): Promise<{ ok: boolean; amountPesewas?: number; error?: string }> {
+async function verifyPaystackTransaction(reference: string): Promise<{ ok: boolean; amountPesewas?: number; metadata?: any; error?: string }> {
   const secretKey = process.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return { ok: false, error: 'Paystack is not configured on this server.' };
 
@@ -5839,7 +5839,12 @@ async function verifyPaystackTransaction(reference: string): Promise<{ ok: boole
     if (!res.ok || !json?.status || json?.data?.status !== 'success') {
       return { ok: false, error: json?.data?.gateway_response || json?.message || 'Payment could not be verified.' };
     }
-    return { ok: true, amountPesewas: Number(json.data.amount) || 0 };
+    // metadata is whatever /api/paystack/initialize-boost stashed on this
+    // transaction at creation time (productId/planId/purpose) -- Paystack
+    // stores and echoes it back verbatim, so it's an authoritative record
+    // of what was actually paid for, independent of anything this request's
+    // own body claims.
+    return { ok: true, amountPesewas: Number(json.data.amount) || 0, metadata: json.data.metadata || null };
   } catch (err: any) {
     return { ok: false, error: err?.name === 'AbortError' ? 'Payment gateway verification timed out.' : (err?.message || 'Payment gateway verification failed.') };
   } finally {
@@ -5909,8 +5914,17 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     return res.status(400).json({ success: false, error: 'Missing payment reference.' });
   }
 
-  const durationDays = BOOST_PLAN_DURATION_DAYS[planId] || 7;
-  const expectedPriceGHS = BOOST_PLAN_PRICE_GHS[planId] || BOOST_PLAN_PRICE_GHS['7days'];
+  // Starts as the client-submitted plan; for a real (non-admin-free) Paystack
+  // payment this is overridden below by whatever planId Paystack's own
+  // transaction metadata says was actually paid for (set immutably at
+  // /api/paystack/initialize-boost time) -- otherwise a client could pay for
+  // an expensive plan, then call this endpoint with a cheaper planId and be
+  // awarded the cheap plan's (shorter) duration/priority while TedBuy kept
+  // the full amount paid. The existing amount check below already stops the
+  // reverse (claiming a pricier plan than was actually paid for).
+  let effectivePlanId = planId;
+  let durationDays = BOOST_PLAN_DURATION_DAYS[effectivePlanId] || 7;
+  let expectedPriceGHS = BOOST_PLAN_PRICE_GHS[effectivePlanId] || BOOST_PLAN_PRICE_GHS['7days'];
 
   try {
    await withProductBoostLock(productId, async () => {
@@ -5980,6 +5994,19 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
         if (!verifyResult.ok) {
           return res.status(402).json({ success: false, error: verifyResult.error || 'Payment could not be verified with Paystack.' });
         }
+        // The plan actually paid for is whatever initialize-boost stashed in
+        // this transaction's metadata, not whatever planId this request's
+        // body claims — realigns durationDays/expectedPriceGHS to it before
+        // the amount check below, so a request can't under-claim a cheaper
+        // plan than the one it genuinely paid for. Falls back to the
+        // request's own planId only if the metadata is missing/unrecognized
+        // (e.g. a reference from before this metadata field existed).
+        const metaPlanId = verifyResult.metadata?.planId;
+        if (metaPlanId && BOOST_PLAN_PRICE_GHS[metaPlanId] !== undefined) {
+          effectivePlanId = metaPlanId;
+          durationDays = BOOST_PLAN_DURATION_DAYS[effectivePlanId] || 7;
+          expectedPriceGHS = BOOST_PLAN_PRICE_GHS[effectivePlanId];
+        }
         const paidGHS = (verifyResult.amountPesewas || 0) / 100;
         if (paidGHS + 0.01 < expectedPriceGHS) {
           console.warn(`[Verify Payment API] Amount mismatch for ${paymentReference}: paid GH₵${paidGHS}, expected GH₵${expectedPriceGHS}`);
@@ -6010,11 +6037,11 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     const boostEndDate = new Date(startTime + durationDays * 24 * 60 * 60 * 1000).toISOString();
 
     let boostPriorityLevel = 1;
-    if (planId === '1month' || planId === '90days') boostPriorityLevel = 5;
-    else if (planId === '21days' || planId === '30days') boostPriorityLevel = 4;
-    else if (planId === '14days') boostPriorityLevel = 3;
-    else if (planId === '7days') boostPriorityLevel = 2;
-    else if (planId === '3days') boostPriorityLevel = 1;
+    if (effectivePlanId === '1month' || effectivePlanId === '90days') boostPriorityLevel = 5;
+    else if (effectivePlanId === '21days' || effectivePlanId === '30days') boostPriorityLevel = 4;
+    else if (effectivePlanId === '14days') boostPriorityLevel = 3;
+    else if (effectivePlanId === '7days') boostPriorityLevel = 2;
+    else if (effectivePlanId === '3days') boostPriorityLevel = 1;
 
     const boostBase = boostPriorityLevel * 10000000;
     const remainingMs = durationDays * 24 * 60 * 60 * 1000;
@@ -6027,7 +6054,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
 
     const currentHistory = Array.isArray(existingProduct?.boostHistory) ? [...existingProduct.boostHistory] : [];
     currentHistory.push({
-      planId: planId || '7days',
+      planId: effectivePlanId || '7days',
       planName: `${durationDays} Days Boost${isAdminFreeBoost ? ' (Admin Free)' : ''}`,
       startDate: boostStartDate,
       endDate: boostEndDate,
@@ -6042,7 +6069,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
       id: productId,
       boostStatus: true,
       isBoosted: true,
-      boostPlan: planId || '7days',
+      boostPlan: effectivePlanId || '7days',
       boostStartDate,
       boostEndDate,
       boostExpiry: boostEndDate,
