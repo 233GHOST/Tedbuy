@@ -1563,24 +1563,34 @@ const MarketplaceContent: React.FC = () => {
                 </h4>
                 <ul className="space-y-2.5 text-xs">
                   {[
-                    'Greater Accra',
-                    'Ashanti Region',
-                    'Western Region',
-                    'Eastern Region',
-                    'Central Region',
-                    'Northern Region'
-                  ].map((regionName) => (
-                    <li key={regionName}>
+                    { name: 'Greater Accra', label: 'Greater Accra' },
+                    { name: 'Ashanti', label: 'Ashanti Region' },
+                    { name: 'Western', label: 'Western Region' },
+                    { name: 'Eastern', label: 'Eastern Region' },
+                    { name: 'Central', label: 'Central Region' },
+                    { name: 'Northern', label: 'Northern Region' }
+                  ].map(({ name, label }) => (
+                    <li key={name}>
                       <button
                         onClick={() => {
-                          setSelectedRegion(regionName);
+                          // `name` must match a GHANA_REGIONS entry's `name`
+                          // exactly (regions.ts / GhanaLocationFilter never
+                          // append "Region") -- selectedRegion is compared
+                          // with strict equality against getRegionForLocation()
+                          // in productSelector.ts, so passing the display
+                          // label ("Ashanti Region") here previously matched
+                          // no product's region and silently returned zero
+                          // results for every one of these links except
+                          // "Greater Accra".
+                          setSelectedRegion(name);
+                          setSelectedCity('All');
                           setCurrentView('browse');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
                         className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
                       >
                         <span className="w-1 h-1 rounded-full bg-slate-600 group-hover:bg-[#ea580c] transition-colors" />
-                        {regionName}
+                        {label}
                       </button>
                     </li>
                   ))}

@@ -41,6 +41,42 @@ export const WebMCPInitializer: React.FC = () => {
             required: ['query'],
           },
           execute: async (args: { query: string; category?: string }) => {
+            // `productsRef.current` is only whatever page(s) of /api/products
+            // have been paginated into the app's client-side state so far
+            // (the first load is limit=24) -- filtering just that in-memory
+            // slice meant this tool silently searched a small, arbitrary
+            // subset of recent listings rather than the catalog its
+            // description promises ("Search active buy and sell classified
+            // listings in Ghana"), so most real queries returned nothing.
+            // /api/products already supports server-side q/category search
+            // over the full catalog, so use that first.
+            try {
+              const params = new URLSearchParams();
+              params.set('q', args.query);
+              if (args.category) params.set('category', args.category);
+              params.set('limit', '20');
+              const res = await fetch(`/api/products?${params.toString()}`);
+              if (res.ok) {
+                const data = await res.json();
+                if (data && Array.isArray(data.products)) {
+                  return {
+                    success: true,
+                    listings: data.products.map((m: any) => ({
+                      id: m.id,
+                      title: m.title,
+                      price: m.price,
+                      location: m.location,
+                      category: m.category,
+                      description: m.description || '',
+                    })),
+                  };
+                }
+              }
+            } catch (_) {
+              // Network error -- fall through to the client-side cache below
+              // so the tool still returns something useful offline.
+            }
+
             const term = args.query.toLowerCase();
             const matched = productsRef.current.filter(p => {
               const mTitle = p.title.toLowerCase().includes(term);
@@ -80,22 +116,56 @@ export const WebMCPInitializer: React.FC = () => {
           },
           execute: async (args: { productId: string }) => {
             const product = productsRef.current.find(p => p.id === args.productId);
-            if (!product) {
-              return { success: false, error: 'Product listing not found.' };
+            if (product) {
+              return {
+                success: true,
+                listing: {
+                  id: product.id,
+                  title: product.title,
+                  price: product.price,
+                  location: product.location,
+                  category: product.category,
+                  description: product.description,
+                  sellerId: product.sellerId,
+                  createdAt: product.createdAt,
+                },
+              };
             }
-            return {
-              success: true,
-              listing: {
-                id: product.id,
-                title: product.title,
-                price: product.price,
-                location: product.location,
-                category: product.category,
-                description: product.description,
-                sellerId: product.sellerId,
-                createdAt: product.createdAt,
-              },
-            };
+
+            // Not in the currently-loaded client cache (e.g. pagination
+            // hasn't reached it, or it was linked to directly) -- fall back
+            // to the server's single-product endpoint before reporting
+            // "not found", since that previously misreported valid product
+            // IDs as missing whenever they weren't already in local state.
+            // This endpoint already applies the app's own archived/deleted
+            // visibility rules, so it's no less restrictive than the local
+            // lookup it replaces.
+            try {
+              const res = await fetch(`/api/products/${encodeURIComponent(args.productId)}`);
+              if (res.ok) {
+                const data = await res.json();
+                if (data && data.success && data.product) {
+                  const p = data.product;
+                  return {
+                    success: true,
+                    listing: {
+                      id: p.id,
+                      title: p.title,
+                      price: p.price,
+                      location: p.location,
+                      category: p.category,
+                      description: p.description,
+                      sellerId: p.sellerId,
+                      createdAt: p.createdAt,
+                    },
+                  };
+                }
+              }
+            } catch (_) {
+              // Network error -- fall through to not-found below.
+            }
+
+            return { success: false, error: 'Product listing not found.' };
           },
         },
         { signal: controller.signal }

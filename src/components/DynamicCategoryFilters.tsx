@@ -585,6 +585,15 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       setIsExpanded(false);
     }
+    // This component stays mounted across category switches (App.tsx never
+    // remounts it), but many categories reuse the same field id (e.g. most
+    // categories have a "brand" or "condition" field). Without resetting
+    // these here, a dropdown left open with a search query typed in before
+    // switching categories reopens immediately under the new category,
+    // pre-filtered by search text that was meant for a different field's
+    // option list entirely.
+    setActiveSelectId(null);
+    setSelectSearchQuery('');
   }, [selectedCategory]);
 
   if (!selectedCategory) {
