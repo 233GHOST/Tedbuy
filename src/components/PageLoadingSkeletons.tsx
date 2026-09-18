@@ -220,7 +220,7 @@ export const SellerDashboardSkeleton: React.FC = () => (
   <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6 animate-pulse font-sans min-h-[70vh]">
     <div className="h-8 bg-slate-200 rounded-xl w-1/4" />
     <div className="h-4 bg-slate-200 rounded-md w-1/2" />
-    
+
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
       {[1, 2, 3, 4].map(i => (
         <div key={i} className="h-24 bg-slate-100 border border-slate-200 rounded-2xl p-4 space-y-2">
@@ -230,10 +230,46 @@ export const SellerDashboardSkeleton: React.FC = () => (
       ))}
     </div>
 
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mt-8">
-      {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-        <div key={i} className="h-72 bg-slate-100 border border-slate-200 rounded-3xl" />
-      ))}
+    {/* Tab ribbon skeleton */}
+    <div className="flex gap-6 border-b border-slate-200 pt-2">
+      <div className="h-4 w-32 bg-slate-200 rounded-md pb-3" />
+      <div className="h-4 w-20 bg-slate-100 rounded-md pb-3" />
+    </div>
+
+    {/* Listings table skeleton -- the real "My Listed Ads" tab renders a
+        row-based table (thumbnail+title / category / views / actions),
+        not a card grid, so this mirrors that shape to avoid a visible
+        layout jump once the real table replaces this skeleton. */}
+    <div className="bg-slate-100 border border-slate-200 rounded-3xl overflow-hidden">
+      <div className="hidden md:grid grid-cols-12 gap-4 bg-slate-200/80 border-b border-slate-250 px-6 py-3.5">
+        <div className="col-span-6 h-3 w-32 bg-slate-300 rounded" />
+        <div className="col-span-2 h-3 w-16 bg-slate-300 rounded mx-auto" />
+        <div className="col-span-2 h-3 w-12 bg-slate-300 rounded mx-auto" />
+        <div className="col-span-2 h-3 w-16 bg-slate-300 rounded ml-auto" />
+      </div>
+      <div className="divide-y divide-slate-200">
+        {[1, 2, 3, 4, 5].map(i => (
+          <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center px-6 py-4">
+            <div className="col-span-6 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-slate-200 shrink-0" />
+              <div className="space-y-1.5 flex-1">
+                <div className="h-3.5 w-3/5 bg-slate-200 rounded" />
+                <div className="h-3 w-2/5 bg-slate-150 rounded" />
+              </div>
+            </div>
+            <div className="col-span-2 hidden md:flex justify-center">
+              <div className="h-3 w-16 bg-slate-150 rounded" />
+            </div>
+            <div className="col-span-2 hidden md:flex justify-center">
+              <div className="h-3 w-10 bg-slate-150 rounded" />
+            </div>
+            <div className="col-span-2 hidden md:flex justify-end gap-2">
+              <div className="w-8 h-8 rounded-lg bg-slate-200" />
+              <div className="w-8 h-8 rounded-lg bg-slate-200" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   </div>
 );
@@ -256,11 +292,34 @@ export const SellerProfileSkeleton: React.FC = () => (
       </div>
     </div>
 
-    {/* Listings Grid Skeleton */}
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-      {[1, 2, 3, 4].map(i => (
-        <div key={i} className="h-72 bg-slate-100 border border-slate-200 rounded-3xl" />
-      ))}
+    {/* Two-column layout skeleton -- the real page splits into an 8-col
+        catalog (max 3 cards per row, never 4 -- it shares the row with the
+        4-col reviews/trust panel) and a 4-col reviews/trust sidebar. A
+        full-width 4-across grid here reserved the wrong amount of space and
+        no room at all for the sidebar, causing a visible reflow once the
+        real two-column content mounted. */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="lg:col-span-8 space-y-4">
+        <div className="h-5 w-48 bg-slate-200 rounded-md" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-5">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="h-56 bg-slate-100 border border-slate-200 rounded-3xl" />
+          ))}
+        </div>
+      </div>
+      <div className="lg:col-span-4 space-y-4">
+        <div className="h-5 w-32 bg-slate-200 rounded-md" />
+        <div className="bg-slate-100 border border-slate-200 rounded-3xl p-5 space-y-4">
+          <div className="h-3 w-40 bg-slate-200 rounded" />
+          <div className="h-8 w-20 bg-slate-200 rounded" />
+          <div className="h-2 w-full bg-slate-200 rounded-full" />
+          <div className="space-y-2 pt-2">
+            <div className="h-2.5 w-full bg-slate-200 rounded-full" />
+            <div className="h-2.5 w-4/5 bg-slate-200 rounded-full" />
+            <div className="h-2.5 w-3/5 bg-slate-200 rounded-full" />
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 );
