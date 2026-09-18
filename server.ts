@@ -2245,6 +2245,11 @@ export function serializeProductSummary(row: any): any {
     videoUrls: cleanVids,
     boosted: !!normalized.boostStatus || !!normalized.isBoosted,
     boostEndDate: normalized.boostEndDate || null,
+    // See normalizeServerProductSummaryRow's boostPlan comment -- same gap,
+    // same fix: without this, /api/products & /api/feed's boostPlan was
+    // always undefined client-side, breaking productSelector.ts's
+    // boost-package-value tiebreaker for every boosted listing.
+    boostPlan: normalized.boostPlan || undefined,
     sellerId: normalized.sellerId,
     sellerName: normalized.sellerName,
     sellerVerified: normalized.sellerVerified !== false,
@@ -2313,6 +2318,19 @@ function normalizeServerProductSummaryRow(row: any): any {
     videoUrls: cleanVids,
     boosted: activeBoost,
     boostEndDate: computedBoostEndDate ? computedBoostEndDate.toISOString() : null,
+    // Real plan id (e.g. '1month' vs '3days') -- was computed above (boostPlan)
+    // but never actually returned here, so every client-facing endpoint built
+    // on this row (/api/products, /api/feed, /api/featured, /api/video-ads)
+    // delivered `boostPlan: undefined` for every product. productSelector.ts's
+    // boost sort on web/mobile uses exactly this field as its PRIORITY LEVEL 1
+    // tiebreaker among boosted listings ("higher price/level package first"),
+    // ahead of remaining boost time -- with it always missing, that tiebreaker
+    // could never fire and every pair of boosted listings fell straight to
+    // comparing remaining time instead. Concretely: a seller on the GH₵10
+    // (1-month) plan with 1 day left ranked BELOW a seller on the GH₵1
+    // (3-day) plan who just bought it (3 days left), even though the pricier
+    // package is supposed to win regardless of remaining time.
+    boostPlan: boostPlan || undefined,
     sellerId: row.sellerId || row.seller_id || '',
     sellerName: row.sellerName || row.seller_name || 'Seller',
     sellerEmail: row.sellerEmail || row.seller_email || '',
@@ -2395,7 +2413,12 @@ async function getProductsListData(forceRefresh = false): Promise<{ products: an
             firestoreList.push(normalizeServerProductSummaryRow({ ...d, id: docSnap.id || d.id }));
           }
         });
-        products = firestoreList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        // normalizeServerProductSummaryRow returns null for hidden/deleted/
+        // archived rows (see its comment) -- filter those out before sorting.
+        // Without this, any such row reaching this fallback path threw on
+        // `.createdAt` of null and silently emptied the whole feed for
+        // every consumer of getProductsListData().
+        products = firestoreList.filter(Boolean).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
         console.log(`[Server Products Fallback] Retrived ${products.length} products from Firestore.`);
       }
     } catch (firestoreErr: any) {
@@ -2404,6 +2427,31 @@ async function getProductsListData(forceRefresh = false): Promise<{ products: an
   }
 
   if (products.length > 0) {
+    // Boost-aware ordering: this array's order is the ranking every downstream
+    // consumer that doesn't already do its own explicit re-sort inherits
+    // directly -- most importantly /api/products & /api/feed, which only
+    // filter and slice() for pagination (see below), and the SSR
+    // window.__INITIAL_PRODUCTS__ injection, which takes a plain
+    // products.slice(0, 50). Before this sort both derived their order from
+    // the Supabase query's `createdAt DESC`, with no boost awareness at all --
+    // a listing boosted today but created weeks ago sorted by its old
+    // creation date, so it could sit past page 1 (or past the SSR/initial
+    // fetch's page-1 window entirely) while unboosted, freshly-created
+    // listings displaced it. That silently broke the "boosted listings must
+    // always appear above all normal listings" guarantee those endpoints'
+    // consumers (productSelector.ts on web/mobile) rely on: a client can only
+    // boost-sort what it actually received, and it never received the
+    // boosted item at all. Sorting boost-active-first here, before caching,
+    // fixes it at the one shared source instead of in every consumer.
+    // Ties within each group keep the existing recency order.
+    products = products.slice().sort((a: any, b: any) => {
+      const boostA = !!(a && a.boosted === true);
+      const boostB = !!(b && b.boosted === true);
+      if (boostA !== boostB) return boostA ? -1 : 1;
+      const aTime = parseServerDate(a?.createdAt)?.getTime() || 0;
+      const bTime = parseServerDate(b?.createdAt)?.getTime() || 0;
+      return bTime - aTime;
+    });
     rawProductsListCache = { products, timestamp: now };
   } else if (rawProductsListCache) {
     products = rawProductsListCache.products;
