@@ -9457,7 +9457,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
     }
 
     const ctaHtml = available
-      ? `<a class="cta" href="/downloads/tedbuy.apk">Download for Android<span class="cta-sub">Official APK &middot; v${escapeHtml(cfg.version)}</span></a>`
+      ? `<a class="cta" href="/downloads/tedbuy.apk"><span class="cta-main"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download for Android</span><span class="cta-sub">Official APK &middot; v${escapeHtml(cfg.version)}</span></a>`
       : `<button class="cta cta-disabled" type="button" disabled>Coming Soon<span class="cta-sub">We're finalizing the first release</span></button>`;
 
     const checksumHtml = available && cfg.sha256
@@ -9547,18 +9547,20 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
     align-items: center;
     justify-content: center;
     width: 100%;
-    background: #ea580c;
+    background: #16a34a;
     color: #fff;
     font-weight: 800;
     font-size: 1.05rem;
     text-decoration: none;
     border: none;
-    border-radius: 16px;
-    padding: 0.95rem 1.5rem;
-    box-shadow: 0 8px 24px rgba(234, 88, 12, 0.35);
+    border-radius: 999px;
+    padding: 1.1rem 2rem;
+    box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35);
     cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
+  .cta-main { display: flex; align-items: center; gap: 0.5rem; }
+  .cta-main svg { width: 20px; height: 20px; flex-shrink: 0; }
   .cta:active { transform: scale(0.98); }
   .cta-sub { font-weight: 500; font-size: 0.78rem; opacity: 0.9; margin-top: 0.2rem; }
   .cta-disabled { background: #334155; box-shadow: none; cursor: not-allowed; }
