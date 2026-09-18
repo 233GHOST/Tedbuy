@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical, Search, Bell, Lock, KeyRound, Settings, Bookmark, Flame, Plus, Eye, Edit2, ChevronRight, ExternalLink, Store, Share2, Copy } from 'lucide-react';
@@ -13,7 +13,13 @@ import { formatTedbuyTenure, isBoostActive } from '../utils/dateParser';
 import { resolveProductImage } from '../utils/productUtils';
 import { ListingModal } from './ListingModal';
 import { BoostModal } from './BoostModal';
-import { AdminUserManagement } from './AdminUserManagement';
+// Admin-only, rarely visited (only currentUser?.isAdmin ever reaches it) --
+// lazy so its bundle isn't shipped inside this already-large chunk for
+// every non-admin user who opens Settings. ProfileSettings.tsx itself is
+// already lazy-loaded from App.tsx, but that outer Suspense boundary would
+// show App.tsx's full-page loader while this tiny sub-panel's chunk
+// fetches -- each usage below gets its own small local Suspense instead.
+const AdminUserManagement = lazy(() => import('./AdminUserManagement').then(m => ({ default: m.AdminUserManagement })));
 import { ProfileStoreSettingsTab } from './settings/ProfileStoreSettingsTab';
 import { SellingBuyingSettingsTab } from './settings/SellingBuyingSettingsTab';
 import { NotificationSettingsTab } from './settings/NotificationSettingsTab';
@@ -1863,7 +1869,9 @@ CEO, Tedbuy Inc`;
                 )}
 
                 {activeMobileSubSetting === 'admin' && currentUser?.isAdmin && (
-                  <AdminUserManagement />
+                  <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>}>
+                    <AdminUserManagement />
+                  </Suspense>
                 )}
               </div>
             )}
@@ -3089,7 +3097,9 @@ CEO, Tedbuy Inc`;
               </div>
 
               {/* Admin Impersonation Component */}
-              <AdminUserManagement />
+              <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>}>
+                <AdminUserManagement />
+              </Suspense>
             </div>
           )}
       </div>
