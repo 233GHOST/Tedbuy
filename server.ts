@@ -4138,6 +4138,26 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       existingUsername = existingRowForFlags?.username || null;
     }
 
+    // NOT the same [a-zA-Z0-9_-] regex registrationValidation.ts's client-side
+    // validateUsernameSecure enforces -- that would reject real, already-
+    // working registrations: Google sign-in (AppContext.tsx) deliberately
+    // sends the raw firebaseUser.displayName as the initial username, which
+    // legitimately contains spaces and punctuation ("John O'Brien"), never
+    // passing through that client validator at all. This is narrower and
+    // only blocks the literal characters that make HTML-tag injection
+    // possible, since that stored value gets echoed unescaped into this
+    // session's own HTML email templates (registration OTP, welcome email)
+    // -- closing it at the source rather than only where it happened to be
+    // noticed, without breaking any legitimate name. Only rejects an ACTUAL
+    // change to a bad value -- gated on requestedUsername differing from
+    // what's already stored, so an existing user's own untouched username
+    // (whatever it already contains) never blocks the rest of their save.
+    if (user.username && !isAdmin && requestedUsername !== existingUsername) {
+      if (/[<>]/.test(requestedUsername)) {
+        return res.status(400).json({ success: false, error: 'Username cannot contain the characters < or >.' });
+      }
+    }
+
     // Business-logic fix: emailVerified was previously taken straight from
     // the client body (`user.emailVerified === true`) -- unlike isAdmin/
     // isSuspended, simply preserving the existing DB value isn't the right
