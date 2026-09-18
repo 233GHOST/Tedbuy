@@ -9068,8 +9068,15 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
   function generateDownloadPageHtml(host: string, protocol: string): string {
     const cfg = APP_RELEASE_CONFIG;
     const available = isAndroidReleaseAvailable(cfg);
-    const pageUrl = `${protocol}://${host}/download`;
-    const ogImage = `${protocol}://${host}/icon-512x512.png`;
+    // host is only lightly normalized by cleanHostHeader (lowercased,
+    // port stripped) -- it doesn't strip HTML-unsafe characters, so a
+    // request whose Host header isn't validated upstream could still
+    // reach here with '"'/'<' in it. pageUrl/ogImage get interpolated
+    // into href/content attributes below, so escape them defensively,
+    // matching how canonicalUrl is already escaped everywhere else in
+    // this file.
+    const pageUrl = escapeHtml(`${protocol}://${host}/download`);
+    const ogImage = escapeHtml(`${protocol}://${host}/icon-512x512.png`);
 
     const metaRows: string[] = [
       `<div class="meta-row"><span class="meta-label">Version</span><span class="meta-value">${escapeHtml(cfg.version)}</span></div>`,
@@ -9559,21 +9566,43 @@ async function startServer() {
               } catch (_) {}
             }
           } else {
-            html = html.replace(/<link\s+rel="canonical".*?>/gi, `<link rel="canonical" href="${currentCanonicalUrl}/" />`);
+            // currentCanonicalUrl is built from req.path, which is
+            // attacker-controlled (e.g. a crafted URL whose path segment
+            // decodes to `"><script>...`) -- interpolating it unescaped
+            // into this href attribute let any visitor who followed such a
+            // link get a live <script> tag injected into the page. Every
+            // other canonical/og:url built from request data in this file
+            // (injectMetaTags, injectSellerMetaTags) already wraps it in
+            // escapeHtml(); this fallback branch for non-product/seller
+            // pages was the one path that didn't.
+            html = html.replace(/<link\s+rel="canonical".*?>/gi, `<link rel="canonical" href="${escapeHtml(currentCanonicalUrl)}/" />`);
           }
         }
 
         // Inject pre-cached top products into HTML for 0ms initial render of main feed
+        //
+        // Critical: same bug shape as injectMetaTags's JSON-LD script tag --
+        // topSummaries/topSellers embed raw user-controlled fields (product
+        // title/description/location/brand, seller username/displayName/
+        // location) via plain JSON.stringify(), which never escapes '<'. A
+        // listing title or seller username containing a literal
+        // "</script><script>...</script>" would close this tag early and
+        // inject an attacker-controlled script into the homepage for every
+        // visitor -- reached by nothing more than creating an ordinary
+        // listing or setting a username, no auth or targeting required, and
+        // arguably worse than the JSON-LD case since this hits every '/'
+        // load rather than just individual product pages. Same fix: escape
+        // every '<' to its JSON-safe \u003c equivalent before embedding.
         try {
           const { products } = await getProductsListData();
           if (products && products.length > 0) {
             const topSummaries = products.slice(0, 50).map(serializeProductSummary);
-            const scriptTag = `<script>window.__INITIAL_PRODUCTS__ = ${JSON.stringify(topSummaries)};</script>`;
+            const scriptTag = `<script>window.__INITIAL_PRODUCTS__ = ${JSON.stringify(topSummaries).replace(/</g, '\\u003c')};</script>`;
             html = html.replace('</head>', `${scriptTag}</head>`);
           }
           const { counts: sellerCounts, sellers: topSellers } = await getSellersSummaryData(false);
           if (sellerCounts && Object.keys(sellerCounts).length > 0) {
-            const sellersScript = `<script>window.__INITIAL_SELLER_COUNTS__ = ${JSON.stringify(sellerCounts)};window.__INITIAL_DISCOVER_SELLERS__ = ${JSON.stringify(topSellers.slice(0, 15))};</script>`;
+            const sellersScript = `<script>window.__INITIAL_SELLER_COUNTS__ = ${JSON.stringify(sellerCounts).replace(/</g, '\\u003c')};window.__INITIAL_DISCOVER_SELLERS__ = ${JSON.stringify(topSellers.slice(0, 15)).replace(/</g, '\\u003c')};</script>`;
             html = html.replace('</head>', `${sellersScript}</head>`);
           }
         } catch (_) {}
