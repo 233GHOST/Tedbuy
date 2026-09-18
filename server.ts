@@ -1928,7 +1928,17 @@ function injectMetaTags(html: string, product: any, shareUrl: string, host: stri
     }
   };
 
-  const schemaScript = `<script type="application/ld+json">${JSON.stringify(productSchema)}</script>`;
+  // Critical: JSON.stringify never escapes '<', so a title/description/
+  // sellerName containing a literal "</script>" would close this tag early
+  // and inject an attacker-controlled <script> into every visitor's page --
+  // this is server-rendered HTML served on every real product-page load
+  // (not just crawler previews), reached by nothing more than creating an
+  // ordinary listing, no authentication or specific-victim targeting
+  // required. \u003c is a valid JSON escape for '<' that any JSON-LD/
+  // schema.org parser reads back identically, so this changes nothing for
+  // legitimate consumers while making a literal '<' impossible for the
+  // HTML parser to ever see inside this script tag.
+  const schemaScript = `<script type="application/ld+json">${JSON.stringify(productSchema).replace(/</g, '\\u003c')}</script>`;
   const metaTags = `
     <title>${escapeHtml(title)}</title>
     <meta name="description" content="${escapeHtml(description)}" />
