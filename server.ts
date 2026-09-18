@@ -2197,7 +2197,13 @@ function normalizeServerProductRow(row: any): any {
     description: row.description || '',
     price: normalizeServerPrice(row.price),
     currency: row.currency || 'GHS',
-    condition: row.condition || 'Used - Good',
+    // 'Used - Good' isn't one of the four real, selectable condition presets
+    // on either platform (['Brand New', 'Slightly Used', 'Refurbished',
+    // 'Used - Fair'] -- ListingModal.tsx/SellScreen.tsx) -- normalizeServer
+    // ProductSummaryRow already correctly fell back to 'Slightly Used'
+    // (a real preset); this function and upsertProductToSupabase's fallback
+    // disagreed. Same field, same fallback case, should agree.
+    condition: row.condition || 'Slightly Used',
     category: row.category || 'Other',
     subcategory: row.subcategory || row.subCategory || '',
     location: row.location || '',
@@ -3376,7 +3382,8 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
     subcategory: productData.subcategory || productData.subCategory || existingRow?.subcategory || existingRow?.subCategory || null,
     location: productData.location || existingRow?.location || '',
     brand: productData.brand || existingRow?.brand || null,
-    condition: productData.condition || existingRow?.condition || 'Used - Good',
+    // Same fallback-consistency fix as normalizeServerProductRow above.
+    condition: productData.condition || existingRow?.condition || 'Slightly Used',
     negotiable: productData.negotiable !== undefined ? productData.negotiable === true : (existingRow?.negotiable === true),
     sellerId: finalSellerId,
     sellerName: finalSellerName,
