@@ -35,6 +35,31 @@ const GHANA_CITIES = [
   'Dansoman'
 ];
 
+// Matches mobile's SearchScreen.tsx POPULAR_KEYWORDS exactly (same 14 phrases,
+// same order) -- mobile passes this seed list into getPrefixAutocompleteSuggestions
+// so a query that doesn't match any live product's title/brand/category (sparse
+// inventory for that term) still surfaces a helpful suggestion chip. Web never
+// defined an equivalent list, so `popularKeywords` was always `[]` here, silently
+// disabling that entire matching branch (step B of getPrefixAutocompleteSuggestions)
+// on web only -- the identical typed query (e.g. "office" or "elitebook") could
+// surface a suggestion on mobile and nothing on web with no legitimate reason.
+const POPULAR_KEYWORDS = [
+  'iPhone 15 Pro Max',
+  'HP EliteBook Laptop',
+  'MacBook Air M2',
+  'Samsung Galaxy S24',
+  'PlayStation 5 Console',
+  'Toyota Corolla',
+  'Nike Air Force 1',
+  'Hisense 55" 4K Smart TV',
+  'Apple AirPods Pro',
+  'Honda Civic',
+  'Office Chair',
+  'Double Door Fridge',
+  'Dell Laptop',
+  'iPad'
+];
+
 export const SearchSuggestions: React.FC<SearchSuggestionsProps> = ({
   query,
   onSelectQuery,
@@ -114,7 +139,7 @@ export const SearchSuggestions: React.FC<SearchSuggestionsProps> = ({
 
   // 4. Client-side instant Prefix Autocomplete combined with Server-side fallback
   const suggestions = useMemo(() => {
-    const local = getPrefixAutocompleteSuggestions(query, products, { limit: 8 });
+    const local = getPrefixAutocompleteSuggestions(query, products, { limit: 8, popularKeywords: POPULAR_KEYWORDS });
     
     // Merge local suggestions and server suggestions smoothly
     const seen = new Set<string>();
