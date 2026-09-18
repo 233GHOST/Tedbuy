@@ -4728,7 +4728,20 @@ app.post('/api/users/merge-account', serverRateLimiter(60 * 1000, 10, "users-mer
     const { error: upsertErr } = await safeBackendSupabaseUpsert('users', cleanObject(mergedUser), { onConflict: 'id' });
     if (upsertErr) throw upsertErr;
 
-    await backendSupabase.from('users').delete().eq('id', oldUserId);
+    // Found via a dedicated audit: unlike the critical merge-upsert just
+    // above (correctly checked/thrown), this cleanup delete had zero error
+    // visibility at all -- Supabase resolves with {error} rather than
+    // throwing, so a silent failure here previously left the old row
+    // lingering indefinitely with the same email as the now-merged new row,
+    // a real duplicate-account data-hygiene risk with no trace in the logs.
+    // Not escalated to a hard failure (matching this endpoint's own cascade
+    // steps below): the merge itself already genuinely succeeded by this
+    // point, so the response's success claim stays accurate either way --
+    // this only adds the missing visibility.
+    const { error: oldRowDeleteErr } = await backendSupabase.from('users').delete().eq('id', oldUserId);
+    if (oldRowDeleteErr) {
+      console.warn('[Users Merge API] Could not delete old account row (orphaned duplicate risk):', oldRowDeleteErr.message);
+    }
 
     if (mergedUser.username) {
       await safeBackendSupabaseUpsert('store_names', {
