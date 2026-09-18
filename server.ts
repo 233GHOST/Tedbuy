@@ -6403,7 +6403,7 @@ app.post("/api/auth/send-registration-otp", serverRateLimiter(60 * 1000, 10, "re
             <td style="padding: 32px 28px 36px 28px; text-align: left;">
               <h2 class="text-heading" style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #0f172a; line-height: 1.3;">Verify your email address</h2>
               <p class="text-body" style="margin: 0 0 24px 0; font-size: 15px; line-height: 1.6; color: #475569;">
-                Hello ${displayName},<br><br>
+                Hello ${escapeHtml(displayName)},<br><br>
                 Thank you for signing up for Tedbuy! Please enter the 6-digit verification code below to complete your registration:
               </p>
 
@@ -7259,7 +7259,7 @@ app.post("/api/send-welcome-email", serverRateLimiter(60 * 1000, 10, "send-welco
 <body class="bg-body" style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a;">
   <!-- Hidden Preheader for Inbox Preview -->
   <span style="display: none; font-size: 1px; color: #f8fafc; line-height: 1px; max-height: 0px; max-width: 0px; opacity: 0; overflow: hidden;">
-    Welcome to Tedbuy Marketplace, ${displayName}! Your account is ready.
+    Welcome to Tedbuy Marketplace, ${escapeHtml(displayName)}! Your account is ready.
   </span>
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" class="bg-body" style="background-color: #f8fafc; padding: 32px 12px;">
     <tr>
@@ -7294,7 +7294,7 @@ app.post("/api/send-welcome-email", serverRateLimiter(60 * 1000, 10, "send-welco
           <!-- Body Content -->
           <tr>
             <td style="padding: 32px 28px 36px 28px; text-align: left;">
-              <h2 class="text-heading" style="margin: 0 0 20px 0; font-size: 20px; font-weight: 800; color: #0f172a; line-height: 1.3;">Welcome to Tedbuy, ${displayName}!</h2>
+              <h2 class="text-heading" style="margin: 0 0 20px 0; font-size: 20px; font-weight: 800; color: #0f172a; line-height: 1.3;">Welcome to Tedbuy, ${escapeHtml(displayName)}!</h2>
               <p class="text-body" style="margin: 0 0 18px 0; font-size: 15px; line-height: 1.6; color: #334155; font-weight: 400;">
                 Thank you for creating an account on Tedbuy, Ghana's premier online marketplace.
               </p>
