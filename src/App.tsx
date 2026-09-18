@@ -1625,7 +1625,18 @@ const MarketplaceContent: React.FC = () => {
                     <button
                       onClick={() => {
                         setCurrentView('profile-settings');
-                        window.location.hash = '#/terms';
+                        // Found via a dedicated audit: a direct `location.hash =`
+                        // assignment fires an async hashchange event that lands
+                        // AFTER useHashRouting's own effect has already reacted to
+                        // the view change and pushed '#/settings' over this value --
+                        // that stale event then gets misread as a Back/Forward
+                        // navigation, permanently skipping pushState/replaceState on
+                        // the *next* unrelated navigation anywhere in the app (URL and
+                        // browser history silently stop updating for one navigation).
+                        // replaceState sets window.location.hash synchronously (still
+                        // correctly seeding ProfileSettings' one-time initial-tab read
+                        // below) without ever firing that event, closing the race.
+                        window.history.replaceState(null, '', '#/terms');
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
                       className="text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer text-left flex items-center gap-1.5 group"
