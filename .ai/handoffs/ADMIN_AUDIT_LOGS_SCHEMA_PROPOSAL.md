@@ -1,6 +1,10 @@
 # admin_audit_logs — Schema Proposal
 
-**STATUS: PROPOSAL ONLY. AWAITING APPROVAL. NOTHING BELOW HAS BEEN EXECUTED.** This sandbox has no Supabase credentials — execution is Vincent's alone, same as every other schema change this session (`reports_table_creation.sql`, RLS Phase 4, the three pending feature-schema proposals). No table, RLS, policy, grant, or application code has been created or modified producing this document.
+**STATUS: DESIGN SHAPE APPROVED BY VINCENT (2026-09-18). EXACT SQL AND CODE CHANGES BELOW ARE STILL A SEPARATE, PENDING REVIEW — NOTHING HAS BEEN EXECUTED.** Two-stage approval, explicit per Vincent's own instruction: this document's *shape* (schema, RLS approach, action list, failure-path design, retention, endpoint design) is approved as of this revision. The literal SQL and code diffs in §1-10 below still require their own explicit sign-off before anything is run — this sandbox has no Supabase credentials regardless, so execution is Vincent's alone either way, same as every other schema change this session (`reports_table_creation.sql`, RLS Phase 4, the three pending feature-schema proposals).
+
+## Scope boundary — read before extending this table later
+
+**This is not a general-purpose application logging table.** Its sole purpose is security-sensitive administrative actions and their outcomes — the 8 action types in §6, no others. The `action` CHECK constraint (§2) is deliberately restrictive for exactly this reason: adding a 9th action type requires a conscious follow-up migration, not a silent `INSERT` with a new string. If a future need arises to log something else (ordinary user activity, non-admin errors, general request tracing), that belongs in a different table with its own design — not folded into this one by extending the CHECK constraint casually. `metadata` (jsonb) exists to carry detail *specific to one of the 8 already-approved actions* (e.g. which boost plan, a security-hold reason, purge counts) — not as a general-purpose escape hatch for unrelated data.
 
 ## Context
 
@@ -34,7 +38,7 @@ CREATE TABLE public.admin_audit_logs (
 );
 ```
 
-No `updated_at` column exists anywhere in this schema, deliberately — see §7 (immutability). Every column is nullable except the five that every single action type, success or failure, always has: `id`, `action`, `result`, `actor_user_id`, `created_at`.
+No `updated_at` column exists anywhere in this schema, deliberately — see §3 (immutability). Every column is nullable except the five that every single action type, success or failure, always has: `id`, `action`, `result`, `actor_user_id`, `created_at`.
 
 ## 2. Constraints / enums / checks
 
@@ -64,14 +68,24 @@ Note: this lists **11** concrete action values, covering the **8 distinct admin 
 
 `error_message` has no `CHECK` tying it to `result = 'failure'` — enforcing that in SQL adds complexity for a rule the application code should simply always honor (only ever populate `error_message` alongside `result = 'failure'`), consistent with how this codebase already handles similar invariants elsewhere without a DB-level CHECK.
 
-## 3. RLS configuration
+## 3. RLS configuration, and immutability (no application UPDATE/DELETE)
 
 ```sql
 ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 -- Zero CREATE POLICY statements — identical to all 10 tables from RLS Phase 4.
+
+COMMENT ON TABLE public.admin_audit_logs IS
+  'Append-only security audit trail for the 8 admin action types in
+   ADMIN_AUDIT_LOGS_SCHEMA_PROPOSAL.md §6. Application code must never
+   UPDATE or DELETE a row here -- a correction, if ever needed, is a new
+   row referencing the old one via metadata, never an edit. Not a
+   general-purpose logging table; see the proposal doc''s scope boundary
+   before adding a new action type.';
 ```
 
 No grants beyond what already exists project-wide (`GRANT ALL` on `anon`/`authenticated`/`service_role`, inherited from `supabase_schema.sql`'s original blanket grants, same as every other table). With RLS enabled and zero policies, those grants are inert for `anon`/`authenticated` — only `service_role` (i.e., only `server.ts`) can read or write this table at all, exactly the same mechanism already live and verified for the other 10 tables. No new RLS pattern is being invented here.
+
+**Immutability is enforced by two independent layers, not one:** (1) the `COMMENT ON TABLE` above is a durable, self-documenting rule directly in the schema — visible to anyone inspecting the table later, including a future session with no memory of this document; (2) as a matter of fact, no code path proposed anywhere in §7/§8 ever calls `.update()` or `.delete()` against this table — every write is a plain `.insert()`. `service_role` technically has the Postgres privilege to update or delete rows here (RLS's `BYPASSRLS` applies regardless of policy count, same as every other table), so this is an applied-discipline guarantee, not an absolute database-level one — consistent with how every other table in this schema is already governed (RLS caps what `anon`/`authenticated` can do; `service_role`'s own code is the remaining trust boundary, same as the rest of this app's security model).
 
 ## 4. Indexes
 
@@ -85,9 +99,7 @@ Three indexes, matched to the three real access patterns the admin read endpoint
 
 ## 5. Retention / exclusion rule
 
-**No automatic purge, and explicit exclusion from the existing retention job.** `POST /api/admin/retention/run-purge` (`server.ts:8945`) already runs a 90-day cycle against unrelated tables (soft-deleted users, expired username quarantines) — this table must never be added to that job or any future one with a similarly short window, since the entire purpose of an audit trail is looking backward, and auto-deleting it on the same cadence as routine user data would defeat that.
-
-This proposal does not set a hard retention period — that's a call I'd leave to you rather than pick a number unprompted. Two real options: **indefinite** (simplest; storage cost is negligible at this table's expected row volume — admin actions, not user activity) or **a long fixed window** (e.g. 1-2 years) if you want an explicit compliance-style policy. Either way, if a retention job is ever built for this table specifically, it should be its own deliberate, separately-approved addition — not folded into the existing 90-day job by default.
+**Decided by Vincent: indefinite retention, and explicit exclusion from the existing retention job.** No purge job of any kind applies to this table. `POST /api/admin/retention/run-purge` (`server.ts:8945`) already runs a 90-day cycle against unrelated tables (soft-deleted users, expired username quarantines) — this table is never added to that job, and no new job is proposed for it here. Storage cost is negligible at this table's expected row volume (admin actions, not user activity), so indefinite retention costs nothing in practice. If a retention policy is ever wanted for this table in the future, that's a deliberate, separately-approved decision at that time — not something this proposal builds in by default, and not something any future change should fold into the existing 90-day job without a fresh, explicit conversation about it.
 
 ## 6. The 8 audited action types (11 concrete `action` values)
 
@@ -188,9 +200,12 @@ Every one of the 8 write call sites already tolerates this table not existing (t
 
 ---
 
-## What happens after this is approved
+## Status and next step
 
-1. You review this document and tell me what to change, if anything (action list, retention decision, endpoint filter set, etc.).
-2. Once approved as-is: the §7 code changes ship first, as their own small commits, fully tested per §11 against the *current* (table-absent) production — since every call site already degrades gracefully, this is zero-risk to ship before the table exists.
-3. You run the §1-4 SQL yourself in the Supabase SQL Editor (same as every other schema change this session).
-4. A final live verification pass (§11's real-credentials rows) confirms all 8 action types actually populate correctly in production.
+**Shape approved (2026-09-18).** All 12 design points above reflect Vincent's actual decisions, not open options — including the two priority defect fixes (§7: `admin_user_id` identity bug, missing failure-path logging) and retention (§5: indefinite, excluded from the 90-day job).
+
+**Still pending, explicitly not yet approved**: the literal `CREATE TABLE`/`ALTER TABLE`/index SQL in §1-4, and the literal code diffs described in §7-8. Per Vincent's own instruction, the next step is a dedicated review of exactly those two things — not a re-litigation of the shape — before either is written as a real diff or run against production. Once that review clears:
+
+1. The §7-8 code changes ship first, as their own small, individually-reviewable commits, tested per §11 against the *current* (table-absent) production — since every call site already degrades gracefully, this is zero-risk to ship before the table exists.
+2. Vincent runs the §1-4 SQL himself in the Supabase SQL Editor (same as every other schema change this session).
+3. A final live verification pass (§11's real-credentials rows) confirms all 8 action types actually populate correctly in production.
