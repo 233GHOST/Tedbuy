@@ -6615,7 +6615,11 @@ app.post("/api/auth/send-password-reset", serverRateLimiter(60 * 1000, 10, "pass
         if (oobCode) {
           console.log(`[Password Reset API] Generated authentic Firebase OOB code via Admin SDK for ${cleanEmail}`);
         } else {
-          console.warn('[Password Reset API] Firebase Admin generated reset link but no oobCode was found:', rawLink);
+          // Never log rawLink itself -- it's a live, usable password-reset
+          // secret (the oobCode as a URL param), same handling as every
+          // other credential this session's redactUserSecrets work already
+          // keeps out of logs/responses.
+          console.warn('[Password Reset API] Firebase Admin generated a reset link but no oobCode could be parsed from it.');
         }
       } else {
         throw new Error('Firebase Admin SDK is not initialized.');
@@ -6643,7 +6647,9 @@ app.post("/api/auth/send-password-reset", serverRateLimiter(60 * 1000, 10, "pass
         if (oobCode) {
           console.log(`[Password Reset API] Generated Firebase OOB code via REST fallback for ${cleanEmail}`);
         } else {
-          console.warn('[Password Reset API] Firebase REST fallback generated reset link but no oobCode was found:', restResult.oobLink);
+          // Same reasoning as the Admin SDK branch above -- never log the
+          // raw link, it's a live password-reset secret.
+          console.warn('[Password Reset API] Firebase REST fallback generated a reset link but no oobCode could be parsed from it.');
         }
       } else if (restResult.isUserNotFound) {
         isUserNotFound = true;
