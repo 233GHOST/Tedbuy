@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ShoppingBag, Briefcase, Globe, Check, Loader2 } from 'lucide-react';
 
@@ -6,6 +6,17 @@ export const SellingBuyingSettingsTab: React.FC = () => {
   const { currentUser, updateUserProfile, showToast } = useApp();
   const [role, setRole] = useState<'buyer' | 'seller' | 'both'>(currentUser?.role || 'both');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Found via a dedicated audit, same gap already fixed in the sibling
+  // NotificationSettingsTab.tsx: without this, if currentUser.role changes
+  // elsewhere while this tab stays mounted (e.g. a save completes and
+  // updates the shared currentUser object), the displayed selection and the
+  // Save button's disabled state (role === currentUser?.role) go stale.
+  useEffect(() => {
+    if (currentUser?.role) {
+      setRole(currentUser.role);
+    }
+  }, [currentUser?.role]);
 
   const handleSaveRole = async () => {
     if (!currentUser) return;
