@@ -47,6 +47,14 @@ export function ChatsScreen() {
 
   const [chats, setChats] = useState<any[]>([]);
   const [messages, setMessages] = useState<any[]>([]);
+  // Gates the messages FlatList's ListEmptyComponent ("Fully Encrypted Chat")
+  // from flashing on every thread open. `messages` is cleared to [] whenever
+  // a chat closes, so opening any thread -- even one with a long history --
+  // briefly re-renders with an empty array until the first fetchMessagesApi
+  // poll resolves, showing the empty-chat copy for a beat before the real
+  // messages replace it. True only until that first fetch for the currently
+  // open thread settles (success or failure).
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   // Only ever set true on a failed *first* load (no chats shown yet) — a
   // transient blip on a later background poll shouldn't flash an error state
@@ -381,10 +389,12 @@ export function ChatsScreen() {
   useEffect(() => {
     if (!activeChatId) {
       setMessages([]);
+      setMessagesLoading(false);
       return;
     }
 
     let active = true;
+    setMessagesLoading(true);
     // Same overlapping-poll guard as the chat-list poll above -- without it,
     // a slow tick resolving after a later, faster tick already landed could
     // revert the thread to a stale message list (a just-arrived message
@@ -396,6 +406,7 @@ export function ChatsScreen() {
         const result = await fetchMessagesApi(activeChatId);
         if (!active || thisRequestId !== requestId) return;
         setMessages(result);
+        setMessagesLoading(false);
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 150);
@@ -404,6 +415,7 @@ export function ChatsScreen() {
         // exactly as they were — was previously an unhandled rejection with
         // no fallback, and fetchMessagesApi throwing now (rather than
         // silently returning []) would otherwise have wiped the thread.
+        if (active && thisRequestId === requestId) setMessagesLoading(false);
       }
     };
     load();
@@ -819,6 +831,11 @@ export function ChatsScreen() {
           )}
 
           {/* Messages List */}
+          {messagesLoading ? (
+            <View style={styles.messagesLoadingState}>
+              <ActivityIndicator size="large" color="#0f172a" />
+            </View>
+          ) : (
           <FlatList
             ref={flatListRef}
             data={messages.filter((m: any) => !deletedMessageIds.has(m.id))}
@@ -900,6 +917,7 @@ export function ChatsScreen() {
               ) : null
             }
           />
+          )}
 
           {/* Quick reply chips */}
           <View style={styles.quickRepliesContainer}>
@@ -1312,6 +1330,7 @@ const styles = StyleSheet.create({
   viewProductBtnText: { color: '#0f172a', fontSize: 10, fontFamily: fonts.extrabold },
 
   messagesList: { paddingHorizontal: 14, paddingVertical: 12, flexGrow: 1, backgroundColor: '#f8fafc' },
+  messagesLoadingState: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' },
   messagesEmptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, marginTop: 40 },
   emptyStateEmoji: { fontSize: 32, marginBottom: 8 },
   emptyStateTitle: { fontSize: 14, fontFamily: fonts.extrabold, color: '#0f172a' },

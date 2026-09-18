@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -135,6 +135,7 @@ export function ProfileStoreSettingsScreen({ onBack }: Props) {
         <View style={{ width: 34 }} />
       </View>
 
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           <Pressable onPress={handleChangeAvatar} style={styles.avatarWrap} disabled={isUploadingAvatar}>
@@ -205,6 +206,7 @@ export function ProfileStoreSettingsScreen({ onBack }: Props) {
           </Pressable>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

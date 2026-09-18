@@ -22,6 +22,16 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
   const [targetProfile, setTargetProfile] = useState<any>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [allUsers, setAllUsers] = useState<any[]>([]);
+  // Sibling list screens (FeaturedListingsScreen, TrendingListingsScreen,
+  // etc.) all gate their FlatList behind a loading spinner until the first
+  // snapshot arrives. This screen had no such gate at all, so on mount it
+  // rendered the "Not following anyone" / "No followers yet" empty state
+  // immediately (allUsers/targetProfile start empty) and only swapped to the
+  // real list once watchUsers's first callback and fetchUserById resolved --
+  // a visible empty-state flash on every open, worst on a cold cache.
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const [targetLoaded, setTargetLoaded] = useState(false);
+  const loading = !usersLoaded || !targetLoaded;
   const [activeTab, setActiveTab] = useState<'followers' | 'following'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   // A Set, not a single id -- a single shared value rejected a tap on ANY
@@ -44,8 +54,10 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
     // show the previous target's stale username/list until the new fetch
     // resolves.
     setTargetProfile(null);
+    setTargetLoaded(false);
     fetchUserById(userId).then((profile) => {
       if (profile) setTargetProfile(profile);
+      setTargetLoaded(true);
     });
   }, [userId]);
 
@@ -58,7 +70,10 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
   }, [currentUser?.uid]);
 
   useEffect(() => {
-    const unsub = watchUsers((result) => setAllUsers(result));
+    const unsub = watchUsers((result) => {
+      setAllUsers(result);
+      setUsersLoaded(true);
+    });
     return unsub;
   }, []);
 
@@ -147,6 +162,11 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
         )}
       </View>
 
+      {loading ? (
+        <View style={styles.loadingState}>
+          <ActivityIndicator size="large" color="#0f172a" />
+        </View>
+      ) : (
       <FlatList
         data={filteredList}
         keyExtractor={(item) => item.id}
@@ -209,6 +229,7 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
           );
         }}
       />
+      )}
     </SafeAreaView>
   );
 }
@@ -237,6 +258,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 13, color: '#0f172a', fontFamily: fonts.medium },
 
   listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32, gap: 10 },
+  loadingState: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
   rowUser: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
   avatar: { width: 44, height: 44, borderRadius: 22 },

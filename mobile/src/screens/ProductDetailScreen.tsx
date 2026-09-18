@@ -948,6 +948,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
               <Pressable
                 onPress={() => setIsSellerModalVisible(false)}
                 style={styles.modalCloseBtn}
+                hitSlop={10}
               >
                 <Text style={styles.modalCloseBtnText}>✕</Text>
               </Pressable>
@@ -1063,6 +1064,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
               <Pressable
                 onPress={() => !isSubmittingReport && setIsReportModalVisible(false)}
                 style={styles.reportModalCloseBtn}
+                hitSlop={10}
               >
                 <X size={16} color="#94a3b8" strokeWidth={2.3} />
               </Pressable>

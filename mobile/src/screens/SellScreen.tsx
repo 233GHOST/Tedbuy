@@ -2600,7 +2600,7 @@ const styles = StyleSheet.create({
   aiStyleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   aiStylePill: {
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 8,
     borderRadius: 999,
     backgroundColor: '#ffffff',
     borderWidth: 1.5,

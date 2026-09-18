@@ -135,7 +135,7 @@ export function HelpSupportSettingsScreen({ onBack }: Props) {
           <View style={styles.modalOverlayContent}>
             <View style={styles.modalOverlayHeader}>
               <Text style={styles.modalOverlayTitle}>Safety Protocol</Text>
-              <Pressable onPress={() => setIsSafetyModalVisible(false)} style={styles.modalCloseBtn}>
+              <Pressable onPress={() => setIsSafetyModalVisible(false)} style={styles.modalCloseBtn} hitSlop={10}>
                 <Text style={styles.modalCloseBtnText}>✕</Text>
               </Pressable>
             </View>
@@ -184,7 +184,7 @@ export function HelpSupportSettingsScreen({ onBack }: Props) {
           <View style={styles.modalOverlayContent}>
             <View style={styles.modalOverlayHeader}>
               <Text style={styles.modalOverlayTitle}>Support, Help &amp; Agreements</Text>
-              <Pressable onPress={() => setIsHelpModalVisible(false)} style={styles.modalCloseBtn}>
+              <Pressable onPress={() => setIsHelpModalVisible(false)} style={styles.modalCloseBtn} hitSlop={10}>
                 <Text style={styles.modalCloseBtnText}>✕</Text>
               </Pressable>
             </View>

@@ -672,6 +672,13 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
               <Text style={styles.reviewHeaderTitle}>Merchant Ratings</Text>
             </View>
 
+            {reviewsList.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateTitle}>No Reviews Yet</Text>
+                <Text style={styles.emptyStateSub}>Ratings from completed trades with this merchant will show up here.</Text>
+              </View>
+            )}
+
             {reviewsList.map((rev) => (
               <View key={rev.id} style={styles.reviewCard}>
                 <View style={styles.reviewCardHeader}>

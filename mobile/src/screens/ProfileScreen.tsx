@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -396,6 +396,7 @@ export function ProfileScreen() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       {/* 1. Guest Screen / Sign-in / Register form */}
       {!user ? (
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={[styles.authScroll, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom }]}>
           <View style={styles.authHeader}>
             <View style={styles.logoBadge}>
@@ -557,6 +558,7 @@ export function ProfileScreen() {
             )}
           </View>
         </ScrollView>
+        </KeyboardAvoidingView>
       ) : (
         /* 2. Logged In User Dashboard Screen */
         <View style={styles.container}>
