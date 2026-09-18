@@ -1,5 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 // NOTE: this intentionally does NOT `import` anything from server.ts.
 // server.ts calls startServer() unconditionally at module scope (no
@@ -219,6 +220,30 @@ test('verify-payment: falls back to the request\'s own planId when Paystack meta
 test('verify-payment: an unrecognized metadata planId does not override a valid request planId', () => {
   const result = resolveEffectivePlanId('7days', 'not-a-real-plan');
   assert.equal(result.effectivePlanId, '7days');
+});
+
+// --- timingSafeStringEqual (server.ts, used by the password-hash and
+// CRON_SECRET comparisons) -- node:crypto is a core module with no
+// module-scope side effects, so this imports the real dependency rather
+// than mirroring it, and reproduces the exact function body verbatim.
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+test('timingSafeStringEqual: equal strings match', () => {
+  assert.equal(timingSafeStringEqual('a'.repeat(128), 'a'.repeat(128)), true);
+});
+
+test('timingSafeStringEqual: differing strings of the same length do not match', () => {
+  assert.equal(timingSafeStringEqual('a'.repeat(127) + 'b', 'a'.repeat(128)), false);
+});
+
+test('timingSafeStringEqual: differing lengths return false instead of throwing', () => {
+  assert.doesNotThrow(() => timingSafeStringEqual('short', 'a-much-longer-string-here'));
+  assert.equal(timingSafeStringEqual('short', 'a-much-longer-string-here'), false);
 });
 
 // serverRateLimiter() (the real code this mirrors) starts a plain

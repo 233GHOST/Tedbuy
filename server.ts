@@ -1563,6 +1563,25 @@ app.post(
 // cached) variants, so the next real viewer never pays that cost. Bounded
 // to whatever's actually in the database (6 videos at the time this was
 // written) — safe to run synchronously in one request at that scale.
+// Found via a dedicated audit of never-previously-reviewed endpoints:
+// compares two secret-derived strings (a shared-secret header below, and a
+// password hash further down at /api/auth/verify-and-sync-password) without
+// leaking how many leading bytes match via response timing. Plain `===` on
+// two strings short-circuits at the first differing character, so its
+// execution time is a (weak, network-jitter-obscured, but real) side
+// channel — the standard fix is a fixed-time comparison. Returns false
+// immediately on a length mismatch (safe: this only reveals whether the two
+// values are the same LENGTH, not their content, and every real caller here
+// always compares two fixed-length hex-encoded hashes or a fixed-length
+// configured secret, so an attacker never learns anything from this early
+// path they didn't already know).
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 app.post(
   "/api/admin/backfill-video-eager",
   serverRateLimiter(60 * 1000, 5, "admin-backfill-video"),
@@ -1574,7 +1593,8 @@ app.post(
     // straight from the Render dashboard's Environment tab, no need to dig
     // a live bearer token out of browser devtools for a single admin
     // operation that isn't part of any normal user flow.
-    const hasCronSecret = !!process.env.CRON_SECRET && req.headers['x-admin-secret'] === process.env.CRON_SECRET;
+    const providedSecret = req.headers['x-admin-secret'];
+    const hasCronSecret = !!process.env.CRON_SECRET && typeof providedSecret === 'string' && timingSafeStringEqual(providedSecret, process.env.CRON_SECRET);
     const isAdmin = hasCronSecret || (req.headers.authorization ? await verifyAdmin(req.headers.authorization) : false);
     if (!isAdmin) {
       return res.status(403).json({ success: false, error: 'Admin authentication required' });
@@ -7216,11 +7236,11 @@ app.post("/api/auth/verify-and-sync-password", serverRateLimiter(15 * 60 * 1000,
           // fallback naturally disappears as users log in.
           const calcHash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
           const legacyHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-          if (calcHash === hash || legacyHash === hash) {
+          if (timingSafeStringEqual(calcHash, hash) || timingSafeStringEqual(legacyHash, hash)) {
             matches = true;
           }
         }
-      } else if (userRecord.password && userRecord.password === password) {
+      } else if (userRecord.password && timingSafeStringEqual(userRecord.password, password)) {
         matches = true;
       }
 
