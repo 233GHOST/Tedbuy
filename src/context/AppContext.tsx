@@ -930,7 +930,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // self-only by construction (targetUid is always firebaseUser.uid),
     // same fix as that finding: GET /api/users/get?id=.
     try {
-      const res = await fetch(`/api/users/get?id=${encodeURIComponent(targetUid)}`);
+      const authHeaders = await getAuthHeader();
+      const res = await fetch(`/api/users/get?id=${encodeURIComponent(targetUid)}`, { headers: authHeaders });
       const json = await res.json().catch(() => ({}));
       if (json.success && json.user) {
         const data = json.user as User;
@@ -991,7 +992,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // to the same GET /api/users/get?id=.
     if (cachedUser && cachedUser.id && cachedUser.id !== targetUid) {
       try {
-        const res = await fetch(`/api/users/get?id=${encodeURIComponent(cachedUser.id)}`);
+        const authHeaders = await getAuthHeader();
+        const res = await fetch(`/api/users/get?id=${encodeURIComponent(cachedUser.id)}`, { headers: authHeaders });
         const json = await res.json().catch(() => ({}));
         if (json.success && json.user) {
           foundDocData = json.user as User;
@@ -1013,7 +1015,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // the same targeted, safe-by-design GET /api/users/get?email= lookup.
     if (!foundDocData && rawEmail) {
       try {
-        const res = await fetch(`/api/users/get?email=${encodeURIComponent(rawEmail)}`);
+        const authHeaders = await getAuthHeader();
+        const res = await fetch(`/api/users/get?email=${encodeURIComponent(rawEmail)}`, { headers: authHeaders });
         const json = await res.json().catch(() => ({}));
         if (json.success && json.user && json.user.id !== targetUid) {
           foundDocData = json.user as User;
@@ -1028,7 +1031,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 4. Query the legacy users collection by lowercased email (same fix)
     if (!foundDocData && targetEmailLower && targetEmailLower !== rawEmail) {
       try {
-        const res = await fetch(`/api/users/get?email=${encodeURIComponent(targetEmailLower)}`);
+        const authHeaders = await getAuthHeader();
+        const res = await fetch(`/api/users/get?email=${encodeURIComponent(targetEmailLower)}`, { headers: authHeaders });
         const json = await res.json().catch(() => ({}));
         if (json.success && json.user && json.user.id !== targetUid) {
           foundDocData = json.user as User;
@@ -1068,7 +1072,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (storeSnap.exists()) {
             const storeData = storeSnap.data();
             if (storeData && storeData.userId && storeData.userId !== targetUid) {
-              const res = await fetch(`/api/users/get?id=${encodeURIComponent(storeData.userId)}`);
+              const authHeaders = await getAuthHeader();
+              const res = await fetch(`/api/users/get?id=${encodeURIComponent(storeData.userId)}`, { headers: authHeaders });
               const json = await res.json().catch(() => ({}));
               if (json.success && json.user) {
                 const uData = json.user as User;
@@ -1104,7 +1109,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // migrated to that instead of building anything new.
     if (!foundDocData && targetEmailLower) {
       try {
-        const res = await fetch(`/api/users/get?email=${encodeURIComponent(targetEmailLower)}`);
+        const authHeaders = await getAuthHeader();
+        const res = await fetch(`/api/users/get?email=${encodeURIComponent(targetEmailLower)}`, { headers: authHeaders });
         const json = await res.json().catch(() => ({}));
         if (json.success && json.user && json.user.id !== targetUid) {
           foundDocData = json.user as User;
@@ -1242,7 +1248,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // firebaseUser.uid))` -- same self-only read pattern as the
           // profile poll above, migrated to the same GET /api/users/get?id=.
           try {
-            const res = await fetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`);
+            const authHeaders = await getAuthHeader();
+            const res = await fetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`, { headers: authHeaders });
             const json = await res.json().catch(() => ({}));
             if (active && json.success && json.user) {
               const data = json.user as User;
@@ -1419,7 +1426,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (!pollActive || !active) return;
             let userDoc: { exists: () => boolean; data: () => User; id: string };
             try {
-              const res = await fetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`);
+              const authHeaders = await getAuthHeader();
+              const res = await fetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`, { headers: authHeaders });
               const json = await res.json().catch(() => ({}));
               const found = !!(json.success && json.user);
               userDoc = { exists: () => found, data: () => json.user as User, id: firebaseUser.uid };
@@ -1706,7 +1714,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // GET /api/users/get?id=.
     const verifyUserSuspensionInDatabase = async () => {
       try {
-        const res = await fetch(`/api/users/get?id=${encodeURIComponent(currentUser.id)}`);
+        const authHeaders = await getAuthHeader();
+        const res = await fetch(`/api/users/get?id=${encodeURIComponent(currentUser.id)}`, { headers: authHeaders });
         const json = await res.json().catch(() => ({}));
         if (!active) return;
 
@@ -2993,7 +3002,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // (this branch's only real caller, loginUser, always passes the
         // just-authenticated firebaseUser's own uid -- see the sole call
         // site below), migrated to the same GET /api/users/get?id=.
-        const res = await fetch(`/api/users/get?id=${encodeURIComponent(uid)}`);
+        const authHeaders = await getAuthHeader();
+        const res = await fetch(`/api/users/get?id=${encodeURIComponent(uid)}`, { headers: authHeaders });
         const json = await res.json().catch(() => ({}));
         if (json.success && json.user) {
           const dbData = json.user as User;
@@ -3043,29 +3053,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (foundUser && foundUser.email) {
           emailTarget = foundUser.email;
         } else {
-          // Security fix (RLS-migration Phase 2, checkpoint 16): this used
-          // to be a direct, unauthenticated `getDocs(query(collection(
-          // 'users'), where('username'/'phoneNumber', '==', ...)))` --
-          // same shape and severity as the email-based lookups closed at
-          // checkpoints 10/11 (client-side query filters aren't access
-          // control; a caller bypassing this app's own JS could issue the
-          // same query with ANY username or phone number, turning "login
-          // identifier resolution" into an unauthenticated way to look up
-          // any other user's full profile). Migrated to
-          // GET /api/users/get?username=/&phoneNumber=, extending that
-          // endpoint with a phoneNumber lookup key alongside its existing
-          // id/email/username ones (same server-side change, this commit).
+          // Security fix (RLS-migration Phase 2, checkpoint 16, superseded
+          // by the email-privacy fix below): this used to be a direct,
+          // unauthenticated `getDocs(query(collection('users'),
+          // where('username'/'phoneNumber', '==', ...)))` -- client-side
+          // query filters aren't access control; a caller bypassing this
+          // app's own JS could issue the same query with ANY username or
+          // phone number. First migrated to GET /api/users/get?username=/
+          // &phoneNumber=, which closed the unauthenticated-query problem
+          // but still returned the full user profile (email included) to
+          // this necessarily-pre-auth caller (no session exists yet at
+          // this point in the login flow). Migrated again to the
+          // dedicated, minimal POST /api/auth/resolve-login-identifier,
+          // which returns only the email needed to continue
+          // signInWithEmailAndPassword below -- no id, phoneNumber,
+          // whatsAppNumber, or other profile field, and a stricter
+          // pre-auth rate limit than the general-purpose users/get.
           try {
-            const usernameRes = await fetch(`/api/users/get?username=${encodeURIComponent(cleanIdentifier)}`);
-            const usernameJson = await usernameRes.json().catch(() => ({}));
-            if (usernameJson.success && usernameJson.user?.email) {
-              emailTarget = usernameJson.user.email;
-            } else {
-              const phoneRes = await fetch(`/api/users/get?phoneNumber=${encodeURIComponent(cleanIdentifier)}`);
-              const phoneJson = await phoneRes.json().catch(() => ({}));
-              if (phoneJson.success && phoneJson.user?.email) {
-                emailTarget = phoneJson.user.email;
-              }
+            const resolveRes = await fetch('/api/auth/resolve-login-identifier', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ identifier: cleanIdentifier })
+            });
+            const resolveJson = await resolveRes.json().catch(() => ({}));
+            if (resolveJson.success && resolveJson.email) {
+              emailTarget = resolveJson.email;
             }
           } catch (lookupErr) {
             console.warn('[loginUser] Identifier lookup in the legacy database failed:', lookupErr);
@@ -3299,7 +3311,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // (googleUser.uid is the identity that just signed in), migrated
           // to the same GET /api/users/get?id=.
           try {
-            const res = await fetch(`/api/users/get?id=${encodeURIComponent(googleUser.uid)}`);
+            const authHeaders = await getAuthHeader();
+            const res = await fetch(`/api/users/get?id=${encodeURIComponent(googleUser.uid)}`, { headers: authHeaders });
             const json = await res.json().catch(() => ({}));
             if (json.success && json.user) {
               const dbData = json.user as User;

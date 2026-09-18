@@ -292,7 +292,8 @@ CEO, Tedbuy Inc`;
       // /api/users/sync rebuilds the row from whatever's in the body.
       if (appUid && currentUser) {
         try {
-          const getRes = await fetch(`/api/users/get?id=${encodeURIComponent(appUid)}`);
+          const authHeadersForGet = await getAuthHeader();
+          const getRes = await fetch(`/api/users/get?id=${encodeURIComponent(appUid)}`, { headers: authHeadersForGet });
           const getJson = await getRes.json().catch(() => ({}));
           addLog(`   • Document exists: ${!!(getJson.success && getJson.user)}`);
 

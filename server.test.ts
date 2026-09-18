@@ -73,6 +73,108 @@ test('sanity check: the OLD vulnerable expression WAS influenced by a spoofed X-
   assert.equal(derivedOld, '1.1.1.1', 'the old logic picked the attacker-controlled first XFF entry -- this is the exact bypass the fix eliminates');
 });
 
+// --- Email-exposure fix (GET /api/users/get self/other redaction, and the
+// dedicated POST /api/auth/resolve-login-identifier endpoint) -- mirrors the
+// exact decision logic added at server.ts:4477-4501 and the new route at
+// server.ts:4517-4543, for the same reason as above: server.ts can't be
+// safely imported.
+//
+// isSelfLookup mirrors the fix for the legacy `user_<uid>` account (one
+// known live row stored that way -- see the ownership-check equivalence at
+// /api/products/sync): a stored users.id counts as "self" when it's either
+// the bare verified Firebase UID, or that UID prefixed with `user_`.
+
+function isSelfLookup(verifiedUid: string | null, dataId: string): boolean {
+  return !!verifiedUid && (
+    String(dataId) === String(verifiedUid) ||
+    String(dataId) === `user_${verifiedUid}`
+  );
+}
+
+function redactEmailIfNotSelf(user: Record<string, any>, verifiedUid: string | null): Record<string, any> {
+  const safe = { ...user };
+  if (!isSelfLookup(verifiedUid, safe.id)) delete safe.email;
+  return safe;
+}
+
+test('GET /api/users/get: a verified caller looking up their own record (bare UID) keeps email', () => {
+  const row = { id: 'uid-123', email: 'redacted@example.com', phoneNumber: '+233000', username: 'alice' };
+  const result = redactEmailIfNotSelf(row, 'uid-123');
+  assert.equal(result.email, 'redacted@example.com');
+  assert.equal(result.phoneNumber, '+233000', 'phoneNumber must never be stripped by this change');
+});
+
+test('GET /api/users/get: a verified caller looking up their own record stored as the legacy "user_<uid>" id keeps email', () => {
+  const row = { id: 'user_uid-123', email: 'redacted@example.com', phoneNumber: '+233000', username: 'legacy-seller' };
+  const result = redactEmailIfNotSelf(row, 'uid-123');
+  assert.equal(result.email, 'redacted@example.com', 'the user_<uid> legacy account must still be recognized as its own owner');
+  assert.equal(result.phoneNumber, '+233000');
+});
+
+test('GET /api/users/get: an unauthenticated caller (no verified uid) never receives email', () => {
+  const row = { id: 'uid-123', email: 'redacted@example.com', phoneNumber: '+233000' };
+  const result = redactEmailIfNotSelf(row, null);
+  assert.equal('email' in result, false);
+  assert.equal(result.phoneNumber, '+233000', 'phoneNumber/whatsAppNumber stay public for legitimate seller-contact use');
+});
+
+test('GET /api/users/get: an authenticated caller looking up a DIFFERENT user never receives that user\'s email', () => {
+  const row = { id: 'uid-123', email: 'redacted@example.com', whatsAppNumber: '+233000' };
+  const result = redactEmailIfNotSelf(row, 'uid-999');
+  assert.equal('email' in result, false);
+  assert.equal(result.whatsAppNumber, '+233000');
+});
+
+test('GET /api/users/get: a verified caller must not be treated as self for an unrelated user_-prefixed id (no accidental substring/prefix match)', () => {
+  const row = { id: 'user_someone-else', email: 'redacted@example.com' };
+  const result = redactEmailIfNotSelf(row, 'uid-123');
+  assert.equal('email' in result, false, 'user_<a different uid> must not match verifiedUid uid-123');
+});
+
+function resolveLoginIdentifierResponse(match: { email?: string } | null): { status: number; body: any } {
+  if (match && match.email) return { status: 200, body: { success: true, email: match.email } };
+  return { status: 404, body: { success: false } };
+}
+
+test('POST /api/auth/resolve-login-identifier: a matched username/phone returns only {success, email} -- no id, phoneNumber, or other profile field', () => {
+  const { status, body } = resolveLoginIdentifierResponse({ email: 'target@example.com' });
+  assert.equal(status, 200);
+  assert.deepEqual(Object.keys(body).sort(), ['email', 'success']);
+  assert.equal(body.email, 'target@example.com');
+});
+
+test('POST /api/auth/resolve-login-identifier: no match returns {success:false} with no email/user data', () => {
+  const { status, body } = resolveLoginIdentifierResponse(null);
+  assert.equal(status, 404);
+  assert.deepEqual(body, { success: false });
+});
+
+// getSellersSummaryData() email removal (server.ts:2995-3025): the
+// keysToRegister Set must never be seeded with an email-shaped string --
+// documents the fixed shape (7 keys) vs. the old shape (9 keys, 2 of them
+// email-derived object keys visible in the public /api/sellers/counts body).
+function buildKeysToRegister(matchedUser: any, canonicalKey: string, firstProd: any): Set<string> {
+  const keys = new Set<string>();
+  if (matchedUser?.id) keys.add(String(matchedUser.id));
+  if (matchedUser?.uid) keys.add(String(matchedUser.uid));
+  if (matchedUser?.username) keys.add(String(matchedUser.username).trim().toLowerCase());
+  if (matchedUser?.displayName) keys.add(String(matchedUser.displayName).trim().toLowerCase());
+  if (canonicalKey) keys.add(canonicalKey.toLowerCase());
+  if (firstProd.sellerId) keys.add(String(firstProd.sellerId));
+  if (firstProd.sellerName) keys.add(String(firstProd.sellerName).trim().toLowerCase());
+  return keys;
+}
+
+test('getSellersSummaryData(): keysToRegister never contains an email-shaped key', () => {
+  const matchedUser = { id: 'uid-1', uid: 'uid-1', username: 'bob', displayName: 'Bob', email: 'bob@example.com' };
+  const firstProd = { sellerId: 'uid-1', sellerName: 'Bob', sellerEmail: 'bob@example.com' };
+  const keys = buildKeysToRegister(matchedUser, 'uid-1', firstProd);
+  for (const k of keys) {
+    assert.equal(k.includes('@'), false, `key "${k}" looks email-shaped and must not be registered`);
+  }
+  assert.equal(keys.has('uid-1'), true, 'canonical id key must still be registered');
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never

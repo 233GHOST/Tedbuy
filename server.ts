@@ -2997,7 +2997,6 @@ async function getSellersSummaryData(forceRefresh = false): Promise<{ sellers: a
       name: rawUsername,
       username: rawUsername,
       displayName: matchedUser?.displayName || rawUsername,
-      email: matchedUser?.email || firstProd.sellerEmail || '',
       photoUrl: rawPhoto,
       location: rawLocation,
       isVerified,
@@ -3018,11 +3017,9 @@ async function getSellersSummaryData(forceRefresh = false): Promise<{ sellers: a
     if (matchedUser?.uid) keysToRegister.add(String(matchedUser.uid));
     if (matchedUser?.username) keysToRegister.add(String(matchedUser.username).trim().toLowerCase());
     if (matchedUser?.displayName) keysToRegister.add(String(matchedUser.displayName).trim().toLowerCase());
-    if (matchedUser?.email) keysToRegister.add(String(matchedUser.email).trim().toLowerCase());
     if (canonicalKey) keysToRegister.add(canonicalKey.toLowerCase());
     if (firstProd.sellerId) keysToRegister.add(String(firstProd.sellerId));
     if (firstProd.sellerName) keysToRegister.add(String(firstProd.sellerName).trim().toLowerCase());
-    if (firstProd.sellerEmail) keysToRegister.add(String(firstProd.sellerEmail).trim().toLowerCase());
 
     keysToRegister.forEach(k => {
       counts[k] = totalCount;
@@ -4477,20 +4474,81 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
       const { data, error } = await q.maybeSingle();
       if (error) throw error;
       if (data) {
+        const authHeader = req.headers.authorization;
         if (data.isDeleted === true || data.status === 'deleted') {
-          const authHeader = req.headers.authorization;
           const isAdmin = authHeader ? await verifyAdmin(authHeader) : false;
           if (!isAdmin) {
             return res.status(404).json({ success: false, error: 'User not found' });
           }
         }
-        return res.json({ success: true, user: redactUserSecrets({ ...data, isOnline: computeIsOnline(data.lastSeen) }) });
+        // Email is only returned to the record's own owner. Any other
+        // caller — unauthenticated, or authenticated as a different user —
+        // gets everything else (including phoneNumber/whatsAppNumber, the
+        // fields sellers publish specifically so buyers can contact them)
+        // but never email, closing the bulk/targeted email-harvesting
+        // vector this endpoint's `select('*')` previously allowed.
+        const verified = authHeader ? await verifyUser(authHeader) : null;
+        // A user's stored `users.id` is normally the bare Firebase UID, but
+        // one known legacy row is stored as `user_<uid>` (see the
+        // ownership-check equivalence at /api/products/sync, which already
+        // treats this as the same account) -- without tolerating it here,
+        // that account's own authenticated self-lookup would be wrongly
+        // treated as "another user" and lose its own email.
+        const isSelf = !!verified && (
+          String(data.id) === String(verified.uid) ||
+          String(data.id) === `user_${verified.uid}`
+        );
+        const safeUser = redactUserSecrets({ ...data, isOnline: computeIsOnline(data.lastSeen) });
+        if (!isSelf) delete (safeUser as any).email;
+        return res.json({ success: true, user: safeUser });
       }
     }
     return res.status(404).json({ success: false, error: 'User not found' });
   } catch (err: any) {
     console.error('[Users Get API Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to fetch user' });
+  }
+});
+
+// Dedicated, minimal pre-auth identifier resolution for loginUser's
+// username/phone-number sign-in path (AppContext.tsx). Previously this
+// resolution reused GET /api/users/get?username=/&phoneNumber=, which
+// returned the full user row (minus password) to an unauthenticated
+// caller -- necessarily so, since no session exists yet at this point in
+// the login flow. Replaced with this narrow, single-purpose endpoint: it
+// returns only the email needed to continue signInWithEmailAndPassword,
+// nothing else -- no id, phoneNumber, whatsAppNumber, profile, or seller
+// fields. It performs no authentication itself (no password parameter);
+// the actual credential check remains entirely inside Firebase.
+app.post("/api/auth/resolve-login-identifier", serverRateLimiter(15 * 60 * 1000, 10, "resolve-login-identifier"), async (req: express.Request, res: express.Response) => {
+  const identifier = typeof req.body?.identifier === 'string' ? req.body.identifier.trim() : '';
+  if (!identifier) {
+    return res.status(400).json({ success: false, error: 'identifier is required' });
+  }
+  try {
+    if (!backendSupabase) {
+      return res.status(404).json({ success: false });
+    }
+    let { data } = await backendSupabase
+      .from('users')
+      .select('email')
+      .ilike('username', identifier)
+      .maybeSingle();
+    if (!data) {
+      const byPhone = await backendSupabase
+        .from('users')
+        .select('email')
+        .eq('phoneNumber', identifier)
+        .maybeSingle();
+      data = byPhone.data;
+    }
+    if (data && data.email) {
+      return res.json({ success: true, email: data.email });
+    }
+    return res.status(404).json({ success: false });
+  } catch (err: any) {
+    console.error('[Resolve Login Identifier API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to resolve identifier' });
   }
 });
 
