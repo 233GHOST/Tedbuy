@@ -8845,7 +8845,14 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
   });
 
   // Store Name / Username Availability & Quarantine Check Endpoint
-  app.get('/api/auth/check-store-name/:username', async (req, res) => {
+  // Was the only data-querying endpoint in this whole file with no
+  // serverRateLimiter at all -- unauthenticated, does up to two real DB
+  // round trips per call (Supabase then a Firestore fallback), and no
+  // client on either platform currently calls it (grepped both src/ and
+  // mobile/src/), so there's no real traffic pattern this could break.
+  // Left open, it's a free username-enumeration/DB-hammering vector for
+  // anyone who finds the route.
+  app.get('/api/auth/check-store-name/:username', serverRateLimiter(60 * 1000, 30, "auth-check-store-name"), async (req, res) => {
     try {
       const { username } = req.params;
       if (!username) {
