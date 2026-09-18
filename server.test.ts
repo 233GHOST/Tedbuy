@@ -356,6 +356,28 @@ test('products/sync: a query that succeeds with a matching row returns it', () =
   assert.deepEqual(resolveExistingRowOrThrow({ data: row, error: null }), row);
 });
 
+// --- POST /api/admin/users/delete and POST /api/admin/accounts/security-hold:
+// a real Supabase write error must be surfaced (throw -> 500), never
+// silently swallowed into an unconditional success response -- mirrors the
+// exact `if (error) throw error` fix applied at server.ts's two admin
+// mutation sites (~9028-9038, ~8815-8823), matching the pattern their
+// sibling /api/admin/users/suspend already had correctly.
+function assertWriteSucceededOrThrow(result: { error: any }): void {
+  if (result.error) throw new Error(result.error.message || 'write failed');
+}
+
+test('admin user delete: a real Supabase delete error throws instead of falling through to a success response', () => {
+  assert.throws(() => assertWriteSucceededOrThrow({ error: { message: 'permission denied' } }));
+});
+
+test('admin user delete: a successful delete (no error) does not throw', () => {
+  assert.doesNotThrow(() => assertWriteSucceededOrThrow({ error: null }));
+});
+
+test('admin security-hold: a real Supabase update error throws instead of reporting the hold as applied', () => {
+  assert.throws(() => assertWriteSucceededOrThrow({ error: { message: 'row not found' } }));
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never

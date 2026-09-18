@@ -8813,7 +8813,16 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         await adminDb.collection('users').doc(targetUserId).set(securityHoldData, { merge: true }).catch(() => {});
       }
       if (backendSupabase) {
-        await backendSupabase.from('users').update(securityHoldData).eq('id', targetUserId).catch(() => {});
+        // Found via a dedicated audit, same "write failure reported as
+        // success" shape as the fix just applied to /api/admin/users/delete
+        // -- and directly inconsistent with this endpoint's own sibling,
+        // /api/admin/users/suspend (below), which already correctly checks
+        // `error` and throws. `.catch(() => {})` here only ever caught a
+        // network-level exception; a genuine Supabase error (RLS, permission)
+        // fell straight through to the unconditional success response below,
+        // on a fraud/dispute-hold action an admin relies on actually working.
+        const { error: holdUpdateErr } = await backendSupabase.from('users').update(securityHoldData).eq('id', targetUserId);
+        if (holdUpdateErr) throw holdUpdateErr;
       }
 
       // Record in admin audit logs
@@ -9025,7 +9034,18 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       }
 
       try {
-        await backendSupabase.from('users').delete().eq('id', targetUserId);
+        // Found via a dedicated audit, same "write failure reported as
+        // success" shape already fixed elsewhere this session
+        // (/api/users/sync 717aa8e, adminToggleSecurityHold c21ce4f, web/
+        // mobile deleteAccount d668197/8f235c9): Supabase's query builder
+        // does NOT throw on a query-level error (RLS, FK constraint,
+        // permission denied) -- it resolves with { error } set, so this
+        // catch previously only ever fired on a genuine network exception.
+        // A real delete failure fell straight through to the unconditional
+        // success response below for the single highest-stakes destructive
+        // admin action in this file. Now explicitly checked.
+        const { error: userDeleteErr } = await backendSupabase.from('users').delete().eq('id', targetUserId);
+        if (userDeleteErr) throw userDeleteErr;
       } catch (userErr) {
         console.error('[Admin Delete] Could not delete user row:', userErr);
         return res.status(500).json({ success: false, error: 'Deletion partially completed but the user record itself could not be removed. Contact support.' });
