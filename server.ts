@@ -4021,10 +4021,23 @@ async function deleteProductFromBackend(productId: string) {
       }
 
       const { error } = await backendSupabase.from('products').delete().eq('id', productId);
-      if (error) console.warn(`[Product Delete Server] Supabase delete error for ${productId}:`, error.message);
-      else console.log(`[Product Delete Server] Successfully deleted product ${productId} from Supabase.`);
+      if (error) throw error;
+      console.log(`[Product Delete Server] Successfully deleted product ${productId} from Supabase.`);
     } catch (sbErr: any) {
-      console.warn(`[Product Delete Server] Supabase exception:`, sbErr?.message || sbErr);
+      // Found via a dedicated audit, same "write failure reported as
+      // success" shape fixed elsewhere this session: this used to only
+      // console.warn on a real Supabase deletion error, never signal it to
+      // any caller -- every route calling this shared helper (both direct
+      // product-delete endpoints, whose ownership check was just fixed for
+      // the same fail-open shape) then unconditionally reported "deleted
+      // successfully" while the listing stayed fully live. Now rethrown so
+      // callers can actually tell; each caller decides for itself whether
+      // that should hard-fail its own response or just be logged and moved
+      // on from (see the two cascade-loop callers below, which now wrap
+      // this call per-item instead of relying on this function to swallow
+      // failures for them).
+      console.warn(`[Product Delete Server] Supabase delete error for ${productId}:`, sbErr?.message || sbErr);
+      throw sbErr;
     }
   }
 
@@ -8497,14 +8510,25 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         }
 
         if (backendSupabase) {
-          try {
-            await backendSupabase.from('users').update({
-              status: 'under_investigation',
-              deletionRequestedAt: now,
-              securityHold: true,
-              securityHoldReason: existingUser?.securityHoldReason || 'Account deletion requested while security hold active'
-            }).eq('id', uid);
-          } catch (e) {}
+          // Found via a dedicated audit, same "write failure reported as
+          // success" shape fixed elsewhere this session: the whole point of
+          // this branch is to freeze a fraud/security-hold account into
+          // 'under_investigation' rather than let it delete/escape review --
+          // an empty catch here meant a real Supabase failure (RLS,
+          // permission) left the row's status untouched (Firebase Auth is
+          // independently disabled above regardless, but this specific
+          // status field is what admin investigation tooling relies on)
+          // while the response below unconditionally claimed
+          // `underInvestigation: true`. Now checked and thrown, caught by
+          // this handler's own outer try/catch (a real 500, not a silent
+          // false-success).
+          const { error: holdFreezeErr } = await backendSupabase.from('users').update({
+            status: 'under_investigation',
+            deletionRequestedAt: now,
+            securityHold: true,
+            securityHoldReason: existingUser?.securityHoldReason || 'Account deletion requested while security hold active'
+          }).eq('id', uid);
+          if (holdFreezeErr) throw holdFreezeErr;
         }
 
         // Write forensic audit log
@@ -8581,11 +8605,18 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       }
 
       if (backendSupabase) {
-        try {
-          await backendSupabase.from('users').update(tombstoneData).eq('id', uid);
-        } catch (sbErr) {
-          console.warn('[Account Deletion API] Failed to update tombstone in Supabase:', sbErr);
-        }
+        // Found via a dedicated audit, same "write failure reported as
+        // success" shape fixed elsewhere this session: this is the write
+        // that actually overwrites real email/phone/whatsapp/photo with
+        // anonymized placeholders in the authoritative `users` store -- the
+        // closing step of what's meant to be a GDPR-style deletion. A
+        // real Supabase-level failure (RLS, permission) previously only
+        // console.warn'd, letting the response below unconditionally claim
+        // "personal details anonymized" while the real PII sat untouched.
+        // Now checked and thrown -- caught by this handler's own outer
+        // try/catch (a real 500, not a silent false-success).
+        const { error: tombstoneErr } = await backendSupabase.from('users').update(tombstoneData).eq('id', uid);
+        if (tombstoneErr) throw tombstoneErr;
       }
 
       // 3. Archive User's Listings (preserve original sellerId = uid, set status: 'archived', isDeleted: true)
@@ -9001,9 +9032,19 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       let deletedProductCount = 0;
       try {
         const { data: userProducts } = await backendSupabase.from('products').select('id').eq('sellerId', targetUserId);
+        // deleteProductFromBackend now throws on a real deletion failure
+        // (fixed alongside this same audit) instead of silently swallowing
+        // it -- moved the per-item try/catch inside this loop (matching
+        // purgeExpiredSoldProducts's already-correct pattern) so one
+        // product's failure is logged and skipped rather than aborting the
+        // rest of this user's cascade delete partway through.
         for (const p of userProducts || []) {
-          await deleteProductFromBackend(p.id);
-          deletedProductCount++;
+          try {
+            await deleteProductFromBackend(p.id);
+            deletedProductCount++;
+          } catch (perProductErr) {
+            console.warn(`[Admin Delete] Could not delete product ${p.id}:`, perProductErr);
+          }
         }
       } catch (productErr) {
         console.warn('[Admin Delete] Could not fully delete user product listings:', productErr);
@@ -9040,7 +9081,15 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       try {
         const storeNameLower = targetUser.username?.trim()?.toLowerCase();
         if (storeNameLower) {
-          await backendSupabase.from('store_names').delete().eq('id', storeNameLower);
+          // Minor finding from the same audit: the response below
+          // specifically promises "store name released" -- checked so a
+          // real failure is at least visible in logs (matching this
+          // cascade step's own established best-effort tolerance, same as
+          // the products/reviews/chats steps above; not escalated to a
+          // hard failure since the user row delete right below remains the
+          // one genuinely required step).
+          const { error: storeReleaseErr } = await backendSupabase.from('store_names').delete().eq('id', storeNameLower);
+          if (storeReleaseErr) throw storeReleaseErr;
         }
       } catch (storeErr) {
         console.warn('[Admin Delete] Could not release store name reservation:', storeErr);

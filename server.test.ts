@@ -378,6 +378,51 @@ test('admin security-hold: a real Supabase update error throws instead of report
   assert.throws(() => assertWriteSucceededOrThrow({ error: { message: 'row not found' } }));
 });
 
+// --- deleteProductFromBackend / /api/auth/delete-account: a real Supabase
+// write error must propagate (throw), never be swallowed into an
+// unconditional success response -- mirrors the fixes at server.ts's shared
+// product-delete helper (~4023-4041) and the account-deletion tombstone/
+// security-hold-freeze writes (~8512-8529, ~8596-8607).
+
+test('deleteProductFromBackend: a real deletion error throws instead of being silently logged', () => {
+  assert.throws(() => assertWriteSucceededOrThrow({ error: { message: 'foreign key violation' } }));
+});
+
+test('account deletion (CASE B, tombstone anonymization): a real Supabase update error throws instead of claiming PII was anonymized', () => {
+  assert.throws(() => assertWriteSucceededOrThrow({ error: { message: 'permission denied' } }));
+});
+
+test('account deletion (CASE A, security-hold freeze): a real Supabase update error throws instead of claiming the account is under investigation', () => {
+  assert.throws(() => assertWriteSucceededOrThrow({ error: { message: 'connection reset' } }));
+});
+
+// A cascade loop (e.g. /api/admin/users/delete deleting every product a
+// user owns) must keep processing remaining items after one item's
+// deletion throws, not abort the whole cascade -- mirrors the per-item
+// try/catch added around deleteProductFromBackend() inside that loop.
+function deleteProductsBestEffort(productIds: string[], deleteOne: (id: string) => void): { deletedCount: number } {
+  let deletedCount = 0;
+  for (const id of productIds) {
+    try {
+      deleteOne(id);
+      deletedCount++;
+    } catch (_) {
+      // logged and skipped, matching the real code's console.warn
+    }
+  }
+  return { deletedCount };
+}
+
+test('admin user delete cascade: one product\'s deletion failure does not stop the remaining products from being attempted', () => {
+  const attempted: string[] = [];
+  const result = deleteProductsBestEffort(['p1', 'p2', 'p3'], (id) => {
+    attempted.push(id);
+    if (id === 'p2') throw new Error('deletion failed');
+  });
+  assert.deepEqual(attempted, ['p1', 'p2', 'p3'], 'every product must still be attempted');
+  assert.equal(result.deletedCount, 2, 'only the two that genuinely succeeded should count');
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
