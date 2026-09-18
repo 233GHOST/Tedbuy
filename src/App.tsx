@@ -18,6 +18,10 @@ const ListingModal = lazy(() => import('./components/ListingModal').then(m => ({
 const VideoAdsFeed = lazy(() => import('./components/VideoAdsFeed').then(m => ({ default: m.VideoAdsFeed })));
 const VerificationBlockModal = lazy(() => import('./components/VerificationBlockModal').then(m => ({ default: m.VerificationBlockModal })));
 const SuspendedBlockModal = lazy(() => import('./components/SuspendedBlockModal').then(m => ({ default: m.SuspendedBlockModal })));
+const FeaturedListingsView = lazy(() => import('./components/FeaturedListingsView').then(m => ({ default: m.FeaturedListingsView })));
+const TrendingListingsView = lazy(() => import('./components/TrendingListingsView').then(m => ({ default: m.TrendingListingsView })));
+const ForYouListingsView = lazy(() => import('./components/ForYouListingsView').then(m => ({ default: m.ForYouListingsView })));
+const SellersDiscoveryView = lazy(() => import('./components/SellersDiscoveryView').then(m => ({ default: m.SellersDiscoveryView })));
 
 import { Category, Product, CATEGORY_ICONS } from './types';
 import { resolveProductImage } from './utils/productUtils';
@@ -44,10 +48,6 @@ import { FeaturedListings } from './components/FeaturedListings';
 import { TrendingListings } from './components/TrendingListings';
 import { SellersToDiscover } from './components/SellersToDiscover';
 import { ForYouSection } from './components/ForYouSection';
-import { FeaturedListingsView } from './components/FeaturedListingsView';
-import { TrendingListingsView } from './components/TrendingListingsView';
-import { ForYouListingsView } from './components/ForYouListingsView';
-import { SellersDiscoveryView } from './components/SellersDiscoveryView';
 import { getRegionForLocation } from './regions';
 import { WebMCPInitializer } from './components/WebMCPInitializer';
 import { createProductSelector } from './utils/productSelector';
