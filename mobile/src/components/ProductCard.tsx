@@ -8,6 +8,7 @@ import { fonts } from '../theme';
 import { formatProductPrice } from '../utils/formatPrice';
 import { resolveProductImageUri } from '../utils/productImage';
 import { getCloudinaryThumbnailMobile } from '../utils/cloudinary';
+import { isBoostActive } from '../utils/boost';
 import { CategoryImagePlaceholder } from './CategoryImagePlaceholder';
 import { useSavedProducts } from '../context/SavedProducts';
 
@@ -64,43 +65,22 @@ export const ProductCard = React.memo(function ProductCard({
   const { isSaved: isSavedInContext, toggleSaved } = useSavedProducts();
   const localIsSaved = propIsSaved !== undefined ? propIsSaved : isSavedInContext(product.id);
 
-  // Robust date format
-  const parseDate = (dateVal: any): Date | null => {
-    if (!dateVal) return null;
-    if (dateVal instanceof Date) return dateVal;
-    if (typeof dateVal.toDate === 'function') {
-      try {
-        return dateVal.toDate();
-      } catch (_) {}
-    }
-    if (typeof dateVal === 'object') {
-      if (typeof dateVal.seconds === 'number') {
-        return new Date(dateVal.seconds * 1000);
-      }
-      if (typeof dateVal._seconds === 'number') {
-        return new Date(dateVal._seconds * 1000);
-      }
-    }
-    const d = new Date(dateVal);
-    if (!isNaN(d.getTime())) {
-      return d;
-    }
-    return null;
-  };
-
-  // Active premium boost check matching web isBoostActive logic
-  const isBoostActive = (): boolean => {
-    const boostStatus = (product as any).boostStatus;
-    const boostEndDate = (product as any).boostEndDate;
-    if (!boostStatus) return false;
-    const endDate = parseDate(boostEndDate);
-    if (!endDate) return false;
-    return endDate.getTime() > Date.now();
-  };
-
   const formattedPrice = formatProductPrice(product.price);
   const isServiceCategory = product.category ? (product.category.toLowerCase() === 'services' || product.category.toLowerCase().includes('service')) : false;
-  const isPrioSeller = isBoostActive() && !isFeaturedVariant;
+  // Fix (found via a dedicated boost-display-vs-ranking-consistency audit):
+  // this used to be a local, inline boost check that only ever read the raw
+  // boostEndDate field, with no fallback -- while productSelector.ts's
+  // real ranking/sort (which decides card ORDER) uses the canonical
+  // isBoostActive from utils/boost.ts, which also falls back to
+  // boostStartDate/lastBoostedAt+plan or createdAt+plan when the raw field
+  // is missing (the same real, confirmed-non-hypothetical shapes this
+  // session's earlier boost-ranking audit verified). The two disagreeing
+  // meant a card could sort to the top as boosted (productSelector.ts)
+  // without ever showing this badge (ProductCard.tsx), or vice versa, for
+  // any product state that bypasses the server's own normalizeServerProductRow
+  // (e.g. a local optimistic merge in HomeScreen.tsx). Now uses the same
+  // single source of truth as ranking, closing that gap for good.
+  const isPrioSeller = isBoostActive(product) && !isFeaturedVariant;
   const hasVideoAd = product.videos && product.videos.length > 0;
 
   // Handles bookmark/save click
