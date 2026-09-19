@@ -3787,8 +3787,8 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
           const followerIds = (allUsers || [])
             .filter((u: any) => Array.isArray(u.followingSellers) && u.followingSellers.includes(targetSellerId))
             .map((u: any) => u.id);
-          for (const followerId of followerIds) {
-            if (!(await shouldNotifyUser(followerId, 'followedSellerNewListing'))) continue;
+          await dispatchInBatches<string>(followerIds, 25, async (followerId) => {
+            if (!(await shouldNotifyUser(followerId, 'followedSellerNewListing'))) return;
             await createNotification({
               id: `notif_newlisting_${Date.now()}_${followerId}_${Math.random().toString(36).substring(2, 6)}`,
               userId: followerId,
@@ -3805,7 +3805,7 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
               createdAt: new Date().toISOString(),
               read: false
             });
-          }
+          });
         } catch (notifErr) {
           console.warn('[Product Sync API] Follower notification dispatch failed:', notifErr);
         }
@@ -3834,14 +3834,14 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
               (Array.isArray(u.followingSellers) && u.followingSellers.includes(existingSellerId))
             )
           );
-          for (const targetUser of targetUsers) {
+          await dispatchInBatches<any>(targetUsers, 25, async (targetUser) => {
             const isSaved = Array.isArray(targetUser.savedProductIds) && targetUser.savedProductIds.includes(prodId);
             // Saving a product is a stronger, more explicit signal of
             // interest than following a seller -- matches the original
             // client-side behavior, which only gated the follow-driven
             // case behind a notification preference and always notified
             // savers.
-            if (!isSaved && !(await shouldNotifyUser(targetUser.id, 'followedSellerNewListing'))) continue;
+            if (!isSaved && !(await shouldNotifyUser(targetUser.id, 'followedSellerNewListing'))) return;
             await createNotification({
               id: `notif_update_${Date.now()}_${targetUser.id}_${Math.random().toString(36).substring(2, 6)}`,
               userId: targetUser.id,
@@ -3860,7 +3860,7 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
               createdAt: new Date().toISOString(),
               read: false
             });
-          }
+          });
         } catch (notifErr) {
           console.warn('[Product Sync API] Listing-update notification dispatch failed:', notifErr);
         }
@@ -4937,6 +4937,26 @@ async function sendPushNotification(userId: string, title: string, body: string,
     });
   } catch (err) {
     console.warn('[sendPushNotification] failed:', err);
+  }
+}
+
+// Found via a dedicated performance audit: the two follower/saver
+// notification fan-outs below (new-listing and listing-update) dispatched
+// one notification at a time in a plain sequential `for...of` loop with
+// `await` inside -- for a seller with hundreds of followers, that's
+// hundreds of sequential round trips (a preference-check read, then a
+// notification write) before the background task finishes, even though
+// it's already fire-and-forget and never blocks the seller's own publish
+// response. Both shouldNotifyUser() and createNotification() are already
+// internally fault-tolerant (their own try/catch never lets a failure
+// propagate), so there's no per-item ordering/error dependency stopping
+// this from running concurrently. Batches rather than a single unbounded
+// Promise.all so a seller with an unusually large follower count doesn't
+// fire thousands of simultaneous Supabase requests in one burst.
+async function dispatchInBatches<T>(items: T[], batchSize: number, handler: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.all(batch.map(handler));
   }
 }
 

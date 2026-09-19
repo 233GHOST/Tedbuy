@@ -502,6 +502,44 @@ test('trustBoostFields=true (verify-payment / admin boost-control only): the cal
   assert.equal(result.boostPriority, 5);
 });
 
+// --- dispatchInBatches (server.ts:~4943-4961): the follower/saver
+// notification fan-out for a new or updated listing. Mirrors the real
+// function verbatim -- it's a small, dependency-free generic helper.
+async function dispatchInBatches<T>(items: T[], batchSize: number, handler: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.all(batch.map(handler));
+  }
+}
+
+test('dispatchInBatches: every item is processed exactly once, regardless of batch size', async () => {
+  const processed: number[] = [];
+  await dispatchInBatches([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    processed.push(n);
+  });
+  assert.deepEqual(processed.slice().sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7]);
+});
+
+test('dispatchInBatches: items within a batch run concurrently, not one-at-a-time', async () => {
+  const startedAt: number[] = [];
+  const start = Date.now();
+  await dispatchInBatches([1, 2, 3], 3, async () => {
+    startedAt.push(Date.now() - start);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  // If items ran sequentially, the 3rd item's start time would be roughly
+  // 2x the delay after the 1st. Running concurrently, all 3 start within a
+  // few ms of each other.
+  const spread = Math.max(...startedAt) - Math.min(...startedAt);
+  assert.ok(spread < 15, `expected concurrent starts (spread < 15ms), got ${spread}ms -- items may be running sequentially`);
+});
+
+test('dispatchInBatches: an empty array resolves immediately with no calls', async () => {
+  let calls = 0;
+  await dispatchInBatches([], 25, async () => { calls++; });
+  assert.equal(calls, 0);
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
