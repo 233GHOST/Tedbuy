@@ -9971,7 +9971,21 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    // { index: false } is required -- without it, express.static's own
+    // default `index: 'index.html'` behavior intercepts a request for the
+    // literal root path `/` and serves dist/index.html directly, BEFORE it
+    // ever reaches the app.get('*') handler below. Every other SPA path
+    // (/product/:id, /seller/:id, etc.) has no matching file in dist/, so
+    // it correctly falls through -- only `/`, the single most-visited URL,
+    // was silently skipping the entire SSR injection block: the homepage's
+    // window.__INITIAL_PRODUCTS__/__INITIAL_SELLER_COUNTS__/
+    // __INITIAL_DISCOVER_SELLERS__ payload (the "0ms initial render of main
+    // feed" optimization right below) never ran for a real visit/reload of
+    // the homepage, only for in-app client-side navigations back to it --
+    // defeating the stated purpose of that code for its most common entry
+    // point. Found via a dedicated SEO/SSR-injection correctness audit,
+    // verified directly against this exact code before fixing.
+    app.use(express.static(distPath, { index: false }));
     app.get('*', async (req, res) => {
       const indexPath = path.join(distPath, 'index.html');
       if (fs.existsSync(indexPath)) {
