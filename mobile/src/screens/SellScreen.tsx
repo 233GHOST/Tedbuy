@@ -22,7 +22,7 @@ import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
 import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile, AiDescriptionStyleMobile } from '../firebase';
-import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile } from '../utils/cloudinary';
+import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile, cleanupOrphanedCloudinaryAssetsMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
 import { BoostModal } from '../components/BoostModal';
@@ -57,6 +57,14 @@ interface PickedImage {
   progress: number;
   remoteUrl?: string;
   error?: string;
+  // True only for media seeded from an already-published listing being
+  // edited (see seedMediaAndDescriptionFrom) -- distinguishes "already live
+  // on this listing" from "freshly picked/uploaded this session", so
+  // Remove/Discard know never to destroy it immediately. It's only ever
+  // safe to delete once the edit is actually saved (see handlePublish's
+  // cleanupOrphanedCloudinaryAssetsMobile call) or genuinely orphaned by
+  // being replaced.
+  isExisting?: boolean;
 }
 
 interface PickedVideo {
@@ -69,6 +77,8 @@ interface PickedVideo {
   remoteUrl?: string;
   posterUrl?: string;
   error?: string;
+  // See PickedImage.isExisting -- same reasoning, same edit-mode source.
+  isExisting?: boolean;
 }
 
 /** Small self-contained player for previewing a locally-picked/recorded video
@@ -273,6 +283,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   }, [adRegion]);
   const [images, setImages] = useState<PickedImage[]>([]);
   const [video, setVideo] = useState<PickedVideo | null>(null);
+  // Snapshot of the edited listing's media URLs exactly as they stood when
+  // this edit session started -- captured once in seedMediaAndDescriptionFrom
+  // (last-seed-wins if it re-runs after the full-record fetch, matching
+  // that function's own "optimistic seed, then replace with the real one"
+  // pattern). Diffed against the final images/video at save time in
+  // handlePublish to clean up only what was genuinely removed.
+  const originalExistingMediaRef = useRef<{ images: string[]; video: string | null }>({ images: [], video: null });
 
   // The new 3-screen posting flow for NEW listings — Select media → Preview
   // & edit (crop/trim) → Listing details. Media is picked/captured as
@@ -419,11 +436,13 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       status: 'done' as const,
       progress: 100,
       remoteUrl: url,
+      isExisting: true,
     })));
     const existingVideos: string[] = Array.isArray(product.videos) ? product.videos : [];
     if (existingVideos.length > 0) {
-      setVideo({ localUri: existingVideos[0], durationSec: 0, trimStart: 0, trimEnd: 0, status: 'done', progress: 100, remoteUrl: existingVideos[0] });
+      setVideo({ localUri: existingVideos[0], durationSec: 0, trimStart: 0, trimEnd: 0, status: 'done', progress: 100, remoteUrl: existingVideos[0], isExisting: true });
     }
+    originalExistingMediaRef.current = { images: existingImages, video: existingVideos[0] || null };
   };
 
   // Bumped to force the effect below to re-run on a manual retry (its own
@@ -714,7 +733,14 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   const handleRemoveImage = (id: string) => {
     const target = images.find((i) => i.id === id);
     setImages((prev) => prev.filter((img) => img.id !== id));
-    if (target?.status === 'done' && target.remoteUrl) {
+    // isExisting media is still live on the published listing -- deleting it
+    // here (before the edit is even saved) would break that listing's photo
+    // for every buyer currently viewing it if the seller then backs out
+    // without saving. Only ever safe to delete once removal is actually
+    // confirmed by a successful save (see handlePublish's
+    // cleanupOrphanedCloudinaryAssetsMobile call) or for a genuinely
+    // freshly-uploaded-this-session asset, which is what this still covers.
+    if (target?.status === 'done' && target.remoteUrl && !target.isExisting) {
       deleteCloudinaryAssetMobile(target.remoteUrl);
     }
   };
@@ -780,7 +806,9 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
 
   const handleRemoveVideo = () => {
     videoUploadGenerationRef.current++;
-    if (video?.status === 'done' && video.remoteUrl) {
+    // See handleRemoveImage's comment -- isExisting video is still live on
+    // the published listing, only safe to delete once the edit is saved.
+    if (video?.status === 'done' && video.remoteUrl && !video.isExisting) {
       deleteCloudinaryAssetMobile(video.remoteUrl);
     }
     setVideo(null);
@@ -1197,10 +1225,17 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             // and then a brand-new, different listing, would silently reuse
             // the same id and overwrite the earlier (unknown-to-the-client)
             // listing instead of the two existing independently.
+            //
+            // isExisting media (present when Discard is reached from an edit
+            // session -- this same button/flow is shared with create mode)
+            // is still live on the seller's already-published listing.
+            // Discarding an edit means "cancel my changes," not "delete my
+            // listing's photos" -- deleting them here would silently break
+            // that listing's images for every buyer currently viewing it.
             images.forEach((img) => {
-              if (img.status === 'done' && img.remoteUrl) deleteCloudinaryAssetMobile(img.remoteUrl);
+              if (img.status === 'done' && img.remoteUrl && !img.isExisting) deleteCloudinaryAssetMobile(img.remoteUrl);
             });
-            if (video?.status === 'done' && video.remoteUrl) deleteCloudinaryAssetMobile(video.remoteUrl);
+            if (video?.status === 'done' && video.remoteUrl && !video.isExisting) deleteCloudinaryAssetMobile(video.remoteUrl);
             // Same full reset as a successful publish/save (and tabPress) --
             // found via a dedicated audit: this used to only clear title/
             // price/description/images/video/brand/condition/negotiable/
@@ -1246,6 +1281,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     setDescription('');
     setImages([]);
     setVideo(null);
+    originalExistingMediaRef.current = { images: [], video: null };
     setBrand('');
     setCondition('');
     setNegotiable(true);
@@ -1410,6 +1446,15 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
           isExchangeable: finalIsExchangeable,
           exchangePossible: finalIsExchangeable,
         });
+        // Now that the edit is actually confirmed saved, clean up whatever
+        // existing media the seller removed during this session (Remove/
+        // Discard no longer delete it immediately -- see those handlers'
+        // comments). Fire-and-forget: best-effort, matches
+        // deleteCloudinaryAssetMobile's own non-fatal error handling, never
+        // worth blocking or failing an otherwise-successful save over.
+        const oldMediaUrls = [...originalExistingMediaRef.current.images, ...(originalExistingMediaRef.current.video ? [originalExistingMediaRef.current.video] : [])];
+        const newMediaUrls = [...finalImages, ...(uploadedVideoUrl ? [uploadedVideoUrl] : [])];
+        cleanupOrphanedCloudinaryAssetsMobile(oldMediaUrls, newMediaUrls, editProduct.id).catch(() => {});
         setLoading(false);
         setEditProduct(null);
         // Clears title/price/description/images/video/etc. -- see

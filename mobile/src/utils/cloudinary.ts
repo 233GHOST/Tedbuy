@@ -254,10 +254,47 @@ export function isFullVideoRange(trimStart: number, trimEnd: number, durationSec
   return start <= 0 && durationSec > 0 && end >= Math.floor(durationSec);
 }
 
+/** Matches web's cleanupOrphanedCloudinaryAssets (src/utils/cloudinary.ts) --
+ * diffs the listing's media URLs as they stood before this edit against the
+ * final set being saved, and deletes only the ones that were dropped. Used
+ * by SellScreen's edit-mode save so a seller removing an existing photo/
+ * video and then actually saving doesn't leave it orphaned in Cloudinary
+ * forever (see the fix this accompanies: edit-mode's Remove/Discard buttons
+ * no longer delete already-published media immediately, only on confirmed
+ * save). Hits the same server endpoint web uses, which re-verifies
+ * ownership and that each URL genuinely belonged to this product's current
+ * row before deleting anything -- never trusts the client's oldUrls list
+ * blindly. */
+export async function cleanupOrphanedCloudinaryAssetsMobile(
+  oldUrls: string[],
+  newUrls: string[],
+  productId: string
+): Promise<void> {
+  if (!Array.isArray(oldUrls) || oldUrls.length === 0 || !productId) return;
+  const newSet = new Set(Array.isArray(newUrls) ? newUrls : []);
+  const removed = oldUrls.filter((u) => typeof u === 'string' && u.includes('res.cloudinary.com') && !newSet.has(u));
+  if (removed.length === 0) return;
+  try {
+    const authHeaders = await getAuthHeaderMobile();
+    await fetch(`${API_BASE}/api/cloudinary/cleanup-orphans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ oldUrls, newUrls, productId }),
+    });
+  } catch (err) {
+    // Best-effort, same reasoning as deleteCloudinaryAssetMobile below --
+    // a leftover orphaned asset here is a minor storage cost, never worth
+    // surfacing an error over on top of an otherwise-successful save.
+    console.warn('[cleanupOrphanedCloudinaryAssetsMobile] cleanup failed (non-fatal):', err);
+  }
+}
+
 /** Matches web's deleteFromCloudinary — used on Discard in the posting
  * wizard to clean up an already-uploaded (but never actually posted) asset,
  * and on Retake/Remove after a successful upload. Authenticated; the server
- * endpoint verifies the caller before calling Cloudinary's destroy API. */
+ * endpoint verifies the caller before calling Cloudinary's destroy API.
+ * NOT for already-published media being edited -- see
+ * cleanupOrphanedCloudinaryAssetsMobile above for that case. */
 export async function deleteCloudinaryAssetMobile(url: string): Promise<void> {
   if (!url || !url.includes('res.cloudinary.com')) return;
   try {
