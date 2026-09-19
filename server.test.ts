@@ -716,6 +716,39 @@ test('report id derivation: different reporters against the same product, or the
   assert.notEqual(resolveReportId('user1', 'prod1'), resolveReportId('user1', 'prod2'));
 });
 
+// --- /api/products/like (mirrors /api/users/follow's lock shape exactly,
+// so withProductLikeLock itself isn't re-tested here -- see
+// withUserFollowLock's own tests). The part worth locking in is the
+// delta-toggle behavior: the server computes the toggle from its OWN
+// current likedUserIds on each call, so two racing delta-based likes from
+// DIFFERENT users both land correctly regardless of ordering, unlike the
+// old approach where each client-computed "next array" could silently
+// discard the other's like.
+function resolveLikeToggle(currentLikedUserIds: string[], userId: string, like: boolean): string[] {
+  const alreadyLiked = currentLikedUserIds.includes(userId);
+  return like
+    ? (alreadyLiked ? currentLikedUserIds : [...currentLikedUserIds, userId])
+    : currentLikedUserIds.filter((uid) => uid !== userId);
+}
+
+test('like delta toggle: two different users liking the same product in sequence both land, regardless of order', () => {
+  let liked: string[] = [];
+  liked = resolveLikeToggle(liked, 'buyerA', true);
+  liked = resolveLikeToggle(liked, 'buyerB', true);
+  assert.deepEqual(liked.slice().sort(), ['buyerA', 'buyerB']);
+});
+
+test('like delta toggle: unliking removes only the calling user\'s own id, leaving others untouched', () => {
+  const liked = ['buyerA', 'buyerB'];
+  assert.deepEqual(resolveLikeToggle(liked, 'buyerA', false), ['buyerB']);
+});
+
+test('like delta toggle: re-liking an already-liked product, or unliking an already-unliked one, is a safe no-op', () => {
+  const liked = ['buyerA'];
+  assert.deepEqual(resolveLikeToggle(liked, 'buyerA', true), ['buyerA']);
+  assert.deepEqual(resolveLikeToggle(liked, 'buyerZ', false), ['buyerA']);
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never

@@ -4432,26 +4432,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshSellerCounts().catch(() => {});
   };
 
-  // Security fix (RLS-migration Phase 0, checkpoint 3): this used to write
-  // likedUserIds/likesCount directly via dbAdapter's updateDoc -- a raw
-  // Supabase write with no ownership check and no server-side validation
-  // that the caller was only ever toggling their OWN id (a caller
-  // bypassing this function's own convention could set the array to
-  // anything, for any product, impersonating or erasing other users'
-  // likes). POST /api/products/sync already has this exact self-toggle
-  // logic implemented correctly server-side (fixed earlier this session --
-  // see .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §21.1): it only ever
-  // toggles the CALLING user's own id relative to what's already saved,
-  // deriving likesCount from the result, regardless of what array the
-  // client sends. A minimal `{id, likedUserIds}` payload qualifies for
-  // that endpoint's "social-only" ownership-check bypass (every key sent
-  // is in SOCIAL_ONLY_FIELDS), so liking someone else's listing still
-  // works exactly as before -- just through the authenticated, validated
-  // path instead of a raw write. The desired next state is still computed
-  // client-side (for instant UI feedback and the send-my-own-id-or-not
-  // payload the server's toggle logic expects), but the actual persisted
-  // state always comes back from the server's response, not the client's
-  // guess.
+  // Fix (found via a dedicated background audit of the follow/save-product
+  // race lens applied to likes): /api/products/sync's self-toggle logic
+  // (see upsertProductToSupabase) already only ever flipped the CALLING
+  // user's own id relative to a fresh DB read, never trusting the client's
+  // array wholesale -- but that read-then-full-upsert had no lock around
+  // it, so two different buyers liking the same popular listing within the
+  // same second could still race and silently lose one like. Migrated to
+  // the new, dedicated POST /api/products/like (mirrors /api/users/follow's
+  // pattern exactly: a per-product mutex around a minimal, targeted
+  // read-modify-write), closing the race for good instead of leaving it
+  // one layer down in the general-purpose product-save path.
   const toggleLikeProduct = async (id: string, userId: string) => {
     if (!currentUser) {
       throw new Error('Authentication Required: You must be logged in to like listings.');
@@ -4459,30 +4450,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const verifiedUserId = currentUser.id;
 
     try {
-      const productRef = doc('products', id);
-      const productDoc = await getDoc(productRef);
-
-      const currentLikedUserIds = productDoc.exists()
-        ? (Array.isArray((productDoc.data() as Product)?.likedUserIds) ? (productDoc.data() as Product).likedUserIds! : [])
-        : (Array.isArray(products.find(p => p.id === id)?.likedUserIds) ? products.find(p => p.id === id)!.likedUserIds! : []);
+      const currentLikedUserIds = Array.isArray(products.find(p => p.id === id)?.likedUserIds) ? products.find(p => p.id === id)!.likedUserIds! : [];
       const hasLiked = currentLikedUserIds.includes(verifiedUserId);
-      const desiredLikedUserIds = hasLiked
-        ? currentLikedUserIds.filter(uid => uid !== verifiedUserId)
-        : Array.from(new Set([...currentLikedUserIds, verifiedUserId]));
 
       const authHeaders = await getAuthHeader();
-      const res = await fetch('/api/products/sync', {
+      const res = await fetch('/api/products/like', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ product: { id, likedUserIds: desiredLikedUserIds } })
+        body: JSON.stringify({ productId: id, like: !hasLiked })
       });
       const json = await res.json().catch(() => ({}));
-      if (!json.success || !json.product) {
+      if (!json.success) {
         throw new Error(json.error || 'Failed to update like status.');
       }
 
-      const finalLikedUserIds: string[] = Array.isArray(json.product.likedUserIds) ? json.product.likedUserIds : desiredLikedUserIds;
-      const finalLikesCount: number = typeof json.product.likesCount === 'number' ? json.product.likesCount : finalLikedUserIds.length;
+      const finalLikedUserIds: string[] = Array.isArray(json.likedUserIds) ? json.likedUserIds : (hasLiked ? currentLikedUserIds.filter(uid => uid !== verifiedUserId) : [...currentLikedUserIds, verifiedUserId]);
+      const finalLikesCount: number = typeof json.likesCount === 'number' ? json.likesCount : finalLikedUserIds.length;
 
       setProducts(prev => prev.map(p => p.id === id ? { ...p, likedUserIds: finalLikedUserIds, likesCount: finalLikesCount } : p));
     } catch (err) {

@@ -3971,6 +3971,86 @@ app.post('/api/products/:productId/view', serverRateLimiter(60 * 1000, 60, "prod
   }
 });
 
+// Lost-update race (found via a dedicated background audit, same shape
+// already fixed for follow/save-product/reviews/chats/reports): liking a
+// product was already correctly toggle-based server-side inside
+// upsertProductToSupabase (only ever flips the CALLING user's own id
+// relative to a fresh read, never trusts the client's array wholesale --
+// see that function's own comment) -- but that read-then-full-upsert has
+// no lock around it. Two different buyers tapping the heart icon on the
+// same popular listing within the same second can both SELECT the row
+// while likedUserIds is still e.g. [], each compute "add just my own id"
+// against that SAME stale snapshot, and whichever upsert lands last
+// silently overwrites the other's -- one buyer's like is lost even
+// though their own API response reported success. Rather than wrapping
+// the entire general-purpose upsertProductToSupabase/`/api/products/sync`
+// path in a lock (used for every ordinary listing edit too, a much
+// bigger blast radius), this is a small, dedicated endpoint mirroring
+// /api/users/follow's pattern exactly: a per-product mutex around a
+// minimal, targeted read-modify-write of just likedUserIds/likesCount.
+const productLikeLocks = new Map<string, Promise<unknown>>();
+function withProductLikeLock<T>(productId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = productLikeLocks.get(productId) || Promise.resolve();
+  const run = previous.then(fn, fn);
+  const chained = run.then(() => undefined, () => undefined);
+  productLikeLocks.set(productId, chained);
+  chained.finally(() => {
+    if (productLikeLocks.get(productId) === chained) {
+      productLikeLocks.delete(productId);
+    }
+  });
+  return run;
+}
+
+app.post('/api/products/like', serverRateLimiter(60 * 1000, 60, "products-like"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to like a listing' });
+  }
+  const { productId, like } = req.body || {};
+  if (!productId || typeof productId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing productId' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const result = await withProductLikeLock(productId, async () => {
+      const { data: existingRow, error: fetchErr } = await backendSupabase
+        .from('products')
+        .select('likedUserIds')
+        .eq('id', productId)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existingRow) throw Object.assign(new Error('Product not found'), { statusCode: 404 });
+
+      const existingLikedUserIds: string[] = Array.isArray(existingRow.likedUserIds) ? existingRow.likedUserIds : [];
+      const alreadyLiked = existingLikedUserIds.includes(verified.uid);
+      const shouldLike = like !== false;
+      const nextLikedUserIds = shouldLike
+        ? (alreadyLiked ? existingLikedUserIds : [...existingLikedUserIds, verified.uid])
+        : existingLikedUserIds.filter((uid: string) => uid !== verified.uid);
+
+      const { error: updateErr } = await backendSupabase
+        .from('products')
+        .update({ likedUserIds: nextLikedUserIds, likesCount: nextLikedUserIds.length })
+        .eq('id', productId);
+      if (updateErr) throw updateErr;
+
+      return { likedUserIds: nextLikedUserIds, likesCount: nextLikedUserIds.length };
+    });
+
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    if (err?.statusCode === 404) {
+      return res.status(404).json({ success: false, error: err.message });
+    }
+    console.error('[Product Like API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to update like status' });
+  }
+});
+
 // Prevents spam-posting listings.
 app.post('/api/products/create', serverRateLimiter(60 * 1000, 10, "products-create"), async (req, res) => {
   const { product } = req.body;

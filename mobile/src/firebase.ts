@@ -1016,6 +1016,16 @@ export async function toggleSaveProductRemote(productId: string, currentSavedIds
   return Array.isArray(data.savedProductIds) ? data.savedProductIds : (shouldSave ? [...saved, productId] : saved.filter((id) => id !== productId));
 }
 
+// Fix (found via a dedicated background audit of the follow/save-product
+// race lens applied to likes, ported from the matching web fix): this used
+// to send the entire product object to /api/products/sync with a
+// client-computed nextLikedUserIds -- the server's own toggle logic there
+// already only ever flipped the calling user's own id relative to a fresh
+// DB read, but that read-then-full-upsert had no lock around it, so two
+// different buyers liking the same listing at once could still race and
+// silently lose one like. Migrated to the new, dedicated
+// POST /api/products/like (a per-product mutex around a minimal, targeted
+// read-modify-write), closing the race for good.
 export async function toggleLikeProduct(id: string, userId: string) {
   const product = await fetchProductById(id);
   if (!product) {
@@ -1024,20 +1034,11 @@ export async function toggleLikeProduct(id: string, userId: string) {
 
   const currentLikedUserIds = Array.isArray(product.likedUserIds) ? product.likedUserIds : [];
   const hasLiked = currentLikedUserIds.includes(userId);
-  const nextLikedUserIds = hasLiked
-    ? currentLikedUserIds.filter((uid: string) => uid !== userId)
-    : [...currentLikedUserIds, userId];
-
-  const updated = {
-    ...product,
-    likedUserIds: nextLikedUserIds,
-    likesCount: nextLikedUserIds.length
-  };
 
   // Previously swallowed every failure and never checked the response, so a
   // failed save silently left the UI showing "saved" when nothing persisted
   // (the callers' try/catch error handling was dead code as a result).
-  const data = await apiFetch('/api/products/sync', { method: 'POST', body: { product: updated } });
+  const data = await apiFetch('/api/products/like', { method: 'POST', body: { productId: id, like: !hasLiked } });
   if (!data.success) {
     throw new Error(data.error || 'Could not update favorites.');
   }
