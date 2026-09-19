@@ -196,6 +196,33 @@ export const SellerProfilePage: React.FC = () => {
   // case) or empty placeholders (synthesized-from-product case) otherwise.
   const seller: any = baseSeller ? { ...baseSeller, ...(contactInfo || {}) } : null;
 
+  // Fix (found via a dedicated background audit of seller public-profile
+  // stat correctness): the global `reviews` context array (used below to
+  // derive sellerReviews) is fetched exactly once per app session at mount
+  // ("Optimized to Fetch Once on Mount" in AppContext.tsx) and never
+  // re-fetched on navigating to a seller's page. In a long-lived SPA tab,
+  // any review another buyer submits for this seller after the session
+  // started never appears -- the average rating and review count both
+  // silently lag behind the real database state until a hard reload.
+  // Mobile's SellerProfileScreen.tsx already does the right thing
+  // (fetchReviewsForSeller(sellerId) fresh on every mount); this ports
+  // that same fix to web, using the same already-cached, already-scoped
+  // GET /api/reviews?sellerId= server endpoint (no server change needed).
+  const [freshSellerReviews, setFreshSellerReviews] = useState<any[] | null>(null);
+  useEffect(() => {
+    if (!seller?.id) return;
+    let active = true;
+    fetch(`/api/reviews?sellerId=${encodeURIComponent(seller.id)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (active && data?.success && Array.isArray(data.reviews)) {
+          setFreshSellerReviews(data.reviews);
+        }
+      })
+      .catch(() => { /* falls back to the global context array below, non-fatal */ });
+    return () => { active = false; };
+  }, [seller?.id]);
+
   const isSellerVerified = isUserVerified(seller);
 
   // Derive followers and following lists for this seller
@@ -496,7 +523,23 @@ export const SellerProfilePage: React.FC = () => {
 
   const avgResponseTime = getAverageResponseTime();
 
-  const sellerReviews = reviews.filter(r => r.sellerId === seller.id);
+  // Merges the fresh per-seller fetch above with the global context array
+  // (deduped by id) rather than using the fresh fetch alone -- this still
+  // picks up a review just submitted on this exact page via addReview
+  // (which optimistically updates the global `reviews` array, not this
+  // page's local freshSellerReviews state) immediately, without waiting
+  // for a second round trip. A plain computed value, not useMemo -- this
+  // sits after this component's own conditional early return above, where
+  // a hook can't safely go (would violate React's rules of hooks, called
+  // on some renders and not others).
+  const contextSellerReviews = reviews.filter(r => r.sellerId === seller.id);
+  let sellerReviews = contextSellerReviews;
+  if (freshSellerReviews) {
+    const merged = new Map<string, any>();
+    freshSellerReviews.forEach(r => merged.set(r.id, r));
+    contextSellerReviews.forEach(r => merged.set(r.id, r));
+    sellerReviews = Array.from(merged.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
   const avgRating = sellerReviews.length > 0 
     ? (sellerReviews.reduce((sum, r) => sum + r.rating, 0) / sellerReviews.length).toFixed(1)
     : null;
