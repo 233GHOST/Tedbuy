@@ -1,4 +1,4 @@
-import { Category } from '../types';
+import type { Category } from '../types';
 
 export interface FilterField {
   id: string; // matches product field key
