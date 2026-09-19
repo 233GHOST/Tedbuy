@@ -419,6 +419,14 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       // true the next time "create new" reopened on this same reused
       // instance.
       setIsExchangeable(false);
+      // Found via a dedicated audit, same drift shape as the isExchangeable
+      // gap above: neither this reset block nor the post-submit-success one
+      // ever cleared postOption, so checking "Boost Listing" then either
+      // cancelling or completing a boosted publish left it stuck on 'boost'
+      // for the next, unrelated listing created on this same reused
+      // instance -- silently pre-checking (and pre-selecting the paid
+      // checkout flow for) a listing the seller never intended to boost.
+      setPostOption('normal');
     }
     setErrorMsg('');
   }, [productToEdit, isOpen, editFetchRetryTick]);
@@ -1322,6 +1330,11 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
           setSelectedProductId(newProd.id);
           if (postOption === 'boost') {
             setCreatedProductForBoost(newProd);
+            // postOption itself is reset just below, after this branch's
+            // own read of it above -- the checkout flow that opens next
+            // reads createdProductForBoost, not postOption, so resetting it
+            // here doesn't affect the boost checkout currently starting.
+            setPostOption('normal');
             return; // Prevent immediate onClose so they can complete boost checkout
           } else {
             setCurrentView('product-detail');
