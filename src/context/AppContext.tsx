@@ -4872,7 +4872,28 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     }
 
     try {
-      await sendMessageViaApi(chatId, cleanText);
+      const sentMessage = await sendMessageViaApi(chatId, cleanText);
+      // Reconcile the optimistic entry with the real, server-persisted
+      // message. Closes a real race with the independent 4s message poll
+      // (this file's own `load()` effect for the active chat thread): that
+      // poll's setMessages blindly REPLACES the whole list with whatever
+      // it fetched, not a merge -- if its GET was already in flight when
+      // this send started, it can resolve afterward with a snapshot from
+      // before this message was persisted, silently wiping the optimistic
+      // entry until the next poll tick (up to 4s later). Re-inserting the
+      // now-confirmed message into whatever the CURRENT state is (via the
+      // functional setMessages form, so it's never working from a stale
+      // snapshot) guarantees it's present the moment this send resolves,
+      // regardless of what any concurrent poll did in between. Matches on
+      // id to avoid a duplicate if a lucky poll timing already picked it
+      // up with its real server id.
+      if (sentMessage?.id) {
+        setMessages(prev => {
+          const withoutOptimistic = prev.filter(m => m.id !== msgId);
+          if (withoutOptimistic.some(m => m.id === sentMessage.id)) return withoutOptimistic;
+          return [...withoutOptimistic, sentMessage];
+        });
+      }
     } catch (err) {
       if (isAdminReplyingAsSupport) {
         console.warn('[sendMessage] Support-desk send failed:', err);
