@@ -4339,15 +4339,32 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
     let existingIsAdmin = false;
     let existingIsSuspended = false;
     let existingUsername: string | null = null;
+    // Same shape as isAdmin/isSuspended above: followingSellers has its own
+    // dedicated, server-authoritative endpoint (/api/users/follow, with its
+    // own read-modify-write lock closing the lost-update race between two
+    // near-simultaneous follows) -- confirmed neither platform's client
+    // ever legitimately sets it through this generic profile-sync endpoint
+    // instead. But toggleSaveProduct (both platforms) sends the ENTIRE
+    // local user object here, including whatever followingSellers happened
+    // to be in that possibly-stale client snapshot, and this endpoint used
+    // to write that value unconditionally. Saving a product shortly after
+    // following a seller (a very ordinary combined browsing action) could
+    // race: /api/users/follow's own write lands, then this sync request --
+    // built from a snapshot taken BEFORE that follow -- lands after it and
+    // silently reverts the just-added follow back out, with no error. Now
+    // preserved from the existing DB row exactly like isAdmin/isSuspended,
+    // never taken from the client, for anyone.
+    let existingFollowingSellers: string[] = [];
     if (backendSupabase) {
       const { data: existingRowForFlags } = await backendSupabase
         .from('users')
-        .select('"isAdmin", "isSuspended", username')
+        .select('"isAdmin", "isSuspended", username, "followingSellers"')
         .eq('id', targetUid)
         .maybeSingle();
       existingIsAdmin = existingRowForFlags?.isAdmin === true;
       existingIsSuspended = existingRowForFlags?.isSuspended === true;
       existingUsername = existingRowForFlags?.username || null;
+      existingFollowingSellers = Array.isArray(existingRowForFlags?.followingSellers) ? existingRowForFlags.followingSellers : [];
     }
 
     // NOT the same [a-zA-Z0-9_-] regex registrationValidation.ts's client-side
@@ -4399,7 +4416,7 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       role: user.role || 'both',
       joinDate: user.joinDate || 'Joined recently',
       photoUrl: user.photoUrl || null,
-      followingSellers: Array.isArray(user.followingSellers) ? user.followingSellers : [],
+      followingSellers: existingFollowingSellers,
       savedProductIds: Array.isArray(user.savedProductIds) ? user.savedProductIds : [],
       emailVerified: realEmailVerified,
       isGoogleAuth: user.isGoogleAuth === true,
