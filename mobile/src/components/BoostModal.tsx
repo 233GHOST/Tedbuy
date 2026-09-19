@@ -46,11 +46,21 @@ export const BoostModal: React.FC<BoostModalProps> = ({ visible, onClose, produc
 
   useEffect(() => {
     if (visible) {
+      // Found via a dedicated audit -- the mobile twin of a bug already
+      // fixed on web's BoostModal (src/components/BoostModal.tsx:80): this
+      // component is reused across every product the same way (mounted
+      // once in ProfileScreen.tsx/SellScreen.tsx, toggled via `visible`/
+      // `product` props only), so paymentMethod previously carried over
+      // between products. Picking "Free Admin Boost" for one product, then
+      // closing without paying and opening this modal for a different
+      // product, reopened it with "Free Admin Boost" still pre-selected
+      // instead of defaulting back to Mobile Money.
       setStep('plan-select');
       setSelectedPlanId('7days');
       setError('');
       setReference('');
       setCheckoutUrl(null);
+      setPaymentMethod('momo');
       checkoutHandledRef.current = false;
     }
   }, [visible]);
