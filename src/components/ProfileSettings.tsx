@@ -2049,7 +2049,17 @@ CEO, Tedbuy Inc`;
                 Active Listings
               </span>
               <span className="text-base font-black text-slate-900 mt-0.5 block">
-                {myProducts.length}
+                {/* Fix (found via a dedicated admin-analytics correctness
+                    audit): this used to be myProducts.length, unfiltered --
+                    the "My Ads" tabs a few hundred lines below this exact
+                    tile already correctly split active vs. sold via
+                    !p.isSold/p.isSold, so a seller (or an admin viewing the
+                    site-wide "all" mode) with any sold items saw this
+                    top-level "Active Listings" number exceed the active tab's
+                    own count for the identical dataset -- the same word
+                    meaning two different things on one screen. Now matches
+                    the tabs' own filter exactly. */}
+                {myProducts.filter((p) => !p.isSold).length}
               </span>
             </div>
 
