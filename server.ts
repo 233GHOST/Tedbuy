@@ -8470,23 +8470,33 @@ app.get('/api/admin/users-count', serverRateLimiter(60 * 1000, 30, "admin-users-
       }
     }
 
-    // Ensure database truth count (72 registered users in database) is accurately reflected
-    const finalTotal = Math.max(totalCount, 72);
-    const finalOnboarded = Math.max(onboardedCount, 72);
-
+    // Fix (found via a dedicated admin-analytics correctness audit): this
+    // used to be Math.max(totalCount, 72) (and the catch block below
+    // unconditionally returned a hardcoded 72 with success:true) -- a
+    // one-time "don't show 0 on a transient failure" hack from whenever
+    // the real count happened to be 72, left in as a permanent floor. Two
+    // real problems: if both the Admin SDK and the Firestore fallback ever
+    // failed at once, the admin dashboard silently showed a fake "72" as
+    // if it were a real, current number instead of surfacing the failure
+    // -- an admin could never tell a genuine outage from a healthy read.
+    // And structurally, the dashboard could never report fewer than 72
+    // users even if the platform genuinely churned down (e.g. a bulk
+    // account-deletion cascade) or a fresh/staging environment legitimately
+    // has fewer. Real counts (including a real 0, which only happens if
+    // both lookups above genuinely found nothing) are now returned as-is;
+    // a genuine failure is now a genuine error response instead of a
+    // fabricated success.
     return res.json({
       success: true,
-      totalCount: finalTotal,
-      onboardedCount: finalOnboarded,
+      totalCount,
+      onboardedCount,
       source: totalCount > 0 ? 'firebase-admin-sdk' : 'firebase-firestore-database'
     });
   } catch (err: any) {
     console.error('[Admin Users Count API Error]:', err);
-    return res.json({
-      success: true,
-      totalCount: 72,
-      onboardedCount: 72,
-      error: err?.message
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to load user counts'
     });
   }
 });
