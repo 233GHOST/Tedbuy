@@ -39,6 +39,24 @@ export function getUnreadChatCount(
   }, 0);
 }
 
+// A chat the user deleted from their own inbox (one-sided, client-local
+// hide -- see deleteChatForMe/AppContext.tsx) should reappear once
+// something genuinely new happens in it, not stay hidden forever. Can't
+// use unreadCount>0 as the signal: a still-unread chat can be deleted
+// directly from the inbox list without ever being opened first, so
+// unreadCount>0 is already true at the moment of deletion for a
+// legitimate delete too. Compares against a snapshot of lastMessageTime
+// taken at deletion time instead -- only a STRICTLY newer lastMessageTime
+// means real new activity happened since.
+export function shouldReviveDeletedChat(
+  chat: Pick<Chat, 'lastMessageTime'>,
+  snapshotLastMessageTimeAtDeletion: string | undefined
+): boolean {
+  if (!snapshotLastMessageTimeAtDeletion) return true;
+  const chatTime = typeof chat?.lastMessageTime === 'string' ? chat.lastMessageTime : '';
+  return !!chatTime && chatTime > snapshotLastMessageTimeAtDeletion;
+}
+
 export function getUnreadMessageCount(
   messages: Message[],
   chats: Chat[],

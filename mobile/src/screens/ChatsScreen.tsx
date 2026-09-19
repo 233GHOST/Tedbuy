@@ -131,6 +131,23 @@ export function ChatsScreen() {
   // web does (per-user key), just in AsyncStorage instead of localStorage.
   const [deletedChatIds, setDeletedChatIds] = useState<Set<string>>(new Set());
   const [deletedMessageIds, setDeletedMessageIds] = useState<Set<string>>(new Set());
+  // Fix (found via a dedicated background audit of chat deletion
+  // correctness, ported from the matching web fix in AppContext.tsx): a
+  // deleted chat stayed hidden FOREVER even after the other participant
+  // sent a genuinely new message into it, with no visible indication a
+  // reply ever arrived, until the user happened to log out and back in.
+  // Snapshots each chat's lastMessageTime at the moment it's deleted, so
+  // the poll below can tell "still exactly as it was when I deleted it"
+  // apart from "something new happened since" and revive only the
+  // latter -- can't use unreadCount>0 as the revival signal instead,
+  // since handleDeleteChat can be called directly from the inbox list on
+  // a still-unread chat (never opened first), which would immediately
+  // revive it right after deleting it.
+  const [deletedChatSnapshots, setDeletedChatSnapshots] = useState<Record<string, string>>({});
+  const deletedChatIdsRef = useRef<Set<string>>(deletedChatIds);
+  const deletedChatSnapshotsRef = useRef<Record<string, string>>(deletedChatSnapshots);
+  useEffect(() => { deletedChatIdsRef.current = deletedChatIds; }, [deletedChatIds]);
+  useEffect(() => { deletedChatSnapshotsRef.current = deletedChatSnapshots; }, [deletedChatSnapshots]);
   const [pendingMessageCount, setPendingMessageCount] = useState(0);
   // Typing indicator — matches web's sendTypingStatus/onSnapshot listener
   // exactly (see firebase.ts for why this is real-time Firestore, not the
@@ -151,6 +168,11 @@ export function ChatsScreen() {
       AsyncStorage.getItem(`tedbuy_deleted_chat_ids_${uid}`).then((raw) => {
         if (raw) {
           try { setDeletedChatIds(new Set(JSON.parse(raw))); } catch (_) {}
+        }
+      });
+      AsyncStorage.getItem(`tedbuy_deleted_chat_snapshots_${uid}`).then((raw) => {
+        if (raw) {
+          try { setDeletedChatSnapshots(JSON.parse(raw)); } catch (_) {}
         }
       });
       AsyncStorage.getItem(`tedbuy_deleted_message_ids_${uid}`).then((raw) => {
@@ -193,6 +215,13 @@ export function ChatsScreen() {
             messages.filter((m) => m.chatId === chatId).forEach((m) => nextMessageIds.add(m.id));
             return nextMessageIds;
           });
+          // See deletedChatSnapshots' own declaration comment for why this exists.
+          const targetChatForSnapshot = chats.find((c) => c.id === chatId);
+          let nextSnapshots!: Record<string, string>;
+          setDeletedChatSnapshots((prev) => {
+            nextSnapshots = { ...prev, [chatId]: targetChatForSnapshot?.lastMessageTime || new Date().toISOString() };
+            return nextSnapshots;
+          });
           if (activeChatId === chatId) setActiveChatId(null);
           // Previously these AsyncStorage writes were fire-and-forget
           // (.catch(() => {})) with no error surfaced at all -- the chat
@@ -205,6 +234,7 @@ export function ChatsScreen() {
             await Promise.all([
               AsyncStorage.setItem(`tedbuy_deleted_chat_ids_${uid}`, JSON.stringify(Array.from(nextChatIds))),
               AsyncStorage.setItem(`tedbuy_deleted_message_ids_${uid}`, JSON.stringify(Array.from(nextMessageIds))),
+              AsyncStorage.setItem(`tedbuy_deleted_chat_snapshots_${uid}`, JSON.stringify(nextSnapshots)),
             ]);
           } catch (err) {
             Alert.alert('Delete Not Saved', "This chat was removed from view, but couldn't be saved permanently on this device. It may reappear next time you open the app.");
@@ -349,6 +379,43 @@ export function ChatsScreen() {
       try {
         const result = await fetchChatsApi();
         if (!active || thisRequestId !== chatsRequestIdRef.current) return;
+
+        // Revives any chat previously deleted from this inbox IF something
+        // genuinely new has happened in it since (a real, strictly newer
+        // lastMessageTime than the snapshot taken at deletion time). See
+        // deletedChatSnapshots' own declaration comment for the full
+        // reasoning. Uses refs so this poll effect (an empty dependency
+        // array, intentionally not re-subscribing on every delete/revive)
+        // always reads the latest values.
+        const currentDeletedIds = deletedChatIdsRef.current;
+        const currentSnapshots = deletedChatSnapshotsRef.current;
+        if (currentDeletedIds.size > 0) {
+          const revivedIds: string[] = [];
+          for (const chat of result as any[]) {
+            if (!currentDeletedIds.has(chat.id)) continue;
+            const snapshotTime = currentSnapshots[chat.id];
+            const chatTime = typeof chat.lastMessageTime === 'string' ? chat.lastMessageTime : '';
+            if (!snapshotTime || (chatTime && chatTime > snapshotTime)) {
+              revivedIds.push(chat.id);
+            }
+          }
+          if (revivedIds.length > 0) {
+            const uid = auth.currentUser?.uid;
+            setDeletedChatIds((prev) => {
+              const next = new Set(prev);
+              revivedIds.forEach((id) => next.delete(id));
+              if (uid) AsyncStorage.setItem(`tedbuy_deleted_chat_ids_${uid}`, JSON.stringify(Array.from(next))).catch(() => {});
+              return next;
+            });
+            setDeletedChatSnapshots((prev) => {
+              const next = { ...prev };
+              revivedIds.forEach((id) => delete next[id]);
+              if (uid) AsyncStorage.setItem(`tedbuy_deleted_chat_snapshots_${uid}`, JSON.stringify(next)).catch(() => {});
+              return next;
+            });
+          }
+        }
+
         setChats(result);
         setLoading(false);
         setChatsLoadFailed(false);

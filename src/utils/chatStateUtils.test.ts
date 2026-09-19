@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getVisibleChats, getUnreadMessageCount, isChatEligibleForReuse } from './chatStateUtils.ts';
+import { getVisibleChats, getUnreadMessageCount, isChatEligibleForReuse, shouldReviveDeletedChat } from './chatStateUtils.ts';
 import type { Chat, Message } from '../types';
 
 const baseChat: Chat = {
@@ -37,4 +37,29 @@ test('does not reuse a chat that was deleted for the current user', () => {
   const chat = { ...baseChat, productId: 'product-1', buyerId: 'buyer-1', sellerId: 'seller-1' };
   assert.equal(isChatEligibleForReuse(chat, 'buyer-1', new Set(['chat-1'])), false);
   assert.equal(isChatEligibleForReuse(chat, 'buyer-1', new Set()), true);
+});
+
+test('shouldReviveDeletedChat: a chat unchanged since the deletion snapshot stays hidden', () => {
+  const chat = { ...baseChat, lastMessageTime: '2024-01-01T00:00:00.000Z' };
+  assert.equal(shouldReviveDeletedChat(chat, '2024-01-01T00:00:00.000Z'), false);
+});
+
+test('shouldReviveDeletedChat: a strictly newer lastMessageTime than the snapshot revives it', () => {
+  const chat = { ...baseChat, lastMessageTime: '2024-01-02T00:00:00.000Z' };
+  assert.equal(shouldReviveDeletedChat(chat, '2024-01-01T00:00:00.000Z'), true);
+});
+
+test('shouldReviveDeletedChat: an older lastMessageTime than the snapshot (should not happen, but stays defensive) does not revive', () => {
+  const chat = { ...baseChat, lastMessageTime: '2023-12-31T00:00:00.000Z' };
+  assert.equal(shouldReviveDeletedChat(chat, '2024-01-01T00:00:00.000Z'), false);
+});
+
+test('shouldReviveDeletedChat: a missing snapshot (unexpected, but should never leave a chat permanently stuck) revives', () => {
+  const chat = { ...baseChat, lastMessageTime: '2024-01-01T00:00:00.000Z' };
+  assert.equal(shouldReviveDeletedChat(chat, undefined), true);
+});
+
+test('shouldReviveDeletedChat: a chat with no lastMessageTime at all never revives (nothing to compare)', () => {
+  const chat = { ...baseChat, lastMessageTime: undefined as any };
+  assert.equal(shouldReviveDeletedChat(chat, '2024-01-01T00:00:00.000Z'), false);
 });

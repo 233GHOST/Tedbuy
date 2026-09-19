@@ -47,7 +47,7 @@ import { deleteMultipleFromCloudinary, getCloudinaryVideoPoster } from '../utils
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 import { checkClientRateLimit } from '../utils/rateLimiter';
 import { sanitizeText, validateInputLength } from '../utils/inputValidation';
-import { isChatEligibleForReuse } from '../utils/chatStateUtils';
+import { isChatEligibleForReuse, shouldReviveDeletedChat } from '../utils/chatStateUtils';
 
 function cleanObject<T extends any>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
@@ -502,12 +502,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [deletedChatIds, setDeletedChatIds] = useState<Set<string>>(new Set());
   const [deletedMessageIds, setDeletedMessageIds] = useState<Set<string>>(new Set());
+  // Fix (found via a dedicated background audit of chat deletion
+  // correctness): deletedChatIds was purely additive -- the only place an
+  // id was ever removed was a full reset to a fresh Set on logout/login.
+  // A chat "deleted from my inbox" (a one-sided, client-local hide --
+  // confirmed correct in its own right: the other participant's copy is
+  // completely untouched, no server delete endpoint exists) stayed hidden
+  // FOREVER even after the other participant sent a genuinely new message
+  // into it, with no visible indication a reply ever arrived, until the
+  // user happened to log out and back in (which resets the whole set).
+  // Snapshots each chat's lastMessageTime at the moment it's deleted, so
+  // the poll below can tell "still exactly as it was when I deleted it"
+  // apart from "something new happened since" and revive only the latter
+  // -- can't use unreadCount>0 as the revival signal instead, since
+  // handleDeleteChat can be called directly from the inbox list on a
+  // still-unread chat (never opened first), which would immediately
+  // revive it right after deleting it.
+  const [deletedChatSnapshots, setDeletedChatSnapshots] = useState<Record<string, string>>({});
   const deletedChatIdsRef = useRef<Set<string>>(deletedChatIds);
   const deletedMessageIdsRef = useRef<Set<string>>(deletedMessageIds);
+  const deletedChatSnapshotsRef = useRef<Record<string, string>>(deletedChatSnapshots);
 
   useEffect(() => {
     deletedChatIdsRef.current = deletedChatIds;
   }, [deletedChatIds]);
+
+  useEffect(() => {
+    deletedChatSnapshotsRef.current = deletedChatSnapshots;
+  }, [deletedChatSnapshots]);
 
   useEffect(() => {
     deletedMessageIdsRef.current = deletedMessageIds;
@@ -517,18 +539,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentUser) {
       setDeletedChatIds(new Set());
       setDeletedMessageIds(new Set());
+      setDeletedChatSnapshots({});
       return;
     }
 
     try {
       const chatIds = safeLocalStorage.getItem(`tedbuy_deleted_chat_ids_${currentUser.id}`);
       const messageIds = safeLocalStorage.getItem(`tedbuy_deleted_message_ids_${currentUser.id}`);
+      const chatSnapshots = safeLocalStorage.getItem(`tedbuy_deleted_chat_snapshots_${currentUser.id}`);
       setDeletedChatIds(chatIds ? new Set(JSON.parse(chatIds)) : new Set());
       setDeletedMessageIds(messageIds ? new Set(JSON.parse(messageIds)) : new Set());
+      setDeletedChatSnapshots(chatSnapshots ? JSON.parse(chatSnapshots) : {});
     } catch (err) {
       console.warn('[AppContext] Could not load deleted chat/message IDs:', err);
       setDeletedChatIds(new Set());
       setDeletedMessageIds(new Set());
+      setDeletedChatSnapshots({});
     }
   }, [currentUser]);
 
@@ -2605,6 +2631,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const thisRequestId = ++requestId;
       const apiChats = (await fetchChatsFromApi()).map((c: any) => normalizeChat(c)) as Chat[];
       if (!active || thisRequestId !== requestId) return;
+
+      // Revives any chat the user previously deleted from their inbox
+      // (deletedChatIds) IF something genuinely new has happened in it
+      // since -- a real, newer lastMessageTime than the snapshot taken at
+      // the moment of deletion. See deletedChatSnapshots' own declaration
+      // comment for the full reasoning. Using refs (not the state
+      // variables directly) so this poll effect doesn't need to
+      // re-subscribe every time a chat gets deleted/revived.
+      const currentDeletedIds = deletedChatIdsRef.current;
+      const currentSnapshots = deletedChatSnapshotsRef.current;
+      if (currentDeletedIds.size > 0) {
+        const revivedIds: string[] = [];
+        for (const chat of apiChats) {
+          if (!currentDeletedIds.has(chat.id)) continue;
+          if (shouldReviveDeletedChat(chat, currentSnapshots[chat.id])) {
+            revivedIds.push(chat.id);
+          }
+        }
+        if (revivedIds.length > 0) {
+          setDeletedChatIds(prev => {
+            const next = new Set(prev);
+            revivedIds.forEach(id => next.delete(id));
+            persistDeletedChatIds(next);
+            return next;
+          });
+          setDeletedChatSnapshots(prev => {
+            const next = { ...prev };
+            revivedIds.forEach(id => delete next[id]);
+            persistDeletedChatSnapshots(next);
+            return next;
+          });
+        }
+      }
+
       setChats(prev => {
         // Preserve any admin-only TedBuy Support chat merged in by the
         // effect below — the API never returns it (see that effect's
@@ -4981,6 +5041,15 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     }
   };
 
+  const persistDeletedChatSnapshots = (next: Record<string, string>) => {
+    if (!currentUser) return;
+    try {
+      safeLocalStorage.setItem(`tedbuy_deleted_chat_snapshots_${currentUser.id}`, JSON.stringify(next));
+    } catch (err) {
+      console.warn('[AppContext] Could not persist deleted chat snapshots:', err);
+    }
+  };
+
   const deleteChatForMe = async (chatId: string) => {
     if (!currentUser) return;
 
@@ -4990,6 +5059,14 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       nextDeletedIds.add(chatId);
       persistDeletedChatIds(nextDeletedIds);
       return nextDeletedIds;
+    });
+
+    // See deletedChatSnapshots' own comment above for why this exists.
+    const targetChatForSnapshot = chats.find(c => c.id === chatId);
+    setDeletedChatSnapshots(prev => {
+      const next = { ...prev, [chatId]: targetChatForSnapshot?.lastMessageTime || new Date().toISOString() };
+      persistDeletedChatSnapshots(next);
+      return next;
     });
 
     setDeletedMessageIds(prev => {
