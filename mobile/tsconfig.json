@@ -2,5 +2,13 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // *.test.ts files are run directly with `node --experimental-strip-types
+  // --test` (see src/utils/*.test.ts), not bundled into the app by Metro --
+  // excluded here because expo/tsconfig.base doesn't have Node's ambient
+  // types (node:test, node:assert/strict) in scope, and adding them
+  // project-wide risked exposing Node-only globals to the React Native app
+  // code's own type-checking. Type safety within a test file itself still
+  // comes from the app source files it imports/mirrors.
+  "exclude": ["**/*.test.ts"]
 }
