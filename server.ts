@@ -5411,6 +5411,20 @@ app.post('/api/chats/mark-picked-up', serverRateLimiter(60 * 1000, 30, "chats-ma
   if (chat.buyerId !== verified.uid) {
     return res.status(403).json({ success: false, error: 'Only the buyer can confirm pickup.' });
   }
+  // Found via a dedicated audit: previously unconditional, so a buyer could
+  // reach `tradeStatus: 'completed'` (which /api/reviews/create trusts as
+  // proof of a genuine trade) without the seller ever confirming delivery
+  // first, by calling this endpoint directly rather than through the app's
+  // own UI. Both platforms' real UI already structurally prevent this --
+  // web (ChatInterface.tsx) only renders an enabled "Mark as Picked up"
+  // button when currentStatus === 'delivered', otherwise a disabled
+  // "(Locked)" button; mobile (ChatsScreen.tsx) only renders the action at
+  // all when currentStatus === 'delivered' -- so this check can never
+  // reject a legitimate in-app confirmation, only a direct-API bypass of
+  // that same precondition.
+  if (!chat.deliveredBySeller) {
+    return res.status(409).json({ success: false, error: 'The seller must confirm delivery before pickup can be confirmed.' });
+  }
   if (!backendSupabase) {
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
   }
@@ -7962,7 +7976,22 @@ app.get('/api/admin/users/search', serverRateLimiter(60 * 1000, 60, "admin-users
       try {
         let q = backendSupabase.from('users').select('*').limit(50);
         if (queryTerm) {
-          q = q.or(`email.ilike.%${queryTerm}%,id.ilike.%${queryTerm}%,username.ilike.%${queryTerm}%,phoneNumber.ilike.%${queryTerm}%`);
+          // Found via a dedicated audit: `,` and `(`/`)` are structurally
+          // significant in PostgREST's .or() filter grammar (comma starts a
+          // new condition, parens open a logical group) -- an admin
+          // pasting a naturally-punctuated search (e.g. a phone number
+          // formatted "(024) 123-4567") would silently break this specific
+          // filter and get weaker results with no indication why (the
+          // error is swallowed below and falls through to the Firebase
+          // Admin SDK search instead). No privilege-escalation risk either
+          // way (this endpoint is already admin-only, select('*'), and an
+          // admin already has this same data via /api/admin/users/list-full)
+          // -- this is a robustness/usability fix, not a security one.
+          // Periods are left untouched: PostgREST only splits the first two
+          // on column/operator, so a period inside the value (e.g. a real
+          // email address) is already handled correctly.
+          const safeQueryTerm = queryTerm.replace(/[,()]/g, '');
+          q = q.or(`email.ilike.%${safeQueryTerm}%,id.ilike.%${safeQueryTerm}%,username.ilike.%${safeQueryTerm}%,phoneNumber.ilike.%${safeQueryTerm}%`);
         }
         const { data, error } = await q;
         if (!error && Array.isArray(data)) {

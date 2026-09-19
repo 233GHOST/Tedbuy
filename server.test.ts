@@ -423,6 +423,49 @@ test('admin user delete cascade: one product\'s deletion failure does not stop t
   assert.equal(result.deletedCount, 2, 'only the two that genuinely succeeded should count');
 });
 
+// --- POST /api/chats/mark-picked-up: a buyer must not be able to reach
+// tradeStatus 'completed' (which /api/reviews/create trusts as proof of a
+// genuine trade) without the seller having confirmed delivery first --
+// mirrors the precondition check added at server.ts:~5414-5426. Both
+// platforms' real UI already only ever renders the enabled action when
+// deliveredBySeller is true, so this only rejects a direct-API bypass of
+// that same precondition, never a legitimate in-app confirmation.
+function canConfirmPickup(chat: { deliveredBySeller: boolean }): { status: number; allowed: boolean } {
+  if (!chat.deliveredBySeller) return { status: 409, allowed: false };
+  return { status: 200, allowed: true };
+}
+
+test('mark-picked-up: rejected when the seller has not confirmed delivery yet (closes the direct-API bypass)', () => {
+  const result = canConfirmPickup({ deliveredBySeller: false });
+  assert.equal(result.allowed, false);
+  assert.equal(result.status, 409);
+});
+
+test('mark-picked-up: allowed once the seller has confirmed delivery (the normal, legitimate flow)', () => {
+  const result = canConfirmPickup({ deliveredBySeller: true });
+  assert.equal(result.allowed, true);
+});
+
+// --- GET /api/admin/users/search: a comma or parenthesis in the search
+// term must not reach PostgREST's .or() filter grammar unescaped -- mirrors
+// the sanitization added at server.ts:~7963-7980.
+function buildUsersSearchFilter(queryTerm: string): string {
+  const safeQueryTerm = queryTerm.replace(/[,()]/g, '');
+  return `email.ilike.%${safeQueryTerm}%,id.ilike.%${safeQueryTerm}%,username.ilike.%${safeQueryTerm}%,phoneNumber.ilike.%${safeQueryTerm}%`;
+}
+
+test('admin users search: commas and parentheses are stripped before building the .or() filter', () => {
+  const filter = buildUsersSearchFilter('(024) 123-4567,evil.eq.true');
+  assert.equal(filter.includes(','.repeat(1)) && filter.split(',').length > 4, false, 'no extra condition should be injectable via a comma in the search term');
+  assert.equal(filter.includes('('), false);
+  assert.equal(filter.includes(')'), false);
+});
+
+test('admin users search: a real email search term (containing a period) is left untouched', () => {
+  const filter = buildUsersSearchFilter('john.doe@example.com');
+  assert.match(filter, /%john\.doe@example\.com%/);
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
