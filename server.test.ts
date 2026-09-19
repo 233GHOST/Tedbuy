@@ -540,6 +540,70 @@ test('dispatchInBatches: an empty array resolves immediately with no calls', asy
   assert.equal(calls, 0);
 });
 
+// --- withUserFollowLock (server.ts:~5905-5917): serializes the read-
+// modify-write critical section of /api/users/follow per user id, closing
+// a lost-update race between two near-simultaneous follow/unfollow
+// requests from the same user. Mirrors the real function verbatim -- same
+// shape as the already-proven withProductBoostLock.
+const userFollowLocksTest = new Map<string, Promise<unknown>>();
+function withUserFollowLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = userFollowLocksTest.get(userId) || Promise.resolve();
+  const run = previous.then(fn, fn);
+  const chained = run.then(() => undefined, () => undefined);
+  userFollowLocksTest.set(userId, chained);
+  chained.finally(() => {
+    if (userFollowLocksTest.get(userId) === chained) {
+      userFollowLocksTest.delete(userId);
+    }
+  });
+  return run;
+}
+
+test('withUserFollowLock: two concurrent calls for the same user run strictly one after the other, not overlapping', async () => {
+  const order: string[] = [];
+  const first = withUserFollowLock('user1', async () => {
+    order.push('first-start');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    order.push('first-end');
+  });
+  const second = withUserFollowLock('user1', async () => {
+    order.push('second-start');
+    order.push('second-end');
+  });
+  await Promise.all([first, second]);
+  assert.deepEqual(order, ['first-start', 'first-end', 'second-start', 'second-end']);
+});
+
+test('withUserFollowLock: closes the lost-update race -- a second call always sees the first call\'s already-applied change', async () => {
+  let followingSellers: string[] = [];
+  const followB = withUserFollowLock('user1', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    followingSellers = [...followingSellers, 'sellerB'];
+  });
+  const followC = withUserFollowLock('user1', async () => {
+    followingSellers = [...followingSellers, 'sellerC'];
+  });
+  await Promise.all([followB, followC]);
+  assert.deepEqual(followingSellers.slice().sort(), ['sellerB', 'sellerC']);
+});
+
+test('withUserFollowLock: different users are never serialized against each other', async () => {
+  const startedAt: number[] = [];
+  const start = Date.now();
+  await Promise.all([
+    withUserFollowLock('userA', async () => {
+      startedAt.push(Date.now() - start);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }),
+    withUserFollowLock('userB', async () => {
+      startedAt.push(Date.now() - start);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }),
+  ]);
+  const spread = Math.max(...startedAt) - Math.min(...startedAt);
+  assert.ok(spread < 15, `expected concurrent starts across different users (spread < 15ms), got ${spread}ms`);
+});
+
 // --- normalizeServerProductRow / normalizeServerProductSummaryRow: both
 // must agree on boostPlan for the same actively-boosted row with no stored
 // plan value, since productSelector.ts's boost-priority tiebreaker ranks

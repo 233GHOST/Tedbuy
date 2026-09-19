@@ -5902,6 +5902,32 @@ app.post('/api/users/heartbeat', serverRateLimiter(60 * 1000, 20, "users-heartbe
   }
 });
 
+// Lost-update race (found via a dedicated background audit, same shape
+// already fixed for boost purchases below): the follow toggle is a plain
+// read-modify-write of the caller's own followingSellers array with no
+// locking. Two near-simultaneous follow/unfollow requests from the same
+// user (e.g. tapping "Follow" on two different sellers in quick
+// succession while browsing a discovery grid, or a UI double-tap) can
+// both read the same stale array before either write lands -- whichever
+// update() resolves last silently overwrites the other's change,
+// discarding one of the two follow actions with no error and no trace.
+// Serializes the whole read-modify-write critical section per user id,
+// same reasoning as withProductBoostLock (in-process only -- doesn't
+// protect across multiple concurrent server instances).
+const userFollowLocks = new Map<string, Promise<unknown>>();
+function withUserFollowLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = userFollowLocks.get(userId) || Promise.resolve();
+  const run = previous.then(fn, fn);
+  const chained = run.then(() => undefined, () => undefined);
+  userFollowLocks.set(userId, chained);
+  chained.finally(() => {
+    if (userFollowLocks.get(userId) === chained) {
+      userFollowLocks.delete(userId);
+    }
+  });
+  return run;
+}
+
 app.post('/api/users/follow', serverRateLimiter(60 * 1000, 30, "users-follow"), async (req, res) => {
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
@@ -5919,48 +5945,55 @@ app.post('/api/users/follow', serverRateLimiter(60 * 1000, 30, "users-follow"), 
   }
 
   try {
-    const { data: me, error: meErr } = await backendSupabase
-      .from('users')
-      .select('*')
-      .eq('id', verified.uid)
-      .maybeSingle();
-    if (meErr) throw meErr;
-    if (!me) return res.status(404).json({ success: false, error: 'User not found' });
+    const updatedFollowing = await withUserFollowLock(verified.uid, async () => {
+      const { data: me, error: meErr } = await backendSupabase
+        .from('users')
+        .select('*')
+        .eq('id', verified.uid)
+        .maybeSingle();
+      if (meErr) throw meErr;
+      if (!me) throw Object.assign(new Error('User not found'), { statusCode: 404 });
 
-    const following: string[] = Array.isArray(me.followingSellers) ? me.followingSellers : [];
-    const alreadyFollowing = following.includes(sellerId);
-    const shouldFollow = follow !== false;
-    const updatedFollowing = shouldFollow
-      ? (alreadyFollowing ? following : [...following, sellerId])
-      : following.filter((id) => id !== sellerId);
+      const following: string[] = Array.isArray(me.followingSellers) ? me.followingSellers : [];
+      const alreadyFollowing = following.includes(sellerId);
+      const shouldFollow = follow !== false;
+      const nextFollowing = shouldFollow
+        ? (alreadyFollowing ? following : [...following, sellerId])
+        : following.filter((id) => id !== sellerId);
 
-    const { error: updateErr } = await backendSupabase
-      .from('users')
-      .update({ followingSellers: updatedFollowing })
-      .eq('id', verified.uid);
-    if (updateErr) throw updateErr;
+      const { error: updateErr } = await backendSupabase
+        .from('users')
+        .update({ followingSellers: nextFollowing })
+        .eq('id', verified.uid);
+      if (updateErr) throw updateErr;
 
-    if (shouldFollow && !alreadyFollowing && await shouldNotifyUser(sellerId, 'newFollower')) {
-      await createNotification({
-        id: `notif_follow_${Date.now()}_${sellerId}_${Math.random().toString(36).substring(2, 6)}`,
-        userId: sellerId,
-        type: 'new_follower',
-        title: 'New Follower!',
-        message: `${me.username || verified.email?.split('@')[0] || 'Someone'} started following your shop!`,
-        triggerUserId: verified.uid,
-        triggerUsername: me.username || verified.email?.split('@')[0] || 'Someone',
-        triggerUserPhoto: me.photoUrl || '',
-        productId: '',
-        productTitle: 'Shop Network',
-        productPrice: '0',
-        productImage: '',
-        createdAt: new Date().toISOString(),
-        read: false
-      });
-    }
+      if (shouldFollow && !alreadyFollowing && await shouldNotifyUser(sellerId, 'newFollower')) {
+        await createNotification({
+          id: `notif_follow_${Date.now()}_${sellerId}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: sellerId,
+          type: 'new_follower',
+          title: 'New Follower!',
+          message: `${me.username || verified.email?.split('@')[0] || 'Someone'} started following your shop!`,
+          triggerUserId: verified.uid,
+          triggerUsername: me.username || verified.email?.split('@')[0] || 'Someone',
+          triggerUserPhoto: me.photoUrl || '',
+          productId: '',
+          productTitle: 'Shop Network',
+          productPrice: '0',
+          productImage: '',
+          createdAt: new Date().toISOString(),
+          read: false
+        });
+      }
+
+      return nextFollowing;
+    });
 
     return res.json({ success: true, followingSellers: updatedFollowing });
   } catch (err: any) {
+    if (err?.statusCode === 404) {
+      return res.status(404).json({ success: false, error: err.message });
+    }
     console.error('[Users Follow API Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to update follow status' });
   }
