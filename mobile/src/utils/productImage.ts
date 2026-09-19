@@ -21,6 +21,17 @@ function filterValidImages(arr: any[]): string[] {
       img.trim().length > 0 &&
       !img.includes('/api/products/') &&
       !img.startsWith('data:image/svg+xml') &&
+      // Found via a dedicated cross-platform audit: web's productUtils.ts
+      // excludes unsplash.com in every one of its equivalent filters, but
+      // this one never did -- despite this file's own header comment
+      // documenting that showing an unrelated stock photo as "the seller's
+      // actual photo" is exactly the bug class it exists to prevent.
+      // Verified real, not theoretical: SellScreen.tsx substitutes a
+      // hardcoded Unsplash stock photo when a listing is published with no
+      // photos and no video, and /api/products/sync's own response echoes
+      // that raw, unfiltered value straight back to the client before any
+      // server-side cleanup on a later GET ever strips it.
+      !img.includes('unsplash.com') &&
       !isVideoPosterUrl(img)
   );
 }

@@ -1,4 +1,4 @@
-import { Product } from '../types';
+import type { Product } from '../types';
 
 export interface DiscoverSeller {
   id: string;
@@ -85,15 +85,27 @@ export function computeDiscoverSellers(
 
       const name = user?.username || user?.displayName || user?.name || sellerListings[0]?.sellerName || 'Verified Merchant';
       const photo = user?.photoUrl || user?.avatar || user?.photoURL || sellerListings[0]?.sellerPhoto || '';
-      const location = user?.location || sellerListings[0]?.location || 'Ghana';
+      // Found via a dedicated cross-platform audit: web's SellersToDiscover
+      // checks `region` before `location` (the field /api/users/list
+      // actually returns, per server.ts's select list) -- this was missing
+      // it entirely, so a seller with `region` set but `location` empty
+      // showed their real Ghana region on web's carousel but the generic
+      // 'Ghana' fallback here for the same seller.
+      const location = user?.region || user?.location || sellerListings[0]?.location || 'Ghana';
       // No fabricated fallback — web's SellersToDiscover doesn't show a
       // rating at all; if this is ever wired into UI, 0 must mean "unrated."
       const rating = Number(user?.rating || user?.sellerRating || 0);
+      // Found via the same audit: missing the displayName-keyed lookup web's
+      // getRealCountForUser has between username and email -- if
+      // sellerListingCounts (from AppContext.tsx) only has an entry keyed by
+      // a seller's displayName, web resolves the real count via that key;
+      // this fell through to the locally-computed (possibly lower) count.
       const count = (sellerListingCounts && (
         sellerListingCounts[id] ||
         (user?.id && sellerListingCounts[user.id]) ||
         (user?.uid && sellerListingCounts[user.uid]) ||
         (user?.username && sellerListingCounts[user.username.trim().toLowerCase()]) ||
+        (user?.displayName && sellerListingCounts[user.displayName.trim().toLowerCase()]) ||
         (user?.email && sellerListingCounts[user.email.trim().toLowerCase()])
       )) || sellerListingCount[id] || 0;
       const totalViews = sellerListings.reduce((sum, p) => sum + (Number((p as any).viewsCount) || 0), 0);
