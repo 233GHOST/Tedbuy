@@ -679,6 +679,26 @@ test('review id derivation: still starts with the "rev_" prefix dbAdapter.ts\'s 
   assert.ok(resolveReviewId('chat_abc').startsWith('rev_'));
 });
 
+// /api/chats/start's duplicate-chat guard (a SELECT before the INSERT)
+// isn't atomic with the write either -- same race shape, same fix.
+// Mirrors server.ts:~5201: deriving the chat id deterministically from
+// (buyerId, sellerId, productId) instead of appending Date.now(), so a
+// racing second "Message Seller" request for the same trio (the product
+// open in two tabs, or web+mobile at once) harmlessly reuses the same
+// row instead of creating a duplicate conversation thread.
+function resolveChatId(buyerId: string, sellerId: string, productId: string): string {
+  return `chat_${buyerId}_${sellerId}_${productId}`;
+}
+
+test('chat id derivation: is deterministic for the same buyer/seller/product, closing the duplicate-chat race', () => {
+  const args = ['buyer1', 'seller1', 'prod1'] as const;
+  assert.equal(resolveChatId(...args), resolveChatId(...args));
+});
+
+test('chat id derivation: a different product with the same buyer/seller never collides with the first chat', () => {
+  assert.notEqual(resolveChatId('buyer1', 'seller1', 'prod1'), resolveChatId('buyer1', 'seller1', 'prod2'));
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never

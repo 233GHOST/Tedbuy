@@ -5198,7 +5198,20 @@ app.post('/api/chats/start', serverRateLimiter(5 * 60 * 1000, 5, "chat-start"), 
     let chat = existingChat;
     if (!chat) {
       const { data: buyerProfile } = await backendSupabase.from('users').select('username').eq('id', buyerId).maybeSingle();
-      const chatId = `chat_${buyerId}_${sellerId}_${productId}_${Date.now()}`;
+      // Fix (found via a dedicated lost-update-race audit, same shape
+      // already fixed for review submissions): this used to end in
+      // ${Date.now()}, making the id non-deterministic. The existingChat
+      // SELECT above isn't atomic with this INSERT -- two near-simultaneous
+      // "Message Seller" requests for the same buyer+seller+product (the
+      // same product open in two tabs, or on both web and mobile at once)
+      // could both find no existing chat and each insert a new row with a
+      // DIFFERENT id, creating two separate, duplicate conversation threads
+      // for what the buyer experiences as one action. Deterministic instead:
+      // exactly one chat can ever exist per (buyer, seller, product), so a
+      // racing second insert (onConflict:'id' below) harmlessly reuses the
+      // same row instead of creating a duplicate. Confirmed safe -- nothing
+      // in this codebase parses a timestamp out of a chat id.
+      const chatId = `chat_${buyerId}_${sellerId}_${productId}`;
       const productImage = Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : '';
 
       const newChat = {
