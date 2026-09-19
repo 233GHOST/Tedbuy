@@ -54,7 +54,7 @@ import { createProductSelector } from './utils/productSelector';
 import { DynamicCategoryFilters } from './components/DynamicCategoryFilters';
 import { getOptimizedImageUrl } from './utils/imageOptimizer';
 import { getCloudinaryVideoPoster } from './utils/cloudinary';
-import { getUnreadMessageCount } from './utils/chatStateUtils';
+import { getUnreadChatCount } from './utils/chatStateUtils';
 import { 
   UniversalPageLoader, 
   ProductDetailSkeleton, 
@@ -678,10 +678,22 @@ const MarketplaceContent: React.FC = () => {
     setCurrentView('post-ad');
   };
 
+  // Fix (found via a dedicated badge/counter-consistency audit): this used
+  // getUnreadMessageCount(messages, ...), but `messages` (AppContext.tsx)
+  // was migrated to hold ONLY the currently-open chat thread's messages,
+  // not a full cross-chat history -- see that file's own comment: "unread
+  // counts come from chat.unreadCount instead (see utils/chatStateUtils.ts's
+  // getUnreadChatCount)". Navbar.tsx's own Inbox badge was already
+  // correctly migrated to getUnreadChatCount (server-authoritative, from
+  // chat.unreadCount), but that button is desktop/tablet-only (`hidden
+  // sm:flex`) -- this bottom nav badge (`md:hidden`, the only chat-unread
+  // indicator on a mobile-width browser session) kept using the stale
+  // path: it showed 0 whenever no chat was open, and even with one open,
+  // only that single chat's unread count rather than the real total.
   const unreadCount = useMemo(() => {
-    if (!currentUser || !messages) return 0;
-    return getUnreadMessageCount(messages, chats, currentUser.id, deletedChatIds, deletedMessageIds);
-  }, [messages, chats, currentUser, deletedChatIds, deletedMessageIds]);
+    if (!currentUser) return 0;
+    return getUnreadChatCount(chats, deletedChatIds);
+  }, [chats, currentUser, deletedChatIds]);
 
   const isVideoFeedMobile = currentView === 'browse' && homeViewMode === 'video-feed';
 
