@@ -699,6 +699,23 @@ test('chat id derivation: a different product with the same buyer/seller never c
   assert.notEqual(resolveChatId('buyer1', 'seller1', 'prod1'), resolveChatId('buyer1', 'seller1', 'prod2'));
 });
 
+// /api/reports/create had no duplicate-report prevention -- the id ended
+// in ${Date.now()}, so the same reporter could spam-report the same
+// listing an unlimited number of times. Mirrors server.ts:~5746: exactly
+// one report row can now ever exist per (reporterId, productId) pair.
+function resolveReportId(reporterId: string, productId: string): string {
+  return `report_${reporterId}_${productId}`;
+}
+
+test('report id derivation: a repeat report from the same user against the same product reuses the same id (updates, not duplicates)', () => {
+  assert.equal(resolveReportId('user1', 'prod1'), resolveReportId('user1', 'prod1'));
+});
+
+test('report id derivation: different reporters against the same product, or the same reporter against different products, never collide', () => {
+  assert.notEqual(resolveReportId('user1', 'prod1'), resolveReportId('user2', 'prod1'));
+  assert.notEqual(resolveReportId('user1', 'prod1'), resolveReportId('user1', 'prod2'));
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never

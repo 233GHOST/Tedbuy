@@ -4065,6 +4065,27 @@ async function deleteProductFromBackend(productId: string) {
     }
   }
 
+  // Fix (found via a dedicated audit of report follow-through/data
+  // hygiene): nothing anywhere in this codebase ever deleted a `reports`
+  // row -- there's no admin-facing resolution UI yet (a separate,
+  // documented product gap, not fixed here), and dbAdapter.ts explicitly
+  // blocks any direct client-side delete against this table. Every report
+  // filed against a listing that later gets deleted (a normal, routine
+  // seller or admin action) stayed in the table forever, permanently
+  // referencing a productId that no longer resolves to anything. Best-
+  // effort, matching this function's own tolerance for the Cloudinary/
+  // Firestore steps above -- a report row is inert either way (nothing
+  // reads this table today), so a failed cleanup here is never worth
+  // blocking the actual product deletion over.
+  if (backendSupabase) {
+    try {
+      const { error: reportsErr } = await backendSupabase.from('reports').delete().eq('productId', productId);
+      if (reportsErr) throw reportsErr;
+    } catch (repErr: any) {
+      console.warn(`[Product Delete Server] Could not clean up reports for deleted product ${productId}:`, repErr?.message || repErr);
+    }
+  }
+
   // Invalidate memory caches for deleted product
   invalidateProductCache(productId, sellerId, category);
 }
@@ -5722,7 +5743,20 @@ app.post('/api/reports/create', serverRateLimiter(5 * 60 * 1000, 5, "reports-cre
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
   }
 
-  const reportId = `report_${verified.uid}_${productId}_${Date.now()}`;
+  // Fix (found via the same audit as the reports-cleanup-on-delete fix
+  // above): this used to end in ${Date.now()}, so the same reporter could
+  // spam-report the same listing an unlimited number of times -- each
+  // call minted a brand-new row, the onConflict:'id' upsert below never
+  // collided since every id was unique. The generic IP-keyed rate limiter
+  // on this route caps bursts (5 per 5 min) but not sustained spam over
+  // time, and inflates report volume with no signal of genuine distinct
+  // complainants -- which will matter the moment any future admin
+  // moderation tooling uses report count as a signal. Deterministic
+  // instead: exactly one report row can ever exist per (reporter,
+  // product) pair -- a repeat report from the same user now updates
+  // their existing report (fresh reason/comment/createdAt) rather than
+  // creating a duplicate.
+  const reportId = `report_${verified.uid}_${productId}`;
   const reportData: Record<string, any> = {
     id: reportId,
     productId,
