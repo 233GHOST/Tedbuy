@@ -29,7 +29,6 @@ export const SellerProfilePage: React.FC = () => {
     setShowAuthModal,
     setAuthMode,
     updateUserProfile,
-    sellerListingCounts,
     showToast
   } = useApp();
 
@@ -691,16 +690,22 @@ export const SellerProfilePage: React.FC = () => {
               </span>
               <span className="flex items-center gap-1">
                 <ShoppingBag className="w-4 h-4 text-slate-400" />
-                <b>{Math.max(
-                  sellerProducts.length,
-                  (sellerListingCounts && (
-                    (seller?.id && sellerListingCounts[seller.id]) ||
-                    ((seller as any)?.uid && sellerListingCounts[(seller as any).uid]) ||
-                    (seller?.username && sellerListingCounts[seller.username.trim().toLowerCase()]) ||
-                    (seller?.email && sellerListingCounts[seller.email.trim().toLowerCase()]) ||
-                    (selectedSellerId && sellerListingCounts[selectedSellerId.trim().toLowerCase()])
-                  )) || 0
-                )}</b> live listings
+                {/* Fix (found via a dedicated background audit of seller
+                    public-profile stat correctness, same pattern as the two
+                    already-fixed admin-dashboard count bugs): this used to
+                    count sellerProducts.length unfiltered, including sold
+                    items, under the label "live listings" -- a seller who's
+                    sold even one item showed a live-listings count higher
+                    than their actual number of currently-for-sale items.
+                    The grid below intentionally still shows sold items
+                    (with a clear "SOLD" badge, ProductCard.tsx) as sales
+                    history/social proof -- that's unchanged; only this
+                    count, to match what its own label claims, now excludes
+                    them. sellerListingCounts (the /api/sellers/counts
+                    fallback) is a total-count cache and would reintroduce
+                    the same mismatch via Math.max, so it's dropped here in
+                    favor of the always-fresh, already-loaded local list. */}
+                <b>{sellerProducts.filter(p => !p.isSold).length}</b> live listings
               </span>
               <button
                 type="button"
