@@ -8643,7 +8643,23 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         console.warn('[Account Deletion API] Firebase Auth updateUser warning:', authErr?.message || authErr);
       }
 
-      // 2. Anonymize User Profile (tombstone record: remove PII, keep internal UID & originalUsername for historical resolution)
+      // 2. Delete the profile photo's own Cloudinary asset -- found via a
+      // dedicated image-lifecycle audit: the tombstone below nulls out
+      // photoUrl in the DB but never cleaned up the actual Cloudinary
+      // asset it pointed to, unlike ProfileSettings.tsx's normal
+      // photo-replace path (which correctly deletes the old one). Every
+      // self-deleted account left its avatar orphaned in Cloudinary
+      // forever. Best-effort -- never worth failing account deletion over.
+      if (existingUser?.photoUrl && typeof existingUser.photoUrl === 'string' && existingUser.photoUrl.includes('res.cloudinary.com')) {
+        const photoInfo = extractCloudinaryInfo(existingUser.photoUrl);
+        if (photoInfo) {
+          await deleteCloudinaryAsset(photoInfo.publicId, photoInfo.resourceType).catch((photoErr) => {
+            console.warn('[Account Deletion API] Could not delete profile photo from Cloudinary:', photoErr);
+          });
+        }
+      }
+
+      // 3. Anonymize User Profile (tombstone record: remove PII, keep internal UID & originalUsername for historical resolution)
       const tombstoneData = {
         username: 'Deleted User',
         originalUsername: originalUsername,
@@ -8682,7 +8698,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         if (tombstoneErr) throw tombstoneErr;
       }
 
-      // 3. Archive User's Listings (preserve original sellerId = uid, set status: 'archived', isDeleted: true)
+      // 4. Archive User's Listings (preserve original sellerId = uid, set status: 'archived', isDeleted: true)
       if (adminDb) {
         try {
           const prodSnap = await adminDb.collection('products').where('sellerId', '==', uid).get();
@@ -8719,7 +8735,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         }
       }
 
-      // 4. Anonymize Chat Participation & Preserve Message History for Counterparties
+      // 5. Anonymize Chat Participation & Preserve Message History for Counterparties
       if (adminDb) {
         try {
           const [buyerChatsSnap, sellerChatsSnap] = await Promise.all([
@@ -8770,7 +8786,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         }
       }
 
-      // 5. Anonymize Reviews (Buyer Name -> "Deleted User", remove buyerPhoto, keep ratings & review text)
+      // 6. Anonymize Reviews (Buyer Name -> "Deleted User", remove buyerPhoto, keep ratings & review text)
       if (adminDb) {
         try {
           const revSnap = await adminDb.collection('reviews').where('buyerId', '==', uid).get();
@@ -8799,7 +8815,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         }
       }
 
-      // 6. Quarantine Username / Store Name (prevents recycling for 90 days)
+      // 7. Quarantine Username / Store Name (prevents recycling for 90 days)
       if (storeNameLower) {
         const quarantinePayload = {
           id: storeNameLower,
@@ -8819,7 +8835,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         console.log(`[Account Deletion API] Quarantined store name "${storeNameLower}" until ${quarantineExpiry}`);
       }
 
-      // 7. Write Forensic Audit Record
+      // 8. Write Forensic Audit Record
       const auditLog = {
         id: crypto.randomUUID(),
         internalUserId: uid,
@@ -8846,7 +8862,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         await backendSupabase.from('account_deletion_audits').insert(auditLog).catch(() => {});
       }
 
-      // 8. Invalidate Caches
+      // 9. Invalidate Caches
       serverCache.clear();
       rawProductsListCache = null;
 
@@ -9074,7 +9090,7 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
 
       let targetUser: any = null;
       {
-        const { data } = await backendSupabase.from('users').select('id, email, username').eq('id', targetUserId).maybeSingle();
+        const { data } = await backendSupabase.from('users').select('id, email, username, photoUrl').eq('id', targetUserId).maybeSingle();
         targetUser = data;
       }
       if (!targetUser) {
@@ -9140,7 +9156,24 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         console.warn('[Admin Delete] Could not fully delete user chats/messages:', chatErr);
       }
 
-      // 4. Delete the store-name reservation and the user row itself.
+      // 4. Delete the profile photo's own Cloudinary asset -- found via a
+      // dedicated image-lifecycle audit: every other deleted account's
+      // avatar was left permanently orphaned in Cloudinary, since neither
+      // this endpoint nor the self-service delete-account flow below ever
+      // cleaned it up (unlike ProfileSettings.tsx's normal photo-replace
+      // path, which correctly does). Best-effort, matching the
+      // storeName/chats/reviews steps around it -- a failed cleanup here
+      // is a minor storage cost, never worth blocking the user-row delete.
+      if (targetUser.photoUrl && typeof targetUser.photoUrl === 'string' && targetUser.photoUrl.includes('res.cloudinary.com')) {
+        const info = extractCloudinaryInfo(targetUser.photoUrl);
+        if (info) {
+          await deleteCloudinaryAsset(info.publicId, info.resourceType).catch((photoErr) => {
+            console.warn('[Admin Delete] Could not delete profile photo from Cloudinary:', photoErr);
+          });
+        }
+      }
+
+      // 5. Delete the store-name reservation and the user row itself.
       try {
         const storeNameLower = targetUser.username?.trim()?.toLowerCase();
         if (storeNameLower) {
