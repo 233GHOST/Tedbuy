@@ -5184,26 +5184,29 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
   const toggleSaveProduct = async (productId: string) => {
     if (!currentUser) return;
     const saved = Array.isArray(currentUser.savedProductIds) ? currentUser.savedProductIds : [];
-    let updatedSaved: string[];
-    let isAdding = false;
-    if (saved.includes(productId)) {
-      updatedSaved = saved.filter(id => id !== productId);
-    } else {
-      updatedSaved = [...saved, productId];
-      isAdding = true;
-    }
+    const shouldSave = !saved.includes(productId);
+    // Fix (found via a dedicated lost-update-race audit, same shape as
+    // followSeller/unfollowSeller above): this used to send the caller's
+    // ENTIRE local user object to /api/users/sync with a client-computed
+    // "next" array -- two rapid saves (tapping the bookmark icon on two
+    // different cards in quick succession) could both compute from the
+    // same stale snapshot, and whichever sync request landed last silently
+    // discarded the other save. /api/users/save-product takes a single
+    // delta (productId + save true/false) and lets the server compute the
+    // toggle from its own authoritative current value instead, the only
+    // way to close this race for good.
     try {
       const authHeaders = await getAuthHeader();
-      const res = await fetch('/api/users/sync', {
+      const res = await fetch('/api/users/save-product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ user: { ...currentUser, savedProductIds: updatedSaved } })
+        body: JSON.stringify({ productId, save: shouldSave })
       });
       const json = await res.json().catch(() => ({}));
       if (!json.success) {
         throw new Error(json.error || 'Failed to update saved listings.');
       }
-      setCurrentUserState({ ...currentUser, savedProductIds: updatedSaved });
+      setCurrentUserState({ ...currentUser, savedProductIds: json.savedProductIds || (shouldSave ? [...saved, productId] : saved.filter(id => id !== productId)) });
     } catch (err) {
       handleBackendError(err, OperationType.UPDATE, `users/${currentUser.id}`);
     }

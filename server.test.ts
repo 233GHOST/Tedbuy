@@ -604,6 +604,33 @@ test('withUserFollowLock: different users are never serialized against each othe
   assert.ok(spread < 15, `expected concurrent starts across different users (spread < 15ms), got ${spread}ms`);
 });
 
+// --- /api/users/save-product (mirrors /api/users/follow's lock shape
+// exactly, so not re-tested here) -- the part worth locking in is the
+// actual behavior change from the old /api/users/sync-based approach:
+// the server now computes the toggle from its OWN current value on each
+// call, so two racing delta-based calls for DIFFERENT products both land
+// correctly regardless of ordering, unlike the old approach where each
+// client-computed "next array" could silently discard the other's save.
+function resolveSavedProductToggle(currentSaved: string[], productId: string, save: boolean): string[] {
+  const alreadySaved = currentSaved.includes(productId);
+  return save
+    ? (alreadySaved ? currentSaved : [...currentSaved, productId])
+    : currentSaved.filter((id) => id !== productId);
+}
+
+test('save-product delta toggle: two sequential toggles for different products both land, regardless of order (unlike a client-computed full array)', () => {
+  let saved: string[] = [];
+  saved = resolveSavedProductToggle(saved, 'productB', true);
+  saved = resolveSavedProductToggle(saved, 'productC', true);
+  assert.deepEqual(saved.slice().sort(), ['productB', 'productC']);
+});
+
+test('save-product delta toggle: unsaving an already-unsaved product, or re-saving an already-saved one, is a safe no-op', () => {
+  const saved = ['productA'];
+  assert.deepEqual(resolveSavedProductToggle(saved, 'productA', true), ['productA']);
+  assert.deepEqual(resolveSavedProductToggle(saved, 'productZ', false), ['productA']);
+});
+
 // --- normalizeServerProductRow / normalizeServerProductSummaryRow: both
 // must agree on boostPlan for the same actively-boosted row with no stored
 // plan value, since productSelector.ts's boost-priority tiebreaker ranks

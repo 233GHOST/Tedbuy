@@ -994,21 +994,26 @@ export function watchUsers(callback: (users: any[]) => void) {
  * owning it. Bookmarking your own user profile's saved list has no such
  * ownership conflict (verified server-side in /api/users/sync: isOwner ||
  * isAdmin), which is why this fixes the 403. */
+// Fix (found via a dedicated lost-update-race audit, same shape as
+// followSeller/unfollowSeller): this used to send the caller's ENTIRE
+// profile to /api/users/sync with a client-computed "next" array -- two
+// rapid saves (tapping the bookmark icon on two different cards in quick
+// succession) could both compute from the same stale snapshot, and
+// whichever sync request landed last silently discarded the other save.
+// /api/users/save-product (mirrors /api/users/follow) takes a single
+// delta (productId + save true/false) and lets the server compute the
+// toggle from its own authoritative current value instead, the only way
+// to close this race for good.
 export async function toggleSaveProductRemote(productId: string, currentSavedIds: string[]): Promise<string[]> {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error('You must be logged in to save deals.');
-  const myProfile = await fetchUserById(currentUser.uid);
-  if (!myProfile) throw new Error('Could not load your profile.');
   const saved = Array.isArray(currentSavedIds) ? currentSavedIds : [];
-  const updatedSaved = saved.includes(productId)
-    ? saved.filter((id) => id !== productId)
-    : [...saved, productId];
-  const updatedUser = { ...myProfile, id: currentUser.uid, savedProductIds: updatedSaved };
-  const data = await apiFetch('/api/users/sync', { method: 'POST', body: { user: updatedUser } });
+  const shouldSave = !saved.includes(productId);
+  const data = await apiFetch('/api/users/save-product', { method: 'POST', body: { productId, save: shouldSave } });
   if (!data.success) {
     throw new Error(data.error || 'Could not update favorites.');
   }
-  return updatedSaved;
+  return Array.isArray(data.savedProductIds) ? data.savedProductIds : (shouldSave ? [...saved, productId] : saved.filter((id) => id !== productId));
 }
 
 export async function toggleLikeProduct(id: string, userId: string) {

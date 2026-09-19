@@ -6016,6 +6016,85 @@ app.post('/api/users/follow', serverRateLimiter(60 * 1000, 30, "users-follow"), 
   }
 });
 
+// Mirrors /api/users/follow above (same lost-update-race lens, same fix
+// shape): savedProductIds previously had no dedicated endpoint at all --
+// both platforms' toggleSaveProduct sent the caller's ENTIRE local user
+// object to the generic /api/users/sync, computing the "next" array from
+// whatever savedProductIds happened to be in that possibly-stale client
+// snapshot. Two rapid saves (tapping the bookmark icon on two different
+// product cards in quick succession) could both read/compute from the
+// same pre-toggle snapshot, and whichever sync request landed last
+// silently discarded the other save -- a race a server-side lock alone
+// can't fix when the CLIENT is the one computing the final array from
+// stale state, unlike follow's plain toggle. This endpoint instead takes
+// a single delta (productId + save true/false) and lets the SERVER read
+// its own authoritative current value and compute the toggle, exactly
+// like /api/users/follow already does -- the only way to close this race
+// for good, since a delta can't be corrupted by a stale snapshot the way
+// a full "next array" computed client-side can.
+const userSaveProductLocks = new Map<string, Promise<unknown>>();
+function withUserSaveProductLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = userSaveProductLocks.get(userId) || Promise.resolve();
+  const run = previous.then(fn, fn);
+  const chained = run.then(() => undefined, () => undefined);
+  userSaveProductLocks.set(userId, chained);
+  chained.finally(() => {
+    if (userSaveProductLocks.get(userId) === chained) {
+      userSaveProductLocks.delete(userId);
+    }
+  });
+  return run;
+}
+
+app.post('/api/users/save-product', serverRateLimiter(60 * 1000, 30, "users-save-product"), async (req, res) => {
+  const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
+  if (!verified) {
+    return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required' });
+  }
+  const { productId, save } = req.body || {};
+  if (!productId || typeof productId !== 'string') {
+    return res.status(400).json({ success: false, error: 'Missing productId' });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  try {
+    const updatedSaved = await withUserSaveProductLock(verified.uid, async () => {
+      const { data: me, error: meErr } = await backendSupabase
+        .from('users')
+        .select('savedProductIds')
+        .eq('id', verified.uid)
+        .maybeSingle();
+      if (meErr) throw meErr;
+      if (!me) throw Object.assign(new Error('User not found'), { statusCode: 404 });
+
+      const saved: string[] = Array.isArray(me.savedProductIds) ? me.savedProductIds : [];
+      const alreadySaved = saved.includes(productId);
+      const shouldSave = save !== false;
+      const nextSaved = shouldSave
+        ? (alreadySaved ? saved : [...saved, productId])
+        : saved.filter((id) => id !== productId);
+
+      const { error: updateErr } = await backendSupabase
+        .from('users')
+        .update({ savedProductIds: nextSaved })
+        .eq('id', verified.uid);
+      if (updateErr) throw updateErr;
+
+      return nextSaved;
+    });
+
+    return res.json({ success: true, savedProductIds: updatedSaved });
+  } catch (err: any) {
+    if (err?.statusCode === 404) {
+      return res.status(404).json({ success: false, error: err.message });
+    }
+    console.error('[Users Save Product API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to update saved listings' });
+  }
+});
+
 // -------------------------------------------------------------
 // PAYMENT VERIFICATION & BOOST CONTROL ENDPOINTS
 // -------------------------------------------------------------
