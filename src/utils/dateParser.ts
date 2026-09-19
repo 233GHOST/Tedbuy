@@ -1,4 +1,4 @@
-import { Product } from '../types';
+import type { Product } from '../types';
 
 /**
  * Robustly parses various date formats (ISO string, JS Date, timestamp-like objects)
