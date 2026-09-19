@@ -235,20 +235,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     const unsub = navigation.addListener('tabPress', () => {
       setEditProduct((prev: any) => {
         if (!prev) return prev;
-        setTitle('');
-        setPrice('');
-        setDescription('');
-        setImages([]);
-        setVideo(null);
-        setBrand('');
-        setCondition('');
-        setNegotiable(true);
-        setIsExchangeable(false);
-        setSelectedCategory('Phones');
-        setAdRegion('Greater Accra');
-        setAdCity('Accra');
-        setAdNeighborhood('');
-        setPostFlow('select');
+        resetForm();
         return null;
       });
     });
@@ -1210,22 +1197,17 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
             // and then a brand-new, different listing, would silently reuse
             // the same id and overwrite the earlier (unknown-to-the-client)
             // listing instead of the two existing independently.
-            pendingProductIdRef.current = null;
             images.forEach((img) => {
               if (img.status === 'done' && img.remoteUrl) deleteCloudinaryAssetMobile(img.remoteUrl);
             });
             if (video?.status === 'done' && video.remoteUrl) deleteCloudinaryAssetMobile(video.remoteUrl);
-            setTitle('');
-            setPrice('');
-            setDescription('');
-            setImages([]);
-            setVideo(null);
-            setBrand('');
-            setCondition('');
-            setNegotiable(true);
-            setIsExchangeable(false);
-            setPostOption('normal');
-            setPostFlow('select');
+            // Same full reset as a successful publish/save (and tabPress) --
+            // found via a dedicated audit: this used to only clear title/
+            // price/description/images/video/brand/condition/negotiable/
+            // isExchangeable/postOption/postFlow, silently leaving category
+            // and location (region/city/neighborhood) stale for whatever the
+            // seller starts next on this same screen instance.
+            resetForm();
           },
         },
       ]
@@ -1242,6 +1224,18 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
   // old data (or, worse, its images/video, immediately visible in Screen 1's
   // "resume" badge) unless the seller happened to notice and manually
   // cleared every field themselves.
+  // Found via a dedicated audit: this only ever cleared title/price/
+  // description/images/video/isExchangeable/postOption/postFlow -- category,
+  // condition, brand, negotiable, and location (region/city/neighborhood,
+  // plus the Services-specific sub-category/custom-type fields) were still
+  // silently carried over into the next listing on this same screen
+  // instance. Same bug class as the already-fixed 93c730f ("successful edit
+  // save never reset the form"), just not fully closed by that fix -- this
+  // function itself was never brought up to parity with the tabPress
+  // listener's own full reset below, which already correctly clears every
+  // one of these fields. Now the single source of truth for "back to a
+  // truly fresh listing form", reused by both tabPress and Discard instead
+  // of each keeping its own separately-drifting copy.
   const resetForm = () => {
     // This draft is done (published/saved) — a later publish should mint a
     // fresh id, not silently overwrite this listing.
@@ -1252,7 +1246,16 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     setDescription('');
     setImages([]);
     setVideo(null);
+    setBrand('');
+    setCondition('');
+    setNegotiable(true);
     setIsExchangeable(false);
+    setSelectedCategory('Phones');
+    setAdRegion('Greater Accra');
+    setAdCity('Accra');
+    setAdNeighborhood('');
+    setServiceSubCategory('Photography and Video Services');
+    setCustomServiceType('');
     setPostOption('normal');
     setPostFlow('select');
   };
