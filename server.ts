@@ -5613,7 +5613,20 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
     console.warn('[Reviews Create API] Duplicate-review check failed, proceeding:', dupErr);
   }
 
-  const revId = `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  // Deterministic id, derived from chatId (already verified above to
+  // reference exactly one buyer-seller trade) rather than a random one.
+  // The duplicate-review SELECT above is a real check for the normal case,
+  // but it's not atomic with the INSERT below -- two near-simultaneous
+  // submissions for the same trade (an impatient double-tap on "Submit
+  // Review", or a client retry after a slow/dropped response) can both
+  // pass that SELECT before either write lands, and a random id would let
+  // both then insert as separate rows: the same trade's review counted
+  // twice toward the seller's rating. Same race shape as the already-fixed
+  // boost-purchase replay (paymentReference as primary key); here chatId
+  // plays that role. safeBackendSupabaseUpsert's onConflict:'id' means a
+  // second racing submission harmlessly overwrites the first with whatever
+  // was submitted second, rather than creating a duplicate row.
+  const revId = `rev_${chatId}`;
   const newReview: Record<string, any> = {
     id: revId,
     sellerId,

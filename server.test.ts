@@ -563,6 +563,31 @@ test('boostPlan consistency: an explicit stored plan is always preferred over th
   assert.equal(resolveBoostPlan('1month', false), '1month');
 });
 
+// /api/reviews/create's duplicate-review guard (a SELECT before the
+// INSERT) isn't atomic with the write -- two near-simultaneous
+// submissions for the same trade could both pass that SELECT before
+// either lands. Mirrors the fix at server.ts:~5629: deriving the review's
+// id deterministically from chatId (already verified to reference exactly
+// one buyer-seller trade) instead of a random id, so a racing second
+// submission harmlessly overwrites the first (safeBackendSupabaseUpsert's
+// onConflict:'id') instead of creating a second, duplicate-counted row.
+function resolveReviewId(chatId: string): string {
+  return `rev_${chatId}`;
+}
+
+test('review id derivation: is deterministic for the same chatId, closing the duplicate-review race', () => {
+  const chatId = 'chat_buyer1_seller1_prod1_1700000000000';
+  assert.equal(resolveReviewId(chatId), resolveReviewId(chatId));
+});
+
+test('review id derivation: two different trades (different chatIds) never collide', () => {
+  assert.notEqual(resolveReviewId('chat_a'), resolveReviewId('chat_b'));
+});
+
+test('review id derivation: still starts with the "rev_" prefix dbAdapter.ts\'s security barrier checks for', () => {
+  assert.ok(resolveReviewId('chat_abc').startsWith('rev_'));
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
