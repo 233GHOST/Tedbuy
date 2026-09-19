@@ -2398,7 +2398,21 @@ function normalizeServerProductSummaryRow(row: any): any {
     // (1-month) plan with 1 day left ranked BELOW a seller on the GH₵1
     // (3-day) plan who just bought it (3 days left), even though the pricier
     // package is supposed to win regardless of remaining time.
-    boostPlan: boostPlan || undefined,
+    // Found via a dedicated cross-check re-run of the three product-
+    // serialize functions: normalizeServerProductRow (line ~2271) and
+    // serializeProductSummary (forwards it) both default to '7days' for a
+    // row that's actively boosted but has no stored boostPlan value --
+    // getServerBoostEndDate's own isBoostedFlag branch computes an end date
+    // from createdAt + 7 days for exactly this shape, confirming such rows
+    // are real, not hypothetical. This function (the one that actually
+    // backs the primary /api/products, /api/feed, /api/featured, /api/trending
+    // feeds via getProductsListData()) was still missing that same
+    // activeBoost fallback, so the identical underlying row reported
+    // boostPlan: '7days' on the single-product page but boostPlan: undefined
+    // on every list/feed endpoint -- productSelector.ts's boost-priority
+    // tiebreaker maps undefined to a LOWER rank than '7days', so a boosted
+    // listing's rank literally depended on which endpoint served it.
+    boostPlan: boostPlan || (activeBoost ? '7days' : undefined),
     sellerId: row.sellerId || row.seller_id || '',
     sellerName: row.sellerName || row.seller_name || 'Seller',
     sellerEmail: row.sellerEmail || row.seller_email || '',

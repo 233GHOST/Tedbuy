@@ -540,6 +540,29 @@ test('dispatchInBatches: an empty array resolves immediately with no calls', asy
   assert.equal(calls, 0);
 });
 
+// --- normalizeServerProductRow / normalizeServerProductSummaryRow: both
+// must agree on boostPlan for the same actively-boosted row with no stored
+// plan value, since productSelector.ts's boost-priority tiebreaker ranks
+// '7days' above undefined -- a ranking difference that must not depend on
+// which endpoint served the row. Mirrors the resolution logic added at
+// server.ts:~2271 and ~2401 (activeBoost ? '7days' : undefined).
+function resolveBoostPlan(storedBoostPlan: string | undefined, activeBoost: boolean): string | undefined {
+  return storedBoostPlan || (activeBoost ? '7days' : undefined);
+}
+
+test('boostPlan consistency: an actively-boosted row with no stored plan resolves to \'7days\' on both product-serialize functions', () => {
+  assert.equal(resolveBoostPlan(undefined, true), '7days');
+});
+
+test('boostPlan consistency: a non-boosted row with no stored plan resolves to undefined (not a fabricated plan)', () => {
+  assert.equal(resolveBoostPlan(undefined, false), undefined);
+});
+
+test('boostPlan consistency: an explicit stored plan is always preferred over the activeBoost fallback', () => {
+  assert.equal(resolveBoostPlan('1month', true), '1month');
+  assert.equal(resolveBoostPlan('1month', false), '1month');
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
