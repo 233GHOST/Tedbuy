@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
 import { X, Sparkles, Check, CreditCard, Phone, ShieldCheck, AlertCircle, TrendingUp, Clock, ArrowRight, Info } from 'lucide-react';
-import { isBoostActive, parseDate } from '../utils/dateParser';
+import { isBoostActive, getBoostEndDate, parseDate } from '../utils/dateParser';
 import { auth } from '../firebase';
 import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 
@@ -121,12 +121,24 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
 
   // Helper to determine if product is currently boosted
   const isCurrentlyBoosted = isBoostActive(product);
-  
+
+  // Fix (found via a dedicated boost-expiry display audit): this used to
+  // read product?.boostEndDate directly with no fallback, while
+  // isCurrentlyBoosted (above) is derived from getBoostEndDate()'s full
+  // 3-tier fallback (raw boostEndDate -> boostStartDate/lastBoostedAt+plan
+  // -> createdAt+plan, all real, confirmed-non-hypothetical shapes per this
+  // session's earlier boost-ranking audit). Whenever a product's active
+  // boost was only resolvable via tier 2 or tier 3 (raw boostEndDate
+  // missing/unparseable), this banner said "currently boosted" while
+  // simultaneously showing "expires in 0 days (Ends )" -- isCurrentlyBoosted
+  // and getRemainingDays() disagreeing about the exact same boost. Now both
+  // resolve from the same single computed end date.
+  const resolvedBoostEndDate = getBoostEndDate(product);
+
   // Calculate remaining days if currently boosted
   const getRemainingDays = (): number => {
-    const endDate = parseDate(product?.boostEndDate);
-    if (!endDate) return 0;
-    const diffMs = endDate.getTime() - Date.now();
+    if (!resolvedBoostEndDate) return 0;
+    const diffMs = resolvedBoostEndDate.getTime() - Date.now();
     return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
   };
 
@@ -350,7 +362,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
               <div>
                 <h5 className="text-xs font-black text-emerald-900 font-sans uppercase tracking-wider">Boost Active</h5>
                 <p className="text-[11px] text-emerald-700 leading-relaxed mt-0.5">
-                  This listing is currently boosted and expires in <strong className="font-extrabold">{getRemainingDays()} days</strong> (Ends {parseDate(product.boostEndDate)?.toLocaleDateString()}). 
+                  This listing is currently boosted and expires in <strong className="font-extrabold">{getRemainingDays()} days</strong> (Ends {resolvedBoostEndDate?.toLocaleDateString()}).
                   Purchasing a new package will <strong className="font-extrabold">extend</strong> your expiration date by the package duration!
                 </p>
               </div>
