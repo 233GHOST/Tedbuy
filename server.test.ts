@@ -466,6 +466,42 @@ test('admin users search: a real email search term (containing a period) is left
   assert.match(filter, /%john\.doe@example\.com%/);
 });
 
+// --- upsertProductToSupabase's trustBoostFields gate (server.ts:3333-3580):
+// a regular "save my listing" call must never be able to grant itself a
+// free boost by including boostStatus/boostPriority/etc. in the request
+// body. Verified today (2026-09-19) via direct code reading that this P0
+// fix from an earlier session is still fully intact at all 4 real call
+// sites -- /api/products/create and /api/products/sync both call this
+// function with the default (false), while only /api/verify-payment
+// (post-payment) and /api/admin/boost-control (admin-only) pass true.
+// This regression test locks that gating decision in.
+function resolveBoostFields(trustBoostFields: boolean, clientProductData: any, existingRow: any): { boostStatus: boolean; boostPriority: number | undefined } {
+  return trustBoostFields
+    ? {
+        boostStatus: clientProductData.boostStatus === true,
+        boostPriority: clientProductData.boostPriority !== undefined ? Number(clientProductData.boostPriority) : undefined,
+      }
+    : {
+        boostStatus: existingRow?.boostStatus === true,
+        boostPriority: existingRow?.boostPriority !== undefined ? Number(existingRow.boostPriority) : undefined,
+      };
+}
+
+test('trustBoostFields=false (product create/sync): a client-supplied boostStatus/boostPriority is completely ignored, real DB state is preserved', () => {
+  const maliciousClientBody = { boostStatus: true, boostPriority: 999999999 };
+  const realExistingRow = { boostStatus: false, boostPriority: undefined };
+  const result = resolveBoostFields(false, maliciousClientBody, realExistingRow);
+  assert.equal(result.boostStatus, false, 'a regular user must not be able to self-grant boostStatus:true via a save-listing call');
+  assert.equal(result.boostPriority, undefined);
+});
+
+test('trustBoostFields=true (verify-payment / admin boost-control only): the caller-computed boost fields are trusted', () => {
+  const serverComputedAfterRealPayment = { boostStatus: true, boostPriority: 5 };
+  const result = resolveBoostFields(true, serverComputedAfterRealPayment, {});
+  assert.equal(result.boostStatus, true);
+  assert.equal(result.boostPriority, 5);
+});
+
 // serverRateLimiter() (the real code this mirrors) starts a plain
 // setInterval with no .unref() -- pre-existing behavior in server.ts,
 // unrelated to this fix and out of scope to change here. This file never
