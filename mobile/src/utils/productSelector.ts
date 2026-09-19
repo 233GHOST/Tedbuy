@@ -7,7 +7,7 @@
  * that filtering feeds into — reimplemented here rather than shared because
  * mobile is a separate Expo project with no shared workspace with `src/`.
  */
-import { Product, User } from '../types';
+import type { Product, User } from '../types';
 
 function parseNumericPrice(p: string | number | undefined): number {
   if (typeof p === 'number') return p;

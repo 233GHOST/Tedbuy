@@ -21,7 +21,7 @@
  * to the lighter isVerified-only signal mobile's User type actually carries.
  */
 
-import { Product, User } from '../types';
+import type { Product, User } from '../types';
 
 export const EXPLORATION_RATIO = 0.25;
 const MIN_SIGNALS_FOR_PERSONALIZATION = 2; // lower than web's 3, since fewer signal types exist at all

@@ -1,4 +1,4 @@
-import { Product } from '../types';
+import type { Product } from '../types';
 
 /** Shared by the Home carousel and the "Trending Ads" full-list screen. */
 export function computeTrendingProducts(
