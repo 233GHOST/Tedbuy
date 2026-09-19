@@ -1995,11 +1995,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const authHeaders = await getAuthHeader();
-      await fetch('/api/notifications/mark-read', {
+      const res = await fetch('/api/notifications/mark-read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ id }),
       });
+      // Re-apply the read transform on top of whatever the CURRENT state is,
+      // once the server has actually confirmed the write. Same race shape
+      // already fixed for sendMessage above: the independent 20s
+      // notification poll does an unconditional setNotifications(list) --
+      // if its GET was already in flight when this mark-read started, it
+      // can resolve afterward with a pre-mark-read snapshot and silently
+      // revert the optimistic update, flipping the bell badge back to
+      // unread until the next poll tick (up to 20s later). This closes
+      // that window instead of leaving it to self-correct.
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      }
     } catch (err) {
       console.warn('Backend markNotificationAsRead update skipped (synchronized locally):', err);
     }
@@ -2019,10 +2031,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const authHeaders = await getAuthHeader();
-      await fetch('/api/notifications/mark-all-read', {
+      const res = await fetch('/api/notifications/mark-all-read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
       });
+      // See markNotificationAsRead's comment above -- same reconciliation,
+      // same reason (closes the race with the independent 20s poll).
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      }
     } catch (err) {
       console.warn('Backend markAllNotificationsAsRead update skipped (synchronized locally):', err);
     }
