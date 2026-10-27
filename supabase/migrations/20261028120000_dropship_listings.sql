@@ -665,6 +665,40 @@ $$
      and exists (select 1 from public.dropship_supplier_products sp where sp.images @> jsonb_build_array(t.u))
 $$;
 
+-- Shared by dropship_catalogue and dropship_catalogue_item: who may see a supplier product
+-- in the catalogue, and how an item is projected (full for approved dropshippers, else teaser).
+create function public.dropship_catalogue_eligible(sp public.dropship_supplier_products) returns boolean
+language sql stable set search_path = '' as
+$$
+  select sp.status = 'active'
+     and exists (select 1 from public.dropship_participants sup
+                  where sup.user_id = sp.supplier_id and sup.kind = 'supplier' and sup.status = 'approved')
+     and not public.dropship_user_unavailable(sp.supplier_id)
+$$;
+
+create function public.dropship_catalogue_item_json(sp public.dropship_supplier_products, p_viewer text, p_full boolean)
+returns jsonb
+language sql stable set search_path = '' as
+$$
+  select case when p_full then jsonb_build_object(
+             'supplierProductId', sp.id, 'title', sp.title, 'images', sp.images, 'category', sp.category,
+             'condition', sp.condition, 'brand', sp.brand,
+             'wholesalePricePesewas', sp.wholesale_price_pesewas,
+             'suggestedRetailPesewas', sp.suggested_retail_pesewas,
+             'minRetailPesewas', public.dropship_min_retail_pesewas(sp.wholesale_price_pesewas),
+             'available', sp.stock_on_hand - sp.stock_reserved > 0,
+             'leadTimeDays', jsonb_build_object('min', sp.lead_time_min_days, 'max', sp.lead_time_max_days),
+             'shipsFromRegion', sp.ships_from_region,
+             'deliveryFees', public.dropship_delivery_fees_json(sp),
+             'returnWindowDays', sp.return_window_days,
+             'alreadyListed', exists (select 1 from public.dropship_listings l
+                                       where l.supplier_product_id = sp.id and l.dropshipper_id = p_viewer and l.status <> 'removed'),
+             'listingCount', (select count(*) from public.dropship_listings l
+                               where l.supplier_product_id = sp.id and l.status <> 'removed'))
+           else jsonb_build_object('supplierProductId', sp.id, 'title', sp.title, 'images', sp.images, 'category', sp.category)
+         end
+$$;
+
 -- Dropshipper catalogue (API §3, A.3). Approved dropshippers get full items; every other
 -- viewer gets a teaser (supplierProductId, title, images, category). Supplier identity is
 -- never included (D7). Keyset on (created_at desc, id desc); out-of-stock items are listed.
@@ -689,10 +723,7 @@ begin
 
   select coalesce(array_agg(pg.id order by pg.created_at desc, pg.id desc), '{}') into v_ids
     from (select sp.id, sp.created_at from public.dropship_supplier_products sp
-            join public.dropship_participants sup
-              on sup.user_id = sp.supplier_id and sup.kind = 'supplier' and sup.status = 'approved'
-           where sp.status = 'active'
-             and not public.dropship_user_unavailable(sp.supplier_id)
+           where public.dropship_catalogue_eligible(sp)
              and (p_category is null or sp.category = p_category)
              and (v_q is null or sp.title ilike v_q or coalesce(sp.brand, '') ilike v_q)
              and (p_after_created is null or p_after_id is null or (sp.created_at, sp.id) < (p_after_created, p_after_id))
@@ -705,29 +736,23 @@ begin
       from public.dropship_supplier_products sp where sp.id = v_ids[v_limit];
   end if;
 
-  select coalesce(jsonb_agg(
-           case when v_full then jsonb_build_object(
-             'supplierProductId', sp.id, 'title', sp.title, 'images', sp.images, 'category', sp.category,
-             'condition', sp.condition, 'brand', sp.brand,
-             'wholesalePricePesewas', sp.wholesale_price_pesewas,
-             'suggestedRetailPesewas', sp.suggested_retail_pesewas,
-             'minRetailPesewas', public.dropship_min_retail_pesewas(sp.wholesale_price_pesewas),
-             'available', sp.stock_on_hand - sp.stock_reserved > 0,
-             'leadTimeDays', jsonb_build_object('min', sp.lead_time_min_days, 'max', sp.lead_time_max_days),
-             'shipsFromRegion', sp.ships_from_region,
-             'deliveryFees', public.dropship_delivery_fees_json(sp),
-             'returnWindowDays', sp.return_window_days,
-             'alreadyListed', exists (select 1 from public.dropship_listings l
-                                       where l.supplier_product_id = sp.id and l.dropshipper_id = p_viewer and l.status <> 'removed'),
-             'listingCount', (select count(*) from public.dropship_listings l
-                               where l.supplier_product_id = sp.id and l.status <> 'removed'))
-           else jsonb_build_object('supplierProductId', sp.id, 'title', sp.title, 'images', sp.images, 'category', sp.category)
-           end order by o.n), '[]'::jsonb) into v_items
+  select coalesce(jsonb_agg(public.dropship_catalogue_item_json(sp, p_viewer, v_full) order by o.n), '[]'::jsonb) into v_items
     from unnest(v_ids) with ordinality as o(id, n)
     join public.dropship_supplier_products sp on sp.id = o.id;
 
   return jsonb_build_object('items', v_items, 'nextCursor', v_next);
 end $$;
+
+-- One catalogue item, limit-independent; null when absent or not eligible for the catalogue.
+create function public.dropship_catalogue_item(p_viewer text, p_supplier_product_id uuid) returns jsonb
+language sql stable set search_path = '' as
+$$
+  select public.dropship_catalogue_item_json(sp, p_viewer,
+           exists (select 1 from public.dropship_participants
+                    where user_id = p_viewer and kind = 'dropshipper' and status = 'approved'))
+    from public.dropship_supplier_products sp
+   where sp.id = p_supplier_product_id and public.dropship_catalogue_eligible(sp)
+$$;
 
 -- The dropshipper's live listings with the precise internal unavailable reason (A-04).
 create function public.dropship_list_my_listings(p_actor text) returns jsonb

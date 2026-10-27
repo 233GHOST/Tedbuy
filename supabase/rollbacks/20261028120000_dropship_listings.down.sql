@@ -52,6 +52,9 @@ declare
     'dropship_admin_moderate_supplier_product(text,uuid,text,text)',
     'dropship_audit(text,text,text,text,uuid,text,jsonb)',
     'dropship_catalogue(text,text,text,timestamp with time zone,uuid,integer)',
+    'dropship_catalogue_eligible(dropship_supplier_products)',
+    'dropship_catalogue_item(text,uuid)',
+    'dropship_catalogue_item_json(dropship_supplier_products,text,boolean)',
     'dropship_check_actor(text,text,text)',
     'dropship_check_listing_actor(text,text,text)',
     'dropship_check_product_fields(jsonb)',
@@ -160,6 +163,9 @@ end $$;
 drop view public.dropship_listing_availability;
 
 drop function public.dropship_catalogue(text, text, text, timestamptz, uuid, integer);
+drop function public.dropship_catalogue_item(text, uuid);
+drop function public.dropship_catalogue_item_json(public.dropship_supplier_products, text, boolean);
+drop function public.dropship_catalogue_eligible(public.dropship_supplier_products);
 drop function public.dropship_check_listing_actor(text, text, text);
 drop function public.dropship_create_listing(text, uuid, bigint, uuid);
 drop function public.dropship_delivery_fees_json(public.dropship_supplier_products);

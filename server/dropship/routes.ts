@@ -393,23 +393,13 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
     res.json({ success: true, items: page.items.map(i => catalogueItemView(i, viewer)), nextCursor: encodeCatalogueCursor(page.nextCursor) });
   }));
 
-  // No single-item SQL function exists, so walk the keyset pages (bounded) to find the item.
   router.get('/api/dropship/catalogue/:supplierProductId', limit(120, 'dropship-catalogue'), handle(async (req, res, db) => {
     const user = await requireActor(req, false);
     const id = uuidParam(req.params.supplierProductId, 'product');
     const viewer = await catalogueViewer(db, user.uid);
-    let q = parseCatalogueQuery({});
-    for (let pageNo = 0; pageNo < 20; pageNo++) {
-      const page = await cataloguePage(db, user.uid, q, 50);
-      const hit = page.items.find(i => i.supplierProductId === id);
-      if (hit) {
-        res.json({ success: true, item: catalogueItemView(hit, viewer) });
-        return;
-      }
-      if (!page.nextCursor) break;
-      q = { ...q, afterCreated: page.nextCursor.afterCreated, afterId: page.nextCursor.afterId };
-    }
-    throw new DropshipError('NOT_FOUND', 'Product not found.');
+    const item = await db.call('dropship_catalogue_item', { p_viewer: user.uid, p_supplier_product_id: id });
+    if (!item) throw new DropshipError('NOT_FOUND', 'Product not found.');
+    res.json({ success: true, item: catalogueItemView(item, viewer) });
   }));
 
   router.post('/api/dropship/catalogue/:supplierProductId/quote', limit(120, 'dropship-quote'), handle(async (req, res, db) => {

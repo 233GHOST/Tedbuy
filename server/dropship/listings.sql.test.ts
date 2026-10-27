@@ -393,6 +393,14 @@ test('catalogue projections', async () => {
   assert.deepEqual(p2.items.map((i: any) => i.supplierProductId), [sp.id]);
   assert.equal(p2.nextCursor, null);
 
+  // Single-item lookup: limit-independent (sp is on the last page of a 2-item paging) and
+  // identical to the list projection for both viewer kinds; ineligible items are null.
+  const itemOf = (viewer: string, id: string) => h.db.call('dropship_catalogue_item', { p_viewer: viewer, p_supplier_product_id: id });
+  assert.deepEqual(await itemOf(dropshipper, sp.id), full.items.find((i: any) => i.supplierProductId === sp.id));
+  assert.deepEqual(await itemOf('teaser-user', sp.id), teaser.items.find((i: any) => i.supplierProductId === sp.id));
+  assert.equal(await itemOf(dropshipper, hidden.product.id), null, 'pending product is not visible');
+  assert.equal(await itemOf(dropshipper, crypto.randomUUID()), null);
+
   const searched = await page(dropshipper, null, null, 50, 'second');
   assert.deepEqual(searched.items.map((i: any) => i.supplierProductId), [sp2.id]);
 
