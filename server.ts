@@ -1741,8 +1741,8 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
         // only `sellerId` here would incorrectly deny a legitimate owner.
         const { data: ownProducts } = await backendSupabase
           .from('products')
-          .select('images, imageUrls, videos, videoUrls')
-          .or(`sellerId.eq.${verified.uid},sellerId.eq.user_${verified.uid},sellerId.eq.phone_${verified.uid},seller_id.eq.${verified.uid},seller_id.eq.user_${verified.uid},seller_id.eq.phone_${verified.uid}`);
+          .select('images, videos')
+          .or(`sellerId.eq.${verified.uid},sellerId.eq.user_${verified.uid},sellerId.eq.phone_${verified.uid}`);
         owns = !!(ownProducts || []).some((p: any) =>
           [p.images, p.imageUrls, p.videos, p.videoUrls].some((arr: any) => Array.isArray(arr) && arr.includes(url))
         );
@@ -1801,7 +1801,7 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
 
     const { data: existingProduct } = await backendSupabase
       .from('products')
-      .select('images, imageUrls, videos, videoUrls, sellerId, seller_id')
+      .select('images, videos, sellerId')
       .eq('id', productId)
       .maybeSingle();
     if (!existingProduct) {
@@ -2810,10 +2810,7 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
           try {
             const conditions: string[] = [];
             if (targetId) {
-              conditions.push(`sellerId.eq.${targetId}`, `seller_id.eq.${targetId}`);
-            }
-            if (targetEmail) {
-              conditions.push(`sellerEmail.eq.${targetEmail}`, `seller_email.eq.${targetEmail}`);
+              conditions.push(`sellerId.eq.${targetId}`);
             }
             if (conditions.length > 0) {
               const { data: sRows } = await backendSupabase
@@ -2920,12 +2917,12 @@ async function getSellersSummaryData(forceRefresh = false): Promise<{ sellers: a
       // Stores" entirely pre-migration, not just leave presence blank.
       let { data: uData, error: uErr2 } = await backendSupabase
         .from('users')
-        .select('id, username, displayName, email, photoUrl, location, region, emailVerified, role, lastSeen')
+        .select('id, username, email, photoUrl, emailVerified, role, lastSeen')
         .limit(2000);
       if (uErr2) {
         const fallback = await backendSupabase
           .from('users')
-          .select('id, username, displayName, email, photoUrl, location, region, emailVerified, role')
+          .select('id, username, email, photoUrl, emailVerified, role')
           .limit(2000);
         uData = fallback.data;
       }
@@ -4093,7 +4090,7 @@ async function deleteProductFromBackend(productId: string) {
 
   if (backendSupabase) {
     try {
-      const { data: existing } = await backendSupabase.from('products').select('images, imageUrls, videos, videoUrls, sellerId, seller_id, category').eq('id', productId).maybeSingle();
+      const { data: existing } = await backendSupabase.from('products').select('images, videos, sellerId, category').eq('id', productId).maybeSingle();
       if (existing) {
         sellerId = existing.sellerId || existing.seller_id;
         category = existing.category;
@@ -4224,7 +4221,7 @@ app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-dele
   let productExists = false;
   if (backendSupabase) {
     try {
-      const { data, error } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      const { data, error } = await backendSupabase.from('products').select('sellerId').eq('id', productId).maybeSingle();
       if (error) throw error;
       if (data) {
         productExists = true;
@@ -4295,7 +4292,7 @@ app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "product
   let productExists = false;
   if (backendSupabase) {
     try {
-      const { data, error } = await backendSupabase.from('products').select('sellerId, seller_id, sellerEmail, seller_email').eq('id', productId).maybeSingle();
+      const { data, error } = await backendSupabase.from('products').select('sellerId').eq('id', productId).maybeSingle();
       if (error) throw error;
       if (data) {
         productExists = true;
@@ -10311,7 +10308,7 @@ async function startServer() {
             const sellerId = sellerMatch[1];
             if (sellerId && backendSupabase) {
               try {
-                const { data: user } = await backendSupabase.from('users').select('id, username, displayName, bio, photoUrl').eq('id', sellerId).maybeSingle();
+                const { data: user } = await backendSupabase.from('users').select('id, username, bio, photoUrl').eq('id', sellerId).maybeSingle();
                 if (!user) {
                   // Non-existent seller -> return 404
                   html = html.replace(/<link\s+rel="canonical".*?>/gi, '');
