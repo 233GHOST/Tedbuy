@@ -97,7 +97,12 @@ export function DropshipperPanel() {
   useEffect(() => { load(); }, [load]);
 
   if (state.loading) return <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
-  if (state.error) return <div className={cardClass}><p className="text-xs font-bold text-rose-600">{state.error}</p></div>;
+  if (state.error) return (
+    <div className={`${cardClass} space-y-2`}>
+      <p className="text-xs font-bold text-rose-600">{state.error}</p>
+      <button type="button" onClick={load} className={buttonClass}>Retry</button>
+    </div>
+  );
 
   const p = state.participation;
   if (!p || (p.status === 'rejected' && resubmitting)) {
@@ -110,8 +115,13 @@ export function DropshipperPanel() {
           </p>
         </div>
         <ApplicationForm previous={p} onSubmitted={() => { setResubmitting(false); load(); }} />
-        <h3 className="text-sm font-black text-slate-900 pt-2">Preview the catalogue</h3>
-        <CatalogueView approved={false} />
+        <div className="grid grid-cols-3 gap-2">
+          {([['1. Pick', 'Choose products from verified suppliers.'], ['2. List', 'Set your price and add them to your store.'], ['3. Earn', 'The supplier ships; you earn the difference after delivery.']] as const).map(([h, t]) => (
+            <div key={h} className={`${cardClass} !p-3`}><p className="text-xs font-black text-slate-900">{h}</p><p className="text-[11px] text-slate-500 mt-0.5">{t}</p></div>
+          ))}
+        </div>
+        <h3 className="text-sm font-black text-slate-900 pt-2">A look at the catalogue</h3>
+        <CatalogueView approved={false} strip />
       </div>
     );
   }
@@ -126,16 +136,22 @@ export function DropshipperPanel() {
     </div>
   );
 
-  if (p.status === 'approved' || p.status === 'suspended') {
-    const approved = p.status === 'approved';
+  if (p.status === 'suspended') {
     return (
       <>
         {header}
-        {!approved && (
-          <div className="p-3 mb-4 rounded-2xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" /> Your dropshipper account is suspended{p.statusReason ? `: ${p.statusReason}` : '.'} You cannot add or change products.
-          </div>
-        )}
+        <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" /> Your dropshipper account is suspended{p.statusReason ? `: ${p.statusReason}` : '.'} You cannot add or change products.
+        </div>
+      </>
+    );
+  }
+
+  if (p.status === 'approved') {
+    const approved = true;
+    return (
+      <>
+        {header}
         <div className="flex border-b border-slate-200 mb-4">
           {([['catalogue', 'Catalogue'], ['mine', 'My products']] as const).map(([key, label]) => (
             <button key={key} type="button" onClick={() => setSub(key)}
@@ -165,7 +181,6 @@ export function DropshipperPanel() {
           {p.status === 'rejected' && <button type="button" onClick={() => setResubmitting(true)} className={buttonClass}>Update and resubmit</button>}
         </div>
       </div>
-      <CatalogueView approved={false} />
     </>
   );
 }

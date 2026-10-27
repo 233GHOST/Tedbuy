@@ -3,7 +3,7 @@ import { ArrowLeft, Loader2, Store } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { dropshipApi, type CatalogueItemData, type Quote } from './dropshipApi';
 import { formatPesewas, parseCedisToPesewas, pesewasToCedisInput } from './dropshipFormat';
-import { buttonClass, cardClass, inputClass } from './dropshipUi';
+import { buttonClass, cardClass, inputClass, secondaryButtonClass } from './dropshipUi';
 
 export const CALCULATOR_LABEL = 'Estimate. You earn this only after the order is delivered and the hold period ends.';
 const DEBOUNCE_MS = 400;
@@ -85,13 +85,16 @@ export function CatalogueItem({ item, onBack, onListed }: { item: CatalogueItemD
   const [quote, setQuote] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(false);
   const [listed, setListed] = useState(item.alreadyListed === true);
+  const [newProductId, setNewProductId] = useState<string | null>(null);
+  const { setSelectedProductId, setCurrentView } = useApp();
 
   const add = async () => {
     if (retail === null) return;
     setBusy(true);
     try {
-      await dropshipApi.createListing({ clientRequestId: requestId.current, supplierProductId: item.supplierProductId, retailPricePesewas: retail });
+      const created = await dropshipApi.createListing({ clientRequestId: requestId.current, supplierProductId: item.supplierProductId, retailPricePesewas: retail });
       setListed(true);
+      setNewProductId(created.productId);
       showToast('Added to your store.', 'success');
       onListed();
     } catch (err) {
@@ -139,7 +142,18 @@ export function CatalogueItem({ item, onBack, onListed }: { item: CatalogueItemD
           </div>
           <div className={`${cardClass} !p-4`}>
             {listed ? (
-              <p className="text-xs font-bold text-emerald-700">This product is in your store. Manage it under My products.</p>
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-emerald-700">This product is in your store. Manage it under My products.</p>
+                {newProductId && (
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className={buttonClass} onClick={() => { setSelectedProductId(newProductId); setCurrentView('product-detail'); }}>View in my store</button>
+                    <button type="button" className={secondaryButtonClass} onClick={async () => {
+                      try { await navigator.clipboard.writeText(`${window.location.origin}/product/${newProductId}`); showToast('Link copied. Share it anywhere.', 'success'); }
+                      catch { showToast('Could not copy the link.', 'error'); }
+                    }}>Copy share link</button>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="space-y-3">
                 <PriceCalculator

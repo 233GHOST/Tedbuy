@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { BoostModal } from '../BoostModal';
 import type { Product } from '../../types';
 import { dropshipApi, type MyListing } from './dropshipApi';
-import { formatPesewas, listingStatusLabel } from './dropshipFormat';
+import { formatPesewas, listingPillTone, listingStatusLabel } from './dropshipFormat';
 import { PriceCalculator } from './CatalogueItem';
 import { buttonClass, cardClass, secondaryButtonClass, StatusPill } from './dropshipUi';
 import type { Quote } from './dropshipApi';
@@ -70,7 +70,12 @@ export function MyDropshipProducts({ canEdit }: { canEdit: boolean }) {
     finally { setBusyId(''); }
   };
 
-  if (error) return <p className="text-[11px] font-bold text-rose-600">{error}</p>;
+  if (error) return (
+    <div className="space-y-2">
+      <p className="text-[11px] font-bold text-rose-600">{error}</p>
+      <button type="button" onClick={() => { setRows(null); load(); }} className={secondaryButtonClass}>Retry</button>
+    </div>
+  );
   if (rows === null) return <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>;
   if (rows.length === 0) return <p className="text-xs text-slate-500 py-6 text-center">You have not added any products yet. Browse the catalogue to start.</p>;
 
@@ -90,7 +95,7 @@ export function MyDropshipProducts({ canEdit }: { canEdit: boolean }) {
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="text-sm font-bold text-slate-900 break-words min-w-0">{l.title}</h4>
-                <StatusPill status={st.key === 'active' ? 'active' : st.key === 'paused' ? 'paused' : 'rejected'} label={st.label} />
+                <StatusPill status={listingPillTone(st.key)} label={st.label} />
               </div>
               <p className="text-[11px] text-slate-500">
                 Price {formatPesewas(l.retailPricePesewas)} · est. earnings {formatPesewas(l.estimatedMarginPesewas)} · sold {l.unitsSold}

@@ -84,6 +84,12 @@ export function listingStatusLabel(l: { status: string; effectiveAvailable?: boo
   return { key: 'active', label: 'Active' };
 }
 
+// StatusPill tone for a listingStatusLabel key: only Active is green, Paused is neutral and
+// every "needs attention" state is a warning (never the red rejected style).
+export function listingPillTone(key: string): 'active' | 'paused' | 'pending' {
+  return key === 'active' ? 'active' : key === 'paused' ? 'paused' : 'pending';
+}
+
 export function pesewasToCedisInput(pesewas: number | null | undefined): string {
   if (pesewas === null || pesewas === undefined) return '';
   return `${Math.floor(pesewas / 100)}.${String(pesewas % 100).padStart(2, '0')}`;

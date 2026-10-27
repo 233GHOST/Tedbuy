@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
   buildProductPayload, cedisToPesewas, dropshipErrorMessage, emptyProductForm, pesewasToCedisInput, productToForm,
-  supplierStatusActions, type SupplierProduct, parseCedisToPesewas, isDropshipRowId,
+  supplierStatusActions, type SupplierProduct, parseCedisToPesewas, isDropshipRowId, listingStatusLabel, listingPillTone,
 } from './dropshipFormat';
 import { isDropshipRowId as serverIsDropshipRowId } from '../../../server/dropship/legacyGuards';
 // The server's own validator: the form's payloads must pass it unchanged.
@@ -102,4 +102,17 @@ test('client isDropshipRowId matches the server rule', () => {
     assert.equal(isDropshipRowId(id), serverIsDropshipRowId(id), String(id));
   }
   assert.equal(isDropshipRowId('dsl_abc'), true);
+});
+
+test('listing status labels and pill tones', () => {
+  const l = (status: string, unavailableReason: string | null, effectiveAvailable = false) => listingStatusLabel({ status, unavailableReason, effectiveAvailable });
+  assert.equal(l('active', null, true).label, 'Active');
+  assert.equal(l('paused', 'listing_paused').label, 'Paused');
+  assert.equal(l('active', 'out_of_stock').label, 'Out of stock');
+  assert.equal(l('active', 'participant_unavailable').label, 'Supplier unavailable');
+  assert.equal(l('active', 'product_inactive').label, 'Supplier unavailable');
+  assert.equal(l('active', 'price_below_minimum').label, 'Reprice needed');
+  assert.equal(listingPillTone('active'), 'active');
+  assert.equal(listingPillTone('paused'), 'paused');
+  for (const k of ['out_of_stock', 'unavailable', 'reprice']) assert.equal(listingPillTone(k), 'pending');
 });
