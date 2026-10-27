@@ -71,7 +71,7 @@ test('application: pending, idempotent replay, admin decisions follow the state 
   const replay = await h.db.call('dropship_submit_application', { p_user: 'sup-app', p_kind: 'supplier', p_fields: application, p_client_request_id: reqId });
   assert.equal(replay.participant.id, a.participant.id);
 
-  await expectCode(h.db.call('dropship_submit_application', { p_user: 'sup-app', p_kind: 'dropshipper', p_fields: application, p_client_request_id: crypto.randomUUID() }), 'VALIDATION');
+  await expectCode(h.db.call('dropship_submit_application', { p_user: 'sup-app', p_kind: 'reseller', p_fields: application, p_client_request_id: crypto.randomUUID() }), 'VALIDATION');
   await expectCode(h.db.call('dropship_submit_application', { p_user: 'missing-user', p_kind: 'supplier', p_fields: application, p_client_request_id: crypto.randomUUID() }), 'NOT_FOUND');
 
   const decide = (decision: string, expected: string, reason: string | null = 'checked by phone') =>

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:dropship": "tsx --test server/dropship/sql.test.ts server/dropship/routes.test.ts server/dropship/rollback.test.ts server/dropship/stagingPreflight.test.ts src/components/dropship/dropshipFormat.test.ts",
+    "test:dropship": "tsx --test server/dropship/sql.test.ts server/dropship/routes.test.ts server/dropship/rollback.test.ts server/dropship/listings.sql.test.ts server/dropship/listingsRollback.test.ts server/dropship/stagingPreflight.test.ts src/components/dropship/dropshipFormat.test.ts",
     "check:staging": "tsx scripts/check-staging-config.ts",
     "test:config": "tsx --test server/environmentGuard.test.ts server/dropship/stagingPreflight.test.ts server/stagingBaseline.test.ts",
     "test:auth": "tsx --test server/auth/adminIdentity.test.ts",
