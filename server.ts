@@ -1812,6 +1812,19 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
       if (!owns) {
         return res.status(403).json({ success: false, error: 'Forbidden: You do not own this asset' });
       }
+
+      // The asset deleted must be the one whose url passed the ownership
+      // check above. A body publicId/resourceType used to take precedence,
+      // so a caller could prove ownership of their own url and delete any
+      // other asset in the account by naming its publicId. Web and mobile
+      // clients only ever send the url, so ignoring the body fields keeps
+      // them working.
+      const owned = extractCloudinaryInfo(url);
+      if (!owned) {
+        return res.status(400).json({ success: false, error: 'Missing publicId or valid Cloudinary url' });
+      }
+      targetPublicId = owned.publicId;
+      targetResourceType = owned.resourceType;
     }
 
     const result = await deleteCloudinaryAsset(targetPublicId, targetResourceType);
