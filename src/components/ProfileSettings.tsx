@@ -474,6 +474,18 @@ CEO, Tedbuy Inc`;
     return 'my-ads';
   });
 
+  // Desktop "More" tab menu: closes on any click outside it
+  const [desktopMoreOpen, setDesktopMoreOpen] = useState(false);
+  const desktopMoreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!desktopMoreOpen) return;
+    const close = (e: MouseEvent) => {
+      if (desktopMoreRef.current && !desktopMoreRef.current.contains(e.target as Node)) setDesktopMoreOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [desktopMoreOpen]);
+
   // Filter and search state for listings
   const [listingFilter, setListingFilter] = useState<'all' | 'active' | 'boosted' | 'sold'>('all');
   const [listingSearchQuery, setListingSearchQuery] = useState('');
@@ -1224,14 +1236,16 @@ CEO, Tedbuy Inc`;
                   setActiveMobileSubSetting(null);
                 }
               }}
-              className={`p-2 rounded-xl border transition cursor-pointer shrink-0 ${
+              className={`px-2.5 py-1.5 rounded-xl border transition cursor-pointer shrink-0 flex flex-col items-center gap-0.5 shadow-sm active:scale-95 ${
                 mobileProfileTab === 'settings'
-                  ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200'
+                  ? 'bg-white border-slate-900 text-slate-900'
+                  : 'bg-slate-900 border-slate-900 text-white hover:bg-slate-800'
               }`}
               title="Settings"
+              aria-label="Settings"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-5 h-5" />
+              <span className="text-[9px] font-bold uppercase tracking-wide leading-none">Settings</span>
             </button>
           </div>
 
@@ -1362,20 +1376,31 @@ CEO, Tedbuy Inc`;
             <span>Saved ({savedProducts.length})</span>
           </button>
 
-          <button
-            onClick={() => {
-              setMobileProfileTab('settings');
-              setActiveMobileSubSetting(null);
-            }}
-            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
-              mobileProfileTab === 'settings'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Settings</span>
-          </button>
+          {/* Settings stays reachable from the gear button above */}
+          {dropshipEnabled ? (
+            <button
+              onClick={() => setCurrentView('dropship')}
+              className="flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 text-slate-500 hover:text-slate-800"
+            >
+              <Boxes className="w-3.5 h-3.5" />
+              <span>Dropship</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setMobileProfileTab('settings');
+                setActiveMobileSubSetting(null);
+              }}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center justify-center gap-1 ${
+                mobileProfileTab === 'settings'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Settings</span>
+            </button>
+          )}
         </div>
 
         {/* TAB 1: MY CLASSIFIED LISTINGS */}
@@ -2142,133 +2167,148 @@ CEO, Tedbuy Inc`;
         </div>
 
         {/* Settings Navigation Tabs */}
-        <div className="flex border-b border-slate-200 mb-6 gap-1 overflow-x-auto scrollbar-none pb-0.5">
-          <button
-            type="button"
-            onClick={() => setSettingsTab('my-ads')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
-              settingsTab === 'my-ads'
-                ? 'border-orange-600 text-orange-600'
-                : 'border-transparent text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>My Listings</span>
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-              settingsTab === 'my-ads' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
-            }`}>
-              {myProducts.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsTab('saved')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
-              settingsTab === 'saved'
-                ? 'border-orange-600 text-orange-600'
-                : 'border-transparent text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            <Bookmark className="w-3.5 h-3.5" />
-            <span>Saved Deals</span>
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-              settingsTab === 'saved' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
-            }`}>
-              {savedProducts.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsTab('profile')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-              settingsTab === 'profile'
-                ? 'border-slate-900 text-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            <User className="w-3.5 h-3.5" />
-            <span>Profile & Store</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsTab('selling-buying')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-              settingsTab === 'selling-buying'
-                ? 'border-slate-900 text-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            <span>Trading Preferences</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsTab('notifications')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-              settingsTab === 'notifications'
-                ? 'border-slate-900 text-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5" />
-            <span>Notifications</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsTab('account-security')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-              settingsTab === 'account-security'
-                ? 'border-slate-900 text-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Account & Security</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsTab('more')}
-            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              settingsTab === 'more'
-                ? 'border-slate-900 text-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-700'
-            }`}
-          >
-            <Info className="w-3.5 h-3.5" />
-            <span>Help & Support</span>
-          </button>
-
-          {dropshipEnabled && (
+        <div className="flex items-end border-b border-slate-200 mb-6 gap-1">
+          <div className="flex gap-1 overflow-x-auto scrollbar-none pb-0.5 min-w-0">
             <button
               type="button"
-              onClick={() => setCurrentView('dropship')}
-              className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-700 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-            >
-              <Boxes className="w-3.5 h-3.5" />
-              <span>Dropship</span>
-            </button>
-          )}
-
-          {currentUser?.isAdmin && (
-            <button
-              type="button"
-              onClick={() => setSettingsTab('admin')}
-              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                settingsTab === 'admin'
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-400 hover:text-indigo-600'
+              onClick={() => setSettingsTab('my-ads')}
+              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                settingsTab === 'my-ads'
+                  ? 'border-orange-600 text-orange-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
               }`}
             >
-              <ShieldAlert className="w-3.5 h-3.5" />
-              <span>Admin Tools</span>
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span>My Listings</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                settingsTab === 'my-ads' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {myProducts.length}
+              </span>
             </button>
-          )}
+
+            <button
+              type="button"
+              onClick={() => setSettingsTab('saved')}
+              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                settingsTab === 'saved'
+                  ? 'border-orange-600 text-orange-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              <span>Saved Deals</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                settingsTab === 'saved' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {savedProducts.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSettingsTab('profile')}
+              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                settingsTab === 'profile'
+                  ? 'border-slate-900 text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>Profile & Store</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSettingsTab('selling-buying')}
+              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                settingsTab === 'selling-buying'
+                  ? 'border-slate-900 text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Trading Preferences</span>
+            </button>
+
+            {dropshipEnabled && (
+              <button
+                type="button"
+                onClick={() => setCurrentView('dropship')}
+                className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-700 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <Boxes className="w-3.5 h-3.5" />
+                <span>Dropship</span>
+              </button>
+            )}
+          </div>
+
+          {/* Less-used tabs, outside the scrolling row so the menu isn't clipped */}
+          <div ref={desktopMoreRef} className="relative ml-auto pb-0.5 shrink-0">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={desktopMoreOpen}
+              onClick={() => setDesktopMoreOpen(open => !open)}
+              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap text-blue-600 hover:text-blue-700 ${
+                ['notifications', 'account-security', 'more', 'admin'].includes(settingsTab) ? 'border-blue-600' : 'border-transparent'
+              }`}
+            >
+              <span>More</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${desktopMoreOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {desktopMoreOpen && (
+              <div role="menu" className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-30">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setSettingsTab('notifications'); setDesktopMoreOpen(false); }}
+                  className={`w-full px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition ${
+                    settingsTab === 'notifications' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Bell className="w-3.5 h-3.5" />
+                  <span>Notifications</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setSettingsTab('account-security'); setDesktopMoreOpen(false); }}
+                  className={`w-full px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition ${
+                    settingsTab === 'account-security' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Account & Security</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setSettingsTab('more'); setDesktopMoreOpen(false); }}
+                  className={`w-full px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition ${
+                    settingsTab === 'more' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  <span>Help & Support</span>
+                </button>
+                {currentUser?.isAdmin && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setSettingsTab('admin'); setDesktopMoreOpen(false); }}
+                    className={`w-full px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition ${
+                      settingsTab === 'admin' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>Admin Tools</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Tab: My Listings */}
