@@ -3,6 +3,7 @@ import { DropshipError } from './errors.js';
 import { unavailable, type DropshipCause, type DropshipDb, type UserRestrictionLoader } from './db.js';
 import {
   PARTICIPANT_STATUSES, PRODUCT_STATUSES, parseAdminStatus, parseApplication, parseModeration,
+  encodeCatalogueCursor, parseCatalogueQuery, parseListingCreate, parseListingRemove, parseListingUpdate, parseQuote,
   parseParticipationDecision, parseProductCreate, parseProductUpdate, parseStock, parseSupplierStatus,
   queryEnum, uuidParam,
 } from './validation.js';
@@ -67,6 +68,57 @@ function productView(sp: any) {
     status: sp.status, moderationReason: sp.moderationReason, publishedAt: sp.publishedAt,
     contentVersion: sp.contentVersion, priceVersion: sp.priceVersion,
     createdAt: sp.createdAt, updatedAt: sp.updatedAt,
+  };
+}
+
+// Phase 3 views. Supplier identity (id, name, contact) is never in any of these.
+function catalogueItemView(row: any, viewer: 'dropshipper' | 'teaser') {
+  if (viewer === 'teaser') {
+    return { supplierProductId: row.supplierProductId, title: row.title, images: row.images, category: row.category };
+  }
+  return {
+    supplierProductId: row.supplierProductId, title: row.title, images: row.images, category: row.category,
+    condition: row.condition, brand: row.brand,
+    wholesalePricePesewas: row.wholesalePricePesewas, suggestedRetailPesewas: row.suggestedRetailPesewas,
+    minRetailPesewas: row.minRetailPesewas, available: row.available, leadTimeDays: row.leadTimeDays,
+    shipsFromRegion: row.shipsFromRegion, deliveryFees: row.deliveryFees, returnWindowDays: row.returnWindowDays,
+    alreadyListed: row.alreadyListed, listingCount: row.listingCount,
+  };
+}
+
+function listingView(l: any) {
+  return {
+    id: l.id, supplierProductId: l.supplierProductId, productId: l.productId,
+    retailPricePesewas: l.retailPricePesewas, status: l.status, createdAt: l.createdAt, updatedAt: l.updatedAt,
+  };
+}
+
+// The dropshipper's own view: precise internal unavailable reason and margin.
+function myListingView(l: any) {
+  return {
+    id: l.id, productId: l.productId, supplierProductId: l.supplierProductId, title: l.title, image: l.image,
+    retailPricePesewas: l.retailPricePesewas, wholesalePricePesewas: l.wholesalePricePesewas,
+    platformFeePesewas: l.platformFeePesewas, estimatedMarginPesewas: l.estimatedMarginPesewas,
+    minRetailPesewas: l.minRetailPesewas, status: l.status, effectiveAvailable: l.effectiveAvailable,
+    unavailableReason: l.unavailableReason ?? null, unitsSold: l.unitsSold, createdAt: l.createdAt, updatedAt: l.updatedAt,
+  };
+}
+
+function quoteView(q: any) {
+  return {
+    valid: q.valid, platformFeePesewas: q.platformFeePesewas, estimatedMarginPesewas: q.estimatedMarginPesewas,
+    minRetailPesewas: q.minRetailPesewas, ...(q.reason ? { reason: q.reason } : {}),
+  };
+}
+
+// Customers only ever see out_of_stock or unavailable (A-04), whatever the database says.
+function purchaseInfoView(r: any) {
+  return {
+    listingId: r.listingId, available: r.available, unitPricePesewas: r.unitPricePesewas, maxQuantity: r.maxQuantity,
+    deliveryFees: r.deliveryFees, shipsFromRegion: r.shipsFromRegion, leadTimeDays: r.leadTimeDays,
+    returnWindowDays: r.returnWindowDays, returnPolicyText: r.returnPolicyText,
+    seller: { id: r.seller?.id, storeName: r.seller?.storeName },
+    ...(r.available ? {} : { unavailableReason: r.unavailableReason === 'out_of_stock' ? 'out_of_stock' : 'unavailable' }),
   };
 }
 
@@ -155,7 +207,7 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
       const parts = await deps.db.call<Record<string, any>>('dropship_get_participations', { p_user: user.uid });
       res.json({
         success: true, enabled: true, mode: 'on', accountRestricted,
-        participations: { supplier: participantForOwner(parts?.supplier) },
+        participations: { supplier: participantForOwner(parts?.supplier), dropshipper: participantForOwner(parts?.dropshipper) },
       });
     } catch (err) {
       sendError(res, err);
@@ -320,6 +372,101 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
       p_actor: admin.uid, p_actor_role: 'admin', p_id: id, p_status: input.status, p_reason: input.reason,
     });
     res.json({ success: true, product: productView(result.product) });
+  }));
+
+  // ---- dropshipper catalogue and listings (Phase 3) ---------------------------------------
+  const CATALOGUE_PAGE = 24;
+  const catalogueViewer = async (db: DropshipDb, uid: string): Promise<'dropshipper' | 'teaser'> => {
+    const parts = await db.call<Record<string, any>>('dropship_get_participations', { p_user: uid });
+    return parts?.dropshipper?.status === 'approved' ? 'dropshipper' : 'teaser';
+  };
+  const cataloguePage = (db: DropshipDb, uid: string, q: ReturnType<typeof parseCatalogueQuery>, limitN: number) =>
+    db.call<{ items: any[]; nextCursor: { afterCreated: string; afterId: string } | null }>('dropship_catalogue', {
+      p_viewer: uid, p_category: q.category, p_q: q.q, p_after_created: q.afterCreated, p_after_id: q.afterId, p_limit: limitN,
+    });
+
+  router.get('/api/dropship/catalogue', limit(120, 'dropship-catalogue'), handle(async (req, res, db) => {
+    const user = await requireActor(req, false);
+    const q = parseCatalogueQuery(req.query);
+    const viewer = await catalogueViewer(db, user.uid);
+    const page = await cataloguePage(db, user.uid, q, CATALOGUE_PAGE);
+    res.json({ success: true, items: page.items.map(i => catalogueItemView(i, viewer)), nextCursor: encodeCatalogueCursor(page.nextCursor) });
+  }));
+
+  // No single-item SQL function exists, so walk the keyset pages (bounded) to find the item.
+  router.get('/api/dropship/catalogue/:supplierProductId', limit(120, 'dropship-catalogue'), handle(async (req, res, db) => {
+    const user = await requireActor(req, false);
+    const id = uuidParam(req.params.supplierProductId, 'product');
+    const viewer = await catalogueViewer(db, user.uid);
+    let q = parseCatalogueQuery({});
+    for (let pageNo = 0; pageNo < 20; pageNo++) {
+      const page = await cataloguePage(db, user.uid, q, 50);
+      const hit = page.items.find(i => i.supplierProductId === id);
+      if (hit) {
+        res.json({ success: true, item: catalogueItemView(hit, viewer) });
+        return;
+      }
+      if (!page.nextCursor) break;
+      q = { ...q, afterCreated: page.nextCursor.afterCreated, afterId: page.nextCursor.afterId };
+    }
+    throw new DropshipError('NOT_FOUND', 'Product not found.');
+  }));
+
+  router.post('/api/dropship/catalogue/:supplierProductId/quote', limit(120, 'dropship-quote'), handle(async (req, res, db) => {
+    const user = await requireActor(req, false);
+    const id = uuidParam(req.params.supplierProductId, 'product');
+    const input = parseQuote(req.body);
+    const quote = await db.call('dropship_quote', { p_viewer: user.uid, p_supplier_product_id: id, p_retail_pesewas: input.retailPricePesewas });
+    res.json({ success: true, quote: quoteView(quote) });
+  }));
+
+  router.post('/api/dropship/listings', limit(30, 'dropship-listing-write'), handle(async (req, res, db) => {
+    const user = await requireActor(req, true);
+    const input = parseListingCreate(req.body);
+    const result = await db.call('dropship_create_listing', {
+      p_actor: user.uid, p_supplier_product_id: input.supplierProductId, p_retail_pesewas: input.retailPricePesewas,
+      p_client_request_id: input.clientRequestId,
+    });
+    res.status(result.created ? 201 : 200).json({ success: true, listing: listingView(result.listing), productId: result.productId });
+  }));
+
+  router.get('/api/dropship/listings/mine', limit(120, 'dropship-listing-read'), handle(async (req, res, db) => {
+    const user = await requireActor(req, false);
+    const out = await db.call('dropship_list_my_listings', { p_actor: user.uid });
+    res.json({ success: true, listings: ((out?.listings ?? []) as any[]).map(myListingView) });
+  }));
+
+  router.patch('/api/dropship/listings/:listingId', limit(60, 'dropship-listing-write'), handle(async (req, res, db) => {
+    const user = await requireActor(req, true);
+    const id = uuidParam(req.params.listingId, 'listing');
+    const input = parseListingUpdate(req.body);
+    const result = await db.call('dropship_update_listing', {
+      p_actor: user.uid, p_actor_role: 'dropshipper', p_listing_id: id, p_retail_pesewas: input.retailPricePesewas,
+      p_status: input.status, p_reason: null,
+    });
+    res.json({ success: true, listing: listingView(result.listing) });
+  }));
+
+  // Owner removes without a body; an admin must send a reason (an admin request without a
+  // reason is handled as the owner path, so it is NOT_FOUND unless the admin owns it).
+  router.delete('/api/dropship/listings/:listingId', limit(30, 'dropship-listing-write'), handle(async (req, res, db) => {
+    const user = await requireActor(req, true);
+    const id = uuidParam(req.params.listingId, 'listing');
+    const input = parseListingRemove(req.body);
+    const asAdmin = user.isAdmin === true && input.reason !== null;
+    const result = await db.call('dropship_remove_listing', {
+      p_actor: user.uid, p_actor_role: asAdmin ? 'admin' : 'dropshipper', p_listing_id: id, p_reason: asAdmin ? input.reason : null,
+    });
+    res.json({ success: true, listing: listingView(result.listing) });
+  }));
+
+  // Public: what a buyer needs to purchase a mirror row. Never reveals supplier identity.
+  router.get('/api/dropship/purchase-info/:productId', limit(240, 'dropship-purchase-info'), handle(async (req, res, db) => {
+    const productId = String(req.params.productId || '');
+    if (!productId || productId.length > 100) throw new DropshipError('NOT_FOUND', 'Listing not found.');
+    const info = await db.call('dropship_purchase_info', { p_product_id: productId });
+    if (!info) throw new DropshipError('NOT_FOUND', 'Listing not found.');
+    res.json({ success: true, info: purchaseInfoView(info) });
   }));
 
   return router;
