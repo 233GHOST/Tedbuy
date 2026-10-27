@@ -20,6 +20,7 @@ import { getPrefixAutocompleteSuggestions } from "./src/utils/searchAutocomplete
 import { APP_RELEASE_CONFIG, isAndroidReleaseAvailable } from "./src/config/appRelease.js";
 import firebaseConfig from "./firebase-applet-config.json";
 import { registerDropship } from "./server/dropship/index.js";
+import { isDropshipRowId, legacyDeleteDecision, legacySyncDecision } from "./server/dropship/legacyGuards.js";
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
@@ -869,12 +870,15 @@ if (supabaseUrl && supabaseKey) {
 
 // TedBuy Dropship (server/dropship/). Off unless DROPSHIP_ENABLED=true and its own
 // service-role configuration passes the identity checks; never uses the anon key.
-// Wired into legacy paths in a later task.
+// dropshipGuards keeps Dropship listing rows (ids "dsl_...") out of legacy read paths and
+// supplier media out of legacy deletes.
 const dropshipGuards = registerDropship(app, {
   verifyUser,
   getLegacySupabase: () => backendSupabase,
   rateLimit: serverRateLimiter,
 });
+// Sitemap: ordinary rows answer synchronously; dsl_ rows only while visible.
+const sitemapProductVisible = (id: string) => !isDropshipRowId(id) || dropshipGuards.isVisibleProduct(id);
 
 // -------------------------------------------------------------
 // Cloudinary Media Service Initialization & Routes
@@ -1815,6 +1819,10 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
       }
     }
 
+    // Supplier media is never deleted by legacy code (a bare publicId is admin-only and can't be checked).
+    if (url && typeof url === 'string' && (await dropshipGuards.filterProtectedMedia([url])).protected.length > 0) {
+      return res.json({ success: true, skipped: true, reason: 'dropship_protected' });
+    }
     const result = await deleteCloudinaryAsset(targetPublicId, targetResourceType);
     return res.json({ success: true, result });
   } catch (err: any) {
@@ -1886,9 +1894,10 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
     ]);
 
     const newUrlSet = new Set(newUrls);
-    const orphans = oldUrls.filter(url => typeof url === 'string' && !newUrlSet.has(url) && ownedUrls.has(url));
+    const candidates = oldUrls.filter(url => typeof url === 'string' && !newUrlSet.has(url) && ownedUrls.has(url));
+    const { deletable: orphans, protected: protectedUrls } = await dropshipGuards.filterProtectedMedia(candidates);
 
-    const results = [];
+    const results: any[] = protectedUrls.map(url => ({ url, success: true, skipped: true, reason: 'dropship_protected' }));
     for (const orphanUrl of orphans) {
       const info = extractCloudinaryInfo(orphanUrl);
       if (info) {
@@ -1901,7 +1910,7 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
       }
     }
 
-    return res.json({ success: true, cleanedCount: results.length, results });
+    return res.json({ success: true, cleanedCount: results.filter((r: any) => !r.skipped).length, results });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'Cleanup operation failed' });
   }
@@ -2498,7 +2507,7 @@ function normalizeServerProductSummaryRow(row: any): any {
 async function getProductsListData(forceRefresh = false): Promise<{ products: any[] }> {
   const now = Date.now();
   if (!forceRefresh && rawProductsListCache && rawProductsListCache.products.length > 0 && (now - rawProductsListCache.timestamp) < RAW_PRODUCTS_CACHE_TTL_MS) {
-    return { products: rawProductsListCache.products };
+    return { products: await dropshipGuards.filterVisible(rawProductsListCache.products) };
   }
 
   let products: any[] = [];
@@ -2601,7 +2610,8 @@ async function getProductsListData(forceRefresh = false): Promise<{ products: an
     products = rawProductsListCache.products;
   }
 
-  return { products };
+  // Dropship listing rows: hidden/unknown ones dropped on every call (the raw cache keeps them).
+  return { products: await dropshipGuards.filterVisible(products) };
 }
 
 // -------------------------------------------------------------
@@ -2883,7 +2893,7 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
                 .limit(500);
 
               if (Array.isArray(sRows) && sRows.length > 0) {
-                filtered = sRows.map((r: any) => normalizeServerProductSummaryRow(r)).filter(Boolean);
+                filtered = await dropshipGuards.filterVisible(sRows.map((r: any) => normalizeServerProductSummaryRow(r)).filter(Boolean));
               }
             }
           } catch (err) {
@@ -3264,6 +3274,10 @@ app.get('/api/products/:productId', serverRateLimiter(60 * 1000, 200, "product-d
     return res.status(400).json({ success: false, error: 'Missing product ID' });
   }
 
+  if (isDropshipRowId(productId) && !(await dropshipGuards.isVisibleProduct(productId))) {
+    return res.status(404).json({ success: false, error: "This item isn't available right now" });
+  }
+
   const bypassCache = req.query.nocache === 'true' || req.headers['cache-control'] === 'no-cache';
   const cacheKey = `product:${productId}`;
   res.setHeader('Cache-Control', 'no-cache, private');
@@ -3403,12 +3417,15 @@ async function safeBackendSupabaseUpsert(table: string, payload: any, options: a
 // from the existing row and never taken from client input at all. See
 // .ai/handoffs/SUPABASE_DIRECT_ACCESS_AUDIT.md §15 for the full exploit
 // chain this closes.
-async function upsertProductToSupabase(productData: any, actingUser?: { uid: string; email?: string; isAdmin?: boolean }, trustBoostFields: boolean = false) {
+async function upsertProductToSupabase(productData: any, actingUser?: { uid: string; email?: string; isAdmin?: boolean }, trustBoostFields: boolean = false, allowDropshipRow: boolean = false) {
   if (!productData) {
     throw new Error("Invalid product data");
   }
 
   const prodId = productData.id || `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  if (isDropshipRowId(prodId) && !allowDropshipRow) {
+    throw new Error('Manage this listing from Dropship');
+  }
   
   // Retrieve existing record from Supabase to prevent erasing seller info or
   // created date during updates. A genuine query error here must NOT be
@@ -3776,6 +3793,11 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
     ? Object.keys(product).every((key) => SOCIAL_ONLY_FIELDS.has(key) || normalizeForCompare(product[key]) === normalizeForCompare(existingRow[key]))
     : false;
 
+  // Dropship listing rows (dsl_): only social-only changes, or an admin.
+  if (legacySyncDecision({ productId: prodId, isAdmin, socialOnly: isSocialOnlyChange, exists: isExistingProduct }) === 'reject_dsl') {
+    return res.status(409).json({ success: false, error: 'Manage this listing from Dropship' });
+  }
+
   // Authorization Check:
   // If editing an existing product, caller must be owner OR an Admin
   // (unless this is a social-only like/view update — see above).
@@ -3845,7 +3867,7 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
   };
 
   try {
-    const saved = await upsertProductToSupabase(cleanProduct, user);
+    const saved = await upsertProductToSupabase(cleanProduct, user, false, isDropshipRowId(prodId));
     clearSitemapCache();
 
     // Notify followers of the seller when a genuinely NEW listing goes up
@@ -4123,6 +4145,10 @@ app.post('/api/products/create', serverRateLimiter(60 * 1000, 10, "products-crea
   }
 
   const isAdmin = hasAdminAuthority(user);
+  const createId = String(product.id || '');
+  if (legacySyncDecision({ productId: createId, isAdmin, socialOnly: false, exists: false }) === 'reject_dsl') {
+    return res.status(409).json({ success: false, error: 'Manage this listing from Dropship' });
+  }
   // If admin creates product on behalf of an impersonated user, allow product.sellerId; otherwise bound to user.uid
   const sellerId = (isAdmin && product.sellerId && String(product.sellerId).trim().length > 0)
     ? String(product.sellerId).trim()
@@ -4134,7 +4160,7 @@ app.post('/api/products/create', serverRateLimiter(60 * 1000, 10, "products-crea
   };
 
   try {
-    const saved = await upsertProductToSupabase(cleanProduct, user);
+    const saved = await upsertProductToSupabase(cleanProduct, user, false, isDropshipRowId(createId));
     clearSitemapCache();
     return res.json({ success: true, product: saved });
   } catch (err: any) {
@@ -4171,7 +4197,9 @@ async function deleteProductFromBackend(productId: string) {
 
       // Media goes only after the row is gone: deleting it first left a live
       // listing with broken photos whenever the row delete then failed.
-      for (const url of mediaUrlsToCleanup) {
+      // Supplier (Dropship) media is never deleted here.
+      const { deletable: deletableMedia } = await dropshipGuards.filterProtectedMedia(mediaUrlsToCleanup);
+      for (const url of deletableMedia) {
         if (typeof url === 'string' && url.includes('res.cloudinary.com')) {
           const info = extractCloudinaryInfo(url);
           if (info) {
@@ -4254,6 +4282,7 @@ async function purgeExpiredSoldProducts(): Promise<number> {
       .lt('soldAt', cutoff);
 
     for (const p of expiredSoldProducts || []) {
+      if (isDropshipRowId(p.id)) continue; // Dropship manages its own listing rows
       try {
         await deleteProductFromBackend(p.id);
         purged++;
@@ -4279,6 +4308,9 @@ app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-dele
   const user = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!user) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to delete product' });
+  }
+  if (legacyDeleteDecision(String(productId)) === 'reject_dsl') {
+    return res.status(409).json({ success: false, error: 'Manage this listing from Dropship' });
   }
 
   let sellerId: string | null = null;
@@ -4350,6 +4382,9 @@ app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "product
   const user = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!user) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to delete product' });
+  }
+  if (legacyDeleteDecision(String(productId)) === 'reject_dsl') {
+    return res.status(409).json({ success: false, error: 'Manage this listing from Dropship' });
   }
 
   let sellerId: string | null = null;
@@ -6578,7 +6613,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     let finalProduct: any;
     try {
       const merged = { ...existingProduct, ...boostFields };
-      finalProduct = await upsertProductToSupabase(merged, verified, true);
+      finalProduct = await upsertProductToSupabase(merged, verified, true, await dropshipGuards.isVisibleProduct(String(productId)));
       if (adminDb) {
         await adminDb.collection('products').doc(productId).set(cleanObject(merged), { merge: true }).catch((fErr: any) => {
           console.warn('[Verify Payment API] Firestore sync note:', fErr?.message);
@@ -6662,6 +6697,9 @@ app.post('/api/paystack/initialize-boost', serverRateLimiter(60 * 1000, 10, 'pay
   if (!productId || typeof productId !== 'string') {
     return res.status(400).json({ success: false, error: 'Missing productId.' });
   }
+  if (isDropshipRowId(productId) && !(await dropshipGuards.isVisibleProduct(productId))) {
+    return res.status(404).json({ success: false, error: "This item isn't available right now" });
+  }
 
   let existingProduct: any = null;
   if (backendSupabase) {
@@ -6739,6 +6777,10 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
 
   if (!productId) {
     return res.status(400).json({ success: false, error: 'Missing required parameter: productId' });
+  }
+  // Checked up front: the upsert fallback below would otherwise write a hidden dsl_ row.
+  if (isDropshipRowId(productId) && !(await dropshipGuards.isVisibleProduct(String(productId)))) {
+    return res.status(404).json({ success: false, error: "This item isn't available right now" });
   }
 
   try {
@@ -6895,7 +6937,7 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
     let supabaseWriteSucceeded = !backendSupabase;
     if (backendSupabase) {
       try {
-        const saved = await upsertProductToSupabase(mergedProduct, undefined, true);
+        const saved = await upsertProductToSupabase(mergedProduct, undefined, true, isDropshipRowId(productId));
         if (saved) {
           supabaseWriteSucceeded = true;
           console.log(`[Admin Boost Control API] Saved product ${productId} to Supabase.`);
@@ -9034,6 +9076,14 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
 
       // CASE B: Standard Soft Deletion & Controlled Anonymization
 
+      // 0. Dropship listings/supplier products go first (throws -> this handler's 500).
+      await dropshipGuards.removeUserListings(uid, 'account_deletion', async () => {
+        if (!backendSupabase) return [];
+        const { data, error } = await backendSupabase.from('products').select('id').eq('sellerId', uid);
+        if (error) throw error;
+        return (data || []).map((p: any) => String(p.id));
+      });
+
       // 1. Disable Firebase Auth and revoke refresh tokens (prevents login, retains UID link)
       try {
         if (getAdminApps().length > 0) {
@@ -9506,6 +9556,14 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       }
 
       console.log(`[Admin Delete] Deleting active store profile for user: ${targetUser.username} (${targetUserId}), requested by verified admin ${verified.email}`);
+
+      // 0. Dropship listings/supplier products go first: dsl_ rows can't be deleted by the
+      // loop below (FK), so a failure here stops with this handler's 500 (throws).
+      await dropshipGuards.removeUserListings(targetUserId, 'admin_account_deletion', async () => {
+        const { data, error } = await backendSupabase!.from('products').select('id').eq('sellerId', targetUserId);
+        if (error) throw error;
+        return (data || []).map((p: any) => String(p.id));
+      });
 
       // 1. Delete every product this user owns (reuses the same cleanup
       // already used by the normal product-delete endpoint -- Cloudinary
@@ -10246,7 +10304,7 @@ Sitemap: ${protocol}://${host}/sitemap.xml`;
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
 
-      const data = await getSitemapDataset();
+      const data = await getSitemapDataset(sitemapProductVisible);
       
       const totalUrlsCount = data.staticUrls.length + data.categoryUrls.length + data.productUrls.length + data.storeUrls.length;
 
@@ -10297,7 +10355,7 @@ Sitemap: ${protocol}://${host}/sitemap.xml`;
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
 
-      const data = await getSitemapDataset();
+      const data = await getSitemapDataset(sitemapProductVisible);
       const xml = generateUrlSetXml(baseUrl, data.staticUrls);
       res.header('Content-Type', 'application/xml');
       return res.send(xml);
@@ -10315,7 +10373,7 @@ Sitemap: ${protocol}://${host}/sitemap.xml`;
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
 
-      const data = await getSitemapDataset();
+      const data = await getSitemapDataset(sitemapProductVisible);
       const xml = generateUrlSetXml(baseUrl, data.categoryUrls);
       res.header('Content-Type', 'application/xml');
       return res.send(xml);
@@ -10334,7 +10392,7 @@ Sitemap: ${protocol}://${host}/sitemap.xml`;
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
 
-      const data = await getSitemapDataset();
+      const data = await getSitemapDataset(sitemapProductVisible);
       
       const PAGE_SIZE = 40000;
       const startIndex = (page - 1) * PAGE_SIZE;
@@ -10359,7 +10417,7 @@ Sitemap: ${protocol}://${host}/sitemap.xml`;
       const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
       const baseUrl = `${protocol}://${host}`;
 
-      const data = await getSitemapDataset();
+      const data = await getSitemapDataset(sitemapProductVisible);
       
       const PAGE_SIZE = 40000;
       const startIndex = (page - 1) * PAGE_SIZE;
@@ -10433,7 +10491,8 @@ async function startServer() {
               // and shareable with a real-looking preview card regardless of
               // the moderation action. Same status set /api/products/:id
               // and the rest of the app already treat as invisible.
-              const isModerated = data && (data.isDeleted === true || data.is_deleted === true || data.status === 'archived' || data.status === 'hidden' || data.status === 'deleted');
+              const isModerated = data && (data.isDeleted === true || data.is_deleted === true || data.status === 'archived' || data.status === 'hidden' || data.status === 'deleted'
+                || (isDropshipRowId(productId) && !(await dropshipGuards.isVisibleProduct(productId))));
               if (data && !isModerated) {
                 const normalized = normalizeServerProductRow(data);
                 html = injectMetaTags(html, normalized, `${protocol}://${host}${req.originalUrl}`, host, protocol, productId);

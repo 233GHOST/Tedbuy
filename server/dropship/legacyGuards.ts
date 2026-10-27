@@ -12,12 +12,31 @@ export function isDropshipRowId(id: unknown): boolean {
   return typeof id === 'string' && id.toLowerCase().startsWith('dsl_');
 }
 
+// Legacy create/sync of a products row (POST /api/products/sync, /api/products/create).
+// A dsl_ row is written only by Dropship; legacy code may change only its social fields
+// (likes/views), unless the caller is an admin.
+export function legacySyncDecision(input: { productId: string; isAdmin: boolean; socialOnly: boolean; exists: boolean }): 'allow' | 'reject_dsl' {
+  if (!isDropshipRowId(input.productId) || input.isAdmin) return 'allow';
+  return input.exists && input.socialOnly ? 'allow' : 'reject_dsl';
+}
+
+// Legacy product delete endpoints never delete a dsl_ row; Dropship removes listings itself.
+export function legacyDeleteDecision(productId: string): 'allow' | 'reject_dsl' {
+  return isDropshipRowId(productId) ? 'reject_dsl' : 'allow';
+}
+
 export interface LegacyGuards {
   filterVisible<T extends { id: string }>(rows: T[]): Promise<T[]>;
   isVisibleProduct(id: string): Promise<boolean>;
   filterProtectedMedia(urls: string[]): Promise<{ deletable: string[]; protected: string[] }>;
   isLinkedProduct(id: string): boolean;
   invalidate(): void;
+  // Account deletion: removes the user's listings (mirror rows) and archives their supplier
+  // products via dropship_remove_user_listings, before legacy code touches their products.
+  // Returns the number removed, or null when the call could not run; in that case it resolves
+  // only if the user owns no dsl_ products row (listUserProductIds), and otherwise rejects so
+  // the caller stops instead of half-deleting (products.id is ON DELETE RESTRICT).
+  removeUserListings(uid: string, reason: string, listUserProductIds: () => Promise<string[]>): Promise<number | null>;
 }
 
 interface HiddenSnapshot {
@@ -70,12 +89,12 @@ export function createLegacyGuards(opts: { db: DropshipDb | null; enabled: boole
       for (const r of rows) {
         if (!isDropshipRowId(r.id)) { out.push(r); continue; }
         if (snap.hidden.has(r.id)) continue;
+        // Unknown dsl_ ids (no live listing, or not lower-case) are hidden.
         const sp = snap.supplierProductOf.get(r.id);
-        if (sp !== undefined) {
-          const n = perSupplierProduct.get(sp) ?? 0;
-          if (n >= MAX_LISTINGS_PER_SUPPLIER_PRODUCT) continue;
-          perSupplierProduct.set(sp, n + 1);
-        }
+        if (sp === undefined) continue;
+        const n = perSupplierProduct.get(sp) ?? 0;
+        if (n >= MAX_LISTINGS_PER_SUPPLIER_PRODUCT) continue;
+        perSupplierProduct.set(sp, n + 1);
         out.push(r);
       }
       return out;
@@ -85,7 +104,7 @@ export function createLegacyGuards(opts: { db: DropshipDb | null; enabled: boole
       if (!isDropshipRowId(id)) return true;
       if (!live) return false;
       const snap = await snapshot();
-      return !!snap && !snap.hidden.has(id);
+      return !!snap && snap.supplierProductOf.has(id) && !snap.hidden.has(id);
     },
 
     async filterProtectedMedia(urls) {
@@ -103,6 +122,24 @@ export function createLegacyGuards(opts: { db: DropshipDb | null; enabled: boole
     },
 
     isLinkedProduct: id => isDropshipRowId(id),
+
+    async removeUserListings(uid, reason, listUserProductIds) {
+      if (opts.db) {
+        try {
+          const n = await opts.db.call<number>('dropship_remove_user_listings', { p_user: uid, p_reason: reason });
+          cache = null;
+          generation++;
+          return Number(n) || 0;
+        } catch (err) {
+          console.error('[Dropship] dropship_remove_user_listings failed.', err);
+        }
+      }
+      const ids = await listUserProductIds();
+      if (ids.some(isDropshipRowId)) {
+        throw new Error('Dropship listings could not be removed for this account. Please try again later.');
+      }
+      return null;
+    },
 
     invalidate() {
       cache = null;
