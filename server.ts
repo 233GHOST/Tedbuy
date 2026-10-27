@@ -325,6 +325,64 @@ async function verifyAdmin(authHeader?: string, impersonationSessionId?: string 
   return !!user?.isAdmin || !!user?.originalAdmin;
 }
 
+// Append-only admin audit trail (supabase/migrations/20261027130000_admin_audit_logs.sql,
+// design: .ai/handoffs/ADMIN_AUDIT_LOGS_IMPLEMENTATION_REVIEW.md). Only these 11 actions
+// are recorded; the table's CHECK constraint rejects anything else.
+type AdminAuditAction =
+  | 'impersonate_start' | 'impersonate_exit' | 'impersonate_expired'
+  | 'security_hold_apply' | 'security_hold_release'
+  | 'user_suspend' | 'user_unsuspend' | 'user_delete'
+  | 'boost_admin_activate' | 'boost_admin_deactivate'
+  | 'retention_purge_run';
+
+interface AdminAuditEntry {
+  action: AdminAuditAction;
+  result: 'success' | 'failure';
+  actorUserId: string;              // always the verified Firebase uid, never a client value
+  actorEmail?: string | null;
+  targetUserId?: string | null;
+  targetEmail?: string | null;
+  targetProductId?: string | null;
+  sessionId?: string | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+// cf-connecting-ip only (Cloudflare fronts all production traffic); no X-Forwarded-For,
+// which a client can set freely. Same source as the rate limiter.
+function auditRequestInfo(req: express.Request): { ip: string; userAgent: string | null } {
+  return {
+    ip: (req.headers['cf-connecting-ip'] as string) || req.socket.remoteAddress || 'unknown',
+    userAgent: (req.headers['user-agent'] as string) || null,
+  };
+}
+
+// Never throws and never changes the outcome of the admin action being recorded.
+async function recordAdminAudit(entry: AdminAuditEntry, req?: express.Request): Promise<void> {
+  if (!backendSupabase) return;
+  const info = req ? auditRequestInfo(req) : { ip: null, userAgent: null };
+  try {
+    const { error } = await backendSupabase.from('admin_audit_logs').insert({
+      id: crypto.randomUUID(),
+      action: entry.action,
+      result: entry.result,
+      actor_user_id: entry.actorUserId,
+      actor_email: entry.actorEmail || null,
+      target_user_id: entry.targetUserId || null,
+      target_email: entry.targetEmail || null,
+      target_product_id: entry.targetProductId || null,
+      session_id: entry.sessionId || null,
+      error_message: entry.result === 'failure' ? (entry.errorMessage || 'Unknown error') : null,
+      ip_address: info.ip,
+      user_agent: info.userAgent,
+      metadata: entry.metadata || {},
+    });
+    if (error) console.warn('[Admin Audit Log] Insert failed:', error.message);
+  } catch (err: any) {
+    console.warn('[Admin Audit Log] Insert failed:', err?.message || err);
+  }
+}
+
 function cleanObject(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(cleanObject).filter(v => v !== undefined);
@@ -6669,8 +6727,10 @@ app.get('/api/paystack/callback', (_req: express.Request, res: express.Response)
 });
 
 app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boost-control"), async (req: express.Request, res: express.Response) => {
-  const verified = await verifyAdmin(req.headers.authorization);
-  if (!verified) {
+  // verifyUser() + the same isAdmin/originalAdmin test verifyAdmin() applies, so the
+  // audit row below can carry the verified admin uid.
+  const verified = await verifyUser(req.headers.authorization);
+  if (!verified || !(verified.isAdmin || verified.originalAdmin)) {
     return res.status(403).json({ success: false, error: 'Forbidden: Admin authorization required' });
   }
 
@@ -6860,6 +6920,18 @@ app.post('/api/admin/boost-control', serverRateLimiter(60 * 1000, 30, "admin-boo
         console.warn('[Admin Boost Control API] Firestore adminDb write warning:', fWriteErr?.message);
       }
     }
+
+    await recordAdminAudit({
+      action: action === 'activate' ? 'boost_admin_activate' : 'boost_admin_deactivate',
+      result: supabaseWriteSucceeded ? 'success' : 'failure',
+      actorUserId: verified.uid,
+      actorEmail: verified.email || null,
+      targetProductId: String(productId),
+      errorMessage: supabaseWriteSucceeded ? null : 'product boost could not be saved',
+      metadata: action === 'activate'
+        ? { planId: boostFields.boostPlan, durationDays: Math.round(boostFields.remainingBoostTime / (24 * 60 * 60 * 1000)), boostEndDate: boostFields.boostEndDate }
+        : {}
+    }, req);
 
     if (!supabaseWriteSucceeded) {
       return res.status(500).json({
@@ -8228,44 +8300,29 @@ app.post("/api/admin/send-personal-email", serverRateLimiter(60 * 1000, 20, "adm
 // -------------------------------------------------------------
 // SECURE ADMIN USER IMPERSONATION SYSTEM
 // -------------------------------------------------------------
+// A session's start and end are separate rows; the lifecycle state goes in metadata.
 async function logImpersonationEvent(params: {
-  sessionId: string;
+  sessionId?: string | null;
   adminUserId: string;
   adminEmail?: string;
-  targetUserId: string;
+  targetUserId?: string | null;
   targetUserEmail?: string;
-  action: 'start_impersonation' | 'exit_impersonation' | 'expired_impersonation' | 'action_performed';
-  status: 'active' | 'completed' | 'expired' | 'revoked';
-  startTime?: string;
-  endTime?: string;
-  details?: any;
-}) {
-  try {
-    if (backendSupabase) {
-      const payload = {
-        id: `audit_imp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        session_id: params.sessionId,
-        admin_user_id: params.adminUserId,
-        admin_email: params.adminEmail || null,
-        target_user_id: params.targetUserId,
-        target_user_email: params.targetUserEmail || null,
-        action: params.action,
-        status: params.status,
-        start_time: params.startTime || new Date().toISOString(),
-        end_time: params.endTime || (params.action === 'exit_impersonation' || params.action === 'expired_impersonation' ? new Date().toISOString() : null),
-        details: params.details ? JSON.stringify(params.details) : null,
-        created_at: new Date().toISOString()
-      };
-      const { error } = await backendSupabase.from('admin_audit_logs').insert(payload);
-      if (error) {
-        console.warn('[Impersonation Audit Log] Supabase insert note:', error.message);
-      } else {
-        console.log(`[Impersonation Audit Log] Recorded event: ${params.action} for session ${params.sessionId}`);
-      }
-    }
-  } catch (err: any) {
-    console.warn('[Impersonation Audit Log] Error logging event:', err?.message || err);
-  }
+  action: 'impersonate_start' | 'impersonate_exit' | 'impersonate_expired';
+  lifecycle: 'active' | 'completed' | 'expired' | 'rejected';
+  result?: 'success' | 'failure';
+  errorMessage?: string;
+}, req?: express.Request) {
+  await recordAdminAudit({
+    action: params.action,
+    result: params.result || 'success',
+    actorUserId: params.adminUserId,
+    actorEmail: params.adminEmail,
+    targetUserId: params.targetUserId,
+    targetEmail: params.targetUserEmail,
+    sessionId: params.sessionId,
+    errorMessage: params.errorMessage,
+    metadata: { lifecycle: params.lifecycle },
+  }, req);
 }
 
 // 1. ADMIN USER SEARCH ENDPOINT
@@ -8435,12 +8492,32 @@ app.post('/api/admin/impersonate/start', serverRateLimiter(60 * 1000, 10, "admin
     }
 
     if (!targetUser) {
+      await logImpersonationEvent({
+        adminUserId: verifiedUser.uid,
+        adminEmail: verifiedUser.email,
+        targetUserId: targetUserId ? String(targetUserId) : null,
+        targetUserEmail: targetUserEmail ? String(targetUserEmail) : undefined,
+        action: 'impersonate_start',
+        lifecycle: 'rejected',
+        result: 'failure',
+        errorMessage: 'target account not found'
+      }, req);
       return res.status(404).json({ success: false, error: 'Target user does not exist in TedBuy database' });
     }
 
     // Prevent impersonating another super-admin unless explicitly required
     const targetEmail = (targetUser.email || '').trim().toLowerCase();
     if (targetEmail === 'asumaduvincent7@gmail.com' && verifiedUser.email.trim().toLowerCase() !== 'asumaduvincent7@gmail.com') {
+      await logImpersonationEvent({
+        adminUserId: verifiedUser.uid,
+        adminEmail: verifiedUser.email,
+        targetUserId: targetUser.id,
+        targetUserEmail: targetUser.email || '',
+        action: 'impersonate_start',
+        lifecycle: 'rejected',
+        result: 'failure',
+        errorMessage: 'target account is protected'
+      }, req);
       return res.status(403).json({ success: false, error: 'Security Protection: Impersonating the super-administrator is strictly forbidden.' });
     }
 
@@ -8469,11 +8546,9 @@ app.post('/api/admin/impersonate/start', serverRateLimiter(60 * 1000, 10, "admin
       adminEmail: verifiedUser.email,
       targetUserId: targetUser.id,
       targetUserEmail: targetUser.email || '',
-      action: 'start_impersonation',
-      status: 'active',
-      startTime,
-      details: { ip: req.ip, userAgent: req.headers['user-agent'] }
-    });
+      action: 'impersonate_start',
+      lifecycle: 'active'
+    }, req);
 
     console.log(`[Admin Impersonation] Admin ${verifiedUser.email} started impersonating user ${targetUser.id} (${targetUser.email})`);
 
@@ -8517,11 +8592,12 @@ app.post('/api/admin/impersonate/verify', serverRateLimiter(60 * 1000, 20, "admi
     logImpersonationEvent({
       sessionId: session.sessionId,
       adminUserId: session.adminUserId,
+      adminEmail: session.adminEmail,
       targetUserId: session.targetUserId,
-      action: 'expired_impersonation',
-      status: 'expired',
-      endTime: new Date().toISOString()
-    });
+      targetUserEmail: session.targetUserEmail,
+      action: 'impersonate_expired',
+      lifecycle: 'expired'
+    }, req);
     return res.status(401).json({ success: false, valid: false, expired: true, error: 'Impersonation session has expired' });
   }
 
@@ -8553,10 +8629,9 @@ app.post('/api/admin/impersonate/exit', serverRateLimiter(60 * 1000, 20, "admin-
         adminEmail: session.adminEmail,
         targetUserId: session.targetUserId,
         targetUserEmail: session.targetUserEmail,
-        action: 'exit_impersonation',
-        status: 'completed',
-        endTime: new Date().toISOString()
-      });
+        action: 'impersonate_exit',
+        lifecycle: 'completed'
+      }, req);
     }
   }
 
@@ -8576,6 +8651,7 @@ app.get('/api/admin/impersonate/logs', serverRateLimiter(60 * 1000, 30, "admin-i
       const { data, error } = await backendSupabase
         .from('admin_audit_logs')
         .select('*')
+        .like('action', 'impersonate_%')
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -8587,6 +8663,47 @@ app.get('/api/admin/impersonate/logs', serverRateLimiter(60 * 1000, 30, "admin-i
   } catch (err: any) {
     console.error('[Impersonate Logs Error]:', err);
     return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch logs' });
+  }
+});
+
+// Full admin audit trail, newest first, cursor-paginated on created_at (max 100 per page).
+app.get('/api/admin/audit-logs', serverRateLimiter(60 * 1000, 30, "admin-audit-logs"), async (req: express.Request, res: express.Response) => {
+  const verified = await verifyUser(req.headers.authorization);
+  if (!verified || !(verified.isAdmin || verified.originalAdmin)) {
+    return res.status(403).json({ success: false, error: "Unauthorized: Administrator privileges required." });
+  }
+  if (!backendSupabase) {
+    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+  }
+
+  const one = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const action = one(req.query.action);
+  const result = one(req.query.result);
+  const actorUserId = one(req.query.actorUserId);
+  const targetUserId = one(req.query.targetUserId);
+  const before = one(req.query.before);
+  const after = one(req.query.after);
+  const cursor = one(req.query.cursor);
+  const pageSize = Math.min(Math.max(parseInt(one(req.query.limit) || '', 10) || 50, 1), 100);
+
+  try {
+    let query = backendSupabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(pageSize);
+    if (action) query = query.eq('action', action);
+    if (result) query = query.eq('result', result);
+    if (actorUserId) query = query.eq('actor_user_id', actorUserId);
+    if (targetUserId) query = query.eq('target_user_id', targetUserId);
+    if (before) query = query.lt('created_at', before);
+    if (after) query = query.gt('created_at', after);
+    if (cursor) query = query.lt('created_at', cursor);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const logs = data || [];
+    const nextCursor = logs.length === pageSize ? logs[logs.length - 1].created_at : null;
+    return res.json({ success: true, logs, nextCursor });
+  } catch (err: any) {
+    console.error('[Admin Audit Logs Error]:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch audit logs' });
   }
 });
 
@@ -9217,38 +9334,39 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         status: hold ? 'under_investigation' : 'active'
       };
 
-      if (adminDb) {
-        await adminDb.collection('users').doc(targetUserId).set(securityHoldData, { merge: true }).catch(() => {});
-      }
-      if (backendSupabase) {
-        // Found via a dedicated audit, same "write failure reported as
-        // success" shape as the fix just applied to /api/admin/users/delete
-        // -- and directly inconsistent with this endpoint's own sibling,
-        // /api/admin/users/suspend (below), which already correctly checks
-        // `error` and throws. `.catch(() => {})` here only ever caught a
-        // network-level exception; a genuine Supabase error (RLS, permission)
-        // fell straight through to the unconditional success response below,
-        // on a fraud/dispute-hold action an admin relies on actually working.
-        const { error: holdUpdateErr } = await backendSupabase.from('users').update(securityHoldData).eq('id', targetUserId);
-        if (holdUpdateErr) throw holdUpdateErr;
+      let holdErr: any = null;
+      try {
+        if (adminDb) {
+          await adminDb.collection('users').doc(targetUserId).set(securityHoldData, { merge: true }).catch(() => {});
+        }
+        if (backendSupabase) {
+          // Found via a dedicated audit, same "write failure reported as
+          // success" shape as the fix just applied to /api/admin/users/delete
+          // -- and directly inconsistent with this endpoint's own sibling,
+          // /api/admin/users/suspend (below), which already correctly checks
+          // `error` and throws. `.catch(() => {})` here only ever caught a
+          // network-level exception; a genuine Supabase error (RLS, permission)
+          // fell straight through to the unconditional success response below,
+          // on a fraud/dispute-hold action an admin relies on actually working.
+          const { error: holdUpdateErr } = await backendSupabase.from('users').update(securityHoldData).eq('id', targetUserId);
+          if (holdUpdateErr) throw holdUpdateErr;
+        }
+      } catch (err: any) {
+        holdErr = err;
       }
 
-      // Record in admin audit logs
-      const auditEntry = {
-        id: crypto.randomUUID(),
-        session_id: `sec_hold_${Date.now()}`,
-        admin_user_id: String(adminEmail),
-        admin_email: String(adminEmail),
-        target_user_id: targetUserId,
-        action: hold ? 'APPLY_SECURITY_HOLD' : 'RELEASE_SECURITY_HOLD',
-        status: 'SUCCESS',
-        start_time: now,
-        details: JSON.stringify({ hold, reason: reason || 'N/A' }),
-        created_at: now
-      };
-      if (backendSupabase) {
-        await backendSupabase.from('admin_audit_logs').insert(auditEntry).catch(() => {});
-      }
+      // Recorded on success and failure alike, under the verified admin uid
+      // (this row used to store the admin's email as the user id).
+      await recordAdminAudit({
+        action: hold ? 'security_hold_apply' : 'security_hold_release',
+        result: holdErr ? 'failure' : 'success',
+        actorUserId: verified.uid,
+        actorEmail: verified.email || null,
+        targetUserId,
+        errorMessage: holdErr?.message,
+        metadata: { reason: securityHoldData.securityHoldReason }
+      }, req);
+      if (holdErr) throw holdErr;
 
       return res.json({
         success: true,
@@ -9304,35 +9422,34 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         return res.status(403).json({ success: false, error: 'Crucial Security Guard: The super-administrator account cannot be suspended.' });
       }
 
-      const now = new Date().toISOString();
       const adminEmail = verified.email || 'admin';
 
-      if (adminDb) {
-        await adminDb.collection('users').doc(targetUserId).set({ isSuspended: suspend }, { merge: true }).catch(() => {});
-      }
-      if (backendSupabase) {
-        const { error } = await backendSupabase.from('users').update({ isSuspended: suspend }).eq('id', targetUserId);
-        if (error) throw error;
+      let suspendErr: any = null;
+      try {
+        if (adminDb) {
+          await adminDb.collection('users').doc(targetUserId).set({ isSuspended: suspend }, { merge: true }).catch(() => {});
+        }
+        if (backendSupabase) {
+          const { error } = await backendSupabase.from('users').update({ isSuspended: suspend }).eq('id', targetUserId);
+          if (error) throw error;
+        }
+      } catch (err: any) {
+        suspendErr = err;
       }
 
       // Audit attribution uses the verified admin identity, never a
-      // client-supplied header/field -- same fix already applied to
-      // security-hold above.
-      const auditEntry = {
-        id: crypto.randomUUID(),
-        session_id: `suspend_${Date.now()}`,
-        admin_user_id: verified.uid,
-        admin_email: String(adminEmail),
-        target_user_id: targetUserId,
-        action: suspend ? 'SUSPEND_USER' : 'UNSUSPEND_USER',
-        status: 'SUCCESS',
-        start_time: now,
-        details: JSON.stringify({ targetUsername: targetUser.username || null }),
-        created_at: now
-      };
-      if (backendSupabase) {
-        await backendSupabase.from('admin_audit_logs').insert(auditEntry).catch(() => {});
-      }
+      // client-supplied header/field; recorded on success and failure alike.
+      await recordAdminAudit({
+        action: suspend ? 'user_suspend' : 'user_unsuspend',
+        result: suspendErr ? 'failure' : 'success',
+        actorUserId: verified.uid,
+        actorEmail: verified.email || null,
+        targetUserId,
+        targetEmail: targetUser.email || null,
+        errorMessage: suspendErr?.message,
+        metadata: { targetUsername: targetUser.username || null }
+      }, req);
+      if (suspendErr) throw suspendErr;
 
       console.log(`[Admin Suspend] ${suspend ? 'Suspended' : 'Unsuspended'} ${targetUserId} by verified admin ${adminEmail}`);
 
@@ -9489,8 +9606,18 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         // admin action in this file. Now explicitly checked.
         const { error: userDeleteErr } = await backendSupabase.from('users').delete().eq('id', targetUserId);
         if (userDeleteErr) throw userDeleteErr;
-      } catch (userErr) {
+      } catch (userErr: any) {
         console.error('[Admin Delete] Could not delete user row:', userErr);
+        await recordAdminAudit({
+          action: 'user_delete',
+          result: 'failure',
+          actorUserId: verified.uid,
+          actorEmail: verified.email || null,
+          targetUserId,
+          targetEmail: targetUser.email || null,
+          errorMessage: `user row not removed: ${userErr?.message || 'unknown error'}`,
+          metadata: { targetUsername: targetUser.username || null, deletedProductCount }
+        }, req);
         return res.status(500).json({ success: false, error: 'Deletion partially completed but the user record itself could not be removed. Contact support.' });
       }
 
@@ -9498,21 +9625,15 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         await adminDb.collection('users').doc(targetUserId).delete().catch(() => {});
       }
 
-      const now = new Date().toISOString();
-      const adminEmail = verified.email || 'admin';
-      const auditEntry = {
-        id: crypto.randomUUID(),
-        session_id: `admin_delete_${Date.now()}`,
-        admin_user_id: verified.uid,
-        admin_email: String(adminEmail),
-        target_user_id: targetUserId,
-        action: 'ADMIN_DELETE_USER',
-        status: 'SUCCESS',
-        start_time: now,
-        details: JSON.stringify({ targetUsername: targetUser.username || null, deletedProductCount }),
-        created_at: now
-      };
-      await backendSupabase.from('admin_audit_logs').insert(auditEntry).catch(() => {});
+      await recordAdminAudit({
+        action: 'user_delete',
+        result: 'success',
+        actorUserId: verified.uid,
+        actorEmail: verified.email || null,
+        targetUserId,
+        targetEmail: targetUser.email || null,
+        metadata: { targetUsername: targetUser.username || null, deletedProductCount }
+      }, req);
 
       return res.json({
         success: true,
@@ -9580,11 +9701,12 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
 
   // Admin Retention Evaluation & Auto-Purge API
   app.post('/api/admin/retention/run-purge', serverRateLimiter(60 * 1000, 5, "admin-retention-run-purge"), async (req, res) => {
+    // Same admin test as verifyAdmin(), via verifyUser() so the run is attributed to a uid.
+    const verified = await verifyUser(req.headers.authorization);
+    if (!verified || !(verified.isAdmin || verified.originalAdmin)) {
+      return res.status(403).json({ success: false, error: "Unauthorized: Administrator privileges required." });
+    }
     try {
-      const verified = await verifyAdmin(req.headers.authorization);
-      if (!verified) {
-        return res.status(403).json({ success: false, error: "Unauthorized: Administrator privileges required." });
-      }
 
       const now = new Date();
       const nowIso = now.toISOString();
@@ -9647,6 +9769,14 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       // is also exposed here for an on-demand/visible admin-triggered run.
       const soldListingsPurged = await purgeExpiredSoldProducts();
 
+      await recordAdminAudit({
+        action: 'retention_purge_run',
+        result: 'success',
+        actorUserId: verified.uid,
+        actorEmail: verified.email || null,
+        metadata: { purgedCount, skippedHoldCount, releasedQuarantineCount, soldListingsPurged }
+      }, req);
+
       return res.json({
         success: true,
         purgedCount,
@@ -9657,6 +9787,13 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       });
     } catch (err: any) {
       console.error('[Retention Engine Error]:', err);
+      await recordAdminAudit({
+        action: 'retention_purge_run',
+        result: 'failure',
+        actorUserId: verified.uid,
+        actorEmail: verified.email || null,
+        errorMessage: err?.message
+      }, req);
       return res.status(500).json({ success: false, error: err.message || "Retention purge failed." });
     }
   });

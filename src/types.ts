@@ -78,18 +78,19 @@ export interface ImpersonationSession {
   expiresAt: string;
 }
 
+// A row of public.admin_audit_logs (supabase/migrations/20261027130000_admin_audit_logs.sql).
 export interface ImpersonationAuditLog {
   id: string;
-  session_id: string;
-  admin_user_id: string;
-  admin_email?: string;
-  target_user_id: string;
-  target_user_email?: string;
   action: string;
-  status: string;
-  start_time: string;
-  end_time?: string;
-  details?: string;
+  result: 'success' | 'failure';
+  actor_user_id: string;
+  actor_email?: string | null;
+  target_user_id?: string | null;
+  target_email?: string | null;
+  target_product_id?: string | null;
+  session_id?: string | null;
+  error_message?: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
 }
 

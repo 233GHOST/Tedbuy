@@ -487,12 +487,15 @@ export const AdminUserManagement: React.FC = () => {
               {auditLogs.map((log) => (
                 <div key={log.id} className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 space-y-1">
                   <div className="flex items-center justify-between text-[10px]">
-                    <span className="font-bold text-amber-300 uppercase">{log.action}</span>
-                    <span className="text-slate-500">{new Date(log.created_at || log.start_time).toLocaleString()}</span>
+                    <span className={`font-bold uppercase ${log.result === 'failure' ? 'text-rose-400' : 'text-amber-300'}`}>
+                      {log.action.replace(/_/g, ' ')}{log.result === 'failure' ? ' (failed)' : ''}
+                    </span>
+                    <span className="text-slate-500">{new Date(log.created_at).toLocaleString()}</span>
                   </div>
                   <p className="text-slate-300 text-[10px] leading-relaxed">
-                    Admin: <span className="text-emerald-400">{log.admin_email || log.admin_user_id}</span> • Target User: <span className="text-amber-400">{log.target_user_email || log.target_user_id}</span>
+                    Admin: <span className="text-emerald-400">{log.actor_email || log.actor_user_id}</span> • Target User: <span className="text-amber-400">{log.target_email || log.target_user_id || 'n/a'}</span>
                   </p>
+                  {log.error_message && <p className="text-rose-400 text-[10px]">{log.error_message}</p>}
                 </div>
               ))}
             </div>
