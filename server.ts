@@ -7648,17 +7648,13 @@ app.post("/api/auth/verify-and-sync-password", serverRateLimiter(15 * 60 * 1000,
             matches = true;
           }
         }
-      } else if (userRecord.password && timingSafeStringEqual(userRecord.password, password)) {
-        matches = true;
       }
+      // The legacy plain-text `password` column is never accepted: its values
+      // were cleared on 2026-10-27 and a readable copy must not be able to sign anyone in.
 
       if (matches) {
         // Rehash on every successful verification — re-salted, current
-        // iteration count — and never write the raw password back. The
-        // legacy `password` column (still checked for above, for any row
-        // that predates hashing entirely) is left untouched rather than
-        // cleared here: this endpoint's job is to verify and upgrade, not to
-        // silently mutate a row's schema mid-request.
+        // iteration count — and never write the raw password back.
         const salt = crypto.randomBytes(16).toString('hex');
         const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
         const updateObj: Record<string, any> = {
