@@ -43,7 +43,7 @@ import { auth, getAuthHeader, handleBackendError, OperationType, registerBackend
 import { slugify } from '../utils/slugify';
 import { getAuthErrorMessage, toUserFriendlyError } from '../utils/authErrorHelper';
 import { useHashRouting } from '../hooks/useHashRouting';
-import { deleteMultipleFromCloudinary, getCloudinaryVideoPoster } from '../utils/cloudinary';
+import { getCloudinaryVideoPoster } from '../utils/cloudinary';
 import { registerServiceWorker, triggerBackgroundSync } from '../registerServiceWorker';
 import { checkClientRateLimit } from '../utils/rateLimiter';
 import { sanitizeText, validateInputLength } from '../utils/inputValidation';
@@ -4353,34 +4353,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Trigger server deletion (Supabase, server memory & disk cache, and Cloudinary media destroy).
     //
-    // Correctness fix (found reviewing the ownership check added to
-    // POST /api/cloudinary/delete, commit 8bb0b62): that endpoint now
-    // verifies each url appears in the media fields of a product the
-    // caller owns -- correct for the security fix, but this Cloudinary
-    // cleanup used to be fire-and-forget (`.catch(...)`, never awaited)
-    // immediately followed by the product-delete request below, with no
-    // guarantee either would reach the server first. If the product-delete
-    // request landed first, the product row would already be gone by the
-    // time the ownership check ran, so the url would never be found and
-    // the (now-correct) check would reject the delete -- silently leaving
-    // the deleted listing's images/videos orphaned in Cloudinary forever.
-    // Now awaited and sequenced strictly before the product-delete
-    // request, so the server always sees the product row (and its media)
-    // still in place when it verifies these deletes.
+    // The server removes the listing's Cloudinary media itself, and only after
+    // the row is deleted. The client used to delete the media first, so a
+    // rejected or failed delete left a live listing with broken photos.
     try {
-      if (localProduct) {
-        const mediaUrls = [
-          ...(Array.isArray(localProduct.images) ? localProduct.images : []),
-          ...(Array.isArray(localProduct.videos) ? localProduct.videos : []),
-          ...(localProduct.primaryPicture ? [localProduct.primaryPicture] : []),
-          ...(localProduct.primaryVideo ? [localProduct.primaryVideo] : [])
-        ].filter(u => typeof u === 'string' && u.includes('res.cloudinary.com'));
-
-        if (mediaUrls.length > 0) {
-          await deleteMultipleFromCloudinary(mediaUrls).catch(err => console.warn('[deleteProduct] Cloudinary cleanup error:', err));
-        }
-      }
-
       // Security fix (RLS-migration Phase 1, checkpoint 22): this used to
       // ALSO run a direct, unauthenticated `deleteDoc(doc('products', id))`
       // straight to Supabase right after the request above -- dbAdapter's

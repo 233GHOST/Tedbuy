@@ -4090,6 +4090,7 @@ async function deleteProductFromBackend(productId: string) {
 
   let sellerId: string | undefined;
   let category: string | undefined;
+  const mediaUrlsToCleanup: string[] = [];
 
   if (backendSupabase) {
     try {
@@ -4097,26 +4098,28 @@ async function deleteProductFromBackend(productId: string) {
       if (existing) {
         sellerId = existing.sellerId || existing.seller_id;
         category = existing.category;
-        const mediaUrlsToCleanup: string[] = [
+        mediaUrlsToCleanup.push(
           ...parseMediaArray(existing.images),
           ...parseMediaArray(existing.imageUrls),
           ...parseMediaArray(existing.videos),
           ...parseMediaArray(existing.videoUrls)
-        ];
-
-        for (const url of mediaUrlsToCleanup) {
-          if (typeof url === 'string' && url.includes('res.cloudinary.com')) {
-            const info = extractCloudinaryInfo(url);
-            if (info) {
-              await deleteCloudinaryAsset(info.publicId, info.resourceType).catch(() => {});
-            }
-          }
-        }
+        );
       }
 
       const { error } = await backendSupabase.from('products').delete().eq('id', productId);
       if (error) throw error;
       console.log(`[Product Delete Server] Successfully deleted product ${productId} from Supabase.`);
+
+      // Media goes only after the row is gone: deleting it first left a live
+      // listing with broken photos whenever the row delete then failed.
+      for (const url of mediaUrlsToCleanup) {
+        if (typeof url === 'string' && url.includes('res.cloudinary.com')) {
+          const info = extractCloudinaryInfo(url);
+          if (info) {
+            await deleteCloudinaryAsset(info.publicId, info.resourceType).catch(() => {});
+          }
+        }
+      }
     } catch (sbErr: any) {
       // Found via a dedicated audit, same "write failure reported as
       // success" shape fixed elsewhere this session: this used to only
