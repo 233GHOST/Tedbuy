@@ -1,5 +1,6 @@
 import type express from 'express';
 import { createDropshipDbFromConfig, resolveDropshipConfig, type UserRestrictionLoader } from './db.js';
+import { createLegacyGuards, type LegacyGuards } from './legacyGuards.js';
 import { createDropshipRouter, type DropshipDeps } from './routes.js';
 
 export interface RegisterDropshipOptions {
@@ -29,15 +30,19 @@ export function createLegacyUserRestrictionLoader(getLegacySupabase: () => any):
   };
 }
 
-export function registerDropship(app: express.Express, options: RegisterDropshipOptions): void {
+export function registerDropship(app: express.Express, options: RegisterDropshipOptions): LegacyGuards {
   const env = options.env ?? process.env;
   const config = resolveDropshipConfig(env);
+  // Fail closed by default: with no db every dsl_ row is hidden and all media is protected.
+  let guards = createLegacyGuards({ db: null, enabled: false });
   try {
     const db = createDropshipDbFromConfig(config);
+    guards = createLegacyGuards({ db, enabled: config.enabled });
     app.use(createDropshipRouter({
       enabled: config.enabled,
       cause: config.cause,
       db,
+      guards,
       verifyUser: options.verifyUser,
       loadUserRestriction: createLegacyUserRestrictionLoader(options.getLegacySupabase),
       cloudinaryCloudName: env.VITE_CLOUDINARY_CLOUD_NAME || env.CLOUDINARY_CLOUD_NAME || 'dfm3g2qvg',
@@ -54,4 +59,5 @@ export function registerDropship(app: express.Express, options: RegisterDropship
     // Dropship must never stop TedBuy from starting (ARCHITECTURE §12.3).
     console.error('[Dropship] initialisation failed; Dropship disabled.', err);
   }
+  return guards;
 }

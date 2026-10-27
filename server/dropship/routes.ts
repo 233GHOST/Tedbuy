@@ -1,5 +1,6 @@
 import express from 'express';
 import { DropshipError } from './errors.js';
+import type { LegacyGuards } from './legacyGuards.js';
 import { unavailable, type DropshipCause, type DropshipDb, type UserRestrictionLoader } from './db.js';
 import {
   PARTICIPANT_STATUSES, PRODUCT_STATUSES, parseAdminStatus, parseApplication, parseModeration,
@@ -24,8 +25,18 @@ export interface DropshipDeps {
   verifyUser: (authHeader?: string, impersonationSessionId?: string | string[]) => Promise<DropshipVerifiedUser | null>;
   loadUserRestriction: UserRestrictionLoader | null;
   cloudinaryCloudName: string;
+  // Legacy guards; invalidated after every call that can change which mirror rows are hidden.
+  guards?: Pick<LegacyGuards, 'invalidate'>;
   rateLimit?: (windowMs: number, max: number, prefix: string) => express.RequestHandler;
 }
+
+// dropship_* functions that can change which listing mirror rows are hidden from legacy reads.
+const GUARD_INVALIDATING_FNS = new Set([
+  'dropship_create_listing', 'dropship_update_listing', 'dropship_remove_listing',
+  'dropship_create_supplier_product', 'dropship_update_supplier_product', 'dropship_set_stock',
+  'dropship_set_supplier_product_status', 'dropship_admin_moderate_supplier_product',
+  'dropship_admin_decide_participation',
+]);
 
 type Handler = (req: express.Request, res: express.Response, db: DropshipDb) => Promise<void>;
 
@@ -134,10 +145,26 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
     res.status(e.status).json({ success: false, error: e.message, errorCode: e.code });
   };
 
+  // Wraps the db so a write is followed by guards.invalidate() before the response is sent,
+  // even when the call errors (a failed write may still have committed).
+  const withInvalidation = (db: DropshipDb): DropshipDb => {
+    if (!deps.guards) return db;
+    const guards = deps.guards;
+    return {
+      call: async (fn, args) => {
+        try {
+          return await db.call(fn, args);
+        } finally {
+          if (GUARD_INVALIDATING_FNS.has(fn)) guards.invalidate();
+        }
+      },
+    };
+  };
+
   const handle = (fn: Handler): express.RequestHandler => async (req, res) => {
     try {
       if (!deps.enabled || !deps.db) throw unavailable();
-      await fn(req, res, deps.db);
+      await fn(req, res, withInvalidation(deps.db));
     } catch (err) {
       sendError(res, err);
     }

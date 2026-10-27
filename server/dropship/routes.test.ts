@@ -7,6 +7,7 @@ import { mapDbError } from './errors.js';
 import { resolveDropshipConfig } from './db.js';
 import { createDropshipRouter, type DropshipDeps, type DropshipVerifiedUser } from './routes.js';
 import { isTedbuyProductImageUrl } from './validation.js';
+import { createLegacyGuards, type LegacyGuards } from './legacyGuards.js';
 import { createPgliteDropship, type PgliteDropship } from './testing/pgliteDb.js';
 
 // HTTP tests of the Dropship router against the real migration (PGlite). Firebase token
@@ -30,6 +31,7 @@ const USERS: Record<string, DropshipVerifiedUser> = {
 };
 
 let h: PgliteDropship;
+let guards: LegacyGuards;
 let base: string;
 let disabledBase: string;
 const servers: import('node:http').Server[] = [];
@@ -69,8 +71,9 @@ before(async () => {
   h = await createPgliteDropship();
   for (const u of ['u-admin', 'u-sup', 'u-other', 'u-unverified', 'u-sup2', 'u-ds', 'u-ds2', 'u-sup3']) await h.addUser(u);
   await h.addUser('u-restricted', { securityHold: true });
+  guards = createLegacyGuards({ db: h.db, enabled: true });
   const deps: DropshipDeps = {
-    enabled: true, db: h.db, loadUserRestriction: h.loadUserRestriction, cloudinaryCloudName: CLOUD,
+    enabled: true, db: h.db, guards, loadUserRestriction: h.loadUserRestriction, cloudinaryCloudName: CLOUD,
     verifyUser: async auth => (auth?.startsWith('Bearer ') ? USERS[auth.slice(7)] ?? null : null),
   };
   base = await listen(deps);
@@ -446,14 +449,20 @@ test('listings/mine shows precise reason; purchase-info public and coarse', asyn
   noSupplierIdentity(pub.body);
   assert.ok(!/wholesale|stockOnHand|stockReserved/i.test(JSON.stringify(pub.body)));
 
+  assert.equal(await guards.isVisibleProduct(productId), true); // warms the 60 s cache
   const paused = await api('PATCH', `/api/dropship/listings/${listing.id}`, 'ds', { status: 'paused' });
   assert.equal(paused.body.listing.status, 'paused');
+  // Guards were primed (cache warm) before the pause; the API write must invalidate them.
+  assert.equal(await guards.isVisibleProduct(productId), false);
+  assert.deepEqual(await guards.filterVisible([{ id: productId }, { id: 'ordinary' }]), [{ id: 'ordinary' }]);
   const mine = await api('GET', '/api/dropship/listings/mine', 'ds');
   assert.equal(mine.body.listings[0].unavailableReason, 'listing_paused');
   const info = await api('GET', `/api/dropship/purchase-info/${productId}`);
   assert.equal(info.body.info.available, false);
   assert.equal(info.body.info.unavailableReason, 'unavailable');
 
+  assert.equal((await api('PATCH', `/api/dropship/listings/${listing.id}`, 'ds', { status: 'active' })).status, 200);
+  assert.equal(await guards.isVisibleProduct(productId), true);
   const raised = await api('PATCH', `/api/dropship/listings/${listing.id}`, 'ds', { retailPricePesewas: 42000, status: 'active' });
   assert.equal(raised.body.listing.retailPricePesewas, 42000);
   assert.equal((await api('GET', `/api/dropship/purchase-info/${productId}`)).body.info.unitPricePesewas, 42000);

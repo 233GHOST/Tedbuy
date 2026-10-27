@@ -869,7 +869,8 @@ if (supabaseUrl && supabaseKey) {
 
 // TedBuy Dropship (server/dropship/). Off unless DROPSHIP_ENABLED=true and its own
 // service-role configuration passes the identity checks; never uses the anon key.
-registerDropship(app, {
+// Wired into legacy paths in a later task.
+const dropshipGuards = registerDropship(app, {
   verifyUser,
   getLegacySupabase: () => backendSupabase,
   rateLimit: serverRateLimiter,
