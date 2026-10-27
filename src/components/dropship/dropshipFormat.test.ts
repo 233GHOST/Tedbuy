@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
   buildProductPayload, cedisToPesewas, dropshipErrorMessage, emptyProductForm, pesewasToCedisInput, productToForm,
-  supplierStatusActions, type SupplierProduct,
+  supplierStatusActions, type SupplierProduct, parseCedisToPesewas, isDropshipRowId,
 } from './dropshipFormat';
+import { isDropshipRowId as serverIsDropshipRowId } from '../../../server/dropship/legacyGuards';
 // The server's own validator: the form's payloads must pass it unchanged.
 import { parseProductCreate, parseProductUpdate } from '../../../server/dropship/validation';
 
@@ -85,4 +86,20 @@ test('API error codes become user guidance', () => {
   assert.match(dropshipErrorMessage('IMPERSONATION_FORBIDDEN', undefined), /another user/);
   assert.match(dropshipErrorMessage('STATE_CONFLICT', 'product was changed by someone else; reload it'), /reload it\.$/);
   assert.equal(dropshipErrorMessage('VALIDATION', 'title must be 3–128 characters.'), 'title must be 3–128 characters.');
+});
+
+test('parseCedisToPesewas parses user input to integer pesewas', () => {
+  assert.equal(parseCedisToPesewas('150'), 15000);
+  assert.equal(parseCedisToPesewas('150.5'), 15050);
+  assert.equal(parseCedisToPesewas('1,250.00'), 125000);
+  assert.equal(parseCedisToPesewas('abc'), null);
+  assert.equal(parseCedisToPesewas('-1'), null);
+  assert.equal(parseCedisToPesewas('0.001'), null);
+});
+
+test('client isDropshipRowId matches the server rule', () => {
+  for (const id of ['dsl_abc', 'DSL_abc', 'Dsl_1', 'dsl', 'prod_1', '', null, undefined, 5, 'xdsl_1']) {
+    assert.equal(isDropshipRowId(id), serverIsDropshipRowId(id), String(id));
+  }
+  assert.equal(isDropshipRowId('dsl_abc'), true);
 });

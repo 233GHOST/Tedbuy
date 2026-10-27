@@ -61,6 +61,29 @@ export function cedisToPesewas(input: string): number | null {
   return Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
 }
 
+// Typed cedis input -> integer pesewas, or null when it is not a valid amount.
+export const parseCedisToPesewas = cedisToPesewas;
+
+// Same rule as server/dropship/legacyGuards.ts: listing mirror rows have ids starting "dsl_".
+export function isDropshipRowId(id: unknown): boolean {
+  return typeof id === 'string' && id.toLowerCase().startsWith('dsl_');
+}
+
+export type ListingStatus = 'active' | 'paused' | 'removed';
+
+// The dropshipper's precise status for one of their listings (customers only see coarse reasons).
+export function listingStatusLabel(l: { status: string; effectiveAvailable?: boolean; unavailableReason?: string | null }): { key: string; label: string } {
+  if (l.status === 'paused' || l.unavailableReason === 'listing_paused') return { key: 'paused', label: 'Paused' };
+  if (l.effectiveAvailable === false || l.unavailableReason) {
+    switch (l.unavailableReason) {
+      case 'out_of_stock': return { key: 'out_of_stock', label: 'Out of stock' };
+      case 'price_below_minimum': return { key: 'reprice', label: 'Reprice needed' };
+      default: return { key: 'unavailable', label: 'Supplier unavailable' };
+    }
+  }
+  return { key: 'active', label: 'Active' };
+}
+
 export function pesewasToCedisInput(pesewas: number | null | undefined): string {
   if (pesewas === null || pesewas === undefined) return '';
   return `${Math.floor(pesewas / 100)}.${String(pesewas % 100).padStart(2, '0')}`;
