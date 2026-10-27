@@ -20,7 +20,7 @@ import { getPrefixAutocompleteSuggestions } from "./src/utils/searchAutocomplete
 import { APP_RELEASE_CONFIG, isAndroidReleaseAvailable } from "./src/config/appRelease.js";
 import firebaseConfig from "./firebase-applet-config.json";
 import { registerDropship } from "./server/dropship/index.js";
-import { isDropshipRowId, legacyDeleteDecision, legacySyncDecision } from "./server/dropship/legacyGuards.js";
+import { excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl } from "./server/dropship/legacyGuards.js";
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
@@ -1807,11 +1807,10 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
         // only `sellerId` here would incorrectly deny a legitimate owner.
         const { data: ownProducts } = await backendSupabase
           .from('products')
-          .select('images, videos')
+          .select('id, images, videos')
           .or(`sellerId.eq.${verified.uid},sellerId.eq.user_${verified.uid},sellerId.eq.phone_${verified.uid}`);
-        owns = !!(ownProducts || []).some((p: any) =>
-          [p.images, p.imageUrls, p.videos, p.videoUrls].some((arr: any) => Array.isArray(arr) && arr.includes(url))
-        );
+        // A Dropship listing row (dsl_) never proves ownership of its (supplier's) media.
+        owns = productsOwnMediaUrl(ownProducts, url);
       }
 
       if (!owns) {
@@ -1895,6 +1894,14 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
 
     const newUrlSet = new Set(newUrls);
     const candidates = oldUrls.filter(url => typeof url === 'string' && !newUrlSet.has(url) && ownedUrls.has(url));
+    // Without the Dropship DB, supplier media can't be told apart: refuse to delete anything.
+    if (!dropshipGuards.mediaGuardAvailable()) {
+      return res.json({
+        success: true, cleanedCount: 0, skipped: true, reason: 'dropship_unavailable',
+        message: 'Media cleanup is unavailable right now; nothing was deleted.',
+        results: candidates.map(url => ({ url, success: true, skipped: true, reason: 'dropship_unavailable' })),
+      });
+    }
     const { deletable: orphans, protected: protectedUrls } = await dropshipGuards.filterProtectedMedia(candidates);
 
     const results: any[] = protectedUrls.map(url => ({ url, success: true, skipped: true, reason: 'dropship_protected' }));
@@ -2839,6 +2846,12 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
       // Check Memory TTL Cache
       const cached = serverCache.get<any>(cacheKey);
       if (cached && Array.isArray(cached.value?.products) && cached.value.products.length > 0) {
+        // Cached pages (categories: 6 h) still drop Dropship listings hidden since caching;
+        // the cached ETag is only used while nothing was dropped.
+        const value = await filterVisiblePayload(cached.value, dropshipGuards);
+        if (value !== cached.value) {
+          return res.json({ success: true, ...value, cached: true });
+        }
         res.setHeader('ETag', cached.etag);
         if (req.headers['if-none-match'] === cached.etag) {
           return res.status(304).end();
@@ -5001,7 +5014,8 @@ app.post('/api/users/merge-account', serverRateLimiter(60 * 1000, 10, "users-mer
     }
 
     try {
-      await backendSupabase.from('products').update({ sellerId: targetUid }).eq('sellerId', oldUserId);
+      // Dropship listing rows stay with their dropshipper id (dropship_listings.dropshipper_id).
+      await excludeDropshipRows(backendSupabase.from('products').update({ sellerId: targetUid }).eq('sellerId', oldUserId));
       await backendSupabase.from('chats').update({ buyerId: targetUid }).eq('buyerId', oldUserId);
       await backendSupabase.from('chats').update({ sellerId: targetUid }).eq('sellerId', oldUserId);
     } catch (cascadeErr) {
@@ -6613,7 +6627,8 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     let finalProduct: any;
     try {
       const merged = { ...existingProduct, ...boostFields };
-      finalProduct = await upsertProductToSupabase(merged, verified, true, await dropshipGuards.isVisibleProduct(String(productId)));
+      // Already paid: apply to any live listing, even if paused/hidden right now.
+      finalProduct = await upsertProductToSupabase(merged, verified, true, await dropshipGuards.isLiveListing(String(productId)));
       if (adminDb) {
         await adminDb.collection('products').doc(productId).set(cleanObject(merged), { merge: true }).catch((fErr: any) => {
           console.warn('[Verify Payment API] Firestore sync note:', fErr?.message);

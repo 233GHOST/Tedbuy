@@ -25,11 +25,41 @@ export function legacyDeleteDecision(productId: string): 'allow' | 'reject_dsl' 
   return isDropshipRowId(productId) ? 'reject_dsl' : 'allow';
 }
 
+// /api/products response payloads (including whole-response cache hits): drops dsl_ products
+// the guards hide. Returns the same payload object when nothing is dropped.
+export async function filterVisiblePayload<P extends { products?: unknown }>(payload: P, guards: Pick<LegacyGuards, 'filterVisible'>): Promise<P> {
+  const list = payload?.products;
+  const isDsl = (p: any) => !!p && isDropshipRowId(p.id);
+  if (!Array.isArray(list) || !list.some(isDsl)) return payload;
+  const visible = new Set<unknown>(await guards.filterVisible(list.filter(isDsl)));
+  const products = list.filter(p => !isDsl(p) || visible.has(p));
+  return products.length === list.length ? payload : { ...payload, products };
+}
+
+// Legacy media-ownership evidence (/api/cloudinary/delete): a dsl_ row never proves that the
+// caller owns a media URL (its images are the supplier's).
+export function productsOwnMediaUrl(rows: any[] | null | undefined, url: string): boolean {
+  return (rows || []).some(p => !!p && !isDropshipRowId(p.id)
+    && [p.images, p.imageUrls, p.videos, p.videoUrls].some((arr: any) => Array.isArray(arr) && arr.includes(url)));
+}
+
+// Legacy bulk products updates that must leave dsl_ rows alone (e.g. merge-account repointing
+// sellerId): adds `id NOT ILIKE 'dsl\_%'` to a PostgREST filter builder.
+export const DROPSHIP_ROW_ID_ILIKE = 'dsl\\_%';
+export function excludeDropshipRows<Q extends { not(column: string, operator: string, value: unknown): Q }>(query: Q): Q {
+  return query.not('id', 'ilike', DROPSHIP_ROW_ID_ILIKE);
+}
+
 export interface LegacyGuards {
   filterVisible<T extends { id: string }>(rows: T[]): Promise<T[]>;
   isVisibleProduct(id: string): Promise<boolean>;
   filterProtectedMedia(urls: string[]): Promise<{ deletable: string[]; protected: string[] }>;
   isLinkedProduct(id: string): boolean;
+  // A dsl_ id with a live listing (present in the snapshot), whether or not it is currently
+  // hidden; used to apply an already-paid boost. False when disabled or the DB can't answer.
+  isLiveListing(id: string): Promise<boolean>;
+  // True when media protection can actually be checked (a Dropship DB exists).
+  mediaGuardAvailable(): boolean;
   invalidate(): void;
   // Account deletion: removes the user's listings (mirror rows) and archives their supplier
   // products via dropship_remove_user_listings, before legacy code touches their products.
@@ -109,8 +139,10 @@ export function createLegacyGuards(opts: { db: DropshipDb | null; enabled: boole
 
     async filterProtectedMedia(urls) {
       if (urls.length === 0) return { deletable: [], protected: [] };
+      // No Dropship DB (disabled/unconfigured): there is nothing to protect against, so legacy
+      // media deletion works exactly as before. Fail closed only on a DB error.
+      if (!opts.db) return { deletable: [...urls], protected: [] };
       const failClosed = { deletable: [] as string[], protected: [...urls] };
-      if (!opts.db) return failClosed;
       try {
         const prot = await opts.db.call<string[] | null>('dropship_is_protected_media', { p_urls: urls });
         const set = new Set(prot ?? []);
@@ -122,6 +154,14 @@ export function createLegacyGuards(opts: { db: DropshipDb | null; enabled: boole
     },
 
     isLinkedProduct: id => isDropshipRowId(id),
+
+    async isLiveListing(id) {
+      if (!isDropshipRowId(id) || !live) return false;
+      const snap = await snapshot();
+      return !!snap && snap.supplierProductOf.has(id);
+    },
+
+    mediaGuardAvailable: () => opts.db !== null,
 
     async removeUserListings(uid, reason, listUserProductIds) {
       if (opts.db) {

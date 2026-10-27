@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { DropshipDb } from './db.js';
-import { createLegacyGuards, legacyDeleteDecision, legacySyncDecision } from './legacyGuards.js';
+import {
+  createLegacyGuards, DROPSHIP_ROW_ID_ILIKE, excludeDropshipRows, filterVisiblePayload, legacyDeleteDecision,
+  legacySyncDecision, productsOwnMediaUrl,
+} from './legacyGuards.js';
 import { filterSitemapProducts, type CachedSitemapData } from '../../src/utils/sitemap.js';
 
 // Task 4: helpers server.ts uses at legacy call sites. server.ts itself is never imported here
@@ -154,4 +157,83 @@ test('sitemap dataset without a filter is returned unchanged', async () => {
   const d = dataset();
   assert.equal(await filterSitemapProducts(d), d);
   assert.equal(await filterSitemapProducts(d, () => true), d);
+});
+
+// ---- Pre-review fixes (controller rulings) ----
+
+const A = 'https://res.cloudinary.com/c/image/upload/a.jpg';
+const B = 'https://res.cloudinary.com/c/image/upload/b.jpg';
+
+test('media: disabled guards (no db) ⇒ every URL deletable, guard reported unavailable', async () => {
+  for (const g of [createLegacyGuards({ db: null, enabled: false }), createLegacyGuards({ db: null, enabled: true })]) {
+    assert.deepEqual(await g.filterProtectedMedia([A, B]), { deletable: [A, B], protected: [] });
+    assert.equal(g.mediaGuardAvailable(), false);
+  }
+});
+
+test('media: enabled + DB error ⇒ every URL protected', async () => {
+  const db: DropshipDb = { async call() { throw new Error('db down'); } };
+  const g = createLegacyGuards({ db, enabled: true });
+  assert.equal(g.mediaGuardAvailable(), true);
+  await quiet(async () => assert.deepEqual(await g.filterProtectedMedia([A, B]), { deletable: [], protected: [A, B] }));
+});
+
+test('productsOwnMediaUrl: dsl_ rows are never ownership evidence', () => {
+  assert.equal(productsOwnMediaUrl([{ id: 'dsl_1', images: [A] }], A), false);
+  assert.equal(productsOwnMediaUrl([{ id: 'DSL_1', images: [A] }], A), false);
+  assert.equal(productsOwnMediaUrl([{ id: 'dsl_1', images: [A] }, { id: 'p1', videos: [A] }], A), true);
+  assert.equal(productsOwnMediaUrl([{ id: 'p1', imageUrls: [A] }], A), true);
+  assert.equal(productsOwnMediaUrl([{ id: 'p1', images: [B] }], A), false);
+  assert.equal(productsOwnMediaUrl(null, A), false);
+});
+
+test('filterVisiblePayload: drops hidden dsl_ products from a (cached) response payload', async () => {
+  const g = createLegacyGuards({ db: snapDb({ hidden: ['dsl_2'], supplierProductOf: { dsl_1: 's', dsl_2: 's' } }), enabled: true });
+  const payload = { products: [{ id: 'a' }, null, { id: 'dsl_1' }, { id: 'dsl_2' }, { id: 'dsl_x' }], total: 5, page: 1 };
+  const out = await filterVisiblePayload(payload, g);
+  assert.deepEqual(out.products.map(p => p?.id ?? null), ['a', null, 'dsl_1']);
+  assert.equal(out.total, 5);
+  assert.deepEqual(payload.products.length, 5); // input untouched
+  const off = await filterVisiblePayload(payload, createLegacyGuards({ db: null, enabled: false }));
+  assert.deepEqual(off.products.map(p => p?.id ?? null), ['a', null]);
+});
+
+test('filterVisiblePayload: payload without dsl_ products is returned as-is', async () => {
+  const g = createLegacyGuards({ db: null, enabled: false });
+  const p1 = { products: [{ id: 'a' }, null] };
+  assert.equal(await filterVisiblePayload(p1, g), p1);
+  const p2 = { other: 1 } as { products?: unknown; other: number };
+  assert.equal(await filterVisiblePayload(p2, g), p2);
+});
+
+test('isLiveListing: live listing counts even while hidden; unknown, disabled and DB error do not', async () => {
+  const g = createLegacyGuards({ db: snapDb({ hidden: ['dsl_2'], supplierProductOf: { dsl_1: 's', dsl_2: 's' } }), enabled: true });
+  assert.equal(await g.isLiveListing('dsl_1'), true);
+  assert.equal(await g.isLiveListing('dsl_2'), true);
+  assert.equal(await g.isVisibleProduct('dsl_2'), false);
+  assert.equal(await g.isLiveListing('dsl_x'), false);
+  assert.equal(await g.isLiveListing('prod_1'), false);
+  assert.equal(await createLegacyGuards({ db: null, enabled: false }).isLiveListing('dsl_1'), false);
+  const bad = createLegacyGuards({ db: { async call() { throw new Error('down'); } }, enabled: true });
+  await quiet(async () => assert.equal(await bad.isLiveListing('dsl_1'), false));
+});
+
+// Postgres ILIKE semantics for the pattern (backslash is the default escape character).
+const ilike = (pattern: string, s: string) => {
+  let re = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '\\') { re += pattern[++i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); continue; }
+    re += c === '%' ? '.*' : c === '_' ? '.' : c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${re}$`, 'i').test(s);
+};
+
+test('excludeDropshipRows: merge-account leaves dsl_ rows untouched', () => {
+  const calls: unknown[][] = [];
+  const q = { not(column: string, operator: string, value: unknown) { calls.push([column, operator, value]); return q; } };
+  assert.equal(excludeDropshipRows(q), q);
+  assert.deepEqual(calls, [['id', 'ilike', DROPSHIP_ROW_ID_ILIKE]]);
+  for (const id of ['dsl_abc', 'DSL_abc', 'Dsl_1']) assert.equal(ilike(DROPSHIP_ROW_ID_ILIKE, id), true, id);
+  for (const id of ['dslx', 'prod_1', 'xdsl_1']) assert.equal(ilike(DROPSHIP_ROW_ID_ILIKE, id), false, id);
 });

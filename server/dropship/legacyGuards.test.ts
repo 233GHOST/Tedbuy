@@ -93,7 +93,7 @@ test('cache: reused within 60s, refreshed after 60s and after invalidate()', asy
   assert.equal(calls.length, 3);
 });
 
-test('filterProtectedMedia splits; fails closed on DB error, disabled or no db', async () => {
+test('filterProtectedMedia splits; fails closed on DB error; no db ⇒ all deletable', async () => {
   const A = 'https://res.cloudinary.com/c/image/upload/a.jpg';
   const B = 'https://res.cloudinary.com/c/image/upload/b.jpg';
   const { db } = fakeDb({ hidden: [], supplierProductOf: {}, protectedUrls: [A] });
@@ -104,5 +104,6 @@ test('filterProtectedMedia splits; fails closed on DB error, disabled or no db',
   const bad = createLegacyGuards({ db: fakeDb({ hidden: [], supplierProductOf: {}, fail: true }).db, enabled: true });
   const orig = console.error; console.error = () => {};
   try { assert.deepEqual(await bad.filterProtectedMedia([A, B]), { deletable: [], protected: [A, B] }); } finally { console.error = orig; }
-  assert.deepEqual(await createLegacyGuards({ db: null, enabled: false }).filterProtectedMedia([A]), { deletable: [], protected: [A] });
+  // No Dropship DB (disabled/unconfigured): ordinary media deletion works as before.
+  assert.deepEqual(await createLegacyGuards({ db: null, enabled: false }).filterProtectedMedia([A]), { deletable: [A], protected: [] });
 });
