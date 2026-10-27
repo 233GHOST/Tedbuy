@@ -1236,16 +1236,17 @@ CEO, Tedbuy Inc`;
                   setActiveMobileSubSetting(null);
                 }
               }}
-              className={`px-2.5 py-1.5 rounded-xl border transition cursor-pointer shrink-0 flex flex-col items-center gap-0.5 shadow-sm active:scale-95 ${
+              className={`px-2.5 py-1.5 rounded-xl border transition cursor-pointer shrink-0 flex flex-col items-center gap-1 ${
                 mobileProfileTab === 'settings'
-                  ? 'bg-white border-slate-900 text-slate-900'
-                  : 'bg-slate-900 border-slate-900 text-white hover:bg-slate-800'
+                  ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
+                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-950 hover:bg-slate-200'
               }`}
               title="Settings"
-              aria-label="Settings"
             >
-              <Settings className="w-5 h-5" />
-              <span className="text-[9px] font-bold uppercase tracking-wide leading-none">Settings</span>
+              <Settings className="w-4 h-4" />
+              <span className={`text-[10px] font-extrabold uppercase tracking-wide leading-none ${
+                mobileProfileTab === 'settings' ? 'text-white' : 'text-slate-900'
+              }`}>Settings</span>
             </button>
           </div>
 
