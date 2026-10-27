@@ -10,6 +10,7 @@ import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { auth } from './firebase';
 
 const ProfileSettings = lazy(() => import('./components/ProfileSettings').then(m => ({ default: m.ProfileSettings })));
+const DropshipHub = lazy(() => import('./components/dropship/DropshipHub').then(m => ({ default: m.DropshipHub })));
 const ChatInterface = lazy(() => import('./components/ChatInterface').then(m => ({ default: m.ChatInterface })));
 const SellerDashboard = lazy(() => import('./components/SellerDashboard').then(m => ({ default: m.SellerDashboard })));
 const SellerProfilePage = lazy(() => import('./components/SellerProfilePage').then(m => ({ default: m.SellerProfilePage })));
@@ -255,6 +256,9 @@ const MarketplaceContent: React.FC = () => {
     } else if (currentView === 'profile-settings') {
       title = 'Account Settings & Verification | Tedbuy Ghana';
       description = 'Update your profile information, phone numbers, location, and verify your ID to gain trustworthiness on Tedbuy.';
+    } else if (currentView === 'dropship') {
+      title = 'TedBuy Dropship | Tedbuy Ghana';
+      description = 'Supplier catalogue management for TedBuy Dropship.';
     } else if (selectedCategory) {
       title = `Buy Verified ${selectedCategory} in Ghana | Tedbuy`;
       description = `Find amazing deals on checked ${selectedCategory} with reviews on Tedbuy Ghana. Direct, premium classifieds.`;
@@ -1482,6 +1486,7 @@ const MarketplaceContent: React.FC = () => {
           {currentView === 'my-dashboard' && <SellerDashboard />}
           {currentView === 'seller-profile' && <SellerProfilePage />}
           {currentView === 'profile-settings' && <ProfileSettings />}
+          {currentView === 'dropship' && <DropshipHub />}
           {currentView === 'post-ad' && (
             <ListingModal
               isOpen={true}

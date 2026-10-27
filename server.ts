@@ -19,6 +19,9 @@ import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, 
 import { getPrefixAutocompleteSuggestions } from "./src/utils/searchAutocomplete.js";
 import { APP_RELEASE_CONFIG, isAndroidReleaseAvailable } from "./src/config/appRelease.js";
 import firebaseConfig from "./firebase-applet-config.json";
+import { registerDropship } from "./server/dropship/index.js";
+import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
+import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
   if (!name) return false;
@@ -34,6 +37,18 @@ process.on('unhandledRejection', (reason) => {
 });
 
 dotenv.config();
+
+// Explicit environment (server/environmentGuard.ts). TEDBUY_ENV unset keeps today's
+// behaviour; TEDBUY_ENV=staging refuses to start unless this instance is fully isolated
+// from production data (no hard-coded Supabase fallback, no Firestore fallback, no Google
+// credentials for the production Firebase project). Messages never contain secret values.
+let tedbuyEnvironment: TedbuyEnvironment = 'unspecified';
+try {
+  tedbuyEnvironment = checkServerEnvironment(process.env);
+} catch (envErr: any) {
+  console.error(envErr?.message || envErr);
+  process.exit(1);
+}
 
 // Diagnostic-only startup check -- previously a missing/malformed env var
 // only ever surfaced later, deep in a request handler, as whatever error
@@ -247,7 +262,8 @@ if (!getAdminApps().length) {
 }
 
 try {
-  if (getAdminApps().length > 0) {
+  // Staging never gets a Firestore handle: Firebase Admin is bound to the production project.
+  if (getAdminApps().length > 0 && tedbuyEnvironment !== 'staging') {
     adminDb = getFirestore();
   }
 } catch (_) {}
@@ -271,6 +287,7 @@ interface VerifiedAuthUser {
   isAdmin?: boolean;
   isImpersonating?: boolean;
   originalAdmin?: { uid: string; email: string };
+  emailVerified?: boolean;
 }
 
 async function verifyUser(authHeader?: string, impersonationSessionId?: string | string[]): Promise<VerifiedAuthUser | null> {
@@ -288,41 +305,19 @@ async function verifyUser(authHeader?: string, impersonationSessionId?: string |
   // malformed, expired, or wrong signature — must reject the request. There is
   // deliberately no fallback that trusts a decoded-but-unverified token payload,
   // a hardcoded bypass string, or any other client-supplied claim.
-  let baseUser: { uid: string; email: string; isAdmin?: boolean };
+  let baseUser: VerifiedAuthUser;
   try {
     const decoded = await getAdminAuth().verifyIdToken(token);
-    const email = (decoded.email || '').toLowerCase().trim();
-    baseUser = {
-      uid: decoded.uid,
-      email,
-      // Authorization (is this verified identity an admin?), derived only from
-      // the app's existing admin model — a real Firebase custom claim if one is
-      // ever set, or the single verified owner email already used as the sole
-      // admin-granting condition everywhere else in this app (types.ts's
-      // isUserAdmin(), AppContext.tsx's isSuperAdmin checks). Never from
-      // anything inside the token that Firebase itself didn't verify.
-      isAdmin: !!decoded.admin || email === 'asumaduvincent7@gmail.com'
-    };
+    // Authorization comes only from the verified token (server/auth/adminIdentity.ts):
+    // an `admin` custom claim, or the owner's email with email_verified === true.
+    baseUser = identityFromToken(decoded);
   } catch (e) {
     return null;
   }
 
-  // Check if admin is impersonating
+  // Admins may act through an unexpired impersonation session (rule unchanged).
   const sessId = Array.isArray(impersonationSessionId) ? impersonationSessionId[0] : impersonationSessionId;
-  if (sessId && baseUser.isAdmin) {
-    const session = activeImpersonationSessions.get(sessId);
-    if (session && new Date(session.expiresAt).getTime() > Date.now()) {
-      return {
-        uid: session.targetUserId,
-        email: session.targetUserEmail || '',
-        isAdmin: true,
-        isImpersonating: true,
-        originalAdmin: { uid: baseUser.uid, email: baseUser.email }
-      };
-    }
-  }
-
-  return baseUser;
+  return sessId ? applyImpersonation(baseUser, activeImpersonationSessions.get(sessId)) : baseUser;
 }
 
 async function verifyAdmin(authHeader?: string, impersonationSessionId?: string | string[]): Promise<boolean> {
@@ -813,6 +808,14 @@ if (supabaseUrl && supabaseKey) {
 } else {
   console.warn('[Supabase Server] Missing credentials for backend Supabase client.');
 }
+
+// TedBuy Dropship (server/dropship/). Off unless DROPSHIP_ENABLED=true and its own
+// service-role configuration passes the identity checks; never uses the anon key.
+registerDropship(app, {
+  verifyUser,
+  getLegacySupabase: () => backendSupabase,
+  rateLimit: serverRateLimiter,
+});
 
 // -------------------------------------------------------------
 // Cloudinary Media Service Initialization & Routes
@@ -1718,7 +1721,7 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
       return res.status(400).json({ success: false, error: 'Missing publicId or valid Cloudinary url' });
     }
 
-    const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+    const isAdmin = hasAdminAuthority(verified);
     if (!isAdmin) {
       if (!url || typeof url !== 'string') {
         return res.status(403).json({ success: false, error: 'Forbidden: cannot verify ownership without a url' });
@@ -1808,7 +1811,7 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
       return res.status(404).json({ success: false, error: 'Product not found' });
     }
     const existingSellerId = existingProduct.sellerId || existingProduct.seller_id;
-    const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+    const isAdmin = hasAdminAuthority(verified);
     const isOwner = existingSellerId === verified.uid ||
       existingSellerId === `user_${verified.uid}` ||
       existingSellerId === `phone_${verified.uid}`;
@@ -3699,7 +3702,7 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
 
   const existingSellerId = existingRow?.sellerId || existingRow?.seller_id || null;
   const isExistingProduct = !!existingSellerId;
-  const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
+  const isAdmin = hasAdminAuthority(user);
 
   // Social-only bypass: liking/bookmarking and view-count tracking both work
   // by fetching the product, changing only these fields, and posting the
@@ -4060,7 +4063,7 @@ app.post('/api/products/create', serverRateLimiter(60 * 1000, 10, "products-crea
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to create product' });
   }
 
-  const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
+  const isAdmin = hasAdminAuthority(user);
   // If admin creates product on behalf of an impersonated user, allow product.sellerId; otherwise bound to user.uid
   const sellerId = (isAdmin && product.sellerId && String(product.sellerId).trim().length > 0)
     ? String(product.sellerId).trim()
@@ -4256,7 +4259,7 @@ app.post('/api/products/delete', serverRateLimiter(60 * 1000, 20, "products-dele
     sellerId === `phone_${user.uid}` ||
     (!!user.email && !!sellerEmail && sellerEmail.toLowerCase() === user.email.toLowerCase())
   );
-  const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
+  const isAdmin = hasAdminAuthority(user);
 
   // No longer gated on `sellerId &&` -- the productExists check above
   // already guarantees the row was found, so a missing/empty sellerId on an
@@ -4320,7 +4323,7 @@ app.delete('/api/products/:productId', serverRateLimiter(60 * 1000, 20, "product
     sellerId === `phone_${user.uid}` ||
     (!!user.email && !!sellerEmail && sellerEmail.toLowerCase() === user.email.toLowerCase())
   );
-  const isAdmin = user.isAdmin || user.email === 'asumaduvincent7@gmail.com';
+  const isAdmin = hasAdminAuthority(user);
 
   if (!isOwner && !isAdmin) {
     return res.status(403).json({ success: false, error: 'Forbidden: You do not own this product' });
@@ -4367,7 +4370,7 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
 
   const targetUid = String(user.id).trim();
   const isOwner = targetUid === verified.uid;
-  const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+  const isAdmin = hasAdminAuthority(verified);
 
   if (!isOwner && !isAdmin) {
     return res.status(403).json({ success: false, error: 'Forbidden: You can only update your own user profile' });
@@ -4498,17 +4501,24 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
     // "I just verified my email" case; closes the previously-unrestricted
     // "claim verified:true (or false) with no evidence" gap.
     let realEmailVerified = false;
+    let firebaseEmail: string | null = null;
     try {
       const fbUser = await getAdminAuth().getUser(targetUid);
       realEmailVerified = fbUser.emailVerified === true;
+      firebaseEmail = fbUser.email || null;
     } catch (fbErr) {
       console.warn('[Users Sync API] Could not read Firebase Auth emailVerified, defaulting to false:', fbErr);
     }
 
+    // Email and the (display-only) isAdmin flag never come from the request body: the email
+    // is taken from Firebase Auth or the caller's own verified token, and the flag is only
+    // raised for the verified owner (server/auth/adminIdentity.ts).
+    const identityFields = syncedIdentityFields({ caller: verified, isOwner, firebaseEmail, existingIsAdmin });
+
     const cleanUser: any = {
       id: String(user.id).trim(),
       username: user.username ? String(user.username).trim() : (user.email ? user.email.split('@')[0] : `User_${user.id.substring(0, 5)}`),
-      email: user.email ? String(user.email).trim() : null,
+      ...(identityFields.email !== undefined ? { email: identityFields.email } : {}),
       phoneNumber: user.phoneNumber ? String(user.phoneNumber).trim() : null,
       whatsAppNumber: user.whatsAppNumber ? String(user.whatsAppNumber).trim() : null,
       role: user.role || 'both',
@@ -4519,7 +4529,7 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       emailVerified: realEmailVerified,
       isGoogleAuth: user.isGoogleAuth === true,
       authProvider: user.authProvider || null,
-      isAdmin: existingIsAdmin || (user.email && user.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com'),
+      isAdmin: identityFields.isAdmin,
       welcomeSent: user.welcomeSent === true,
       isSuspended: existingIsSuspended,
       createdAt: user.createdAt || new Date().toISOString()
@@ -6378,7 +6388,7 @@ app.post('/api/verify-payment', serverRateLimiter(60 * 1000, 20, "verify-payment
     if (!existingProduct) {
       return res.status(404).json({ success: false, error: 'Product not found' });
     }
-    const isAdmin = verified.isAdmin || (verified.email && verified.email.trim().toLowerCase() === 'asumaduvincent7@gmail.com');
+    const isAdmin = hasAdminAuthority(verified);
     if (existingProduct.sellerId !== verified.uid && !isAdmin) {
       return res.status(403).json({ success: false, error: 'You can only boost your own listing.' });
     }
@@ -6603,7 +6613,7 @@ app.post('/api/paystack/initialize-boost', serverRateLimiter(60 * 1000, 10, 'pay
   if (!existingProduct) {
     return res.status(404).json({ success: false, error: 'Product not found.' });
   }
-  const isAdmin = verified.isAdmin || verified.email === 'asumaduvincent7@gmail.com';
+  const isAdmin = hasAdminAuthority(verified);
   if (existingProduct.sellerId !== verified.uid && !isAdmin) {
     return res.status(403).json({ success: false, error: 'You can only boost your own listing.' });
   }

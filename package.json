@@ -9,7 +9,12 @@
     "start": "node --max-old-space-size=384 dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:dropship": "tsx --test server/dropship/sql.test.ts server/dropship/routes.test.ts server/dropship/rollback.test.ts server/dropship/stagingPreflight.test.ts src/components/dropship/dropshipFormat.test.ts",
+    "check:staging": "tsx scripts/check-staging-config.ts",
+    "test:config": "tsx --test server/environmentGuard.test.ts server/dropship/stagingPreflight.test.ts server/stagingBaseline.test.ts",
+    "test:auth": "tsx --test server/auth/adminIdentity.test.ts",
+    "dev:dropship": "tsx scripts/dropship-dev-server.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -36,6 +41,7 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.3.15",
     "@types/compression": "^1.8.1",
     "@types/dompurify": "^3.2.0",
     "@types/express": "^4.17.21",

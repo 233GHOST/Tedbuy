@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dropship Dev Console</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --muted:#5b6470; --line:#dde1e6; --accent:#0b6bcb; --bad:#b42318; --ok:#067647; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header strong { font-size: 16px; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; padding: 16px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  label { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  input, select, textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+  button { margin-top: 8px; padding: 6px 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; cursor: pointer; font: inherit; }
+  button.secondary { background: #fff; color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { border-bottom: 1px solid var(--line); padding: 4px; text-align: left; vertical-align: top; }
+  pre { background: #0f1720; color: #d7e0ea; padding: 10px; border-radius: 6px; max-height: 260px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+  .who { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); }
+  .err { color: var(--bad); } .ok { color: var(--ok); }
+  .note { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Dropship Dev Console</strong>
+  <span class="note">In-memory database; fake dev identities instead of Firebase. Development only.</span>
+  <label style="margin:0">Acting as
+    <select id="who" class="who">
+      <option value="dev-supplier">Supplier (dev-supplier)</option>
+      <option value="dev-admin">Admin (dev-admin)</option>
+      <option value="dev-buyer">Buyer, no role (dev-buyer)</option>
+      <option value="">Signed out</option>
+    </select>
+  </label>
+</header>
+<main>
+  <section>
+    <h2>1. Supplier application</h2>
+    <label>Display name<input id="a_name" value="Kofi Supplies"></label>
+    <label>Phone<input id="a_phone" value="024 123 4567"></label>
+    <label>Region<input id="a_region" value="Greater Accra"></label>
+    <label>City<input id="a_city" value="Accra"></label>
+    <label>Address<input id="a_addr" value="12 Ring Road, Osu"></label>
+    <button onclick="apply()">Apply as supplier</button>
+    <button class="secondary" onclick="call('GET','/api/dropship/me')">My participation</button>
+  </section>
+
+  <section>
+    <h2>2. Admin: applications</h2>
+    <button class="secondary" onclick="loadApps()">Load applications</button>
+    <table id="apps"></table>
+    <label>Reason (reject / suspend / revoke)<input id="d_reason" value="Checked by phone"></label>
+  </section>
+
+  <section>
+    <h2>3. Supplier: create product</h2>
+    <label>Title<input id="p_title" value="Rice cooker 1.8L"></label>
+    <label>Description<textarea id="p_desc" rows="2">Non-stick rice cooker, 700W, keeps food warm.</textarea></label>
+    <label>Category<input id="p_cat" value="Home Appliances"></label>
+    <label>Wholesale price (GH₵)<input id="p_price" value="250.00"></label>
+    <label>Stock on hand<input id="p_stock" value="10"></label>
+    <label>Image URL (TedBuy Cloudinary, tedbuy_products/)<input id="p_img" value="https://res.cloudinary.com/__CLOUD__/image/upload/v1/tedbuy_products/demo-cooker.jpg"></label>
+    <button onclick="createProduct()">Create and submit for review</button>
+  </section>
+
+  <section>
+    <h2>4. Products</h2>
+    <button class="secondary" onclick="loadProducts()">Load (supplier: mine · admin: all)</button>
+    <table id="products"></table>
+    <label>New stock on hand<input id="s_stock" value="6"></label>
+    <label>Admin reason<input id="s_reason" value="Warehouse recount"></label>
+  </section>
+
+  <section style="grid-column: 1 / -1">
+    <h2>Last response</h2>
+    <pre id="out">Pick a role and start with step 1.</pre>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const uuid = () => crypto.randomUUID();
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function call(method, path, body) {
+  const who = $('who').value;
+  const res = await fetch(path, {
+    method,
+    headers: { 'content-type': 'application/json', ...(who ? { authorization: 'Bearer ' + who } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json();
+  $('out').className = res.ok ? 'ok' : 'err';
+  $('out').textContent = method + ' ' + path + ' → ' + res.status + '\n' + JSON.stringify(data, null, 2);
+  return data;
+}
+
+function apply() {
+  return call('POST', '/api/dropship/applications', {
+    clientRequestId: uuid(), kind: 'supplier', displayName: $('a_name').value, contactPhone: $('a_phone').value,
+    region: $('a_region').value, city: $('a_city').value, addressLine: $('a_addr').value, termsVersion: 'supplier-2026-10',
+  });
+}
+
+async function loadApps() {
+  const d = await call('GET', '/api/admin/dropship/applications');
+  const rows = (d.participants || []).map(p => `<tr><td>${esc(p.displayName)}<br><span class="note">${esc(p.userId)}</span></td><td>${esc(p.status)}</td><td>
+    ${['approve','reject','suspend','reinstate','revoke'].map(x => `<button class="secondary" onclick="decide('${p.id}','${x}','${p.status}')">${x}</button>`).join(' ')}</td></tr>`);
+  $('apps').innerHTML = '<tr><th>Applicant</th><th>Status</th><th>Decision</th></tr>' + rows.join('');
+}
+
+async function decide(id, decision, expectedStatus) {
+  const body = { decision, expectedStatus };
+  if (decision !== 'approve') body.reason = $('d_reason').value;
+  await call('POST', `/api/admin/dropship/applications/${id}/decision`, body);
+  loadApps();
+}
+
+function createProduct() {
+  const pesewas = Math.round(Number($('p_price').value) * 100);
+  return call('POST', '/api/dropship/supplier/products', {
+    clientRequestId: uuid(), title: $('p_title').value, description: $('p_desc').value, category: $('p_cat').value,
+    images: [$('p_img').value], wholesalePricePesewas: pesewas, stockOnHand: Number($('p_stock').value),
+    shipsFromRegion: 'Greater Accra', shipsFromCity: 'Accra', deliveryFeeSameRegionPesewas: 1500,
+    leadTimeMinDays: 1, leadTimeMaxDays: 3, submit: true,
+  });
+}
+
+async function loadProducts() {
+  const admin = $('who').value === 'dev-admin';
+  const d = await call('GET', admin ? '/api/admin/dropship/supplier-products' : '/api/dropship/supplier/products');
+  const rows = (d.products || []).map(p => {
+    const acts = admin
+      ? ['approve','reject','pause'].map(x => `<button class="secondary" onclick="moderate('${p.id}','${x}')">${x}</button>`).join(' ')
+        + ` <button class="secondary" onclick="adminStock('${p.id}',${p.stockOnHand})">set stock</button>`
+        + ` <button class="secondary" onclick="adminArchive('${p.id}')">archive</button>`
+      : ['paused','active','archived','pending_review'].map(x => `<button class="secondary" onclick="setStatus('${p.id}','${x}')">${x}</button>`).join(' ')
+        + ` <button class="secondary" onclick="supplierStock('${p.id}',${p.stockOnHand})">set stock</button>`;
+    return `<tr><td>${esc(p.title)}<br><span class="note">GH₵${(p.wholesalePricePesewas / 100).toFixed(2)} · stock ${p.stockOnHand} (avail ${p.stockAvailable}) · v${p.contentVersion}</span></td><td>${esc(p.status)}</td><td>${acts}</td></tr>`;
+  });
+  $('products').innerHTML = '<tr><th>Product</th><th>Status</th><th>Actions</th></tr>' + rows.join('');
+}
+
+async function moderate(id, decision) {
+  const body = { decision };
+  if (decision !== 'approve') body.reason = $('s_reason').value;
+  await call('POST', `/api/admin/dropship/supplier-products/${id}/moderate`, body); loadProducts();
+}
+async function setStatus(id, status) { await call('POST', `/api/dropship/supplier/products/${id}/status`, { status }); loadProducts(); }
+async function supplierStock(id, current) {
+  await call('POST', `/api/dropship/supplier/products/${id}/stock`, { stockOnHand: Number($('s_stock').value), expectedOnHand: current }); loadProducts();
+}
+async function adminStock(id, current) {
+  await call('POST', `/api/admin/dropship/supplier-products/${id}/stock`, { stockOnHand: Number($('s_stock').value), expectedOnHand: current, reason: $('s_reason').value }); loadProducts();
+}
+async function adminArchive(id) {
+  await call('POST', `/api/admin/dropship/supplier-products/${id}/status`, { status: 'archived', reason: $('s_reason').value }); loadProducts();
+}
+</script>
+</body>
+</html>

@@ -28,6 +28,15 @@ const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
 const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+// Injected by vite.config.ts from TEDBUY_ENV ('' when unset). A staging bundle must never
+// use the Firestore fallback below: Firebase points at the production project. The build
+// already refuses this configuration; this is the runtime backstop.
+declare const __TEDBUY_ENV__: string | undefined;
+const tedbuyEnv = typeof __TEDBUY_ENV__ !== 'undefined' ? __TEDBUY_ENV__ : '';
+if (tedbuyEnv === 'staging' && !isSupabaseConfigured) {
+  throw new Error('[Environment] Staging build without VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY: refusing to fall back to Firestore.');
+}
+
 function parseMediaArray(val: any): string[] {
   if (!val) return [];
   let current = val;

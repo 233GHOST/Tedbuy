@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useApp } from '../context/AppContext';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical, Search, Bell, Lock, KeyRound, Settings, Bookmark, Flame, Plus, Eye, Edit2, ChevronRight, ExternalLink, Store, Share2, Copy } from 'lucide-react';
+import { ArrowLeft, Boxes, Check, Camera, Phone, User, ShieldCheck, Briefcase, ShoppingBag, Globe, Info, Trash2, AlertTriangle, LogOut, MessageSquare, Mail, Send, Users, Loader2, RefreshCw, X, UserMinus, UserPlus, FileText, HelpCircle, ChevronDown, ChevronUp, ShieldAlert, Database, Download, Smartphone, Share, PlusSquare, Zap, MoreVertical, Search, Bell, Lock, KeyRound, Settings, Bookmark, Flame, Plus, Eye, Edit2, ChevronRight, ExternalLink, Store, Share2, Copy } from 'lucide-react';
 import { isUserVerified, isUserAdmin, isReservedStoreName, NotificationPreferences, Product } from '../types';
 import { SellerBadge } from './SellerBadge';
 import { compressImage } from '../utils/imageOptimizer';
@@ -25,6 +25,7 @@ import { SellingBuyingSettingsTab } from './settings/SellingBuyingSettingsTab';
 import { NotificationSettingsTab } from './settings/NotificationSettingsTab';
 import { AccountSecuritySettingsTab } from './settings/AccountSecuritySettingsTab';
 import { HelpSupportSettingsTab } from './settings/HelpSupportSettingsTab';
+import { useDropshipEnabled } from './dropship/dropshipApi';
 
 export const ProfileSettings: React.FC = () => {
   const { 
@@ -57,6 +58,7 @@ export const ProfileSettings: React.FC = () => {
     toggleSaveProduct,
     setSelectedProductId
   } = useApp();
+  const dropshipEnabled = useDropshipEnabled();
 
   if (!currentUser) {
     return (
@@ -1770,6 +1772,24 @@ CEO, Tedbuy Inc`;
                     <ChevronRight className="w-4 h-4 text-slate-400" />
                   </button>
 
+                  {dropshipEnabled && (
+                    <button
+                      onClick={() => setCurrentView('dropship')}
+                      className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-slate-100 rounded-xl text-slate-700">
+                          <Boxes className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">TedBuy Dropship</p>
+                          <p className="text-[10px] text-slate-500">{currentUser?.isAdmin ? 'Supplier catalogue & admin review' : 'Become a supplier & manage products'}</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                    </button>
+                  )}
+
                   {currentUser?.isAdmin && (
                     <button
                       onClick={() => setActiveMobileSubSetting('admin')}
@@ -2223,6 +2243,17 @@ CEO, Tedbuy Inc`;
             <Info className="w-3.5 h-3.5" />
             <span>Help & Support</span>
           </button>
+
+          {dropshipEnabled && (
+            <button
+              type="button"
+              onClick={() => setCurrentView('dropship')}
+              className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-700 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <Boxes className="w-3.5 h-3.5" />
+              <span>Dropship</span>
+            </button>
+          )}
 
           {currentUser?.isAdmin && (
             <button
