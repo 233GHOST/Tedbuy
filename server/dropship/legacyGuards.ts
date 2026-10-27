@@ -50,6 +50,37 @@ export function excludeDropshipRows<Q extends { not(column: string, operator: st
   return query.not('id', 'ilike', DROPSHIP_ROW_ID_ILIKE);
 }
 
+// POST /api/cloudinary/delete: which asset to delete. Non-admins may delete only the asset of
+// the url whose ownership is checked (any body publicId/resourceType is ignored), so a body
+// publicId can't point the delete at someone else's (or a supplier's) media. Admins: unchanged
+// (body publicId wins; url is the fallback). Web and mobile callers send only url.
+export type CloudinaryDeleteTarget =
+  | { ok: true; publicId: string; resourceType: 'image' | 'video'; url: string | null }
+  | { ok: false; status: 400 | 403; error: string };
+export function resolveCloudinaryDeleteTarget(
+  input: { isAdmin: boolean; publicId?: unknown; resourceType?: unknown; url?: unknown },
+  extract: (url: string) => { publicId: string; resourceType: 'image' | 'video' } | null,
+): CloudinaryDeleteTarget {
+  const missing = { ok: false as const, status: 400 as const, error: 'Missing publicId or valid Cloudinary url' };
+  const url = typeof input.url === 'string' && input.url ? input.url : null;
+  if (!input.isAdmin) {
+    if (!url) {
+      return input.publicId
+        ? { ok: false, status: 403, error: 'Forbidden: cannot verify ownership without a url' }
+        : missing;
+    }
+    const info = extract(url);
+    return info && info.publicId ? { ok: true, publicId: info.publicId, resourceType: info.resourceType, url } : missing;
+  }
+  let publicId = typeof input.publicId === 'string' && input.publicId ? input.publicId : null;
+  let resourceType: 'image' | 'video' = input.resourceType === 'video' ? 'video' : 'image';
+  if (!publicId && url) {
+    const info = extract(url);
+    if (info) { publicId = info.publicId; resourceType = info.resourceType; }
+  }
+  return publicId ? { ok: true, publicId, resourceType, url } : missing;
+}
+
 export interface LegacyGuards {
   filterVisible<T extends { id: string }>(rows: T[]): Promise<T[]>;
   isVisibleProduct(id: string): Promise<boolean>;

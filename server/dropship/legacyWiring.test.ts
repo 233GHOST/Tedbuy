@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { DropshipDb } from './db.js';
 import {
   createLegacyGuards, DROPSHIP_ROW_ID_ILIKE, excludeDropshipRows, filterVisiblePayload, legacyDeleteDecision,
-  legacySyncDecision, productsOwnMediaUrl,
+  legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget,
 } from './legacyGuards.js';
 import { filterSitemapProducts, type CachedSitemapData } from '../../src/utils/sitemap.js';
 
@@ -236,4 +236,47 @@ test('excludeDropshipRows: merge-account leaves dsl_ rows untouched', () => {
   assert.deepEqual(calls, [['id', 'ilike', DROPSHIP_ROW_ID_ILIKE]]);
   for (const id of ['dsl_abc', 'DSL_abc', 'Dsl_1']) assert.equal(ilike(DROPSHIP_ROW_ID_ILIKE, id), true, id);
   for (const id of ['dslx', 'prod_1', 'xdsl_1']) assert.equal(ilike(DROPSHIP_ROW_ID_ILIKE, id), false, id);
+});
+
+// ---- Fix round 1: /api/cloudinary/delete target resolution ----
+
+// Same shape as server.ts extractCloudinaryInfo (simplified; injected so server.ts isn't imported).
+const extract = (u: string) => {
+  if (!u.includes('res.cloudinary.com')) return null;
+  const after = u.split('/upload/')[1];
+  if (!after) return null;
+  const segs = after.split('/');
+  const v = segs.findIndex(x => /^v\d+$/.test(x));
+  const path = (v === -1 ? segs : segs.slice(v + 1)).join('/');
+  return { publicId: path.replace(/\.[^.]+$/, ''), resourceType: (u.includes('/video/upload/') ? 'video' : 'image') as 'image' | 'video' };
+};
+const OWN = 'https://res.cloudinary.com/c/image/upload/v1/users/me.jpg';
+const OWN_VIDEO = 'https://res.cloudinary.com/c/video/upload/v1/products/clip.mp4';
+const resolve = (o: { isAdmin?: boolean; publicId?: unknown; resourceType?: unknown; url?: unknown }) =>
+  resolveCloudinaryDeleteTarget({ isAdmin: false, ...o }, extract);
+
+test('delete target: non-admin with a mismatched publicId deletes only the url\'s own asset', () => {
+  assert.deepEqual(resolve({ url: OWN, publicId: 'suppliers/their-photo', resourceType: 'video' }),
+    { ok: true, publicId: 'users/me', resourceType: 'image', url: OWN });
+});
+
+test('delete target: non-admin with matching or absent publicId works as before', () => {
+  assert.deepEqual(resolve({ url: OWN }), { ok: true, publicId: 'users/me', resourceType: 'image', url: OWN });
+  assert.deepEqual(resolve({ url: OWN, publicId: 'users/me' }), { ok: true, publicId: 'users/me', resourceType: 'image', url: OWN });
+  assert.deepEqual(resolve({ url: OWN_VIDEO }), { ok: true, publicId: 'products/clip', resourceType: 'video', url: OWN_VIDEO });
+});
+
+test('delete target: non-admin refusals keep their existing status codes', () => {
+  assert.deepEqual(resolve({ publicId: 'x' }), { ok: false, status: 403, error: 'Forbidden: cannot verify ownership without a url' });
+  assert.deepEqual(resolve({}), { ok: false, status: 400, error: 'Missing publicId or valid Cloudinary url' });
+  assert.deepEqual(resolve({ url: 'https://example.com/a.jpg' }), { ok: false, status: 400, error: 'Missing publicId or valid Cloudinary url' });
+  assert.deepEqual(resolve({ url: 'https://example.com/a.jpg', publicId: 'x' }), { ok: false, status: 400, error: 'Missing publicId or valid Cloudinary url' });
+});
+
+test('delete target: admin behaviour unchanged (body publicId wins, url fallback)', () => {
+  assert.deepEqual(resolve({ isAdmin: true, publicId: 'any/asset' }), { ok: true, publicId: 'any/asset', resourceType: 'image', url: null });
+  assert.deepEqual(resolve({ isAdmin: true, publicId: 'any/asset', resourceType: 'video', url: OWN }),
+    { ok: true, publicId: 'any/asset', resourceType: 'video', url: OWN });
+  assert.deepEqual(resolve({ isAdmin: true, url: OWN_VIDEO }), { ok: true, publicId: 'products/clip', resourceType: 'video', url: OWN_VIDEO });
+  assert.deepEqual(resolve({ isAdmin: true }), { ok: false, status: 400, error: 'Missing publicId or valid Cloudinary url' });
 });

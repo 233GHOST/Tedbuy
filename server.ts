@@ -20,7 +20,7 @@ import { getPrefixAutocompleteSuggestions } from "./src/utils/searchAutocomplete
 import { APP_RELEASE_CONFIG, isAndroidReleaseAvailable } from "./src/config/appRelease.js";
 import firebaseConfig from "./firebase-applet-config.json";
 import { registerDropship } from "./server/dropship/index.js";
-import { excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl } from "./server/dropship/legacyGuards.js";
+import { excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget } from "./server/dropship/legacyGuards.js";
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
@@ -1769,26 +1769,15 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
 
   try {
     const { publicId, resourceType, url } = req.body;
-    let targetPublicId = publicId;
-    let targetResourceType: 'image' | 'video' = resourceType || 'image';
-
-    if (!targetPublicId && url) {
-      const extracted = extractCloudinaryInfo(url);
-      if (extracted) {
-        targetPublicId = extracted.publicId;
-        targetResourceType = extracted.resourceType;
-      }
-    }
-
-    if (!targetPublicId) {
-      return res.status(400).json({ success: false, error: 'Missing publicId or valid Cloudinary url' });
-    }
-
     const isAdmin = hasAdminAuthority(verified);
+    // Non-admins: the asset is derived from the ownership-checked url only (body publicId ignored).
+    const target = resolveCloudinaryDeleteTarget({ isAdmin, publicId, resourceType, url }, extractCloudinaryInfo);
+    if (target.ok === false) {
+      return res.status(target.status).json({ success: false, error: target.error });
+    }
+    const { publicId: targetPublicId, resourceType: targetResourceType } = target;
+
     if (!isAdmin) {
-      if (!url || typeof url !== 'string') {
-        return res.status(403).json({ success: false, error: 'Forbidden: cannot verify ownership without a url' });
-      }
       if (!backendSupabase) {
         return res.status(503).json({ success: false, error: 'Database service unavailable' });
       }
