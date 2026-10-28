@@ -158,6 +158,7 @@ export type RootStackParamList = {
   NotificationSettings: undefined;
   SellingBuyingSettings: undefined;
   HelpSupportSettings: undefined;
+  DropshipWeb: undefined;
 };
 
 export interface Review {

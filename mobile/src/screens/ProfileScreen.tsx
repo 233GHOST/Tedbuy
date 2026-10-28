@@ -8,7 +8,6 @@ import { TedBuyLogo } from '../components/TedBuyLogo';
 import { BackButton } from '../components/BackButton';
 import { BoostModal } from '../components/BoostModal';
 import { auth, observeAuthState, signIn, signUp, signInWithGoogle, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage, logOut, getDropshipStatus, listingErrorTitle } from '../firebase';
-import * as WebBrowser from 'expo-web-browser';
 import {
   Users as UsersIcon,
   Bookmark,
@@ -914,11 +913,11 @@ export function ProfileScreen() {
               <View style={styles.tabContentContainer}>
                 {dropshipEnabled && (
                   <Pressable
-                    onPress={() => {
-                      WebBrowser.openBrowserAsync('https://www.tedbuy.store/dropship').catch(() => {
-                        Alert.alert('Could Not Open Dropship', 'Please try again in a moment.');
-                      });
-                    }}
+                    // Opens Dropship in-app (WebView + sign-in handoff). The
+                    // screen itself falls back to
+                    // WebBrowser.openBrowserAsync('https://www.tedbuy.store/dropship')
+                    // when the handoff is unavailable (503 / offline).
+                    onPress={() => navigation.navigate('DropshipWeb')}
                     style={[styles.settingsMenuGroup, styles.settingsMenuRow, { borderBottomWidth: 0, marginHorizontal: 14, marginBottom: 14 }]}
                   >
                     <View style={styles.settingsItemLeft}>

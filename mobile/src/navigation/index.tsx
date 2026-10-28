@@ -23,6 +23,7 @@ import { ProfileStoreSettingsScreen } from '../screens/ProfileStoreSettingsScree
 import { NotificationSettingsScreen } from '../screens/NotificationSettingsScreen';
 import { SellingBuyingSettingsScreen } from '../screens/SellingBuyingSettingsScreen';
 import { HelpSupportSettingsScreen } from '../screens/HelpSupportSettingsScreen';
+import { DropshipWebScreen } from '../screens/DropshipWebScreen';
 import { MainTabsParamList, RootStackParamList } from '../types';
 import { Product } from '../types';
 import { fonts } from '../theme';
@@ -297,6 +298,14 @@ export function AppNavigator() {
           {() => {
             const navigation = useNavigation<any>();
             return <HelpSupportSettingsScreen onBack={() => navigation.goBack()} />;
+          }}
+        </Stack.Screen>
+        {/* Swipe-back is off: horizontal swipes belong to the web page, and
+            the screen's own Back handling walks WebView history first. */}
+        <Stack.Screen name="DropshipWeb" options={{ presentation: 'card', gestureEnabled: false, fullScreenGestureEnabled: false }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <DropshipWebScreen onClose={() => { if (navigation.canGoBack()) navigation.goBack(); }} />;
           }}
         </Stack.Screen>
       </Stack.Navigator>

@@ -262,6 +262,44 @@ export async function getDropshipStatus(): Promise<boolean> {
   return data?.success === true && data.enabled === true;
 }
 
+/** Asks the server for a one-time Firebase custom token so the embedded
+ * Dropship WebView can sign in as the current app user. Deliberately a plain
+ * fetch rather than apiFetch: we need the raw status (503/network → Custom
+ * Tab fallback, 401/403 → refusal) and a 401 here must NOT trigger apiFetch's
+ * global "Session Expired" sign-out. Sends only the user's own ID token — never
+ * an impersonation header. The returned token is never logged or stored. */
+export async function requestAppHandoffToken(): Promise<{ ok: true; token: string } | { ok: false; status: number | 'network' }> {
+  const user = auth.currentUser;
+  if (!user) return { ok: false, status: 401 };
+  let idToken: string;
+  try {
+    idToken = await user.getIdToken();
+  } catch {
+    // getIdToken refreshes over the network when the cached token is stale.
+    return { ok: false, status: 'network' };
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${apiOrigin()}/api/auth/app-handoff`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${idToken}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) return { ok: false, status: res.status };
+    const data: any = await res.json().catch(() => null);
+    if (data?.success === true && typeof data.customToken === 'string' && data.customToken) {
+      return { ok: true, token: data.customToken };
+    }
+    // A 200 without a usable token: treat like the server being unable to sign.
+    return { ok: false, status: 503 };
+  } catch {
+    return { ok: false, status: 'network' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /** Throws with errorCode 'NOT_FOUND' when the product is not a live listing. */
 export async function getDropshipPurchaseInfo(productId: string): Promise<DropshipPurchaseInfoMobile> {
   const data = await apiFetch(`/api/dropship/purchase-info/${encodeURIComponent(productId)}`);
