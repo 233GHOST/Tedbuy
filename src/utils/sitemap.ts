@@ -8,6 +8,8 @@ export interface SitemapUrl {
   lastmod: string;
   changefreq: 'always' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'never';
   priority: string;
+  // Product URLs only: the products row id, so a visibility filter can drop the URL.
+  productId?: string;
 }
 
 export interface CachedSitemapData {
@@ -152,6 +154,7 @@ async function fetchSitemapDataset(): Promise<CachedSitemapData> {
         const slug = slugify(title);
         const updateDate = new Date(createdAt).toISOString().split('T')[0] || today;
         productUrls.push({
+          productId: String(id),
           loc: `/product/${id}-${slug}`,
           lastmod: updateDate,
           changefreq: 'weekly',
@@ -206,10 +209,34 @@ async function fetchSitemapDataset(): Promise<CachedSitemapData> {
   };
 }
 
+export type SitemapProductVisibility = (productId: string) => boolean | Promise<boolean>;
+
+/**
+ * Drops product URLs whose row the filter rejects (server.ts passes one that hides Dropship
+ * listing rows). Applied after the cache, so a change in visibility shows up immediately.
+ */
+export async function filterSitemapProducts(data: CachedSitemapData, isVisible?: SitemapProductVisibility): Promise<CachedSitemapData> {
+  if (!isVisible) return data;
+  const productUrls: SitemapUrl[] = [];
+  for (const u of data.productUrls) {
+    if (!u.productId) { productUrls.push(u); continue; }
+    const v = isVisible(u.productId);
+    if (typeof v === 'boolean' ? v : await v) productUrls.push(u);
+  }
+  return productUrls.length === data.productUrls.length ? data : { ...data, productUrls };
+}
+
+/**
+ * Retrieves the cached dataset (filtered by isVisible when given)
+ */
+export async function getSitemapDataset(isVisible?: SitemapProductVisibility): Promise<CachedSitemapData> {
+  return filterSitemapProducts(await loadSitemapDataset(), isVisible);
+}
+
 /**
  * Retrieves the cached dataset or triggers a new fetch with Stampede Prevention
  */
-export async function getSitemapDataset(): Promise<CachedSitemapData> {
+async function loadSitemapDataset(): Promise<CachedSitemapData> {
   const now = Date.now();
   if (cachedData && (now - cachedData.loadedAt < CACHE_TTL)) {
     return cachedData;

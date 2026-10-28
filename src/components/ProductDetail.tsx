@@ -12,6 +12,8 @@ import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 import { resolveProductImage, resolveProductImages, getCategoryPlaceholder, getCanonicalMediaKey } from '../utils/productUtils';
 import { MediaRenderer, isVideoAsset } from './MediaRenderer';
 import { ProductDetailSkeleton } from './PageLoadingSkeletons';
+import { isDropshipRowId } from './dropship/dropshipFormat';
+import { DropshipPurchasePanel } from './dropship/DropshipPurchasePanel';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -1925,6 +1927,7 @@ export const ProductDetail: React.FC = () => {
                 <div className="space-y-3.5">
                   {/* Top Action Row: Message seller on WhatsApp + Share + Save */}
                   <div className="flex gap-2 sm:gap-2.5 items-center">
+                    {!isDropshipRowId(product.id) && (
                     <button
                       id="btn-message-whatsapp"
                       onClick={handleMessageWhatsApp}
@@ -1933,6 +1936,7 @@ export const ProductDetail: React.FC = () => {
                       <MessageSquare className="w-4.5 h-4.5 sm:w-5 sm:h-5 fill-white/20 stroke-[2.2] shrink-0" />
                       <span className="whitespace-nowrap font-bold">Message seller on WhatsApp</span>
                     </button>
+                    )}
 
                     <button
                       id="btn-share-detail"
@@ -1957,6 +1961,10 @@ export const ProductDetail: React.FC = () => {
                       <Bookmark className="w-4.5 h-4.5 sm:w-5 sm:h-5" fill={isSaved ? "currentColor" : "none"} />
                     </button>
                   </div>
+
+                  {isDropshipRowId(product.id) && (
+                    <DropshipPurchasePanel productId={product.id} isOwner={isOwner} onMessageSeller={() => handleStartChatInline()} />
+                  )}
 
                   {/* Chat with the seller inline section (Placed just below WhatsApp message action) */}
                   {!isOwner && (

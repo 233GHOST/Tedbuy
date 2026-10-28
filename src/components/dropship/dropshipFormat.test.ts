@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
   buildProductPayload, cedisToPesewas, dropshipErrorMessage, emptyProductForm, pesewasToCedisInput, productToForm,
-  supplierStatusActions, type SupplierProduct,
+  supplierStatusActions, type SupplierProduct, parseCedisToPesewas, isDropshipRowId, listingStatusLabel, listingPillTone,
+  quoteReasonText,
 } from './dropshipFormat';
+import { isDropshipRowId as serverIsDropshipRowId } from '../../../server/dropship/legacyGuards';
 // The server's own validator: the form's payloads must pass it unchanged.
 import { parseProductCreate, parseProductUpdate } from '../../../server/dropship/validation';
 
@@ -85,4 +87,40 @@ test('API error codes become user guidance', () => {
   assert.match(dropshipErrorMessage('IMPERSONATION_FORBIDDEN', undefined), /another user/);
   assert.match(dropshipErrorMessage('STATE_CONFLICT', 'product was changed by someone else; reload it'), /reload it\.$/);
   assert.equal(dropshipErrorMessage('VALIDATION', 'title must be 3–128 characters.'), 'title must be 3–128 characters.');
+});
+
+test('parseCedisToPesewas parses user input to integer pesewas', () => {
+  assert.equal(parseCedisToPesewas('150'), 15000);
+  assert.equal(parseCedisToPesewas('150.5'), 15050);
+  assert.equal(parseCedisToPesewas('1,250.00'), 125000);
+  assert.equal(parseCedisToPesewas('abc'), null);
+  assert.equal(parseCedisToPesewas('-1'), null);
+  assert.equal(parseCedisToPesewas('0.001'), null);
+});
+
+test('client isDropshipRowId matches the server rule', () => {
+  for (const id of ['dsl_abc', 'DSL_abc', 'Dsl_1', 'dsl', 'prod_1', '', null, undefined, 5, 'xdsl_1']) {
+    assert.equal(isDropshipRowId(id), serverIsDropshipRowId(id), String(id));
+  }
+  assert.equal(isDropshipRowId('dsl_abc'), true);
+});
+
+test('listing status labels and pill tones', () => {
+  const l = (status: string, unavailableReason: string | null, effectiveAvailable = false) => listingStatusLabel({ status, unavailableReason, effectiveAvailable });
+  assert.equal(l('active', null, true).label, 'Active');
+  assert.equal(l('paused', 'listing_paused').label, 'Paused');
+  assert.equal(l('active', 'out_of_stock').label, 'Out of stock');
+  assert.equal(l('active', 'participant_unavailable').label, 'Supplier unavailable');
+  assert.equal(l('active', 'product_inactive').label, 'Supplier unavailable');
+  assert.equal(l('active', 'price_below_minimum').label, 'Reprice needed');
+  assert.equal(listingPillTone('active'), 'active');
+  assert.equal(listingPillTone('paused'), 'paused');
+  for (const k of ['out_of_stock', 'unavailable', 'reprice']) assert.equal(listingPillTone(k), 'pending');
+});
+
+test('quoteReasonText: never shows the raw reason code', () => {
+  assert.equal(quoteReasonText('below_minimum'), 'This price is too low.');
+  assert.equal(quoteReasonText('not_integer'), 'Enter a valid price.');
+  assert.equal(quoteReasonText(undefined), 'This price is too low.');
+  assert.equal(quoteReasonText('something_new'), 'This price is too low.');
 });

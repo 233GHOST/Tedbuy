@@ -38,7 +38,8 @@ export interface SupplierParticipation {
   restrictions: string[];
 }
 
-export interface AdminParticipant extends Omit<SupplierParticipation, 'restrictions'> {
+export interface AdminParticipant extends Omit<SupplierParticipation, 'restrictions' | 'kind'> {
+  kind: 'supplier' | 'dropshipper';
   userId: string;
   statusChangedAt: string;
   reviewedBy: string | null;
@@ -46,6 +47,46 @@ export interface AdminParticipant extends Omit<SupplierParticipation, 'restricti
   adminNotes: string | null;
   termsVersion: string;
   createdAt: string;
+}
+
+export interface DropshipperParticipation extends Omit<SupplierParticipation, 'kind'> { kind: 'dropshipper' }
+
+export interface DeliveryFee { scope: 'same_region' | 'other_region'; regionNote: string; feePesewas: number }
+
+export interface CatalogueItemData {
+  supplierProductId: string;
+  title: string;
+  images: string[];
+  category: string;
+  // Present only for approved dropshippers (teaser items carry just the four fields above).
+  condition?: string;
+  brand?: string | null;
+  wholesalePricePesewas?: number;
+  suggestedRetailPesewas?: number | null;
+  minRetailPesewas?: number;
+  available?: boolean;
+  leadTimeDays?: { min: number; max: number };
+  shipsFromRegion?: string;
+  deliveryFees?: DeliveryFee[];
+  returnWindowDays?: number;
+  alreadyListed?: boolean;
+  listingCount?: number;
+}
+
+export interface Quote { valid: boolean; platformFeePesewas: number; estimatedMarginPesewas: number; minRetailPesewas: number; reason?: string }
+
+export interface MyListing {
+  id: string; productId: string; supplierProductId: string; title: string; image: string | null;
+  retailPricePesewas: number; wholesalePricePesewas: number; platformFeePesewas: number;
+  estimatedMarginPesewas: number; minRetailPesewas: number; status: 'active' | 'paused' | 'removed';
+  effectiveAvailable: boolean; unavailableReason: string | null; unitsSold: number;
+}
+
+export interface PurchaseInfo {
+  listingId: string; available: boolean; unavailableReason?: 'out_of_stock' | 'unavailable';
+  unitPricePesewas: number; maxQuantity: number; deliveryFees: DeliveryFee[]; shipsFromRegion: string;
+  leadTimeDays: { min: number; max: number }; returnWindowDays: number; returnPolicyText: string;
+  seller: { id: string; storeName: string };
 }
 
 export type ParticipationDecision = 'approve' | 'reject' | 'suspend' | 'reinstate' | 'revoke';
@@ -58,8 +99,8 @@ const query = (params: Record<string, string | undefined>) => {
 
 export const dropshipApi = {
   status: () => request<{ enabled: boolean }>('GET', '/api/dropship/status'),
-  me: () => request<{ enabled: boolean; accountRestricted?: boolean; participations?: { supplier?: SupplierParticipation } }>('GET', '/api/dropship/me'),
-  apply: (body: Record<string, unknown>) => request<{ participation: SupplierParticipation }>('POST', '/api/dropship/applications', body),
+  me: () => request<{ enabled: boolean; accountRestricted?: boolean; participations?: { supplier?: SupplierParticipation; dropshipper?: DropshipperParticipation } }>('GET', '/api/dropship/me'),
+  apply: (body: Record<string, unknown>) => request<{ participation: SupplierParticipation | DropshipperParticipation }>('POST', '/api/dropship/applications', body),
 
   myProducts: (status?: ProductStatus) => request<{ products: SupplierProduct[] }>('GET', `/api/dropship/supplier/products${query({ status })}`),
   createProduct: (body: Record<string, unknown>) => request<{ product: SupplierProduct }>('POST', '/api/dropship/supplier/products', body),
@@ -68,7 +109,21 @@ export const dropshipApi = {
     request<{ product: SupplierProduct }>('POST', `/api/dropship/supplier/products/${enc(id)}/stock`, { stockOnHand, expectedOnHand }),
   setStatus: (id: string, status: ProductStatus) => request<{ product: SupplierProduct }>('POST', `/api/dropship/supplier/products/${enc(id)}/status`, { status }),
 
-  adminApplications: (status?: ParticipantStatus) => request<{ participants: AdminParticipant[] }>('GET', `/api/admin/dropship/applications${query({ status, kind: 'supplier' })}`),
+  catalogue: (p: { category?: string; q?: string; cursor?: string }) =>
+    request<{ items: CatalogueItemData[]; nextCursor: string | null }>('GET', `/api/dropship/catalogue${query(p)}`),
+  catalogueItem: (id: string) => request<{ item: CatalogueItemData }>('GET', `/api/dropship/catalogue/${enc(id)}`),
+  quote: (id: string, retailPricePesewas: number) =>
+    request<{ quote: Quote }>('POST', `/api/dropship/catalogue/${enc(id)}/quote`, { retailPricePesewas }),
+  createListing: (body: { clientRequestId: string; supplierProductId: string; retailPricePesewas: number }) =>
+    request<{ listing: { id: string }; productId: string }>('POST', '/api/dropship/listings', body),
+  myListings: () => request<{ listings: MyListing[] }>('GET', '/api/dropship/listings/mine'),
+  updateListing: (id: string, body: { retailPricePesewas?: number; status?: 'active' | 'paused' }) =>
+    request<{ listing: { id: string } }>('PATCH', `/api/dropship/listings/${enc(id)}`, body),
+  removeListing: (id: string) => request<{ listing: { id: string } }>('DELETE', `/api/dropship/listings/${enc(id)}`),
+  purchaseInfo: (productId: string) => request<{ info: PurchaseInfo }>('GET', `/api/dropship/purchase-info/${enc(productId)}`),
+
+  adminApplications: (status?: ParticipantStatus, kind: 'supplier' | 'dropshipper' | '' = '') =>
+    request<{ participants: AdminParticipant[] }>('GET', `/api/admin/dropship/applications${query({ status, kind: kind || undefined })}`),
   adminDecide: (id: string, body: { decision: ParticipationDecision; expectedStatus: ParticipantStatus; reason?: string }) =>
     request<{ participant: AdminParticipant; sideEffects: { archived: string[]; notArchived: string[] } }>('POST', `/api/admin/dropship/applications/${enc(id)}/decision`, body),
   adminProducts: (status?: ProductStatus) => request<{ products: SupplierProduct[] }>('GET', `/api/admin/dropship/supplier-products${query({ status })}`),

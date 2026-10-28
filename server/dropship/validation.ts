@@ -94,7 +94,7 @@ const APPLICATION_FIELDS = ['clientRequestId', 'kind', 'displayName', 'contactPh
 export function parseApplication(raw: unknown) {
   const body = asBody(raw);
   rejectUnknown(body, APPLICATION_FIELDS);
-  const kind = oneOf(body, 'kind', ['supplier'] as const);
+  const kind = oneOf(body, 'kind', ['supplier', 'dropshipper'] as const);
   const phoneRaw = str(body, 'contactPhone', 9, 20, true).replace(/[\s-]/g, '');
   if (!/^\+?[0-9]{9,15}$/.test(phoneRaw)) fail('contactPhone must be a phone number.');
   const answers = body.answers;
@@ -114,7 +114,7 @@ export function parseApplication(raw: unknown) {
       contactPhone: phoneRaw,
       region: region(body, 'region', true),
       city: str(body, 'city', 2, 60, true),
-      addressLine: str(body, 'addressLine', 5, 200, true),
+      addressLine: kind === 'supplier' ? str(body, 'addressLine', 5, 200, true) : str(body, 'addressLine', 5, 200, false),
       businessRegNo: str(body, 'businessRegNo', 1, 60, false),
       termsVersion: str(body, 'termsVersion', 1, 40, true),
       answers: (answers as Body | undefined) ?? {},
@@ -268,3 +268,75 @@ export function queryEnum<T extends string>(value: unknown, values: readonly T[]
 
 export const PARTICIPANT_STATUSES = ['pending', 'approved', 'rejected', 'suspended', 'revoked'] as const;
 export const PRODUCT_STATUSES = ['draft', 'pending_review', 'active', 'paused', 'rejected', 'archived'] as const;
+
+// ---------------------------------------------------------------------------------------
+// Phase 3: catalogue, quote and listings (retail price = integer pesewas, 1..MAX_PRICE)
+// ---------------------------------------------------------------------------------------
+function retailPrice(body: Body, required: true): number;
+function retailPrice(body: Body, required: false): number | null;
+function retailPrice(body: Body, required: boolean): number | null {
+  return required ? int(body, 'retailPricePesewas', 1, MAX_PRICE, true) : int(body, 'retailPricePesewas', 1, MAX_PRICE, false);
+}
+
+export function parseQuote(raw: unknown) {
+  const body = asBody(raw);
+  rejectUnknown(body, ['retailPricePesewas']);
+  return { retailPricePesewas: retailPrice(body, true) };
+}
+
+export function parseListingCreate(raw: unknown) {
+  const body = asBody(raw);
+  rejectUnknown(body, ['clientRequestId', 'supplierProductId', 'retailPricePesewas']);
+  return {
+    clientRequestId: uuid(body, 'clientRequestId'),
+    supplierProductId: uuid(body, 'supplierProductId'),
+    retailPricePesewas: retailPrice(body, true),
+  };
+}
+
+export function parseListingUpdate(raw: unknown) {
+  const body = asBody(raw);
+  rejectUnknown(body, ['retailPricePesewas', 'status']);
+  const retailPricePesewas = retailPrice(body, false);
+  const status = body.status === undefined ? null : oneOf(body, 'status', ['active', 'paused'] as const);
+  if (retailPricePesewas === null && status === null) fail('Provide retailPricePesewas or status.');
+  return { retailPricePesewas, status };
+}
+
+// DELETE: the owner sends no body (or {}); an admin sends { reason }.
+export function parseListingRemove(raw: unknown) {
+  const body = raw === undefined || raw === null ? {} : asBody(raw);
+  rejectUnknown(body, ['reason']);
+  return { reason: str(body, 'reason', 3, 500, false) };
+}
+
+// Cursor is base64 of {createdAt, id}; both are required and must be well formed, because
+// the database ignores a half cursor and would silently restart from page one.
+export function parseCatalogueQuery(query: unknown) {
+  const q = asBody(query);
+  const category = str(q, 'category', 1, 60, false);
+  const text = str(q, 'q', 1, 80, false);
+  let afterCreated: string | null = null;
+  let afterId: string | null = null;
+  const cursor = q.cursor;
+  if (cursor !== undefined && cursor !== '') {
+    if (typeof cursor !== 'string' || cursor.length > 300) fail('cursor is invalid.');
+    let parsed: any;
+    try {
+      parsed = JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+    } catch {
+      fail('cursor is invalid.');
+    }
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.createdAt !== 'string' || typeof parsed.id !== 'string'
+        || !UUID_RE.test(parsed.id) || parsed.createdAt.length > 40 || Number.isNaN(Date.parse(parsed.createdAt))) {
+      fail('cursor is invalid.');
+    }
+    afterCreated = parsed.createdAt;
+    afterId = parsed.id.toLowerCase();
+  }
+  return { category, q: text, afterCreated, afterId };
+}
+
+export function encodeCatalogueCursor(next: { afterCreated: string; afterId: string } | null): string | null {
+  return next ? Buffer.from(JSON.stringify({ createdAt: next.afterCreated, id: next.afterId })).toString('base64') : null;
+}

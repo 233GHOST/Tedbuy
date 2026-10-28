@@ -44,7 +44,7 @@ function ApplicationCard({ p, onChanged }: { p: AdminParticipant; onChanged: (p:
 
   const decide = async (decision: ParticipationDecision) => {
     if (decision !== 'approve' && reason.trim().length < 3) { showToast('Enter a reason (at least 3 characters).', 'error'); return; }
-    if (decision === 'revoke' && !window.confirm('Revoke this supplier? All of their products will be archived.')) return;
+    if (decision === 'revoke' && !window.confirm(p.kind === 'supplier' ? 'Revoke this supplier? All of their products will be archived.' : 'Revoke this dropshipper? Their listings will be taken down.')) return;
     setBusy(true);
     try {
       const r = await dropshipApi.adminDecide(p.id, { decision, expectedStatus: p.status, ...(decision !== 'approve' ? { reason: reason.trim() } : {}) });
@@ -65,9 +65,14 @@ function ApplicationCard({ p, onChanged }: { p: AdminParticipant; onChanged: (p:
     <div className={`${cardClass} !p-4 space-y-2`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-bold text-slate-900 truncate">{p.displayName}</p>
+          <p className="text-sm font-bold text-slate-900 truncate">
+            {p.displayName}{' '}
+            <span className={`ml-1 px-1.5 py-0.5 rounded-full border text-[10px] font-bold align-middle ${p.kind === 'supplier' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+              {p.kind === 'supplier' ? 'Supplier' : 'Dropshipper'}
+            </span>
+          </p>
           <p className="text-[11px] text-slate-500">{p.contactPhone} · {p.city}, {p.region}</p>
-          <p className="text-[11px] text-slate-500">{p.addressLine}{p.businessRegNo ? ` · Reg. ${p.businessRegNo}` : ''}</p>
+          <p className="text-[11px] text-slate-500">{p.addressLine ?? ''}{p.businessRegNo ? ` · Reg. ${p.businessRegNo}` : ''}</p>
           <p className="text-[10px] text-slate-400 break-all">User {p.userId} · applied {new Date(p.createdAt).toLocaleDateString()}</p>
           {p.statusReason && <p className="text-[11px] text-slate-600 mt-1">Reason: {p.statusReason}</p>}
         </div>
@@ -174,7 +179,7 @@ export function AdminDropshipPanel() {
   return (
     <div className="space-y-8">
       <section className="space-y-3">
-        {header('Supplier applications', (
+        {header('Applications', (
           <select className={`${inputClass} !w-40`} value={appStatus} onChange={e => setAppStatus(e.target.value as ParticipantStatus)}>
             {(Object.keys(PARTICIPANT_STATUS_LABEL) as ParticipantStatus[]).map(s => <option key={s} value={s}>{PARTICIPANT_STATUS_LABEL[s]}</option>)}
           </select>

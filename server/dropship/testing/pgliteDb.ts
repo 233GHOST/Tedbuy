@@ -4,11 +4,61 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { callWithRetry, type DropshipDb, type UserRestrictionLoader } from '../db.js';
 
-// In-process PostgreSQL (PGlite) with the real Dropship migration applied, for tests and
+// In-process PostgreSQL (PGlite) with the real Dropship migrations applied, for tests and
 // the local demo server only. Never used by server.ts.
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const MIGRATION_PATH = path.resolve(here, '../../../supabase/migrations/20261026120000_dropship_supplier_catalogue.sql');
+export const LISTINGS_MIGRATION_PATH = path.resolve(here, '../../../supabase/migrations/20261028120000_dropship_listings.sql');
+// Applied in this order, like `supabase db push`.
+export const MIGRATION_PATHS = [MIGRATION_PATH, LISTINGS_MIGRATION_PATH];
+
+// The production (baseline) public.products table, column for column. Dropship writes the
+// listing mirror rows into it and must never need a new column (ARCHITECTURE §2.1).
+export const BASELINE_PRODUCTS_TABLE = `
+  create table public.products (
+    id text not null primary key,
+    title text not null,
+    description text,
+    price text,
+    category text,
+    location text,
+    images jsonb default '[]'::jsonb,
+    videos jsonb default '[]'::jsonb,
+    brand text,
+    condition text,
+    negotiable boolean default false,
+    "sellerId" text,
+    "sellerName" text,
+    "createdAt" text,
+    "viewsCount" integer default 0,
+    "likesCount" integer default 0,
+    "likedUserIds" jsonb default '[]'::jsonb,
+    "boostStatus" boolean default false,
+    "boostPlan" text,
+    "boostStartDate" text,
+    "boostEndDate" text,
+    "boostPriority" numeric default 0,
+    "priorityScore" numeric default 0,
+    "boostPriorityLevel" integer default 0,
+    "boostPackagePrice" numeric default 0,
+    "remainingBoostTime" numeric default 0,
+    "boostAmount" numeric default 0,
+    "lastBoostedAt" text,
+    "lastBoostPurchase" text,
+    "paymentStatus" text,
+    "paymentReference" text,
+    "boostHistory" jsonb default '[]'::jsonb,
+    "visitCount" integer default 0,
+    "isApproved" boolean default true,
+    status text default 'active',
+    "isDeleted" boolean default false,
+    "archivedAt" text,
+    "securityHold" boolean default false,
+    "isSold" boolean default false,
+    "soldAt" timestamptz
+  );
+`;
 
 // Supabase's roles and the legacy columns the gate reads. The live users table has many
 // more columns; only these are needed here.
@@ -26,6 +76,9 @@ const SUPABASE_STUB = `
     status text default 'active'
   );
   grant select on public.users to service_role;
+  ${BASELINE_PRODUCTS_TABLE}
+  -- Supabase's default privileges give service_role full access to public tables.
+  grant select, insert, update, delete on public.products to service_role;
 `;
 
 export interface PgliteDropship {
@@ -39,7 +92,7 @@ export interface PgliteDropship {
 export async function createPgliteDropship(): Promise<PgliteDropship> {
   const pg = new PGlite();
   await pg.exec(SUPABASE_STUB);
-  await pg.exec(fs.readFileSync(MIGRATION_PATH, 'utf8'));
+  for (const file of MIGRATION_PATHS) await pg.exec(fs.readFileSync(file, 'utf8'));
 
   const db: DropshipDb = {
     call: (fn, args) => callWithRetry(async () => {
@@ -48,7 +101,9 @@ export async function createPgliteDropship(): Promise<PgliteDropship> {
       for (const n of names) if (!/^p_[a-z_]+$/.test(n)) throw new Error(`bad argument name ${n}`);
       const params = names.map(n => {
         const v = args[n];
-        return v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
+        // Like PostgREST: objects go to jsonb parameters as JSON; top-level arrays go to SQL
+        // array parameters (e.g. text[]). No function takes a top-level jsonb array.
+        return v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : v;
       });
       const sql = `select public.${fn}(${names.map((n, i) => `${n} => $${i + 1}`).join(', ')}) as result`;
       try {
