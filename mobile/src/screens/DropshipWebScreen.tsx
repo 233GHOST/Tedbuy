@@ -13,6 +13,7 @@ import {
   READY_MESSAGE_TYPE,
   SIGNED_IN_MESSAGE_TYPE,
   decideOnReady,
+  foreignNavigationAction,
   isTedbuyOrigin,
   parseEmbedMessage,
   shouldFallbackToBrowser,
@@ -29,6 +30,9 @@ const HANDOFF_PENDING_MS = 20000;
 /** Hard cap on handoff posts per screen visit, so a page that reloads after
  * a failed sign-in can't drive an endless post → reload loop. */
 const MAX_HANDOFF_POSTS = 2;
+/** The same foreign URL can be reported by onShouldStartLoadWithRequest,
+ * onLoadStart and onNavigationStateChange; open it outside only once. */
+const EXTERNAL_OPEN_DEDUPE_MS = 2000;
 
 type Overlay = null | 'loading' | 'signing-in';
 type ErrorKind = null | 'load' | 'signin';
@@ -58,6 +62,8 @@ export function DropshipWebScreen({ onClose }: Props) {
   /** Bumped on Retry so a token request started for the previous WebView
    * instance can never post into the new one. */
   const generationRef = useRef(0);
+  const lastExternalRef = useRef<{ url: string; at: number } | null>(null);
+  const lastForeignHandledRef = useRef<{ url: string; at: number } | null>(null);
   const readyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -126,6 +132,10 @@ export function DropshipWebScreen({ onClose }: Props) {
     const result = await requestAppHandoffToken();
     if (closedRef.current || generation !== generationRef.current) return;
     requestInFlightRef.current = false;
+    // While the token was being fetched the page may already have reported
+    // the app user as signed in (markSignedIn) or an error was shown: then
+    // the token must not be posted (and no fallback / alert is needed).
+    if (!handoffPendingRef.current) return;
 
     if (!result.ok) {
       handoffPendingRef.current = false;
@@ -194,27 +204,72 @@ export function DropshipWebScreen({ onClose }: Props) {
     }
   }, [error, markSignedIn, showError, startHandoff]);
 
+  const openExternal = useCallback((url: string) => {
+    const now = Date.now();
+    const last = lastExternalRef.current;
+    if (last && last.url === url && now - last.at < EXTERNAL_OPEN_DEDUPE_MS) return;
+    lastExternalRef.current = { url, at: now };
+    Linking.openURL(url).catch(() => {
+      Alert.alert("Couldn't open this link", 'There is no app on this phone that can open it.');
+    });
+  }, []);
+
   const onShouldStartLoadWithRequest = useCallback((req: ShouldStartLoadRequest) => {
     // Sub-frames (iOS only reports them) may embed third-party widgets; only
     // top-level navigations decide where the page — and the token — goes.
     if (!req.isTopFrame) return true;
     if (isTedbuyOrigin(req.url) || req.url === 'about:blank') return true;
-    Linking.openURL(req.url).catch(() => {});
+    openExternal(req.url);
     return false;
-  }, []);
+  }, [openExternal]);
+
+  /** Reloads the Dropship entry page in a fresh WebView instance (same as
+   * Retry, but keeps the screen-wide handoff cap). */
+  const reloadEmbed = useCallback(() => {
+    generationRef.current += 1;
+    clearTimers();
+    postedThisLoadRef.current = false;
+    handoffPendingRef.current = false;
+    requestInFlightRef.current = false;
+    canGoBackRef.current = false;
+    currentUrlRef.current = DROPSHIP_EMBED_URL;
+    setOverlay('loading');
+    setLoadKey((k) => k + 1);
+  }, [clearTimers]);
+
+  /** Backstop for Android top-level navigations that bypass
+   * onShouldStartLoadWithRequest (form POSTs; the native sync lock timing out
+   * and defaulting to allow). Returns true when it took over the navigation. */
+  const leaveForeignPage = useCallback((url: string, canGoBack: boolean): boolean => {
+    const action = foreignNavigationAction(url, canGoBack);
+    if (action === 'allow') return false;
+    // onLoadStart and onNavigationStateChange both fire for one load start:
+    // act (stop / goBack / reload) only once per foreign URL.
+    const now = Date.now();
+    const last = lastForeignHandledRef.current;
+    if (last && last.url === url && now - last.at < EXTERNAL_OPEN_DEDUPE_MS) return true;
+    lastForeignHandledRef.current = { url, at: now };
+    webviewRef.current?.stopLoading();
+    openExternal(url);
+    if (action === 'go_back') webviewRef.current?.goBack();
+    else reloadEmbed();
+    return true;
+  }, [openExternal, reloadEmbed]);
 
   const onNavigationStateChange = useCallback((nav: WebViewNavigation) => {
     if (nav.url) currentUrlRef.current = nav.url;
     canGoBackRef.current = nav.canGoBack;
-  }, []);
+    if (nav.url) leaveForeignPage(nav.url, nav.canGoBack);
+  }, [leaveForeignPage]);
 
   const onLoadStart = useCallback((e: { nativeEvent: WebViewNavigation }) => {
     if (e.nativeEvent.url) currentUrlRef.current = e.nativeEvent.url;
+    if (e.nativeEvent.url && leaveForeignPage(e.nativeEvent.url, e.nativeEvent.canGoBack || canGoBackRef.current)) return;
     // A new document: the "once per page load" handoff budget resets (the
     // screen-wide MAX_HANDOFF_POSTS still applies).
     if (!requestInFlightRef.current && !handoffPendingRef.current) postedThisLoadRef.current = false;
     if (!handoffPendingRef.current) setOverlay('loading');
-  }, []);
+  }, [leaveForeignPage]);
 
   const onLoadEnd = useCallback(() => {
     if (readyTimerRef.current) clearTimeout(readyTimerRef.current);

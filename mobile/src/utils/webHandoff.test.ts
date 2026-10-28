@@ -8,6 +8,7 @@ import {
   SIGNED_IN_MESSAGE_TYPE,
   parseEmbedMessage,
   decideOnReady,
+  foreignNavigationAction,
 } from './webHandoff.ts';
 
 test('isTedbuyOrigin accepts only https://www.tedbuy.store pages', () => {
@@ -89,4 +90,23 @@ test('decideOnReady: never hands off to a non-TedBuy page or without an app user
   assert.equal(decideOnReady({ ...base, pageUid: null, currentUrl: 'https://evil.com/' }), 'none');
   assert.equal(decideOnReady({ ...base, pageUid: null, currentUrl: 'http://www.tedbuy.store/' }), 'none');
   assert.equal(decideOnReady({ ...base, pageUid: null, appUid: null }), 'none');
+});
+
+test('foreignNavigationAction: TedBuy pages and about:blank stay in the WebView', () => {
+  assert.equal(foreignNavigationAction('https://www.tedbuy.store/dropship?embed=app', false), 'allow');
+  assert.equal(foreignNavigationAction('https://www.tedbuy.store/dropship', true), 'allow');
+  assert.equal(foreignNavigationAction('about:blank', false), 'allow');
+  assert.equal(foreignNavigationAction('about:blank', true), 'allow');
+});
+
+test('foreignNavigationAction: a foreign page that slipped through is backed out of', () => {
+  assert.equal(foreignNavigationAction('https://checkout.paystack.com/abc', true), 'go_back');
+  assert.equal(foreignNavigationAction('https://www.tedbuy.store.evil.com/', true), 'go_back');
+  assert.equal(foreignNavigationAction('https://checkout.paystack.com/abc', false), 'reload');
+  assert.equal(foreignNavigationAction('http://www.tedbuy.store/', false), 'reload');
+});
+
+test('foreignNavigationAction: an empty url is ignored', () => {
+  assert.equal(foreignNavigationAction('', false), 'allow');
+  assert.equal(foreignNavigationAction(undefined as any, true), 'allow');
 });

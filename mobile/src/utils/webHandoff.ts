@@ -79,3 +79,16 @@ export function decideOnReady(input: {
   if (pageUid === null && handoffPending) return 'wait';
   return 'error';
 }
+
+export type ForeignNavigationAction = 'allow' | 'go_back' | 'reload';
+
+/** Backstop for top-level navigations that never reach
+ * onShouldStartLoadWithRequest on Android (form POSTs, or the native sync
+ * lock timing out and defaulting to allow). Run on load start / navigation
+ * state change: a non-TedBuy page is stopped, opened outside, and the WebView
+ * returns to the previous page (or reloads Dropship when there is none).
+ * An empty url (no navigation info yet) is ignored. */
+export function foreignNavigationAction(url: string, canGoBack: boolean): ForeignNavigationAction {
+  if (typeof url !== 'string' || url === '' || url === 'about:blank' || isTedbuyOrigin(url)) return 'allow';
+  return canGoBack ? 'go_back' : 'reload';
+}
