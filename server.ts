@@ -23,6 +23,7 @@ import { registerDropship } from "./server/dropship/index.js";
 import { extractCloudinaryInfo } from "./server/cloudinaryInfo.js";
 import { adminUserDeleteDecision, capListResponse, cleanupOrphansDecision, excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget } from "./server/dropship/legacyGuards.js";
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
+import { decideAppHandoff, isRestrictedUserRow } from "./server/auth/appHandoff.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -4846,6 +4847,47 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
 // nothing else -- no id, phoneNumber, whatsAppNumber, profile, or seller
 // fields. It performs no authentication itself (no password parameter);
 // the actual credential check remains entirely inside Firebase.
+app.post("/api/auth/app-handoff", serverRateLimiter(60 * 1000, 20, "auth-app-handoff"), async (req: express.Request, res: express.Response) => {
+  try {
+    // Deliberately NO impersonation argument: tokens are minted only for the caller's own uid.
+    const verified = await verifyUser(req.headers.authorization);
+    let restricted = false;
+    if (verified) {
+      if (!backendSupabase) {
+        return res.status(503).json({ error: 'App sign-in handoff is not available' });
+      }
+      const { data: row, error: rowErr } = await backendSupabase
+        .from('users')
+        .select('isSuspended, securityHold, isDeleted, status')
+        .eq('id', verified.uid)
+        .maybeSingle();
+      if (rowErr) {
+        // Fail closed: cannot confirm the account is unrestricted.
+        console.warn('[app-handoff] users lookup failed:', rowErr.message);
+        return res.status(503).json({ error: 'App sign-in handoff is not available' });
+      }
+      restricted = isRestrictedUserRow(row);
+    }
+    const decision = decideAppHandoff({ verified, restricted });
+    if (decision.ok !== true) {
+      const denied = decision as Extract<typeof decision, { ok: false }>;
+      return res.status(denied.status).json({ success: false, error: denied.error });
+    }
+    const grantedUid = (decision as Extract<typeof decision, { ok: true }>).uid;
+    try {
+      const customToken = await getAdminAuth().createCustomToken(grantedUid, { via: 'app_handoff' });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ success: true, customToken });
+    } catch (mintErr: any) {
+      console.warn('[app-handoff] createCustomToken failed:', mintErr?.code || mintErr?.message || 'unknown');
+      return res.status(503).json({ error: 'App sign-in handoff is not available' });
+    }
+  } catch (err: any) {
+    console.warn('[app-handoff] unexpected failure:', err?.code || err?.message || 'unknown');
+    return res.status(503).json({ error: 'App sign-in handoff is not available' });
+  }
+});
+
 app.post("/api/auth/resolve-login-identifier", serverRateLimiter(15 * 60 * 1000, 10, "resolve-login-identifier"), async (req: express.Request, res: express.Response) => {
   const identifier = typeof req.body?.identifier === 'string' ? req.body.identifier.trim() : '';
   if (!identifier) {
