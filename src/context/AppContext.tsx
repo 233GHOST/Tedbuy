@@ -1336,6 +1336,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       try {
         if (firebaseUser) {
+          // A later auth change (e.g. the app WebView's sign-in handoff
+          // switching accounts) supersedes this callback: after every await,
+          // stop before touching state for an account that is gone.
+          const isStale = () => !active || auth.currentUser?.uid !== firebaseUser.uid;
+
           // Instant direct check on the legacy user database for suspension to block a suspended user immediately.
           // Security fix (RLS-migration Phase 2, checkpoint 14): this used
           // to be a direct, unauthenticated `getDoc(doc('users',
@@ -1345,6 +1350,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const authHeaders = await getAuthHeader();
             const res = await fetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`, { headers: authHeaders });
             const json = await res.json().catch(() => ({}));
+            if (isStale()) return;
             if (active && json.success && json.user) {
               const data = json.user as User;
               if (data.isSuspended) {
@@ -1427,6 +1433,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           } catch (claimsErr) {
             console.warn('[Admin Claims Sync] Did not parse ID Token admin claim:', claimsErr);
           }
+          if (isStale()) return;
           const isSuperAdmin = (firebaseUser.email?.trim()?.toLowerCase() === 'asumaduvincent7@gmail.com') || isUserAdmin;
 
           // Generate and sanitize a pleasant, unique store name from Google profile or email
@@ -1516,8 +1523,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // upgrade sync, account-migration/new-user creation) needed no
           // changes at all -- only the trigger mechanism changed.
           let pollActive = true;
+          const isPollStale = () => !pollActive || isStale();
           const pollSelfProfile = async () => {
-            if (!pollActive || !active) return;
+            if (isPollStale()) return;
             let userDoc: { exists: () => boolean; data: () => User; id: string };
             try {
               const authHeaders = await getAuthHeader();
@@ -1529,7 +1537,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               console.error('[User Doc Stream] Poll error:', error);
               return;
             }
-            if (!active) return;
+            if (isPollStale()) return;
 
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
@@ -1588,6 +1596,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 }
               }
 
+              if (isPollStale()) return;
               const mergedUserData = { ...dbData, ...updates, id: actualUserId };
 
               // Check if impersonation session is active
@@ -1611,6 +1620,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } else {
               // Document does NOT exist under target UID. First perform deep search to find & migrate existing account
               const existingUser = await findAndMigrateExistingUser(firebaseUser);
+              if (isPollStale()) return;
               if (existingUser) {
                 if (active) {
                   setCurrentUserState(existingUser);
@@ -1696,6 +1706,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 console.warn('[Google Signup] Server-authoritative profile sync warning (user account created locally):', batchErr);
               }
 
+              if (isPollStale()) return;
               if (active) {
                 justRegisteredUserIds.current.add(firebaseUser.uid);
                 setCurrentUserState(newUser);
@@ -1708,6 +1719,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           };
 
+          if (isStale()) return;
+          // Never leave an earlier callback's poll running alongside this one.
+          if (userSubUnsub) userSubUnsub();
           pollSelfProfile();
           const userPollInterval = setInterval(pollSelfProfile, 5000);
           userSubUnsub = () => {

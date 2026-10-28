@@ -739,8 +739,8 @@ const MarketplaceContent: React.FC = () => {
           (currentView === 'browse' && homeViewMode === 'video-feed') || (currentView === 'chats' && viewingChatOnMobile)
             ? 'overflow-hidden flex flex-col h-full pb-0'
             : currentView === 'chats'
-            ? 'pb-16 md:pb-0 h-[calc(100dvh-64px)] min-h-0'
-            : 'pb-16 md:pb-0'
+            ? `${isEmbedded ? '' : 'pb-16'} md:pb-0 h-[calc(100dvh-64px)] min-h-0`
+            : `${isEmbedded ? '' : 'pb-16'} md:pb-0`
         }`}
         style={
           (currentView === 'browse' && homeViewMode === 'video-feed') || (currentView === 'chats' && viewingChatOnMobile)

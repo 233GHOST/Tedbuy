@@ -10,7 +10,7 @@ import { AdminDropshipPanel } from './AdminDropshipPanel';
 // TedBuy Dropship hub (/dropship): supplier application, supplier catalogue, and admin
 // review tools. Showing the Admin tab is cosmetic; the server enforces every permission.
 export function DropshipHub() {
-  const { currentUser, setCurrentView, setShowAuthModal, setAuthMode } = useApp();
+  const { currentUser, setCurrentView, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
   const enabled = useDropshipEnabled();
   const isAdmin = isUserAdmin(currentUser);
   const [tab, setTab] = useState<'dropshipper' | 'supplier' | 'admin'>('dropshipper');
@@ -31,6 +31,13 @@ export function DropshipHub() {
       <div className="bg-white border border-slate-200 rounded-3xl p-8 text-center shadow-xs">
         <Store className="w-10 h-10 text-slate-300 mx-auto mb-2" />
         <h3 className="text-sm font-bold text-slate-900">Sign in to use TedBuy Dropship</h3>
+        {/* In the app's WebView the auth modal (in the hidden Navbar) is gone;
+            the app signs the page in itself. */}
+        {isEmbedded ? (
+          <p className="mt-3 text-xs text-slate-500 inline-flex items-center gap-1.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Signing you in…
+          </p>
+        ) : (
         <button
           type="button"
           onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}
@@ -38,6 +45,7 @@ export function DropshipHub() {
         >
           <LogIn className="w-4 h-4" /> Sign in
         </button>
+        )}
       </div>
     );
   } else {
