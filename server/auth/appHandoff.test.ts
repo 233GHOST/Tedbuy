@@ -10,6 +10,14 @@ test('impersonation -> 403', () => {
   assert.equal((decideAppHandoff({ verified: { uid: 'u', isImpersonating: true }, restricted: false }) as any).status, 403);
   assert.equal((decideAppHandoff({ verified: { uid: 'u', originalAdmin: { uid: 'a' } }, restricted: false }) as any).status, 403);
 });
+test('impersonation header present -> 403', () => {
+  const r = decideAppHandoff({ verified: { uid: 'u' }, restricted: false, impersonationHeaderPresent: true }) as any;
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 403);
+});
+test('impersonation header present but unauthenticated -> 401', () => {
+  assert.equal((decideAppHandoff({ verified: null, restricted: false, impersonationHeaderPresent: true }) as any).status, 401);
+});
 test('restricted -> 403', () => {
   assert.equal((decideAppHandoff({ verified: { uid: 'u' }, restricted: true }) as any).status, 403);
 });

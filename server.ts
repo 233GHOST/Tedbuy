@@ -4837,20 +4837,24 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
   }
 });
 
-// Dedicated, minimal pre-auth identifier resolution for loginUser's
-// username/phone-number sign-in path (AppContext.tsx). Previously this
-// resolution reused GET /api/users/get?username=/&phoneNumber=, which
-// returned the full user row (minus password) to an unauthenticated
-// caller -- necessarily so, since no session exists yet at this point in
-// the login flow. Replaced with this narrow, single-purpose endpoint: it
-// returns only the email needed to continue signInWithEmailAndPassword,
-// nothing else -- no id, phoneNumber, whatsAppNumber, profile, or seller
-// fields. It performs no authentication itself (no password parameter);
-// the actual credential check remains entirely inside Firebase.
 app.post("/api/auth/app-handoff", serverRateLimiter(60 * 1000, 20, "auth-app-handoff"), async (req: express.Request, res: express.Response) => {
   try {
-    // Deliberately NO impersonation argument: tokens are minted only for the caller's own uid.
-    const verified = await verifyUser(req.headers.authorization);
+    // Tokens are minted only for the caller's own verified uid. Impersonation is never
+    // applied; a present impersonation header is refused by decideAppHandoff (403).
+    const impersonationHeader = req.headers['x-impersonation-session-id'];
+    const impersonationHeaderPresent = (Array.isArray(impersonationHeader) ? impersonationHeader[0] : impersonationHeader || '').toString().trim() !== '';
+    let verified: { uid: string } | null = null;
+    const authHeader = req.headers.authorization;
+    const bearer = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1]?.trim() : '';
+    if (bearer && getAdminApps().length > 0) {
+      try {
+        // checkRevoked = true: a revoked session must not be able to mint a new one.
+        const decoded = await getAdminAuth().verifyIdToken(bearer, true);
+        verified = { uid: decoded.uid };
+      } catch {
+        verified = null;
+      }
+    }
     let restricted = false;
     if (verified) {
       if (!backendSupabase) {
@@ -4866,9 +4870,10 @@ app.post("/api/auth/app-handoff", serverRateLimiter(60 * 1000, 20, "auth-app-han
         console.warn('[app-handoff] users lookup failed:', rowErr.message);
         return res.status(503).json({ error: 'App sign-in handoff is not available' });
       }
+      // A verified user with no users row is allowed (re-issues the caller's own identity only), like the Dropship gate.
       restricted = isRestrictedUserRow(row);
     }
-    const decision = decideAppHandoff({ verified, restricted });
+    const decision = decideAppHandoff({ verified, restricted, impersonationHeaderPresent });
     if (decision.ok !== true) {
       const denied = decision as Extract<typeof decision, { ok: false }>;
       return res.status(denied.status).json({ success: false, error: denied.error });
@@ -4888,6 +4893,16 @@ app.post("/api/auth/app-handoff", serverRateLimiter(60 * 1000, 20, "auth-app-han
   }
 });
 
+// Dedicated, minimal pre-auth identifier resolution for loginUser's
+// username/phone-number sign-in path (AppContext.tsx). Previously this
+// resolution reused GET /api/users/get?username=/&phoneNumber=, which
+// returned the full user row (minus password) to an unauthenticated
+// caller -- necessarily so, since no session exists yet at this point in
+// the login flow. Replaced with this narrow, single-purpose endpoint: it
+// returns only the email needed to continue signInWithEmailAndPassword,
+// nothing else -- no id, phoneNumber, whatsAppNumber, profile, or seller
+// fields. It performs no authentication itself (no password parameter);
+// the actual credential check remains entirely inside Firebase.
 app.post("/api/auth/resolve-login-identifier", serverRateLimiter(15 * 60 * 1000, 10, "resolve-login-identifier"), async (req: express.Request, res: express.Response) => {
   const identifier = typeof req.body?.identifier === 'string' ? req.body.identifier.trim() : '';
   if (!identifier) {
