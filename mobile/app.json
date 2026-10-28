@@ -81,7 +81,8 @@
           "color": "#ea580c"
         }
       ],
-      "expo-image"
+      "expo-image",
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

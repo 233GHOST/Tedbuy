@@ -21,7 +21,7 @@ import { RefreshCw, Plus, Video, FolderOpen } from 'lucide-react-native';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
-import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile, AiDescriptionStyleMobile } from '../firebase';
+import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile, AiDescriptionStyleMobile, listingErrorTitle } from '../firebase';
 import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile, cleanupOrphanedCloudinaryAssetsMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
@@ -1527,7 +1527,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       ]);
     } catch (error: any) {
       setLoading(false);
-      Alert.alert(isEditMode ? 'Update Error' : 'Publish Error', error.message || 'Something went wrong.');
+      Alert.alert(listingErrorTitle(error, isEditMode ? 'Update Error' : 'Publish Error'), error.message || 'Something went wrong.');
     } finally {
       // Always release the guard — including on success, since resetForm()
       // (or the edit-mode success path) has already cleared/consumed the

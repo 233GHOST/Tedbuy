@@ -84,6 +84,7 @@ export type ApiErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'RATE_LIMIT'
+  | 'CONFLICT'
   | 'SERVER'
   | 'CLIENT';
 
@@ -104,6 +105,11 @@ function friendlyMessageForStatus(status: number, serverMessage?: string): { mes
   }
   if (status === 404) {
     return { message: serverMessage || 'That could not be found.', code: 'NOT_FOUND' };
+  }
+  // 409 carries the server's own wording, e.g. 'Manage this listing from Dropship'
+  // when a dsl_ listing is edited/deleted through the legacy endpoints.
+  if (status === 409) {
+    return { message: serverMessage || 'That action conflicts with the current state of this item.', code: 'CONFLICT' };
   }
   if (status === 429) {
     return { message: serverMessage || "You're doing that too fast. Please wait a moment and try again.", code: 'RATE_LIMIT' };
@@ -227,6 +233,40 @@ async function apiFetch(path: string, options: { method?: string; body?: any; ti
   }
 
   return data;
+}
+
+/** Alert title for a failed listing edit/delete: a 409 means the row is a
+ * Dropship listing managed elsewhere, so say so instead of a generic error. */
+export function listingErrorTitle(err: any, fallbackTitle: string): string {
+  return err?.errorCode === 'CONFLICT' ? 'Manage from Dropship' : fallbackTitle;
+}
+
+export interface DropshipPurchaseInfoMobile {
+  listingId: string;
+  available: boolean;
+  unavailableReason?: 'out_of_stock' | 'unavailable';
+  unitPricePesewas: number;
+  maxQuantity: number;
+  deliveryFees: { scope: string; regionNote: string; feePesewas: number }[];
+  shipsFromRegion: string;
+  leadTimeDays: { min: number; max: number };
+  returnWindowDays: number;
+  returnPolicyText: string;
+  seller: { id: string; storeName: string };
+}
+
+/** Whether the Dropship hub entry should show. A failed call resolves false
+ * silently (no alert on app load). */
+export async function getDropshipStatus(): Promise<boolean> {
+  const data = await apiFetch('/api/dropship/status');
+  return data?.success === true && data.enabled === true;
+}
+
+/** Throws with errorCode 'NOT_FOUND' when the product is not a live listing. */
+export async function getDropshipPurchaseInfo(productId: string): Promise<DropshipPurchaseInfoMobile> {
+  const data = await apiFetch(`/api/dropship/purchase-info/${encodeURIComponent(productId)}`);
+  if (!data.success || !data.info) throw apiErrorFromResponse(data, "This item isn't available right now");
+  return data.info as DropshipPurchaseInfoMobile;
 }
 
 async function attemptUploadMediaToCloudinaryMobile(
@@ -384,7 +424,7 @@ export async function createProduct(productData: any) {
   // the seller while nothing was actually created.
   const data = await apiFetch('/api/products/sync', { method: 'POST', body: { product: finalProduct } });
   if (!data.success) {
-    throw new Error(data.error || 'Failed to publish listing.');
+    throw apiErrorFromResponse(data, 'Failed to publish listing.');
   }
 
   return data.product || finalProduct;
@@ -436,7 +476,7 @@ export async function deleteProductMobile(productId: string) {
   // so the UI always showed "Listing Deleted" even when nothing was deleted.
   const data = await apiFetch('/api/products/delete', { method: 'POST', body: { productId } });
   if (!data.success) {
-    throw new Error(data.error || 'Could not delete listing.');
+    throw apiErrorFromResponse(data, 'Could not delete listing.');
   }
 }
 
@@ -1470,7 +1510,7 @@ export async function updateProduct(id: string, data: Partial<any>) {
 
   const resData = await apiFetch('/api/products/sync', { method: 'POST', body: { product: updated } });
   if (!resData.success) {
-    throw new Error(resData.error || 'Failed to update product');
+    throw apiErrorFromResponse(resData, 'Failed to update product');
   }
   return resData.product;
 }

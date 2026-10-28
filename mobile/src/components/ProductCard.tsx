@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet, Platform, Alert, ActivityIndicator }
 import { Image } from 'expo-image';
 import { Heart, Check } from 'lucide-react-native';
 import { Product } from '../types';
-import { auth, updateProduct } from '../firebase';
+import { auth, updateProduct, listingErrorTitle } from '../firebase';
 import { fonts } from '../theme';
 import { formatProductPrice } from '../utils/formatPrice';
 import { resolveProductImageUri } from '../utils/productImage';
@@ -127,7 +127,7 @@ export const ProductCard = React.memo(function ProductCard({
           : `"${product.title}" is now active in the classified feed again.`
       );
     } catch (err: any) {
-      Alert.alert('Update Failed', err.message || 'Could not update listing status.');
+      Alert.alert(listingErrorTitle(err, 'Update Failed'), err.message || 'Could not update listing status.');
     } finally {
       setUpdatingSold(false);
     }

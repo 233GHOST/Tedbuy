@@ -7,7 +7,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { TedBuyLogo } from '../components/TedBuyLogo';
 import { BackButton } from '../components/BackButton';
 import { BoostModal } from '../components/BoostModal';
-import { auth, observeAuthState, signIn, signUp, signInWithGoogle, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage, logOut } from '../firebase';
+import { auth, observeAuthState, signIn, signUp, signInWithGoogle, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, resetPasswordEmail, getFriendlyAuthErrorMessage, logOut, getDropshipStatus, listingErrorTitle } from '../firebase';
+import * as WebBrowser from 'expo-web-browser';
 import {
   Users as UsersIcon,
   Bookmark,
@@ -23,6 +24,7 @@ import {
   UserCircle2,
   Bell,
   Store,
+  Truck,
   HelpCircle,
   ChevronRight,
   Settings as SettingsIcon,
@@ -140,6 +142,12 @@ export function ProfileScreen() {
   const [isSendingReset, setIsSendingReset] = useState(false);
 
   // Tab state for Logged In User: matches web's 3-way segment navigation
+  const [dropshipEnabled, setDropshipEnabled] = useState(false);
+  useEffect(() => {
+    let active = true;
+    getDropshipStatus().then((on) => { if (active) setDropshipEnabled(on); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'saved' | 'settings'>('dashboard');
   // Persistent-tab gotcha (see SellScreen.tsx's editProduct for the same
   // pattern): the Profile tab stays mounted across tab switches, so reading
@@ -207,7 +215,7 @@ export function ProfileScreen() {
       });
       setProducts((prev) => prev.map((p) => (p.id === item.id ? { ...p, ...updated } : p)));
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not update listing status.');
+      Alert.alert(listingErrorTitle(err, 'Error'), err.message || 'Could not update listing status.');
     } finally {
       setTogglingSoldId(null);
     }
@@ -362,7 +370,7 @@ export function ProfileScreen() {
               setProducts((prev) => prev.filter((p) => p.id !== productId));
               Alert.alert('Listing Deleted', 'Your classified ad has been removed.');
             } catch (err: any) {
-              Alert.alert('Error', err.message || 'Could not delete product.');
+              Alert.alert(listingErrorTitle(err, 'Error'), err.message || 'Could not delete product.');
             }
           },
         },
@@ -1235,6 +1243,30 @@ export function ProfileScreen() {
                       <ChevronRight size={18} color="#94a3b8" />
                     </Pressable>
                   </View>
+
+                  {dropshipEnabled && (
+                    <View style={styles.settingsMenuGroup}>
+                      <Pressable
+                        onPress={() => {
+                          WebBrowser.openBrowserAsync('https://www.tedbuy.store/dropship').catch(() => {
+                            Alert.alert('Could Not Open Dropship', 'Please try again in a moment.');
+                          });
+                        }}
+                        style={[styles.settingsMenuRow, { borderBottomWidth: 0 }]}
+                      >
+                        <View style={styles.settingsItemLeft}>
+                          <View style={styles.settingsMenuIconBadge}>
+                            <Truck size={17} color="#0f172a" />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.settingsItemTitle}>TedBuy Dropship</Text>
+                            <Text style={styles.settingsItemSubtitle}>Supply products or sell without stock</Text>
+                          </View>
+                        </View>
+                        <ChevronRight size={18} color="#94a3b8" />
+                      </Pressable>
+                    </View>
+                  )}
 
                   <View style={styles.settingsMenuGroup}>
                     <Pressable onPress={() => navigation.navigate('HelpSupportSettings')} style={[styles.settingsMenuRow, { borderBottomWidth: 0 }]}>

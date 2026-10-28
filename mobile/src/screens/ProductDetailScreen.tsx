@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Bookmark, Share2, ShieldAlert, X, MessageSquare, Shield } from 'lucide-react-native';
-import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView } from '../firebase';
+import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView, getDropshipPurchaseInfo, listingErrorTitle, DropshipPurchaseInfoMobile } from '../firebase';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
 import { ProductCard } from '../components/ProductCard';
@@ -18,6 +18,7 @@ import { useSavedProducts } from '../context/SavedProducts';
 import ImageViewing from 'react-native-image-viewing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fonts } from '../theme';
+import { isDropshipRowId, formatDeliveryWindow, formatPesewas } from '../utils/dropship';
 
 // Namespaced per-user (matches ChatsScreen.tsx's tedbuy_deleted_chat_ids_${uid}
 // pattern) -- this used to be one global key shared by every account on the
@@ -95,6 +96,25 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Dropship (dsl_) listings: purchase-info panel state. 'unavailable' covers
+  // a 404 (not a live listing) and any failed fetch.
+  const [dropshipInfo, setDropshipInfo] = useState<DropshipPurchaseInfoMobile | null>(null);
+  const [dropshipState, setDropshipState] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
+  const isDropship = isDropshipRowId(product?.id || productId);
+
+  useEffect(() => {
+    if (!isDropshipRowId(productId)) {
+      setDropshipState('idle');
+      setDropshipInfo(null);
+      return;
+    }
+    let active = true;
+    setDropshipState('loading');
+    getDropshipPurchaseInfo(productId)
+      .then((info) => { if (active) { setDropshipInfo(info); setDropshipState('ready'); } })
+      .catch(() => { if (active) { setDropshipInfo(null); setDropshipState('unavailable'); } });
+    return () => { active = false; };
+  }, [productId, reloadToken]);
 
   useEffect(() => {
     if (auth.currentUser) {
@@ -448,7 +468,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
         isSold: !nextSold,
         status: !nextSold ? 'sold' : 'active',
       }));
-      Alert.alert('Error', err.message || 'Could not update listing status.');
+      Alert.alert(listingErrorTitle(err, 'Error'), err.message || 'Could not update listing status.');
     } finally {
       setIsTogglingSold(false);
     }
@@ -462,7 +482,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
       setIsDeleteConfirmVisible(false);
       Alert.alert('Listing Deleted', 'Your classified ad has been removed.', [{ text: 'OK', onPress: onBack }]);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not delete this listing.');
+      Alert.alert(listingErrorTitle(err, 'Error'), err.message || 'Could not delete this listing.');
     } finally {
       setIsDeleting(false);
     }
@@ -660,18 +680,52 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
             </Pressable>
           </View>
 
+          {isDropship && (
+            <View style={styles.dropshipCard}>
+              <Text style={styles.dropshipTitle}>Delivery and returns</Text>
+              {dropshipState === 'loading' && <ActivityIndicator size="small" color="#64748b" />}
+              {dropshipState === 'unavailable' && (
+                <Text style={styles.dropshipWarn}>This item isn't available right now</Text>
+              )}
+              {dropshipState === 'ready' && dropshipInfo && (
+                <>
+                  {!dropshipInfo.available && (
+                    <Text style={styles.dropshipWarn}>
+                      {dropshipInfo.unavailableReason === 'out_of_stock' ? 'Out of stock' : "This item isn't available right now"}
+                    </Text>
+                  )}
+                  <Text style={styles.dropshipLine}>Ships from {dropshipInfo.shipsFromRegion}</Text>
+                  <Text style={styles.dropshipLine}>
+                    Delivery in {formatDeliveryWindow(dropshipInfo.leadTimeDays.min, dropshipInfo.leadTimeDays.max)} after confirmation
+                  </Text>
+                  {dropshipInfo.deliveryFees.map((f) => (
+                    <Text key={f.scope} style={styles.dropshipLine}>
+                      Delivery {f.regionNote}: {formatPesewas(f.feePesewas)}
+                    </Text>
+                  ))}
+                  <Text style={styles.dropshipLine}>Return window: {dropshipInfo.returnWindowDays} days</Text>
+                  {!!dropshipInfo.returnPolicyText && (
+                    <Text style={[styles.dropshipLine, { color: '#64748b' }]}>{dropshipInfo.returnPolicyText}</Text>
+                  )}
+                </>
+              )}
+            </View>
+          )}
+
           {/* Message Seller on WhatsApp Button + Inline Chat — matches web:
               hidden entirely for the listing's own owner, not just blocked
               on submit. */}
           {!isOwner && (
             <>
-              <Pressable
-                onPress={handleMessageWhatsApp}
-                style={styles.whatsappButton}
-              >
-                <MessageSquare size={18} color="#ffffff" fill="rgba(255,255,255,0.2)" strokeWidth={2.2} />
-                <Text style={styles.whatsappButtonText}>Message Seller on WhatsApp</Text>
-              </Pressable>
+              {!isDropship && (
+                <Pressable
+                  onPress={handleMessageWhatsApp}
+                  style={styles.whatsappButton}
+                >
+                  <MessageSquare size={18} color="#ffffff" fill="rgba(255,255,255,0.2)" strokeWidth={2.2} />
+                  <Text style={styles.whatsappButtonText}>Message Seller on WhatsApp</Text>
+                </Pressable>
+              )}
 
               <View style={styles.inlineChatCard}>
                 <Text style={styles.inlineChatTitle}>Chat with the seller</Text>
@@ -1339,6 +1393,10 @@ const styles = StyleSheet.create({
   whatsappButtonText: { color: '#ffffff', fontFamily: fonts.extrabold, fontSize: 13.5, letterSpacing: 0.2 },
 
   /* Inline Chat Box */
+  dropshipCard: { marginTop: 14, backgroundColor: '#f8fafc', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#e2e8f0', gap: 4 },
+  dropshipTitle: { fontSize: 12, fontFamily: fonts.extrabold, color: '#0f172a', marginBottom: 4 },
+  dropshipWarn: { fontSize: 12, fontFamily: fonts.extrabold, color: '#b45309' },
+  dropshipLine: { fontSize: 12, fontFamily: fonts.medium, color: '#334155' },
   inlineChatCard: { marginTop: 14, backgroundColor: '#f8fafc', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' },
   inlineChatTitle: { fontSize: 12, fontFamily: fonts.extrabold, color: '#0f172a', marginBottom: 8 },
   quickRepliesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
