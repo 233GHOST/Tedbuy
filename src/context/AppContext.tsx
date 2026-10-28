@@ -20,7 +20,8 @@ import {
   fetchSignInMethodsForEmail,
   linkWithCredential,
   deleteUser,
-  updateProfile
+  updateProfile,
+  signInWithCustomToken
 } from 'firebase/auth';
 import {
   collection,
@@ -48,6 +49,7 @@ import { registerServiceWorker, triggerBackgroundSync } from '../registerService
 import { checkClientRateLimit } from '../utils/rateLimiter';
 import { sanitizeText, validateInputLength } from '../utils/inputValidation';
 import { isChatEligibleForReuse, shouldReviveDeletedChat } from '../utils/chatStateUtils';
+import { isEmbeddedApp, parseHandoffMessage, isHandoffEventTrusted, postToApp, READY_MESSAGE_TYPE, SIGNED_IN_MESSAGE_TYPE } from '../utils/embeddedApp';
 
 function cleanObject<T extends any>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
@@ -278,6 +280,8 @@ interface AppContextType {
   isStandalone: boolean;
   isBottomNavVisible: boolean;
   setIsBottomNavVisible: (visible: boolean) => void;
+  /** Running inside the TedBuy app's Dropship WebView (`?embed=app` + native bridge). */
+  isEmbedded: boolean;
   sellerListingCounts: Record<string, number>;
   refreshSellerCounts: () => Promise<void>;
 }
@@ -847,6 +851,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isBottomNavVisible, setIsBottomNavVisible] = useState(true);
+  // Decided once at startup: hash-route changes rewrite the URL and would
+  // otherwise drop `?embed=app`.
+  const [isEmbedded] = useState(() =>
+    typeof window !== 'undefined' && isEmbeddedApp(window.location.search, !!window.ReactNativeWebView)
+  );
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [unauthorizedDomainDetected, setUnauthorizedDomainDetected] = useState(false);
   const [isVerificationBlockOpen, setIsVerificationBlockOpen] = useState(false);
@@ -1245,6 +1254,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return null;
   };
+
+  // App WebView bridge (embedded mode only): report the signed-in uid to the
+  // app once auth has settled and after every change, and accept the app's
+  // one-shot sign-in handoff. The custom token is used straight from the
+  // event and never stored, logged or echoed.
+  useEffect(() => {
+    if (!isEmbedded) return;
+    let active = true;
+    // Android delivers the same handoff on both window and document.
+    let lastHandledRaw: string | null = null;
+    let handoffBusy = false;
+
+    const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (active) postToApp({ type: READY_MESSAGE_TYPE, uid: firebaseUser?.uid ?? null });
+    });
+
+    const onMessage = async (event: Event) => {
+      const { data, source } = event as MessageEvent;
+      if (!active || handoffBusy || data === lastHandledRaw) return;
+      if (!isHandoffEventTrusted({ embedded: isEmbedded, pageOrigin: window.location.origin, source })) return;
+      const handoff = parseHandoffMessage(data);
+      if (!handoff) return;
+      lastHandledRaw = data;
+      handoffBusy = true;
+      try {
+        if (auth.currentUser?.uid !== handoff.uid) {
+          // Account switch in the app: drop the previous account first.
+          if (auth.currentUser) await signOut(auth);
+          await signInWithCustomToken(auth, handoff.token);
+          if (auth.currentUser?.uid !== handoff.uid) {
+            await signOut(auth);
+            return;
+          }
+        }
+        if (active) postToApp({ type: SIGNED_IN_MESSAGE_TYPE, uid: handoff.uid });
+      } catch {
+        // No retry here: the app times the handoff out and shows its error.
+        console.warn('[Embedded App] Sign-in handoff failed.');
+      } finally {
+        handoffBusy = false;
+        // Forget the message (and its token) once any duplicate has passed.
+        setTimeout(() => { if (lastHandledRaw === data) lastHandledRaw = null; }, 5000);
+      }
+    };
+
+    window.addEventListener('message', onMessage);
+    document.addEventListener('message', onMessage);
+    return () => {
+      active = false;
+      unsubAuth();
+      window.removeEventListener('message', onMessage);
+      document.removeEventListener('message', onMessage);
+    };
+  }, [isEmbedded]);
 
   // Firebase Auth state listener
   useEffect(() => {
@@ -6273,6 +6336,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       isStandalone,
       isBottomNavVisible,
       setIsBottomNavVisible,
+      isEmbedded,
       sellerListingCounts,
       refreshSellerCounts
     }}>

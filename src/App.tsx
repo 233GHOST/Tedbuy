@@ -112,6 +112,7 @@ const MarketplaceContent: React.FC = () => {
     setBlockedActionType,
     isBottomNavVisible,
     setIsBottomNavVisible,
+    isEmbedded,
     deletedChatIds,
     deletedMessageIds,
     viewingChatOnMobile
@@ -708,7 +709,8 @@ const MarketplaceContent: React.FC = () => {
         : 'bg-slate-50 min-h-screen pb-0'
     }`}>
       <ImpersonationBanner />
-      {currentView !== 'post-ad' && <Navbar />}
+      {/* Inside the TedBuy app's WebView the app supplies its own header. */}
+      {currentView !== 'post-ad' && !isEmbedded && <Navbar />}
 
       {currentView !== 'post-ad' && currentUser && !currentUser.emailVerified && (
         <div id="unverified-email-banner" className="bg-amber-500 text-amber-950 px-4 py-2.5 text-xs font-semibold flex flex-col md:flex-row items-center justify-between gap-3 shadow-inner border-b border-amber-600/35 relative z-30">
@@ -1497,7 +1499,7 @@ const MarketplaceContent: React.FC = () => {
       </main>
 
       {/* Persistent platform footer - Only shown in Home / Browse All Categories */}
-      {(currentView === 'browse' && homeViewMode !== 'video-feed' && isAllCategoriesView) && (
+      {(currentView === 'browse' && homeViewMode !== 'video-feed' && isAllCategoriesView && !isEmbedded) && (
         <footer id="platform-footer" className="bg-slate-900 border-t border-slate-800 text-slate-300 text-sm pt-12 pb-6 sm:pb-10 mt-auto relative overflow-hidden">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             {/* Top Row: Brand Info + Navigation Columns */}
@@ -1739,6 +1741,7 @@ const MarketplaceContent: React.FC = () => {
       )}
 
       {/* Responsive Bottom Navigation Bar for Mobile Devices */}
+      {!isEmbedded && (
       <div className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md shadow-[0_-6px_20px_rgba(0,0,0,0.06)] md:hidden pb-4 pt-2 px-3 flex items-end justify-around transition-all duration-300 transform ${
         (isBottomNavVisible && !(currentView === 'chats' && viewingChatOnMobile) && currentView !== 'post-ad') ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
       } ${
@@ -1927,6 +1930,7 @@ const MarketplaceContent: React.FC = () => {
           <span className="text-[9px] tracking-tight uppercase font-extrabold">Profile</span>
         </button>
       </div>
+      )}
 
       {isVerificationBlockOpen && (
         <Suspense fallback={null}>
