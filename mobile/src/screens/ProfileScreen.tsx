@@ -919,7 +919,7 @@ export function ProfileScreen() {
                         Alert.alert('Could Not Open Dropship', 'Please try again in a moment.');
                       });
                     }}
-                    style={[styles.settingsMenuGroup, styles.settingsMenuRow, { borderBottomWidth: 0 }]}
+                    style={[styles.settingsMenuGroup, styles.settingsMenuRow, { borderBottomWidth: 0, marginHorizontal: 14, marginBottom: 14 }]}
                   >
                     <View style={styles.settingsItemLeft}>
                       <View style={styles.settingsMenuIconBadge}>
