@@ -141,13 +141,15 @@ export function ProfileScreen() {
   const [resetEmail, setResetEmail] = useState('');
   const [isSendingReset, setIsSendingReset] = useState(false);
 
-  // Tab state for Logged In User: matches web's 3-way segment navigation
   const [dropshipEnabled, setDropshipEnabled] = useState(false);
   useEffect(() => {
+    if (!user) { setDropshipEnabled(false); return; }
     let active = true;
     getDropshipStatus().then((on) => { if (active) setDropshipEnabled(on); }).catch(() => {});
     return () => { active = false; };
-  }, []);
+  }, [user]);
+
+  // Tab state for Logged In User: matches web's 3-way segment navigation
   const [activeTab, setActiveTab] = useState<'dashboard' | 'saved' | 'settings'>('dashboard');
   // Persistent-tab gotcha (see SellScreen.tsx's editProduct for the same
   // pattern): the Profile tab stays mounted across tab switches, so reading
@@ -910,6 +912,28 @@ export function ProfileScreen() {
             {/* TAB 1: MY CLASSIFIED LISTINGS */}
             {activeTab === 'dashboard' && (
               <View style={styles.tabContentContainer}>
+                {dropshipEnabled && (
+                  <Pressable
+                    onPress={() => {
+                      WebBrowser.openBrowserAsync('https://www.tedbuy.store/dropship').catch(() => {
+                        Alert.alert('Could Not Open Dropship', 'Please try again in a moment.');
+                      });
+                    }}
+                    style={[styles.settingsMenuGroup, styles.settingsMenuRow, { borderBottomWidth: 0 }]}
+                  >
+                    <View style={styles.settingsItemLeft}>
+                      <View style={styles.settingsMenuIconBadge}>
+                        <Truck size={17} color="#0f172a" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.settingsItemTitle}>TedBuy Dropship</Text>
+                        <Text style={styles.settingsItemSubtitle}>Supply products or sell without stock</Text>
+                      </View>
+                    </View>
+                    <ChevronRight size={18} color="#94a3b8" />
+                  </Pressable>
+                )}
+
                 {/* Section Header */}
                 <View style={styles.listingsHeaderRow}>
                   <Text style={styles.listingsHeading}>MY CLASSIFIED LISTINGS</Text>
@@ -1243,30 +1267,6 @@ export function ProfileScreen() {
                       <ChevronRight size={18} color="#94a3b8" />
                     </Pressable>
                   </View>
-
-                  {dropshipEnabled && (
-                    <View style={styles.settingsMenuGroup}>
-                      <Pressable
-                        onPress={() => {
-                          WebBrowser.openBrowserAsync('https://www.tedbuy.store/dropship').catch(() => {
-                            Alert.alert('Could Not Open Dropship', 'Please try again in a moment.');
-                          });
-                        }}
-                        style={[styles.settingsMenuRow, { borderBottomWidth: 0 }]}
-                      >
-                        <View style={styles.settingsItemLeft}>
-                          <View style={styles.settingsMenuIconBadge}>
-                            <Truck size={17} color="#0f172a" />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.settingsItemTitle}>TedBuy Dropship</Text>
-                            <Text style={styles.settingsItemSubtitle}>Supply products or sell without stock</Text>
-                          </View>
-                        </View>
-                        <ChevronRight size={18} color="#94a3b8" />
-                      </Pressable>
-                    </View>
-                  )}
 
                   <View style={styles.settingsMenuGroup}>
                     <Pressable onPress={() => navigation.navigate('HelpSupportSettings')} style={[styles.settingsMenuRow, { borderBottomWidth: 0 }]}>
