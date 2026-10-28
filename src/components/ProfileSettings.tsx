@@ -856,6 +856,9 @@ CEO, Tedbuy Inc`;
   const [storeSearch, setStoreSearch] = useState('');
   const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
   const [activeAccountConfirmUser, setActiveAccountConfirmUser] = useState<{ id: string; username: string } | null>(null);
+  // Shown inline because showToast is a no-op app-wide: the server's refusal reason
+  // (e.g. the account has Dropship records) would otherwise never reach the admin.
+  const [adminDeleteError, setAdminDeleteError] = useState<{ id: string; message: string } | null>(null);
   const [suspensionUpdatingId, setSuspensionUpdatingId] = useState<string | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState('');
 
@@ -3152,7 +3155,7 @@ CEO, Tedbuy Inc`;
                                         <button
                                           type="button"
                                           disabled={isSelf || adminDeletingId === u.id}
-                                          onClick={() => setActiveAccountConfirmUser({ id: u.id, username: u.username || 'Anonymous User' })}
+                                          onClick={() => { setAdminDeleteError(null); setActiveAccountConfirmUser({ id: u.id, username: u.username || 'Anonymous User' }); }}
                                           title={isSelf ? "You can't delete your own account from here" : 'Permanently delete this store profile'}
                                           className="w-full sm:w-auto px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer select-none transition duration-150 flex items-center justify-center gap-1.5 bg-rose-950/60 hover:bg-rose-900/70 border border-rose-800/60 hover:border-rose-700 text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed"
                                         >
@@ -3168,6 +3171,11 @@ CEO, Tedbuy Inc`;
                                       </>
                                     )}
                                   </div>
+                                  {adminDeleteError?.id === u.id && (
+                                    <p role="alert" className="basis-full w-full text-[11px] font-semibold text-rose-400 mt-1">
+                                      {adminDeleteError.message}
+                                    </p>
+                                  )}
                                 </div>
                               );
                             })}
@@ -3487,6 +3495,7 @@ CEO, Tedbuy Inc`;
                     if (process.env.NODE_ENV === "development") {
                       console.error(err);
                     }
+                    setAdminDeleteError({ id: targetId, message: err?.message || 'Deletion failed' });
                     showToast(err?.message || 'Deletion failed', 'error');
                   } finally {
                     setAdminDeletingId(null);
