@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Loader2, Store } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { dropshipApi, type CatalogueItemData, type Quote } from './dropshipApi';
-import { formatPesewas, parseCedisToPesewas, pesewasToCedisInput } from './dropshipFormat';
+import { formatPesewas, parseCedisToPesewas, pesewasToCedisInput, quoteReasonText } from './dropshipFormat';
 import { buttonClass, cardClass, inputClass, secondaryButtonClass } from './dropshipUi';
 
 export const CALCULATOR_LABEL = 'Estimate. You earn this only after the order is delivered and the hold period ends.';
@@ -69,7 +69,7 @@ export function PriceCalculator({ supplierProductId, wholesalePricePesewas, init
       <p className="text-[10px] text-slate-500">{CALCULATOR_LABEL}</p>
       {quote && !quote.valid && (
         <p className="text-[11px] font-bold text-rose-600">
-          {quote.reason || 'This price is too low.'} The lowest price you can set is {formatPesewas(quote.minRetailPesewas)}.
+          {quoteReasonText(quote.reason)} The lowest price you can set is {formatPesewas(quote.minRetailPesewas)}.
         </p>
       )}
       {error && <p className="text-[11px] font-bold text-rose-600">{error}</p>}

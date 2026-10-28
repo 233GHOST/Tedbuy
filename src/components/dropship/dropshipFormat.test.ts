@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import {
   buildProductPayload, cedisToPesewas, dropshipErrorMessage, emptyProductForm, pesewasToCedisInput, productToForm,
   supplierStatusActions, type SupplierProduct, parseCedisToPesewas, isDropshipRowId, listingStatusLabel, listingPillTone,
+  quoteReasonText,
 } from './dropshipFormat';
 import { isDropshipRowId as serverIsDropshipRowId } from '../../../server/dropship/legacyGuards';
 // The server's own validator: the form's payloads must pass it unchanged.
@@ -115,4 +116,11 @@ test('listing status labels and pill tones', () => {
   assert.equal(listingPillTone('active'), 'active');
   assert.equal(listingPillTone('paused'), 'paused');
   for (const k of ['out_of_stock', 'unavailable', 'reprice']) assert.equal(listingPillTone(k), 'pending');
+});
+
+test('quoteReasonText: never shows the raw reason code', () => {
+  assert.equal(quoteReasonText('below_minimum'), 'This price is too low.');
+  assert.equal(quoteReasonText('not_integer'), 'Enter a valid price.');
+  assert.equal(quoteReasonText(undefined), 'This price is too low.');
+  assert.equal(quoteReasonText('something_new'), 'This price is too low.');
 });

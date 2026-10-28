@@ -34,6 +34,8 @@ let h: PgliteDropship;
 let guards: LegacyGuards;
 let base: string;
 let disabledBase: string;
+// onProductsChanged spy: every call's ids (undefined = clear broadly).
+const productChanges: (string[] | undefined)[] = [];
 const servers: import('node:http').Server[] = [];
 
 function listen(deps: DropshipDeps): Promise<string> {
@@ -74,6 +76,7 @@ before(async () => {
   guards = createLegacyGuards({ db: h.db, enabled: true });
   const deps: DropshipDeps = {
     enabled: true, db: h.db, guards, loadUserRestriction: h.loadUserRestriction, cloudinaryCloudName: CLOUD,
+    onProductsChanged: ids => { productChanges.push(ids); },
     verifyUser: async auth => (auth?.startsWith('Bearer ') ? USERS[auth.slice(7)] ?? null : null),
   };
   base = await listen(deps);
@@ -489,4 +492,30 @@ test('admin can remove a listing with a reason; disabled mode 503s the new route
     assert.equal(r.status, 503, `${m} ${p}`);
     assert.equal(r.body.errorCode, 'DROPSHIP_UNAVAILABLE');
   }
+});
+
+test('onProductsChanged (legacy product caches) runs after listing and supplier-product writes, not after reads', async () => {
+  const c = await api('POST', '/api/dropship/listings', 'ds', { clientRequestId: crypto.randomUUID(), supplierProductId: spId, retailPricePesewas: 40000 });
+  assert.equal(c.status, 201, JSON.stringify(c.body));
+  const { productId: pid, listing: l } = c.body;
+  assert.deepEqual(productChanges.at(-1), [pid]);
+
+  productChanges.length = 0;
+  const priced = await api('PATCH', `/api/dropship/listings/${l.id}`, 'ds', { retailPricePesewas: 43000 });
+  assert.equal(priced.status, 200);
+  assert.deepEqual(productChanges, [[pid]]);
+
+  productChanges.length = 0;
+  await api('GET', '/api/dropship/listings/mine', 'ds');
+  await api('POST', `/api/dropship/catalogue/${spId}/quote`, 'ds', { retailPricePesewas: 43000 });
+  assert.deepEqual(productChanges, []);
+
+  // Supplier content/stock writes fan out to unknown mirror rows: clear broadly.
+  const stock = await api('POST', `/api/dropship/supplier/products/${spId}/stock`, 'sup3', { stockOnHand: 9 });
+  assert.equal(stock.status, 200, JSON.stringify(stock.body));
+  assert.deepEqual(productChanges, [undefined]);
+
+  productChanges.length = 0;
+  assert.equal((await api('DELETE', `/api/dropship/listings/${l.id}`, 'ds')).status, 200);
+  assert.deepEqual(productChanges, [[pid]]);
 });

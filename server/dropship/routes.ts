@@ -27,6 +27,9 @@ export interface DropshipDeps {
   cloudinaryCloudName: string;
   // Legacy guards; invalidated after every call that can change which mirror rows are hidden.
   guards?: Pick<LegacyGuards, 'invalidate'>;
+  // Legacy product caches; told after every call that can change a mirror row or its
+  // visibility, with the affected product ids when known (undefined = clear broadly).
+  onProductsChanged?: (productIds?: string[]) => void;
   rateLimit?: (windowMs: number, max: number, prefix: string) => express.RequestHandler;
 }
 
@@ -37,6 +40,21 @@ const GUARD_INVALIDATING_FNS = new Set([
   'dropship_set_supplier_product_status', 'dropship_admin_moderate_supplier_product',
   'dropship_admin_decide_participation',
 ]);
+
+// The mirror row ids a write touched, when known; undefined for supplier-product and
+// participation writes (they fan out to every listing of the product or user).
+export function mirrorProductId(listingId: string): string {
+  return `dsl_${listingId.toLowerCase().replace(/-/g, '')}`;
+}
+function changedProductIds(fn: string, args: Record<string, unknown>, result: any): string[] | undefined {
+  if (fn === 'dropship_create_listing') {
+    return typeof result?.productId === 'string' ? [result.productId] : undefined;
+  }
+  if ((fn === 'dropship_update_listing' || fn === 'dropship_remove_listing') && typeof args.p_listing_id === 'string') {
+    return [mirrorProductId(args.p_listing_id)];
+  }
+  return undefined;
+}
 
 type Handler = (req: express.Request, res: express.Response, db: DropshipDb) => Promise<void>;
 
@@ -145,17 +163,25 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
     res.status(e.status).json({ success: false, error: e.message, errorCode: e.code });
   };
 
-  // Wraps the db so a write is followed by guards.invalidate() before the response is sent,
-  // even when the call errors (a failed write may still have committed).
+  // Wraps the db so a write is followed by guards.invalidate() and onProductsChanged() before
+  // the response is sent, even when the call errors (a failed write may still have committed).
   const withInvalidation = (db: DropshipDb): DropshipDb => {
-    if (!deps.guards) return db;
-    const guards = deps.guards;
+    if (!deps.guards && !deps.onProductsChanged) return db;
     return {
       call: async (fn, args) => {
+        let result: any;
         try {
-          return await db.call(fn, args);
+          result = await db.call(fn, args);
+          return result;
         } finally {
-          if (GUARD_INVALIDATING_FNS.has(fn)) guards.invalidate();
+          if (GUARD_INVALIDATING_FNS.has(fn)) {
+            deps.guards?.invalidate();
+            try {
+              deps.onProductsChanged?.(changedProductIds(fn, args, result));
+            } catch (err) {
+              console.error('[Dropship] product cache invalidation failed', err);
+            }
+          }
         }
       },
     };

@@ -8,6 +8,9 @@ export interface RegisterDropshipOptions {
   // Legacy server client, used only to read the users row for account restrictions.
   getLegacySupabase: () => any;
   rateLimit?: DropshipDeps['rateLimit'];
+  // Clears legacy product caches (raw list, homepage/search/category/seller responses, product
+  // detail) after Dropship changes mirror rows; undefined ids = clear broadly.
+  onProductsChanged?: (productIds?: string[]) => void;
   env?: Record<string, string | undefined>;
 }
 
@@ -37,7 +40,7 @@ export function registerDropship(app: express.Express, options: RegisterDropship
   let guards = createLegacyGuards({ db: null, enabled: false });
   try {
     const db = createDropshipDbFromConfig(config);
-    guards = createLegacyGuards({ db, enabled: config.enabled });
+    guards = createLegacyGuards({ db, enabled: config.enabled, onProductsChanged: options.onProductsChanged });
     app.use(createDropshipRouter({
       enabled: config.enabled,
       cause: config.cause,
@@ -47,6 +50,7 @@ export function registerDropship(app: express.Express, options: RegisterDropship
       loadUserRestriction: createLegacyUserRestrictionLoader(options.getLegacySupabase),
       cloudinaryCloudName: env.VITE_CLOUDINARY_CLOUD_NAME || env.CLOUDINARY_CLOUD_NAME || 'dfm3g2qvg',
       rateLimit: options.rateLimit,
+      onProductsChanged: options.onProductsChanged,
     }));
     if (config.enabled) {
       console.log('[Dropship] Enabled (service-role client, identity checks passed).');

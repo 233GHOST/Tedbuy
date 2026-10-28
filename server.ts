@@ -20,7 +20,8 @@ import { getPrefixAutocompleteSuggestions } from "./src/utils/searchAutocomplete
 import { APP_RELEASE_CONFIG, isAndroidReleaseAvailable } from "./src/config/appRelease.js";
 import firebaseConfig from "./firebase-applet-config.json";
 import { registerDropship } from "./server/dropship/index.js";
-import { excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget } from "./server/dropship/legacyGuards.js";
+import { extractCloudinaryInfo } from "./server/cloudinaryInfo.js";
+import { adminUserDeleteDecision, capListResponse, cleanupOrphansDecision, excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget } from "./server/dropship/legacyGuards.js";
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
@@ -235,6 +236,22 @@ export function invalidateProductCache(productId?: string, sellerId?: string, ca
   }
   if (category) {
     serverCache.deletePattern(`category:${category}`);
+  }
+}
+
+// Dropship wrote listing mirror rows (create/price/status/remove, a supplier content or stock
+// change fanned out to its listings, a participation decision, account clean-up). Mirror rows
+// carry no category/seller we know here, so every list response cache is cleared, category
+// pages (6 h) included; product detail entries only for the given ids (all when unknown).
+function invalidateDropshipProductCaches(productIds?: string[]): void {
+  invalidateProductCache();
+  for (const prefix of ['category:', 'seller:', 'featured', 'trending', 'similar:', 'suggestions:']) {
+    serverCache.deletePattern(prefix);
+  }
+  if (productIds && productIds.length > 0) {
+    for (const id of productIds) serverCache.delete(`product:${id}`);
+  } else {
+    serverCache.deletePattern('product:');
   }
 }
 
@@ -876,6 +893,7 @@ const dropshipGuards = registerDropship(app, {
   verifyUser,
   getLegacySupabase: () => backendSupabase,
   rateLimit: serverRateLimiter,
+  onProductsChanged: invalidateDropshipProductCaches,
 });
 // Sitemap: ordinary rows answer synchronously; dsl_ rows only while visible.
 const sitemapProductVisible = (id: string) => !isDropshipRowId(id) || dropshipGuards.isVisibleProduct(id);
@@ -911,36 +929,6 @@ function initCloudinaryConfig() {
 }
 
 initCloudinaryConfig();
-
-function extractCloudinaryInfo(url: string): { publicId: string; resourceType: 'image' | 'video' } | null {
-  if (!url || !url.includes('res.cloudinary.com')) return null;
-  try {
-    const isVideo = url.includes('/video/upload/');
-    const resourceType: 'image' | 'video' = isVideo ? 'video' : 'image';
-    
-    const parts = url.split('/upload/');
-    if (parts.length < 2) return null;
-
-    // The version segment (v<digits>) always immediately precedes the real
-    // public_id path, and is a reliable anchor regardless of how many
-    // transformation segments (poster frame so_/f_jpg, a trim's so_/eo_,
-    // the eager quality/size variant, ...) are chained before it — unlike
-    // the old logic here, which only ever stripped ONE segment and so left
-    // the version marker glued onto the "public_id" for any transformed
-    // URL, silently breaking cleanup (Discard/Retake) for anything but a
-    // bare, untransformed secure_url.
-    const segments = parts[1].split('/');
-    const versionIdx = segments.findIndex((s) => /^v\d+$/.test(s));
-    const publicIdSegments = versionIdx !== -1 ? segments.slice(versionIdx + 1) : segments;
-    const pathAfterUpload = publicIdSegments.join('/');
-
-    const lastDot = pathAfterUpload.lastIndexOf('.');
-    const publicId = lastDot !== -1 ? pathAfterUpload.substring(0, lastDot) : pathAfterUpload;
-    return { publicId, resourceType };
-  } catch (_) {
-    return null;
-  }
-}
 
 async function deleteCloudinaryAsset(publicId: string, resourceType: 'image' | 'video' = 'image'): Promise<any> {
   if (!initCloudinaryConfig()) {
@@ -1807,8 +1795,9 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
       }
     }
 
-    // Supplier media is never deleted by legacy code (a bare publicId is admin-only and can't be checked).
-    if (url && typeof url === 'string' && (await dropshipGuards.filterProtectedMedia([url])).protected.length > 0) {
+    // Supplier media is never deleted by legacy code: checked by the publicId actually deleted,
+    // so a transformed/re-versioned URL (or an admin's bare publicId) of a supplier image is caught.
+    if (await dropshipGuards.isProtectedPublicId(targetPublicId)) {
       return res.json({ success: true, skipped: true, reason: 'dropship_protected' });
     }
     const result = await deleteCloudinaryAsset(targetPublicId, targetResourceType);
@@ -1852,6 +1841,11 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
     }
     if (!productId || typeof productId !== 'string') {
       return res.status(400).json({ success: false, error: 'Missing productId' });
+    }
+    // A Dropship listing row is never ownership evidence for media (its images are the supplier's).
+    const orphanDecision = cleanupOrphansDecision(productId);
+    if ('error' in orphanDecision) {
+      return res.status(orphanDecision.status).json({ success: false, error: orphanDecision.error });
     }
     if (!backendSupabase) {
       return res.status(503).json({ success: false, error: 'Database service unavailable' });
@@ -2650,10 +2644,11 @@ app.get(['/api/featured', '/api/products/featured'], serverRateLimiter(60 * 1000
       const bStart = parseServerDate(b.boostStartDate || b.lastBoostedAt || b.createdAt)?.getTime() || 0;
       return bStart - aStart;
     });
+    const featuredCapped = await dropshipGuards.capPerSupplierProduct(featured);
 
     const responsePayload = {
-      products: featured,
-      total: featured.length
+      products: featuredCapped,
+      total: featuredCapped.length
     };
 
     const etag = serverCache.set(cacheKey, responsePayload, cacheTTL);
@@ -2711,7 +2706,7 @@ app.get(['/api/trending', '/api/products/trending'], serverRateLimiter(60 * 1000
       return bTime - aTime;
     });
 
-    const top10Trending = activeTrending.slice(0, 10);
+    const top10Trending = (await dropshipGuards.capPerSupplierProduct(activeTrending)).slice(0, 10);
 
     const responsePayload = {
       products: top10Trending,
@@ -2789,10 +2784,11 @@ app.get(['/api/similar', '/api/products/similar'], serverRateLimiter(60 * 1000, 
       return bTime - aTime;
     });
 
-    const etag = serverCache.set(cacheKey, { products: matching }, cacheTTL);
+    const matchingCapped = await dropshipGuards.capPerSupplierProduct(matching);
+    const etag = serverCache.set(cacheKey, { products: matchingCapped }, cacheTTL);
     res.setHeader('ETag', etag);
 
-    const filtered = matching.filter((p: any) => p.id !== excludeId).slice(0, limit);
+    const filtered = matchingCapped.filter((p: any) => p.id !== excludeId).slice(0, limit);
     return res.json({ success: true, products: filtered, total: filtered.length });
   } catch (err: any) {
     console.error('[Similar Products API Error]:', err);
@@ -2938,6 +2934,10 @@ app.get(['/api/products', '/api/feed'], serverRateLimiter(60 * 1000, 600, "produ
                qCat.includes(pCat);
       });
     }
+
+    // Dropship feed cap (N6): at most 2 listings of one supplier product per response, after
+    // search/category narrowing; a seller-scoped list (store page, My Listings) is never capped.
+    filtered = await capListResponse(filtered, { sellerId: querySellerId, sellerEmail: querySellerEmail }, dropshipGuards);
 
     // Pagination Slicing & unified lightweight ProductSummary serialization
     const total = filtered.length;
@@ -3177,7 +3177,7 @@ app.get(['/api/video-ads', '/api/products/video-ads'], serverRateLimiter(60 * 10
     const { products } = await getProductsListData(false);
 
     // Filter active products with video content
-    const videoProducts = products.filter((p: any) => {
+    const videoProducts = await dropshipGuards.capPerSupplierProduct(products.filter((p: any) => {
       if (!p || p.isDeleted || p.status === 'hidden' || p.status === 'archived' || p.isSold) return false;
       const vids = Array.isArray(p.videos) ? p.videos : (Array.isArray(p.videoUrls) ? p.videoUrls : []);
       const imgs = Array.isArray(p.images) ? p.images : (Array.isArray(p.imageUrls) ? p.imageUrls : []);
@@ -3190,7 +3190,7 @@ app.get(['/api/video-ads', '/api/products/video-ads'], serverRateLimiter(60 * 10
         img.startsWith('data:video/')
       ));
       return hasDirectVideo || hasImageAsVideo;
-    });
+    }));
 
     if (videoProducts.length === 0) {
       return res.json({
@@ -9559,6 +9559,31 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
         return res.status(403).json({ success: false, error: 'Crucial Security Guard: The super-administrator account cannot be deleted under any circumstances.' });
       }
 
+      // Dropship participants, listings (any status) and supplier products reference users ON
+      // DELETE RESTRICT: the final users-row delete would fail after products, reviews and chats
+      // were already gone. Decided here, before anything is deleted.
+      const dropshipDecision = await adminUserDeleteDecision(
+        await dropshipGuards.userHasDropshipRecords(targetUserId),
+        async () => {
+          const { data, error } = await backendSupabase!.from('products').select('id').eq('sellerId', targetUserId);
+          if (error) throw error;
+          return (data || []).some((p: any) => isDropshipRowId(p.id));
+        },
+      );
+      if ('error' in dropshipDecision) {
+        await recordAdminAudit({
+          action: 'user_delete',
+          result: 'failure',
+          actorUserId: verified.uid,
+          actorEmail: verified.email || null,
+          targetUserId,
+          targetEmail: targetUser.email || null,
+          errorMessage: `refused before deletion: ${dropshipDecision.error}`,
+          metadata: { targetUsername: targetUser.username || null, deletedProductCount: 0 }
+        }, req);
+        return res.status(dropshipDecision.status).json({ success: false, error: dropshipDecision.error });
+      }
+
       console.log(`[Admin Delete] Deleting active store profile for user: ${targetUser.username} (${targetUserId}), requested by verified admin ${verified.email}`);
 
       // 0. Dropship listings/supplier products go first: dsl_ rows can't be deleted by the
@@ -10559,7 +10584,7 @@ async function startServer() {
         try {
           const { products } = await getProductsListData();
           if (products && products.length > 0) {
-            const topSummaries = products.slice(0, 50).map(serializeProductSummary);
+            const topSummaries = (await dropshipGuards.capPerSupplierProduct(products)).slice(0, 50).map(serializeProductSummary);
             const scriptTag = `<script>window.__INITIAL_PRODUCTS__ = ${JSON.stringify(topSummaries).replace(/</g, '\\u003c')};</script>`;
             html = html.replace('</head>', `${scriptTag}</head>`);
           }

@@ -250,3 +250,8 @@ export function supplierStatusActions(p: Pick<SupplierProduct, 'status' | 'publi
       return [];
   }
 }
+
+// Quote reason code -> wording for the price calculator (the code itself is never shown).
+export function quoteReasonText(reason: string | null | undefined): string {
+  return reason === 'not_integer' ? 'Enter a valid price.' : 'This price is too low.';
+}

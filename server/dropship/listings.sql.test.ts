@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { DropshipError } from './errors.js';
+import { extractCloudinaryInfo } from '../cloudinaryInfo.js';
 import { createPgliteDropship, LISTINGS_MIGRATION_PATH, type PgliteDropship } from './testing/pgliteDb.js';
 
 // Phase 3 (reseller listings) SQL functions on an in-process PostgreSQL 17 (PGlite), with
@@ -272,13 +273,94 @@ test('remove listing', async () => {
   assert.equal(row.status, 'removed');
   assert.equal(row.product_id, null);
   assert.ok(row.removed_at);
-  const protectedUrls = await h.db.call('dropship_is_protected_media', { p_urls: [IMG, 'https://res.cloudinary.com/dfm3g2qvg/image/upload/v1/tedbuy_products/unrelated.jpg'] });
-  assert.deepEqual(protectedUrls, [IMG]);
+  // Media stays protected after the listing is removed (protection is by supplier product, any status).
+  const protectedIds = await h.db.call('dropship_is_protected_media', { p_public_ids: ['tedbuy_products/listing-a', 'tedbuy_products/unrelated'] });
+  assert.deepEqual(protectedIds, ['tedbuy_products/listing-a']);
   await expectCode(updateListing(dropshipper, r.listing.id, 16000, null), 'STATE_CONFLICT');
   // Removing again is a no-op.
   assert.equal((await removeListing(dropshipper, r.listing.id)).listing.status, 'removed');
   // A removed listing frees the slot: the dropshipper can list the product again.
   assert.equal((await createListing(dropshipper, sp.id)).created, true);
+});
+
+// Cloudinary URL forms: plain, transformed, versioned, version-less, odd. The SQL publicId
+// extraction must agree with the Node one (extractCloudinaryInfo) on every form, since
+// deletion goes by the Node publicId and protection by the SQL one.
+const URL_FORMS = [
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/v1/tedbuy_products/listing-a.jpg',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/w_10/v123/folder/abc.jpg',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/w_10,h_10,c_fill/q_auto/f_auto/v123/folder/abc.webp',
+  'https://res.cloudinary.com/dfm3g2qvg/video/upload/so_0,f_jpg/eo_5/v99/a/b/c.mp4',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/folder/abc.jpg',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/w_10/folder/abc.jpg',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/v1/folder/abc',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/v1/fo.lder/abc',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/v12a/b.jpg',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/v1/a.jpg?x=1',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/v1/upload/x.jpg',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/v123',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload/',
+  'https://res.cloudinary.com/dfm3g2qvg/image/upload//v2//d.e.f.png',
+  'https://res.cloudinary.com/dfm3g2qvg/image/fetch/x.jpg',
+  'https://example.com/image/upload/v1/x.jpg',
+  '',
+];
+
+test('dropship_media_public_id matches extractCloudinaryInfo on every URL form', async () => {
+  for (const url of URL_FORMS) {
+    const r = await h.pg.query<{ id: string | null }>('select public.dropship_media_public_id($1) as id', [url]);
+    assert.equal(r.rows[0].id, extractCloudinaryInfo(url)?.publicId ?? null, url);
+  }
+  assert.equal((await h.pg.query<any>('select public.dropship_media_public_id(null) as id')).rows[0].id, null);
+});
+
+test('media protection is by publicId: transformed and version-less variants of a supplier image are protected', async () => {
+  const supplier = 'sup-media';
+  await approvedSupplier(supplier);
+  const STORED_PLAIN = 'https://res.cloudinary.com/dfm3g2qvg/image/upload/v555/tedbuy_products/media-plain.jpg';
+  const STORED_TRANSFORMED = 'https://res.cloudinary.com/dfm3g2qvg/image/upload/c_fill,w_800/v556/tedbuy_products/media-tr.png';
+  const sp = await activeProduct(supplier, { images: [STORED_PLAIN] });
+  // Stored forms vary on the supplier side too (written directly: the Node validator only accepts plain ones).
+  await h.pg.query('update public.dropship_supplier_products set images = $1::jsonb where id = $2', [JSON.stringify([STORED_PLAIN, STORED_TRANSFORMED]), sp.id]);
+  // Archived products stay protected.
+  await h.pg.query("update public.dropship_supplier_products set status = 'archived' where id = $1", [sp.id]);
+
+  const candidates = [
+    STORED_PLAIN,
+    'https://res.cloudinary.com/dfm3g2qvg/image/upload/w_10/v555/tedbuy_products/media-plain.jpg',
+    'https://res.cloudinary.com/dfm3g2qvg/image/upload/tedbuy_products/media-plain.webp',
+    'https://res.cloudinary.com/dfm3g2qvg/image/upload/v1/tedbuy_products/media-tr.jpg',
+    'https://res.cloudinary.com/dfm3g2qvg/image/upload/tedbuy_products/media-tr.png',
+    'https://res.cloudinary.com/dfm3g2qvg/image/upload/v555/tedbuy_products/unrelated-media.jpg',
+    'https://res.cloudinary.com/dfm3g2qvg/image/upload/w_10/tedbuy_products/media-plain.jpg', // deletes "w_10/tedbuy_products/media-plain", not the supplier's
+  ];
+  const publicIds = candidates.map(u => extractCloudinaryInfo(u)!.publicId);
+  const prot = await h.db.call<string[]>('dropship_is_protected_media', { p_public_ids: publicIds });
+  assert.deepEqual(prot, ['tedbuy_products/media-plain', 'tedbuy_products/media-plain', 'tedbuy_products/media-plain', 'tedbuy_products/media-tr', 'tedbuy_products/media-tr']);
+  assert.deepEqual(await h.db.call('dropship_is_protected_media', { p_public_ids: [] }), []);
+  // The lookup uses the publicId GIN index.
+  const idx = await h.pg.query<any>("select indexdef from pg_indexes where indexname = 'dsp_image_public_ids_idx'");
+  assert.equal(idx.rows.length, 1);
+});
+
+test('dropship_user_has_records: participants, listings (any status) and supplier products count', async () => {
+  const { supplier, dropshipper, sp } = await scenario('recs');
+  await ensureUser('plain-recs');
+  const has = (u: string) => h.db.call<boolean>('dropship_user_has_records', { p_user: u });
+  assert.equal(await has(supplier), true);
+  assert.equal(await has(dropshipper), true);
+  assert.equal(await has('plain-recs'), false);
+  const r = await createListing(dropshipper, sp.id);
+  await removeListing(dropshipper, r.listing.id);
+  // Only a removed listing left (participation deleted directly): still a record, still blocks.
+  await h.pg.query('delete from public.dropship_participants where user_id = $1', [dropshipper]);
+  assert.equal(await has(dropshipper), true);
+  for (const role of ['anon', 'authenticated']) {
+    await assert.rejects(
+      h.pg.transaction(async tx => { await tx.exec(`set local role ${role}`); await tx.query("select public.dropship_user_has_records('x')"); }),
+      (e: any) => e.code === '42501',
+    );
+  }
 });
 
 test('content fan-out', async () => {

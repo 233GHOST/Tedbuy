@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { DropshipDb } from './db.js';
 import {
-  createLegacyGuards, DROPSHIP_ROW_ID_ILIKE, excludeDropshipRows, filterVisiblePayload, legacyDeleteDecision,
-  legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget,
+  adminUserDeleteDecision, cleanupOrphansDecision, createLegacyGuards, DROPSHIP_ROW_ID_ILIKE, excludeDropshipRows,
+  filterVisiblePayload, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget,
 } from './legacyGuards.js';
 import { filterSitemapProducts, type CachedSitemapData } from '../../src/utils/sitemap.js';
 
@@ -42,6 +42,32 @@ test('legacyDeleteDecision', () => {
   assert.equal(legacyDeleteDecision('DSL_abc'), 'reject_dsl');
   assert.equal(legacyDeleteDecision('prod_1'), 'allow');
   assert.equal(legacyDeleteDecision(''), 'allow');
+});
+
+test('cleanupOrphansDecision: a dsl_ productId is never ownership evidence (409), ordinary ids proceed', () => {
+  for (const id of ['dsl_abc', 'DSL_abc']) {
+    assert.deepEqual(cleanupOrphansDecision(id), { ok: false, status: 409, error: 'Manage this listing from Dropship' });
+  }
+  assert.deepEqual(cleanupOrphansDecision('prod_1'), { ok: true });
+});
+
+test('adminUserDeleteDecision: refuses a Dropship participant before anything is deleted', async () => {
+  const calls: string[] = [];
+  const ownsDsl = (v: boolean) => async () => { calls.push('ownsDsl'); return v; };
+  // Dropship records exist => 409, without needing the legacy signal.
+  assert.deepEqual(await adminUserDeleteDecision(true, ownsDsl(false)), {
+    ok: false, status: 409, error: 'This account has Dropship records; suspend or revoke it in Dropship admin instead.',
+  });
+  assert.deepEqual(calls, []);
+  // No Dropship records => proceed.
+  assert.deepEqual(await adminUserDeleteDecision(false, ownsDsl(true)), { ok: true });
+  assert.deepEqual(calls, []);
+  // Dropship can't tell (disabled/DB error): refuse only when the user owns a dsl_ products row.
+  assert.deepEqual(await adminUserDeleteDecision(null, ownsDsl(true)), {
+    ok: false, status: 503, error: "Dropship records can't be checked right now. Please try again later.",
+  });
+  assert.deepEqual(await adminUserDeleteDecision(null, ownsDsl(false)), { ok: true });
+  assert.deepEqual(calls, ['ownsDsl', 'ownsDsl']);
 });
 
 function snapDb(state: { hidden: string[]; supplierProductOf: Record<string, string> }) {

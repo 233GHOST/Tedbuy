@@ -70,6 +70,8 @@ declare
     'dropship_list_supplier_products(text,text,integer)',
     'dropship_listing_json(dropship_listings)',
     'dropship_lock_product_for_actor(text,text,uuid)',
+    'dropship_media_public_id(text)',
+    'dropship_media_public_ids(jsonb)',
     'dropship_min_retail_pesewas(bigint)',
     'dropship_participant_json(dropship_participants)',
     'dropship_platform_fee_pesewas(bigint)',
@@ -87,6 +89,7 @@ declare
     'dropship_supplier_product_json(dropship_supplier_products)',
     'dropship_update_listing(text,text,uuid,bigint,text,text)',
     'dropship_update_supplier_product(text,text,uuid,jsonb,integer,text)',
+    'dropship_user_has_records(text)',
     'dropship_user_unavailable(text)'];
   found text[];
   problem text;
@@ -159,7 +162,8 @@ begin
   raise notice 'Dropship listings rollback: deleting % listing audit event(s) from public.dropship_audit_events', n;
 end $$;
 
--- 4. The view, then the 19 functions this migration added. Two take the tables' row types.
+-- 4. The view, then the functions this migration added (the publicId index on
+--    dropship_supplier_products goes before the function it uses). Two take the tables' row types.
 drop view public.dropship_listing_availability;
 
 drop function public.dropship_catalogue(text, text, text, timestamptz, uuid, integer);
@@ -171,6 +175,9 @@ drop function public.dropship_create_listing(text, uuid, bigint, uuid);
 drop function public.dropship_delivery_fees_json(public.dropship_supplier_products);
 drop function public.dropship_hidden_product_ids();
 drop function public.dropship_is_protected_media(text[]);
+drop index public.dsp_image_public_ids_idx;
+drop function public.dropship_media_public_ids(jsonb);
+drop function public.dropship_media_public_id(text);
 drop function public.dropship_list_my_listings(text);
 drop function public.dropship_listing_json(public.dropship_listings);
 drop function public.dropship_min_retail_pesewas(bigint);
@@ -183,6 +190,7 @@ drop function public.dropship_remove_listing(text, text, uuid, text);
 drop function public.dropship_remove_user_listings(text, text);
 drop function public.dropship_require_approved_dropshipper(text);
 drop function public.dropship_update_listing(text, text, uuid, bigint, text, text);
+drop function public.dropship_user_has_records(text);
 drop function public.dropship_user_unavailable(text);
 
 -- 5. The listings table (its foreign key to public.products goes with it), then the mirror

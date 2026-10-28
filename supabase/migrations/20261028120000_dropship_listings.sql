@@ -4,7 +4,8 @@
 -- API_SPEC §1 (purchase-info), §3, Appendix A.3; PAYMENTS_AND_FINANCIALS §3.
 -- Requires: 20261026120000_dropship_supplier_catalogue.sql (applied first).
 -- Scope: dropship_listings and their mirror rows in public.products, pricing quote, the
--- dropshipper catalogue, listing availability, the media-protection check, account
+-- dropshipper catalogue, listing availability, the media-protection check (by Cloudinary
+-- publicId), the admin user-delete records check, account
 -- deletion clean-up. No orders, payments or payouts.
 --
 -- Function template: as the Phase 2 migration (no SECURITY DEFINER; search_path '' with
@@ -654,15 +655,68 @@ $$
    where a.product_id is not null
 $$;
 
--- The URLs (of p_urls, in order) that legacy code must never delete: any URL in any
--- supplier product's images, whatever its status (ARCHITECTURE §2.2).
-create function public.dropship_is_protected_media(p_urls text[]) returns text[]
+-- Cloudinary publicId of a delivery URL, exactly as server/cloudinaryInfo.ts
+-- extractCloudinaryInfo derives it (the publicId a legacy delete would destroy): null unless
+-- the URL contains 'res.cloudinary.com' and '/upload/'; take the text between the first and
+-- second '/upload/'; drop every '/'-segment up to and including the first one matching
+-- ^v[0-9]+$ (if any); strip from the last '.' of what is left.
+create function public.dropship_media_public_id(p_url text) returns text
+language plpgsql immutable set search_path = '' as
+$$
+declare
+  v_seg text[];
+  v_idx integer;
+  v_path text;
+begin
+  if p_url is null or p_url = '' or strpos(p_url, 'res.cloudinary.com') = 0 or strpos(p_url, '/upload/') = 0 then
+    return null;
+  end if;
+  v_seg := string_to_array(split_part(p_url, '/upload/', 2), '/');
+  select min(t.i) into v_idx from unnest(v_seg) with ordinality as t(s, i) where t.s ~ '^v[0-9]+$';
+  if v_idx is not null then
+    v_seg := v_seg[v_idx + 1:];
+  end if;
+  v_path := array_to_string(v_seg, '/');
+  if strpos(v_path, '.') > 0 then
+    v_path := left(v_path, length(v_path) - strpos(reverse(v_path), '.'));
+  end if;
+  return v_path;
+end $$;
+
+-- The publicIds of a supplier product's images (indexed for dropship_is_protected_media).
+create function public.dropship_media_public_ids(p_images jsonb) returns text[]
+language sql immutable set search_path = '' as
+$$
+  select coalesce(array_agg(x.pid order by x.i) filter (where x.pid is not null), '{}'::text[])
+    from (select public.dropship_media_public_id(e.u) as pid, e.i
+            from jsonb_array_elements_text(case when jsonb_typeof(p_images) = 'array' then p_images else '[]'::jsonb end)
+                 with ordinality as e(u, i)) x
+$$;
+
+create index dsp_image_public_ids_idx on public.dropship_supplier_products
+  using gin (public.dropship_media_public_ids(images));
+
+-- The publicIds (of p_public_ids, in order) that legacy code must never delete: the publicId
+-- of any image of any supplier product, whatever its status (ARCHITECTURE §2.2). Compared
+-- by publicId, not URL, so a transformed or re-versioned URL of a supplier image is caught.
+create function public.dropship_is_protected_media(p_public_ids text[]) returns text[]
 language sql stable set search_path = '' as
 $$
   select coalesce(array_agg(t.u order by t.i), '{}'::text[])
-    from unnest(p_urls) with ordinality as t(u, i)
+    from unnest(p_public_ids) with ordinality as t(u, i)
    where t.u is not null
-     and exists (select 1 from public.dropship_supplier_products sp where sp.images @> jsonb_build_array(t.u))
+     and exists (select 1 from public.dropship_supplier_products sp
+                  where public.dropship_media_public_ids(sp.images) @> array[t.u])
+$$;
+
+-- Admin user delete: whether any Dropship row references the user (participants, listings of
+-- any status, supplier products all reference users ON DELETE RESTRICT).
+create function public.dropship_user_has_records(p_user text) returns boolean
+language sql stable set search_path = '' as
+$$
+  select exists (select 1 from public.dropship_participants where user_id = p_user)
+      or exists (select 1 from public.dropship_listings where dropshipper_id = p_user)
+      or exists (select 1 from public.dropship_supplier_products where supplier_id = p_user)
 $$;
 
 -- Shared by dropship_catalogue and dropship_catalogue_item: who may see a supplier product
