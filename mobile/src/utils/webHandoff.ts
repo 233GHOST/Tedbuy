@@ -92,3 +92,34 @@ export function foreignNavigationAction(url: string, canGoBack: boolean): Foreig
   if (typeof url !== 'string' || url === '' || url === 'about:blank' || isTedbuyOrigin(url)) return 'allow';
   return canGoBack ? 'go_back' : 'reload';
 }
+
+/** onLoadStart and onNavigationStateChange both report one load start;
+ * a repeat of the same foreign URL inside this window is the same event. */
+export const FOREIGN_DEDUPE_MS = 2000;
+/** Recoveries (go back / reload) allowed per screen visit before a page
+ * that keeps redirecting to a foreign site is treated as a load error. */
+export const MAX_FOREIGN_RECOVERIES = 2;
+
+export type ForeignRecoveryAction = 'allow' | 'stop_only' | 'go_back' | 'reload' | 'error';
+
+/** Full decision for a reported top-level URL, including loop protection.
+ * - TedBuy / about:blank / empty → 'allow'.
+ * - Same foreign URL within FOREIGN_DEDUPE_MS of the last handled one →
+ *   'stop_only': stop loading again, but don't re-open it outside or
+ *   go back / reload a second time.
+ * - Already MAX_FOREIGN_RECOVERIES recoveries this visit → 'error'.
+ * - Otherwise 'go_back' (history) or 'reload' (none); the caller counts it. */
+export function foreignRecoveryAction(input: {
+  url: string;
+  canGoBack: boolean;
+  recoveries: number;
+  lastHandled: { url: string; at: number } | null;
+  now: number;
+}): ForeignRecoveryAction {
+  const { url, canGoBack, recoveries, lastHandled, now } = input;
+  const base = foreignNavigationAction(url, canGoBack);
+  if (base === 'allow') return 'allow';
+  if (lastHandled && lastHandled.url === url && now - lastHandled.at < FOREIGN_DEDUPE_MS) return 'stop_only';
+  if (recoveries >= MAX_FOREIGN_RECOVERIES) return 'error';
+  return base;
+}

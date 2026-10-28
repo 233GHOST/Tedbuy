@@ -13,7 +13,8 @@ import {
   READY_MESSAGE_TYPE,
   SIGNED_IN_MESSAGE_TYPE,
   decideOnReady,
-  foreignNavigationAction,
+  FOREIGN_DEDUPE_MS,
+  foreignRecoveryAction,
   isTedbuyOrigin,
   parseEmbedMessage,
   shouldFallbackToBrowser,
@@ -30,9 +31,7 @@ const HANDOFF_PENDING_MS = 20000;
 /** Hard cap on handoff posts per screen visit, so a page that reloads after
  * a failed sign-in can't drive an endless post → reload loop. */
 const MAX_HANDOFF_POSTS = 2;
-/** The same foreign URL can be reported by onShouldStartLoadWithRequest,
- * onLoadStart and onNavigationStateChange; open it outside only once. */
-const EXTERNAL_OPEN_DEDUPE_MS = 2000;
+
 
 type Overlay = null | 'loading' | 'signing-in';
 type ErrorKind = null | 'load' | 'signin';
@@ -64,6 +63,9 @@ export function DropshipWebScreen({ onClose }: Props) {
   const generationRef = useRef(0);
   const lastExternalRef = useRef<{ url: string; at: number } | null>(null);
   const lastForeignHandledRef = useRef<{ url: string; at: number } | null>(null);
+  /** Foreign-page recoveries (go back / reload) this visit; reset only by
+   * the manual Retry button, so a redirect loop ends in the error state. */
+  const foreignRecoveriesRef = useRef(0);
   const readyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -207,7 +209,7 @@ export function DropshipWebScreen({ onClose }: Props) {
   const openExternal = useCallback((url: string) => {
     const now = Date.now();
     const last = lastExternalRef.current;
-    if (last && last.url === url && now - last.at < EXTERNAL_OPEN_DEDUPE_MS) return;
+    if (last && last.url === url && now - last.at < FOREIGN_DEDUPE_MS) return;
     lastExternalRef.current = { url, at: now };
     Linking.openURL(url).catch(() => {
       Alert.alert("Couldn't open this link", 'There is no app on this phone that can open it.');
@@ -241,20 +243,33 @@ export function DropshipWebScreen({ onClose }: Props) {
    * onShouldStartLoadWithRequest (form POSTs; the native sync lock timing out
    * and defaulting to allow). Returns true when it took over the navigation. */
   const leaveForeignPage = useCallback((url: string, canGoBack: boolean): boolean => {
-    const action = foreignNavigationAction(url, canGoBack);
-    if (action === 'allow') return false;
-    // onLoadStart and onNavigationStateChange both fire for one load start:
-    // act (stop / goBack / reload) only once per foreign URL.
     const now = Date.now();
-    const last = lastForeignHandledRef.current;
-    if (last && last.url === url && now - last.at < EXTERNAL_OPEN_DEDUPE_MS) return true;
-    lastForeignHandledRef.current = { url, at: now };
+    const action = foreignRecoveryAction({
+      url,
+      canGoBack,
+      recoveries: foreignRecoveriesRef.current,
+      lastHandled: lastForeignHandledRef.current,
+      now,
+    });
+    if (action === 'allow') return false;
+    // Always stop a foreign page, even for a repeat report of the same URL.
     webviewRef.current?.stopLoading();
+    // Repeat within the de-dup window (onLoadStart + onNavigationStateChange
+    // for one load): don't open it outside or go back / reload twice.
+    if (action === 'stop_only') return true;
+    lastForeignHandledRef.current = { url, at: now };
+    if (action === 'error') {
+      // Keeps redirecting to another site: stop the loop instead of
+      // bouncing the user out to the browser again and again.
+      showError('load');
+      return true;
+    }
+    foreignRecoveriesRef.current += 1;
     openExternal(url);
     if (action === 'go_back') webviewRef.current?.goBack();
     else reloadEmbed();
     return true;
-  }, [openExternal, reloadEmbed]);
+  }, [openExternal, reloadEmbed, showError]);
 
   const onNavigationStateChange = useCallback((nav: WebViewNavigation) => {
     if (nav.url) currentUrlRef.current = nav.url;
@@ -281,6 +296,8 @@ export function DropshipWebScreen({ onClose }: Props) {
 
   const retry = useCallback(() => {
     generationRef.current += 1;
+    foreignRecoveriesRef.current = 0;
+    lastForeignHandledRef.current = null;
     clearTimers();
     postedThisLoadRef.current = false;
     totalPostsRef.current = 0;

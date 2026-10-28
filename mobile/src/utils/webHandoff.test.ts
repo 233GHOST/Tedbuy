@@ -9,6 +9,9 @@ import {
   parseEmbedMessage,
   decideOnReady,
   foreignNavigationAction,
+  foreignRecoveryAction,
+  MAX_FOREIGN_RECOVERIES,
+  FOREIGN_DEDUPE_MS,
 } from './webHandoff.ts';
 
 test('isTedbuyOrigin accepts only https://www.tedbuy.store pages', () => {
@@ -109,4 +112,40 @@ test('foreignNavigationAction: a foreign page that slipped through is backed out
 test('foreignNavigationAction: an empty url is ignored', () => {
   assert.equal(foreignNavigationAction('', false), 'allow');
   assert.equal(foreignNavigationAction(undefined as any, true), 'allow');
+});
+
+const FOREIGN = 'https://checkout.paystack.com/abc';
+const fr = { url: FOREIGN, canGoBack: false, recoveries: 0, lastHandled: null, now: 100000 };
+
+test('foreignRecoveryAction: TedBuy pages are allowed regardless of counters', () => {
+  assert.equal(foreignRecoveryAction({ ...fr, url: PAGE }), 'allow');
+  assert.equal(foreignRecoveryAction({ ...fr, url: 'about:blank', recoveries: 5 }), 'allow');
+});
+
+test('foreignRecoveryAction: first recoveries go back or reload', () => {
+  assert.equal(MAX_FOREIGN_RECOVERIES, 2);
+  assert.equal(foreignRecoveryAction({ ...fr }), 'reload');
+  assert.equal(foreignRecoveryAction({ ...fr, canGoBack: true }), 'go_back');
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 1 }), 'reload');
+});
+
+test('foreignRecoveryAction: the third recovery in one visit is an error (redirect loop)', () => {
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 2 }), 'error');
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 2, canGoBack: true }), 'error');
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 3, lastHandled: { url: 'https://other.example/', at: fr.now - 10 } }), 'error');
+});
+
+test('foreignRecoveryAction: a repeat of the same URL within the window only stops loading', () => {
+  const lastHandled = { url: FOREIGN, at: fr.now - (FOREIGN_DEDUPE_MS - 1) };
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 1, lastHandled }), 'stop_only');
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 2, lastHandled }), 'stop_only');
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 1, canGoBack: true, lastHandled }), 'stop_only');
+});
+
+test('foreignRecoveryAction: same URL after the window, or a different URL, counts as a new recovery', () => {
+  const old = { url: FOREIGN, at: fr.now - FOREIGN_DEDUPE_MS };
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 1, lastHandled: old }), 'reload');
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 2, lastHandled: old }), 'error');
+  const other = { url: 'https://other.example/', at: fr.now - 10 };
+  assert.equal(foreignRecoveryAction({ ...fr, recoveries: 1, canGoBack: true, lastHandled: other }), 'go_back');
 });
