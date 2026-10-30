@@ -2923,6 +2923,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Instantly mark as registered to prevent race conditions with auth listener
         justRegisteredUserIds.current.add(uid);
 
+        // The code was already checked; ask the server to mark the account
+        // verified (it reads emailVerified from Firebase, not from us).
+        let serverVerified = false;
+        for (let attempt = 1; attempt <= 3 && !serverVerified; attempt++) {
+          try {
+            const verifyHeaders = await getAuthHeader();
+            const verifyRes = await fetch('/api/auth/complete-registration', {
+              method: 'POST',
+              headers: verifyHeaders
+            });
+            const verifyJson = await verifyRes.json().catch(() => ({}));
+            if (verifyJson.success) {
+              await userCredential.user.reload();
+              await userCredential.user.getIdToken(true);
+              serverVerified = true;
+            }
+          } catch (verifyErr) {
+            console.warn(`[Registration] complete-registration attempt ${attempt} failed:`, verifyErr);
+          }
+          if (!serverVerified && attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
+        }
+        if (!serverVerified) {
+          console.warn('[Registration] Could not mark the account verified; the verification link will cover it.');
+        }
+
         newUser = {
           id: uid,
           username: username.trim(),
@@ -2933,7 +2960,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           photoUrl: photoUrl || undefined,
           followingSellers: [],
           savedProductIds: [],
-          emailVerified: true // Verified via Brevo 6-digit OTP code
+          emailVerified: serverVerified
         };
       } catch (authErrorDetail: any) {
         const isAuthErrorDisabled = authErrorDetail?.code === 'auth/operation-not-allowed' || 
