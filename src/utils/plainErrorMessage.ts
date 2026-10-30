@@ -4,9 +4,13 @@
 // (JSON, status codes, service names, stack text) falls back to the caller's message.
 
 const NETWORK_PATTERN = /failed to fetch|networkerror|network request failed|network-request-failed|load failed|net::err|timed? ?out|offline/i;
-const TECHNICAL_PATTERN = /[{}<>[\]]|\b(?:typeerror|syntaxerror|referenceerror|json|unexpected token|undefined|null|nan|status code|https?|firebase|supabase|cloudinary|brevo|paystack|api|sdk|payload|econn\w*|stack|sql|rls|uid)\b|\b[45]\d\d\b|^(?:missing|invalid|expected)\b/i;
+const SESSION_PATTERN = /\b(?:invalid|expired)\b.*\b(?:auth(?:orization)?|id) token\b|\btoken\b.*\b(?:expired|invalid)\b/i;
+const TECHNICAL_PATTERN = /[{}<>[\]]|\b(?:typeerror|syntaxerror|referenceerror|json|unexpected token|undefined|null|nan|status code|https?|firebase|supabase|cloudinary|brevo|paystack|api|sdk|payload|econn\w*|stack|sql|rls|uid)\b|\b[45]\d\d\b|^(?:missing|expected)\b/i;
+// camelCase field names such as sellerId or pushToken only appear in developer messages
+const IDENTIFIER_PATTERN = /\b[a-z]+[A-Z]\w*\b/;
 
 export const CONNECTION_ERROR_MESSAGE = "Can't reach TedBuy. Check your internet connection and try again.";
+export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.';
 
 export function plainErrorMessage(err: unknown, fallback: string): string {
   let raw = '';
@@ -29,6 +33,7 @@ export function plainErrorMessage(err: unknown, fallback: string): string {
   const text = raw.trim().replace(/^(?:forbidden|unauthorized|error)\s*:\s*/i, '');
   if (!text) return fallback;
   if (NETWORK_PATTERN.test(text)) return CONNECTION_ERROR_MESSAGE;
-  if (TECHNICAL_PATTERN.test(text) || text.length > 160) return fallback;
+  if (SESSION_PATTERN.test(text) && !IDENTIFIER_PATTERN.test(text)) return SESSION_EXPIRED_MESSAGE;
+  if (TECHNICAL_PATTERN.test(text) || IDENTIFIER_PATTERN.test(text) || text.length > 160) return fallback;
   return text;
 }

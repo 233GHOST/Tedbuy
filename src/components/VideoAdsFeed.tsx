@@ -142,7 +142,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
           text: shareText,
           url: shareUrl
         });
-        showToast?.("Shared successfully! 🎉", "success");
+        showToast?.("Thanks for sharing! 🎉", "success");
       } catch (err: any) {
         if (err && err.name !== 'AbortError') {
           console.warn("navigator.share failed, opening custom share modal...", err);
@@ -217,16 +217,7 @@ const ReelItem: React.FC<ReelItemProps> = ({
       try {
         await followSeller(product.sellerId);
       } catch (err: any) {
-        let msg = 'Could not follow this store.';
-        if (err instanceof Error) {
-          try {
-            const parsed = JSON.parse(err.message);
-            if (parsed.error) msg = parsed.error;
-          } catch {
-            msg = err.message;
-          }
-        }
-        showToast?.(msg, 'error');
+        showToast?.(plainErrorMessage(err, "Couldn't follow this store. Please try again."), 'error');
       }
     }
   };
@@ -765,7 +756,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
                     const text = `Check out *${product.title}*${priceText} on TedBuy!\n\nView here: ${shareUrl}`;
                     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
-                    showToast?.("Opening WhatsApp...", "success");
                   }}
                   className="w-full flex items-center gap-3 p-3 rounded-2xl border border-emerald-150 bg-emerald-50/30 hover:bg-emerald-50 text-emerald-800 hover:text-emerald-900 font-bold text-xs transition duration-150 cursor-pointer"
                 >
@@ -784,7 +774,6 @@ const ReelItem: React.FC<ReelItemProps> = ({
                     const text = `Check out ${product.title}${priceText} on TedBuy!`;
                     window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
-                    showToast?.("Opening Telegram...", "success");
                   }}
                   className="w-full flex items-center gap-3 p-3 rounded-2xl border border-sky-150 bg-sky-50/30 hover:bg-sky-50 text-sky-800 hover:text-sky-900 font-bold text-xs transition duration-150 cursor-pointer"
                 >
@@ -808,10 +797,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
                           url: shareUrl
                         });
                         setIsShareModalOpen(false);
-                        showToast?.("Shared successfully!", "success");
+                        showToast?.("Thanks for sharing!", "success");
                       } catch (err: any) {
                         if (err && err.name !== 'AbortError') {
-                          showToast?.("Error sharing: " + err.message, "error");
+                          showToast?.("Couldn't share. Try copying the link instead.", "error");
                         }
                       }
                     }}
@@ -828,10 +817,10 @@ const ReelItem: React.FC<ReelItemProps> = ({
                     try {
                       const shareUrl = modalShareUrl;
                       await navigator.clipboard.writeText(shareUrl);
-                      showToast?.("Link copied to clipboard! Paste it anywhere.", "success");
+                      showToast?.("Link copied. Paste it anywhere to share.", "success");
                       setIsShareModalOpen(false);
                     } catch (err) {
-                      showToast?.("Failed to copy link.", "error");
+                      showToast?.("Couldn't copy the link.", "error");
                     }
                   }}
                   className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-800 font-bold text-xs transition duration-150 cursor-pointer"

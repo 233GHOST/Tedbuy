@@ -1948,12 +1948,18 @@ const MarketplaceContent: React.FC = () => {
           <SuspendedBlockModal />
         </Suspense>
       )}
+      {/* Always present so screen readers announce each new success/info message; errors use role="alert" below */}
+      {!isEmbedded && (
+        <div className="sr-only" role="status" aria-live="polite">
+          {toast && toast.type !== 'error' ? toast.message : ''}
+        </div>
+      )}
       {/* Pop-up message: bottom-centre above the mobile tab bar, bottom-right on desktop. The embedded app view has its own UI. */}
       {toast && !isEmbedded && (
         <div className="fixed inset-x-4 bottom-24 z-[100] flex justify-center pointer-events-none md:inset-x-auto md:right-6 md:bottom-6 md:justify-end">
           <div
             key={toast.id}
-            role={toast.type === 'error' ? 'alert' : 'status'}
+            role={toast.type === 'error' ? 'alert' : undefined}
             className={`pointer-events-auto flex items-start gap-2.5 w-full max-w-sm rounded-xl border px-3.5 py-3 shadow-lg text-sm font-medium ${
               toast.type === 'success'
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-900'

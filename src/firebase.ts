@@ -234,6 +234,7 @@ export interface BackendErrorInfo {
 type ErrorListener = (errorInfo: BackendErrorInfo) => void;
 const errorListeners = new Set<ErrorListener>();
 
+// Nothing subscribes to this now: every write caller shows its own pop-up message.
 export function registerBackendErrorListener(listener: ErrorListener) {
   errorListeners.add(listener);
   return () => {

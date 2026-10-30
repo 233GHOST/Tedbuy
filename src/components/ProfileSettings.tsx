@@ -850,8 +850,8 @@ CEO, Tedbuy Inc`;
   const [storeSearch, setStoreSearch] = useState('');
   const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
   const [activeAccountConfirmUser, setActiveAccountConfirmUser] = useState<{ id: string; username: string } | null>(null);
-  // Shown inline because showToast is a no-op app-wide: the server's refusal reason
-  // (e.g. the account has Dropship records) would otherwise never reach the admin.
+  // Shown inline next to the store row so the server's refusal reason (e.g. the account
+  // has Dropship records) stays visible after the pop-up message goes away.
   const [adminDeleteError, setAdminDeleteError] = useState<{ id: string; message: string } | null>(null);
   const [suspensionUpdatingId, setSuspensionUpdatingId] = useState<string | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState('');

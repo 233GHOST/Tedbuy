@@ -3725,6 +3725,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (nextAttempts >= 3) {
           showToast('Too many wrong PIN attempts. You have been logged out.', 'error');
           logoutUser();
+        } else {
+          const triesLeft = 3 - nextAttempts;
+          showToast(`Wrong PIN. You have ${triesLeft} ${triesLeft === 1 ? 'try' : 'tries'} left.`, 'error');
         }
         return nextAttempts;
       });
@@ -4885,7 +4888,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       const choiceResult = await deferredPrompt.userChoice;
       console.log(`[PWA] Installation prompt user choice: ${choiceResult.outcome}`);
       if (choiceResult.outcome === 'accepted') {
-        showToast('TedBuy is being added to your phone. 🚀', 'success');
+        showToast('TedBuy is being added to your device. 🚀', 'success');
       }
       setDeferredPrompt(null);
       setCanInstall(false);

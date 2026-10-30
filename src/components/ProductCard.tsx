@@ -145,12 +145,12 @@ const ProductCardInner: React.FC<ProductCardInnerProps> = ({
         soldAt: nextSoldState ? new Date().toISOString() : null
       });
       showToast?.(
-        nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
+        nextSoldState ? 'Marked as sold. 🎉' : 'Your listing is available again.',
         'success'
       );
     } catch (err: any) {
       console.error('Failed to update product isSold state', err);
-      showToast?.(err?.message || 'Could not update listing status.', 'error');
+      showToast?.(plainErrorMessage(err, "Couldn't update this listing. Please try again."), 'error');
     } finally {
       setUpdatingSold(false);
     }

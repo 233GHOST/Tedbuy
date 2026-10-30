@@ -524,7 +524,7 @@ export const ChatInterface: React.FC = () => {
       deleteAnimationTimeoutRef.current = window.setTimeout(async () => {
         try {
           await deleteChatForMe(targetChat.id);
-          showToast('Chat deleted.', 'success');
+          showToast('Chat removed from your inbox.', 'success');
         } finally {
           setRemovingChatId(null);
         }

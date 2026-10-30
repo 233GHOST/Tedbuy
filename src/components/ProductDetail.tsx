@@ -928,12 +928,17 @@ export const ProductDetail: React.FC = () => {
     setShowSafetyTips(true);
   };
 
-  const confirmSafetyTipsAction = () => {
+  const confirmSafetyTipsAction = async () => {
     setShowSafetyTips(false);
     if (!product) return;
     if (safetyTipsPendingAction === 'message') {
-      const chatId = startChat(product.id, "Hi, is this still available?");
-      setCurrentView('chats');
+      // Only leave the page once the chat really exists, like handleStartChat
+      try {
+        const chatId = await startChat(product.id, "Hi, is this still available?");
+        if (chatId) setCurrentView('chats');
+      } catch (err: any) {
+        showToast(plainErrorMessage(err, "Couldn't open a chat with the seller. Please try again."), 'error');
+      }
     } else if (safetyTipsPendingAction === 'whatsapp') {
       const phoneOrWhatsApp = sellerUser?.whatsAppNumber || sellerUser?.phoneNumber || (product as any).sellerWhatsApp || (product as any).sellerPhone;
       if (!phoneOrWhatsApp) return;

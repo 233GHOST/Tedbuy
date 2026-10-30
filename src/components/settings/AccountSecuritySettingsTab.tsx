@@ -165,7 +165,7 @@ export const AccountSecuritySettingsTab: React.FC<Props> = ({
       setCurrentView('browse');
     } catch (err: any) {
       console.error('Deletion error:', err);
-      const friendlyMsg = getAuthErrorMessage(err) || "Couldn't delete your account. Please log in again and try again.";
+      const friendlyMsg = getAuthErrorMessage(err) || "Couldn't delete your account. Please log out, log back in and try once more.";
       showToast(friendlyMsg, 'error');
     } finally {
       setIsDeleting(false);

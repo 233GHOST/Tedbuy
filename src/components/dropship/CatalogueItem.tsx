@@ -150,7 +150,7 @@ export function CatalogueItem({ item, onBack, onListed }: { item: CatalogueItemD
                     <button type="button" className={buttonClass} onClick={() => { setSelectedProductId(newProductId); setCurrentView('product-detail'); }}>View in my store</button>
                     <button type="button" className={secondaryButtonClass} onClick={async () => {
                       try { await navigator.clipboard.writeText(`${window.location.origin}/product/${newProductId}`); showToast('Link copied. Share it anywhere.', 'success'); }
-                      catch { showToast('Could not copy the link.', 'error'); }
+                      catch { showToast("Couldn't copy the link.", 'error'); }
                     }}>Copy share link</button>
                   </div>
                 )}
