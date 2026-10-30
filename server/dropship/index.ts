@@ -2,6 +2,7 @@ import type express from 'express';
 import { createDropshipDbFromConfig, resolveDropshipConfig, type UserRestrictionLoader } from './db.js';
 import { createLegacyGuards, type LegacyGuards } from './legacyGuards.js';
 import { createDropshipRouter, type DropshipDeps } from './routes.js';
+import { runOrderExpiry, type OrderDeps } from './orderRoutes.js';
 
 export interface RegisterDropshipOptions {
   verifyUser: DropshipDeps['verifyUser'];
@@ -11,6 +12,10 @@ export interface RegisterDropshipOptions {
   // Clears legacy product caches (raw list, homepage/search/category/seller responses, product
   // detail) after Dropship changes mirror rows; undefined ids = clear broadly.
   onProductsChanged?: (productIds?: string[]) => void;
+  // COD orders: Firebase emailVerified lookup, in-app notifications, transactional email.
+  isEmailVerified?: OrderDeps['isEmailVerified'];
+  notify?: OrderDeps['notify'];
+  sendMail?: OrderDeps['sendMail'];
   env?: Record<string, string | undefined>;
 }
 
@@ -36,6 +41,7 @@ export function createLegacyUserRestrictionLoader(getLegacySupabase: () => any):
 export function registerDropship(app: express.Express, options: RegisterDropshipOptions): LegacyGuards {
   const env = options.env ?? process.env;
   const config = resolveDropshipConfig(env);
+  const ordersEnabled = env.DROPSHIP_ORDERS_ENABLED === 'true';
   // Fail closed by default: with no db every dsl_ row is hidden and all media is protected.
   let guards = createLegacyGuards({ db: null, enabled: false });
   try {
@@ -51,7 +57,16 @@ export function registerDropship(app: express.Express, options: RegisterDropship
       cloudinaryCloudName: env.VITE_CLOUDINARY_CLOUD_NAME || env.CLOUDINARY_CLOUD_NAME || 'dfm3g2qvg',
       rateLimit: options.rateLimit,
       onProductsChanged: options.onProductsChanged,
+      orders: { ordersEnabled, isEmailVerified: options.isEmailVerified, notify: options.notify, sendMail: options.sendMail },
     }));
+    // Order time limits: one sweep a minute (cancels overdue steps; nobody is blamed).
+    if (db && config.enabled && ordersEnabled) {
+      const timer = setInterval(() => {
+        runOrderExpiry(db, options.notify).catch(err => console.error('[Dropship orders] expiry sweep failed', (err as Error)?.message));
+      }, 60_000);
+      timer.unref?.();
+      console.log('[Dropship] COD orders enabled.');
+    }
     if (config.enabled) {
       console.log('[Dropship] Enabled (service-role client, identity checks passed).');
     } else if (config.cause === 'disabled') {

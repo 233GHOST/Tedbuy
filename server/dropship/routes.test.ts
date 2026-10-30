@@ -89,7 +89,7 @@ after(async () => {
 });
 
 test('disabled mode: status false, /me says off, every other route 503 DROPSHIP_UNAVAILABLE', async () => {
-  assert.deepEqual((await api('GET', '/api/dropship/status', undefined, undefined, disabledBase)).body, { success: true, enabled: false });
+  assert.deepEqual((await api('GET', '/api/dropship/status', undefined, undefined, disabledBase)).body, { success: true, enabled: false, ordersEnabled: false });
   assert.deepEqual((await api('GET', '/api/dropship/me', 'supplier', undefined, disabledBase)).body, { success: true, enabled: false, mode: 'off' });
   const r = await api('GET', '/api/admin/dropship/applications', 'admin', undefined, disabledBase);
   assert.equal(r.status, 503);
@@ -227,7 +227,7 @@ test('database error mapping', () => {
 test('buyers and anonymous callers never receive supplier products or wholesale prices', async () => {
   const leaks = (body: unknown) => /wholesale|stockOnHand|supplierId/i.test(JSON.stringify(body));
   const status = await api('GET', '/api/dropship/status');
-  assert.deepEqual(Object.keys(status.body).sort(), ['enabled', 'success']);
+  assert.deepEqual(Object.keys(status.body).sort(), ['enabled', 'ordersEnabled', 'success']);
   for (const [who, path] of [
     [undefined, '/api/dropship/supplier/products'],
     [undefined, '/api/admin/dropship/supplier-products'],

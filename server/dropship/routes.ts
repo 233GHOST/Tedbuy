@@ -1,5 +1,6 @@
 import express from 'express';
 import { DropshipError } from './errors.js';
+import { addOrderRoutes, type OrderDeps } from './orderRoutes.js';
 import type { LegacyGuards } from './legacyGuards.js';
 import { unavailable, type DropshipCause, type DropshipDb, type UserRestrictionLoader } from './db.js';
 import {
@@ -31,6 +32,8 @@ export interface DropshipDeps {
   // visibility, with the affected product ids when known (undefined = clear broadly).
   onProductsChanged?: (productIds?: string[]) => void;
   rateLimit?: (windowMs: number, max: number, prefix: string) => express.RequestHandler;
+  // COD orders (Phase 4): off unless DROPSHIP_ORDERS_ENABLED=true.
+  orders?: Omit<OrderDeps, 'cloudinaryCloudName'>;
 }
 
 // dropship_* functions that can change which listing mirror rows are hidden from legacy reads.
@@ -118,7 +121,8 @@ function catalogueItemView(row: any, viewer: 'dropshipper' | 'teaser') {
 function listingView(l: any) {
   return {
     id: l.id, supplierProductId: l.supplierProductId, productId: l.productId,
-    retailPricePesewas: l.retailPricePesewas, status: l.status, createdAt: l.createdAt, updatedAt: l.updatedAt,
+    retailPricePesewas: l.retailPricePesewas, deliveryFeePesewas: l.deliveryFeePesewas, status: l.status,
+    createdAt: l.createdAt, updatedAt: l.updatedAt,
   };
 }
 
@@ -126,7 +130,7 @@ function listingView(l: any) {
 function myListingView(l: any) {
   return {
     id: l.id, productId: l.productId, supplierProductId: l.supplierProductId, title: l.title, image: l.image,
-    retailPricePesewas: l.retailPricePesewas, wholesalePricePesewas: l.wholesalePricePesewas,
+    retailPricePesewas: l.retailPricePesewas, deliveryFeePesewas: l.deliveryFeePesewas, wholesalePricePesewas: l.wholesalePricePesewas,
     platformFeePesewas: l.platformFeePesewas, estimatedMarginPesewas: l.estimatedMarginPesewas,
     minRetailPesewas: l.minRetailPesewas, status: l.status, effectiveAvailable: l.effectiveAvailable,
     unavailableReason: l.unavailableReason ?? null, unitsSold: l.unitsSold, createdAt: l.createdAt, updatedAt: l.updatedAt,
@@ -144,7 +148,7 @@ function quoteView(q: any) {
 function purchaseInfoView(r: any) {
   return {
     listingId: r.listingId, available: r.available, unitPricePesewas: r.unitPricePesewas, maxQuantity: r.maxQuantity,
-    deliveryFees: r.deliveryFees, shipsFromRegion: r.shipsFromRegion, leadTimeDays: r.leadTimeDays,
+    deliveryFeePesewas: r.deliveryFeePesewas, leadTimeDays: r.leadTimeDays,
     returnWindowDays: r.returnWindowDays, returnPolicyText: r.returnPolicyText,
     seller: { id: r.seller?.id, storeName: r.seller?.storeName },
     ...(r.available ? {} : { unavailableReason: r.unavailableReason === 'out_of_stock' ? 'out_of_stock' : 'unavailable' }),
@@ -245,7 +249,7 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
   // ---- public / participation -----------------------------------------------------------
   router.get('/api/dropship/status', (_req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=30');
-    res.json({ success: true, enabled: deps.enabled && !!deps.db });
+    res.json({ success: true, enabled: deps.enabled && !!deps.db, ordersEnabled: deps.enabled && !!deps.db && !!deps.orders?.ordersEnabled });
   });
 
   router.get('/api/dropship/me', limit(60, 'dropship-me'), async (req, res) => {
@@ -511,6 +515,9 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
     if (!info) throw new DropshipError('NOT_FOUND', 'Listing not found.');
     res.json({ success: true, info: purchaseInfoView(info) });
   }));
+
+  addOrderRoutes(router, { ordersEnabled: false, ...deps.orders, cloudinaryCloudName: deps.cloudinaryCloudName },
+                 { limit, handle, requireActor, requireAdmin });
 
   return router;
 }

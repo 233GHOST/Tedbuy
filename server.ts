@@ -891,6 +891,25 @@ if (supabaseUrl && supabaseKey) {
   console.warn('[Supabase Server] Missing credentials for backend Supabase client.');
 }
 
+// Transactional email for Dropship orders (plain text). Never logs the body: the delivery
+// code email carries a secret.
+async function sendDropshipOrderEmail(mail: { to: string; subject: string; text: string }): Promise<void> {
+  const brevoApiKey = process.env.BREVO_API_KEY;
+  if (!brevoApiKey) throw new Error('BREVO_API_KEY is not set');
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
+  const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy';
+  const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { accept: 'application/json', 'api-key': brevoApiKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sender: { name: senderName, email: senderEmail }, replyTo: { name: senderName, email: senderEmail },
+      to: [{ email: mail.to }], subject: mail.subject, textContent: mail.text,
+      tags: ['transactional', 'dropship-order'], headers: { 'X-Mailin-tag': 'transactional' },
+    }),
+  });
+  if (!r.ok) throw new Error(`Brevo responded ${r.status}`);
+}
+
 // TedBuy Dropship (server/dropship/). Off unless DROPSHIP_ENABLED=true and its own
 // service-role configuration passes the identity checks; never uses the anon key.
 // dropshipGuards keeps Dropship listing rows (ids "dsl_...") out of legacy read paths and
@@ -900,6 +919,17 @@ const dropshipGuards = registerDropship(app, {
   getLegacySupabase: () => backendSupabase,
   rateLimit: serverRateLimiter,
   onProductsChanged: invalidateDropshipProductCaches,
+  // COD orders: Firebase Admin is authoritative for emailVerified (fails closed as null).
+  isEmailVerified: async (uid: string) => {
+    try { return (await getAdminAuth().getUser(uid)).emailVerified === true; } catch { return null; }
+  },
+  notify: async notices => {
+    await Promise.all(notices.map(n => createNotification({
+      id: `dso_${crypto.randomUUID()}`, userId: n.userId, type: 'dropship_order', title: n.title, message: n.message,
+      read: false, createdAt: new Date().toISOString(), relatedId: n.orderId,
+    })));
+  },
+  sendMail: sendDropshipOrderEmail,
 });
 // Sitemap: ordinary rows answer synchronously; dsl_ rows only while visible.
 const sitemapProductVisible = (id: string) => !isDropshipRowId(id) || dropshipGuards.isVisibleProduct(id);
@@ -7245,7 +7275,7 @@ app.get('/api/health', (req, res) => {
 // -------------------------------------------------------------
 
 // In-memory store for registration OTP codes
-const registrationOtpStore = new Map<string, { code: string; expiresAt: number; username?: string }>();
+const registrationOtpStore = new Map<string, { code: string; expiresAt: number; username?: string; attempts?: number }>();
 
 // Periodic cleanup of expired OTP codes (every 5 mins)
 setInterval(() => {
@@ -7309,11 +7339,12 @@ app.post("/api/auth/send-registration-otp", serverRateLimiter(60 * 1000, 10, "re
     }
 
     // Generate 6-digit numeric OTP code
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // Cryptographically random; never written to logs.
+    const otpCode = String(crypto.randomInt(100000, 1000000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
     registrationOtpStore.set(cleanEmail, { code: otpCode, expiresAt, username: displayName });
-    console.log(`[Registration OTP] Generated 6-digit code ${otpCode} for ${cleanEmail} (expires in 10 mins)`);
+    console.log('[Registration OTP] Generated a code (expires in 10 mins)');
 
     const brevoApiKey = process.env.BREVO_API_KEY;
     const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
@@ -7520,7 +7551,19 @@ app.post("/api/auth/verify-registration-otp", serverRateLimiter(15 * 60 * 1000, 
       });
     }
 
-    if (entry.code !== cleanOtp) {
+    // Per-code cap on top of the per-IP limit: 5 wrong tries and the code is gone, so
+    // guesses spread over many IPs can't keep trying one code.
+    const codeMatches = entry.code.length === cleanOtp.length
+      && crypto.timingSafeEqual(Buffer.from(entry.code), Buffer.from(cleanOtp));
+    if (!codeMatches) {
+      entry.attempts = (entry.attempts || 0) + 1;
+      if (entry.attempts >= 5) {
+        registrationOtpStore.delete(cleanEmail);
+        return res.status(400).json({
+          success: false,
+          error: 'Too many incorrect codes. Please request a new code.'
+        });
+      }
       return res.status(400).json({
         success: false,
         error: 'Incorrect verification code. Please check your email and try again.'

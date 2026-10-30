@@ -10,8 +10,9 @@ import { callWithRetry, type DropshipDb, type UserRestrictionLoader } from '../d
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const MIGRATION_PATH = path.resolve(here, '../../../supabase/migrations/20261026120000_dropship_supplier_catalogue.sql');
 export const LISTINGS_MIGRATION_PATH = path.resolve(here, '../../../supabase/migrations/20261028120000_dropship_listings.sql');
+export const ORDERS_MIGRATION_PATH = path.resolve(here, '../../../supabase/migrations/20261031120000_dropship_orders.sql');
 // Applied in this order, like `supabase db push`.
-export const MIGRATION_PATHS = [MIGRATION_PATH, LISTINGS_MIGRATION_PATH];
+export const MIGRATION_PATHS = [MIGRATION_PATH, LISTINGS_MIGRATION_PATH, ORDERS_MIGRATION_PATH];
 
 // The production (baseline) public.products table, column for column. Dropship writes the
 // listing mirror rows into it and must never need a new column (ARCHITECTURE §2.1).
