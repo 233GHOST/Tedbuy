@@ -26,6 +26,7 @@ import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environ
 import { decideAppHandoff, isRestrictedUserRow } from "./server/auth/appHandoff.js";
 import { createCheckedEmailStore, decideCompleteRegistration } from "./server/auth/registrationVerification.js";
 import { decideNewListing } from "./server/products/newListingGate.js";
+import { exactIlikePattern, sameEmail } from "./server/auth/emailLookup.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -4823,7 +4824,12 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
       if (userId) {
         q = q.eq('id', userId);
       } else if (email) {
-        q = q.eq('email', email.trim());
+        // Case-insensitive like send-registration-otp: the app looks up a
+        // lowercased email, and a legacy "Ama@Gmail.com" row must still be
+        // found or a second account gets created. Wildcards are escaped so
+        // this stays an exact match.
+        const pattern = exactIlikePattern(email.trim());
+        q = pattern === null ? q.eq('email', email.trim()) : q.ilike('email', pattern);
       } else if (username) {
         q = q.ilike('username', username.trim());
       } else if (phoneNumber) {
@@ -4831,7 +4837,7 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
       }
       const { data, error } = await q.maybeSingle();
       if (error) throw error;
-      if (data) {
+      if (data && (userId || !email || sameEmail(data.email, email))) {
         const authHeader = req.headers.authorization;
         if (data.isDeleted === true || data.status === 'deleted') {
           const isAdmin = authHeader ? await verifyAdmin(authHeader) : false;
