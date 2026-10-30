@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Category, Product } from '../types';
 
 interface UseHashRoutingProps {
-  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship';
+  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders';
   selectedProductId: string | null;
   selectedSellerId: string | null;
   selectedCategory: Category | null;
@@ -93,6 +93,8 @@ export function useHashRouting({
       targetPath = '/post-ad';
     } else if (currentView === 'dropship') {
       targetPath = '/dropship';
+    } else if (currentView === 'orders') {
+      targetPath = '/orders';
     } else if (currentView === 'browse' && selectedCategory) {
       targetPath = `/${slugify(selectedCategory)}`;
     }

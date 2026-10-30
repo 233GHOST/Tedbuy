@@ -24,6 +24,7 @@ const DEV_USERS: Record<string, DropshipVerifiedUser> = {
   'dev-admin': { uid: 'dev-admin', email: 'admin@dev.local', isAdmin: true, emailVerified: true },
   'dev-supplier': { uid: 'dev-supplier', email: 'supplier@dev.local', emailVerified: true },
   'dev-buyer': { uid: 'dev-buyer', email: 'buyer@dev.local', emailVerified: true },
+  'dev-reseller': { uid: 'dev-reseller', email: 'reseller@dev.local', emailVerified: true },
 };
 
 const h = await createPgliteDropship();
@@ -40,6 +41,13 @@ app.use(createDropshipRouter({
   loadUserRestriction: h.loadUserRestriction,
   cloudinaryCloudName: CLOUD,
   verifyUser: async auth => (auth?.startsWith('Bearer ') ? DEV_USERS[auth.slice(7)] ?? null : null),
+  // COD orders on, with notices and emails printed instead of sent (codes are dev-only data).
+  orders: {
+    ordersEnabled: true,
+    isEmailVerified: async () => true,
+    notify: async n => { for (const x of n) console.log(`[notice -> ${x.userId}] ${x.title}: ${x.message}`); },
+    sendMail: async m => { console.log(`[email -> ${m.to}] ${m.subject}\n${m.text}`); },
+  },
 }));
 
 app.listen(PORT, '127.0.0.1', () => {

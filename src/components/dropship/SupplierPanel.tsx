@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Edit2, Loader2, Package, Plus, RefreshCw, XCircle } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { GHANA_REGIONS } from '../../regions';
-import { dropshipApi, DropshipApiError, type SupplierParticipation } from './dropshipApi';
+import { dropshipApi, DropshipApiError, useDropshipOrdersEnabled, type SupplierParticipation } from './dropshipApi';
 import {
   formatPesewas, PARTICIPANT_STATUS_LABEL, PRODUCT_STATUS_LABEL, supplierStatusActions, type SupplierProduct,
 } from './dropshipFormat';
 import { SupplierProductForm } from './SupplierProductForm';
+import { SupplierOrders } from './SupplierOrders';
 import { buttonClass, cardClass, inputClass, secondaryButtonClass, StatusPill } from './dropshipUi';
 import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
@@ -257,7 +258,7 @@ export function SupplierPanel() {
   );
 
   if (p.status === 'approved' || p.status === 'suspended') {
-    return <>{header}<SupplierProducts participation={p} /></>;
+    return <>{header}<SupplierTabs participation={p} /></>;
   }
 
   const info = {
@@ -278,6 +279,24 @@ export function SupplierPanel() {
           {p.status === 'rejected' && <button type="button" onClick={() => setResubmitting(true)} className={buttonClass}>Update and resubmit</button>}
         </div>
       </div>
+    </>
+  );
+}
+
+// Products, plus Orders once COD ordering is on (suspended suppliers still finish orders).
+function SupplierTabs({ participation }: { participation: SupplierParticipation }) {
+  const ordersEnabled = useDropshipOrdersEnabled();
+  const [sub, setSub] = useState<'products' | 'orders'>('products');
+  if (!ordersEnabled) return <SupplierProducts participation={participation} />;
+  return (
+    <>
+      <div className="flex border-b border-slate-200 mb-4">
+        {([['products', 'My products'], ['orders', 'Orders']] as const).map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setSub(key)}
+            className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${sub === key ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-700'}`}>{label}</button>
+        ))}
+      </div>
+      {sub === 'orders' ? <SupplierOrders /> : <SupplierProducts participation={participation} />}
     </>
   );
 }

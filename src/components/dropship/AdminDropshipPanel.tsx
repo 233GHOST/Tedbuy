@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { dropshipApi, type AdminParticipant, type ParticipationDecision } from './dropshipApi';
+import { dropshipApi, useDropshipOrdersEnabled, type AdminParticipant, type ParticipationDecision } from './dropshipApi';
+import { AdminOrders } from './AdminOrders';
 import {
   formatPesewas, PARTICIPANT_STATUS_LABEL, PRODUCT_STATUS_LABEL, type ParticipantStatus, type ProductStatus, type SupplierProduct,
 } from './dropshipFormat';
@@ -156,6 +157,7 @@ function CatalogueCard({ product, onChanged }: { product: SupplierProduct; onCha
 }
 
 export function AdminDropshipPanel() {
+  const ordersEnabled = useDropshipOrdersEnabled();
   const [appStatus, setAppStatus] = useState<ParticipantStatus>('pending');
   const [productStatus, setProductStatus] = useState<ProductStatus>('pending_review');
   const fetchApps = useCallback(() => dropshipApi.adminApplications(appStatus).then(r => r.participants), [appStatus]);
@@ -178,6 +180,12 @@ export function AdminDropshipPanel() {
 
   return (
     <div className="space-y-8">
+      {ordersEnabled && (
+        <section className="space-y-3">
+          <h3 className="text-sm font-black text-slate-900">Orders</h3>
+          <AdminOrders />
+        </section>
+      )}
       <section className="space-y-3">
         {header('Applications', (
           <select className={`${inputClass} !w-40`} value={appStatus} onChange={e => setAppStatus(e.target.value as ParticipantStatus)}>

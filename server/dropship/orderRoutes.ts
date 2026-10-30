@@ -110,7 +110,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
       text: `Your order ${result.orderNumber} (${result.title}) is on its way.\n\n`
         + `Your delivery code is ${code}. Give it to the seller only when you have the item in your hands.\n\n`
         + `The code shows that you received the item. It is not a payment. Pay the seller only when you receive your order.\n\n`
-        + `See your order: ${SITE}/?orders=${result.order.id}\n\nTedBuy`,
+        + `See your order: ${SITE}/#/orders\n\nTedBuy`,
     };
   };
 
@@ -138,7 +138,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
       subject: `Please confirm your TedBuy order ${result.orderNumber}`,
       text: `You ordered ${result.title}. Total to pay on delivery: GH₵${(result.order.totalPesewas / 100).toFixed(2)}.\n\n`
         + `Pay only when you receive your order. Do not send money in advance.\n\n`
-        + `Please confirm the order so the seller can start: ${SITE}/?orders=${result.order.id}\n\n`
+        + `Please confirm the order so the seller can start: ${SITE}/#/orders\n\n`
         + `If you did not place this order, ignore this email and it will be cancelled automatically.\n\nTedBuy`,
     } : null);
     send(res, result, result.changed ? 201 : 200);

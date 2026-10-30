@@ -25,7 +25,7 @@ import { SellingBuyingSettingsTab } from './settings/SellingBuyingSettingsTab';
 import { NotificationSettingsTab } from './settings/NotificationSettingsTab';
 import { AccountSecuritySettingsTab } from './settings/AccountSecuritySettingsTab';
 import { HelpSupportSettingsTab } from './settings/HelpSupportSettingsTab';
-import { useDropshipEnabled } from './dropship/dropshipApi';
+import { useDropshipEnabled, useDropshipOrdersEnabled } from './dropship/dropshipApi';
 import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const ProfileSettings: React.FC = () => {
@@ -61,6 +61,7 @@ export const ProfileSettings: React.FC = () => {
     ensureCanPostNewAd
   } = useApp();
   const dropshipEnabled = useDropshipEnabled();
+  const ordersEnabled = useDropshipOrdersEnabled();
 
   if (!currentUser) {
     return (
@@ -1809,6 +1810,24 @@ CEO, Tedbuy Inc`;
                     </button>
                   )}
 
+                  {ordersEnabled && (
+                    <button
+                      onClick={() => setCurrentView('orders')}
+                      className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-slate-100 rounded-xl text-slate-700">
+                          <ShoppingBag className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">My orders</p>
+                          <p className="text-[10px] text-slate-500">Pay-on-delivery orders you placed</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                    </button>
+                  )}
+
                   {currentUser?.isAdmin && (
                     <button
                       onClick={() => setActiveMobileSubSetting('admin')}
@@ -2224,6 +2243,17 @@ CEO, Tedbuy Inc`;
               <Briefcase className="w-3.5 h-3.5" />
               <span>Trading Preferences</span>
             </button>
+
+            {ordersEnabled && (
+              <button
+                type="button"
+                onClick={() => setCurrentView('orders')}
+                className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-700 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>My orders</span>
+              </button>
+            )}
 
             {dropshipEnabled && (
               <button

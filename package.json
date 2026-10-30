@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:dropship": "tsx --test server/dropship/sql.test.ts server/dropship/routes.test.ts server/dropship/rollback.test.ts server/dropship/listings.sql.test.ts server/dropship/listingsRollback.test.ts server/dropship/legacyGuards.test.ts server/dropship/legacyWiring.test.ts server/dropship/stagingPreflight.test.ts server/dropship/orders.sql.test.ts server/dropship/ordersRollback.test.ts server/dropship/orderRoutes.test.ts src/components/dropship/dropshipFormat.test.ts src/utils/embeddedApp.test.ts",
+    "test:dropship": "tsx --test server/dropship/sql.test.ts server/dropship/routes.test.ts server/dropship/rollback.test.ts server/dropship/listings.sql.test.ts server/dropship/listingsRollback.test.ts server/dropship/legacyGuards.test.ts server/dropship/legacyWiring.test.ts server/dropship/stagingPreflight.test.ts server/dropship/orders.sql.test.ts server/dropship/ordersRollback.test.ts server/dropship/orderRoutes.test.ts src/components/dropship/dropshipFormat.test.ts src/components/dropship/orderFormat.test.ts src/utils/embeddedApp.test.ts",
     "check:staging": "tsx scripts/check-staging-config.ts",
     "test:config": "tsx --test server/environmentGuard.test.ts server/dropship/stagingPreflight.test.ts server/stagingBaseline.test.ts",
     "test:auth": "tsx --test server/auth/adminIdentity.test.ts server/auth/appHandoff.test.ts server/auth/registrationVerification.test.ts server/auth/emailLookup.test.ts server/auth/profileSyncGuard.test.ts server/products/newListingGate.test.ts server/media/sharedMedia.test.ts",

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Loader2, Pause, Play, Pencil, Rocket, Trash2 } from 'lucide-react';
+import { Loader2, Pause, Play, Pencil, Rocket, Trash2, Truck } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { BoostModal } from '../BoostModal';
 import type { Product } from '../../types';
 import { dropshipApi, type MyListing } from './dropshipApi';
-import { formatPesewas, listingPillTone, listingStatusLabel } from './dropshipFormat';
+import { cedisToPesewas, formatPesewas, listingPillTone, listingStatusLabel } from './dropshipFormat';
 import { PriceCalculator } from './CatalogueItem';
 import { buttonClass, cardClass, secondaryButtonClass, StatusPill } from './dropshipUi';
 import type { Quote } from './dropshipApi';
@@ -99,12 +99,19 @@ export function MyDropshipProducts({ canEdit }: { canEdit: boolean }) {
                 <StatusPill status={listingPillTone(st.key)} label={st.label} />
               </div>
               <p className="text-[11px] text-slate-500">
-                Price {formatPesewas(l.retailPricePesewas)} · est. earnings {formatPesewas(l.estimatedMarginPesewas)} · sold {l.unitsSold}
+                Price {formatPesewas(l.retailPricePesewas)} · delivery {l.deliveryFeePesewas > 0 ? formatPesewas(l.deliveryFeePesewas) : 'free'} · est. earnings {formatPesewas(l.estimatedMarginPesewas)} · sold {l.unitsSold}
               </p>
               {st.key === 'reprice' && <p className="text-[11px] font-bold text-rose-600">Raise your price to at least {formatPesewas(l.minRetailPesewas)}.</p>}
               {canEdit && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button type="button" disabled={busy} className={secondaryButtonClass} onClick={() => setEditing(l)}><Pencil className="w-3 h-3" /> Edit price</button>
+                  <button type="button" disabled={busy} className={secondaryButtonClass} onClick={() => {
+                    const v = window.prompt('Delivery fee the buyer pays you, in GH₵ (0 for free delivery):', (l.deliveryFeePesewas / 100).toString());
+                    if (v === null) return;
+                    const fee = cedisToPesewas(v || '0');
+                    if (fee === null) { showToast('Enter the fee in cedis, for example 20 or 0.', 'error'); return; }
+                    run(l, () => dropshipApi.setDeliveryFee(l.id, fee), fee === 0 ? 'Free delivery set.' : 'Delivery fee saved.');
+                  }}><Truck className="w-3 h-3" /> Delivery fee</button>
                   {l.status === 'paused'
                     ? <button type="button" disabled={busy} className={secondaryButtonClass} onClick={() => run(l, () => dropshipApi.updateListing(l.id, { status: 'active' }), 'Resumed.')}><Play className="w-3 h-3" /> Resume</button>
                     : <button type="button" disabled={busy} className={secondaryButtonClass} onClick={() => run(l, () => dropshipApi.updateListing(l.id, { status: 'paused' }), 'Paused.')}><Pause className="w-3 h-3" /> Pause</button>}

@@ -134,9 +134,9 @@ export function CatalogueItem({ item, onBack, onListed }: { item: CatalogueItemD
           </div>
           <div className={`${cardClass} !p-4 space-y-1.5 text-[11px] text-slate-700`}>
             <h3 className="text-xs font-black text-slate-900">Terms</h3>
-            {item.shipsFromRegion && <p>Ships from {item.shipsFromRegion}</p>}
-            {lead && <p>Delivery in {lead.min}–{lead.max} days after confirmation</p>}
-            {item.deliveryFees?.map(f => <p key={f.scope}>Delivery {f.regionNote}: {formatPesewas(f.feePesewas)}</p>)}
+            {item.shipsFromRegion && <p>You collect it from the supplier in {item.shipsFromRegion} and deliver it to your buyer yourself. The exact pickup address is shown once the supplier holds the item for an order.</p>}
+            {lead && <p>Supplier needs {lead.min}–{lead.max} days to have it ready</p>}
+            <p>You pay the supplier only after a buyer has ordered and confirmed. Set your own delivery fee for buyers under My products.</p>
             {item.returnWindowDays !== undefined && <p>Return window: {item.returnWindowDays} days</p>}
             {item.available === false && <p className="font-bold text-amber-700">Out of stock right now. You can still add it; it shows as out of stock until restocked.</p>}
             {(item.listingCount ?? 0) > 0 && <p className="text-slate-500">{item.listingCount} {item.listingCount === 1 ? 'store sells' : 'stores sell'} this</p>}

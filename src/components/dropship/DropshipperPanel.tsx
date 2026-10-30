@@ -6,6 +6,8 @@ import { dropshipApi, type DropshipperParticipation } from './dropshipApi';
 import { PARTICIPANT_STATUS_LABEL } from './dropshipFormat';
 import { CatalogueView } from './CatalogueView';
 import { MyDropshipProducts } from './MyDropshipProducts';
+import { ResellerOrders } from './ResellerOrders';
+import { useDropshipOrdersEnabled } from './dropshipApi';
 import { buttonClass, cardClass, inputClass, StatusPill } from './dropshipUi';
 
 const TERMS_VERSION = 'dropshipper-2026-10';
@@ -82,7 +84,8 @@ function ApplicationForm({ previous, onSubmitted }: { previous?: DropshipperPart
 export function DropshipperPanel() {
   const [state, setState] = useState<{ loading: boolean; participation?: DropshipperParticipation; error?: string }>({ loading: true });
   const [resubmitting, setResubmitting] = useState(false);
-  const [sub, setSub] = useState<'catalogue' | 'mine'>('catalogue');
+  const [sub, setSub] = useState<'catalogue' | 'mine' | 'orders'>('catalogue');
+  const ordersEnabled = useDropshipOrdersEnabled();
   const [mineKey, setMineKey] = useState(0);
 
   const load = useCallback(async () => {
@@ -141,8 +144,9 @@ export function DropshipperPanel() {
       <>
         {header}
         <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0" /> Your dropshipper account is suspended{p.statusReason ? `: ${p.statusReason}` : '.'} You cannot add or change products.
+          <AlertTriangle className="w-4 h-4 shrink-0" /> Your dropshipper account is suspended{p.statusReason ? `: ${p.statusReason}` : '.'} You cannot add or change products{ordersEnabled ? ', but you must finish your open orders below' : ''}.
         </div>
+        {ordersEnabled && <div className="mt-4"><ResellerOrders /></div>}
       </>
     );
   }
@@ -153,13 +157,14 @@ export function DropshipperPanel() {
       <>
         {header}
         <div className="flex border-b border-slate-200 mb-4">
-          {([['catalogue', 'Catalogue'], ['mine', 'My products']] as const).map(([key, label]) => (
+          {([['catalogue', 'Catalogue'], ['mine', 'My products'], ...(ordersEnabled ? [['orders', 'Orders'] as const] : [])] as const).map(([key, label]) => (
             <button key={key} type="button" onClick={() => setSub(key)}
               className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${sub === key ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-700'}`}>{label}</button>
           ))}
         </div>
         {sub === 'catalogue'
           ? <CatalogueView approved={approved} onListed={() => setMineKey(k => k + 1)} />
+          : sub === 'orders' && ordersEnabled ? <ResellerOrders />
           : <MyDropshipProducts key={mineKey} canEdit={approved} />}
       </>
     );
