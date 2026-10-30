@@ -25,6 +25,7 @@ import { adminUserDeleteDecision, capListResponse, cleanupOrphansDecision, exclu
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { decideAppHandoff, isRestrictedUserRow } from "./server/auth/appHandoff.js";
 import { createCheckedEmailStore, decideCompleteRegistration } from "./server/auth/registrationVerification.js";
+import { decideNewListing } from "./server/products/newListingGate.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -3735,6 +3736,19 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
   return cleanProduct;
 }
 
+// Verify-before-posting for new listings. emailVerified is read from Firebase
+// Admin (authoritative) rather than the token claim, which can be stale right
+// after the user clicks the link. Fails closed if the lookup throws.
+async function checkNewListingAllowed(uid: string) {
+  let emailVerified = false;
+  try {
+    emailVerified = (await getAdminAuth().getUser(uid)).emailVerified === true;
+  } catch (err: any) {
+    console.error('[New Listing Gate] Email-verified lookup failed:', err?.message || err);
+  }
+  return decideNewListing({ isNewListing: true, emailVerified });
+}
+
 app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync"), async (req, res) => {
   const { product } = req.body;
   if (!product) {
@@ -3800,6 +3814,15 @@ app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync")
   // Dropship listing rows (dsl_): only social-only changes, or an admin.
   if (legacySyncDecision({ productId: prodId, isAdmin, socialOnly: isSocialOnlyChange, exists: isExistingProduct }) === 'reject_dsl') {
     return res.status(409).json({ success: false, error: 'Manage this listing from Dropship' });
+  }
+
+  // Verify-before-posting: a NEW listing needs a verified email. Edits and
+  // social-only updates are untouched.
+  if (!isExistingProduct) {
+    const gate = await checkNewListingAllowed(user.uid);
+    if (gate.ok === false) {
+      return res.status(gate.status).json({ success: false, code: gate.code, error: gate.error });
+    }
   }
 
   // Authorization Check:
@@ -4146,6 +4169,12 @@ app.post('/api/products/create', serverRateLimiter(60 * 1000, 10, "products-crea
   const user = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!user) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to create product' });
+  }
+
+  // Always a new listing, so the verify-before-posting gate applies.
+  const createGate = await checkNewListingAllowed(user.uid);
+  if (createGate.ok === false) {
+    return res.status(createGate.status).json({ success: false, code: createGate.code, error: createGate.error });
   }
 
   const isAdmin = hasAdminAuthority(user);

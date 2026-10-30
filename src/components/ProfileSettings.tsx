@@ -56,7 +56,8 @@ export const ProfileSettings: React.FC = () => {
     deleteProduct,
     updateProduct,
     toggleSaveProduct,
-    setSelectedProductId
+    setSelectedProductId,
+    ensureCanPostNewAd
   } = useApp();
   const dropshipEnabled = useDropshipEnabled();
 
@@ -1513,6 +1514,7 @@ CEO, Tedbuy Inc`;
                 </p>
                 <button
                   onClick={() => {
+                    if (!ensureCanPostNewAd()) return;
                     setProductToEdit(null);
                     setIsListingModalOpen(true);
                   }}
@@ -2410,6 +2412,7 @@ CEO, Tedbuy Inc`;
 
               <button
                 onClick={() => {
+                  if (!ensureCanPostNewAd()) return;
                   setProductToEdit(null);
                   setIsListingModalOpen(true);
                 }}
@@ -2435,6 +2438,7 @@ CEO, Tedbuy Inc`;
                 {myProducts.length === 0 && (
                   <button
                     onClick={() => {
+                      if (!ensureCanPostNewAd()) return;
                       setProductToEdit(null);
                       setIsListingModalOpen(true);
                     }}

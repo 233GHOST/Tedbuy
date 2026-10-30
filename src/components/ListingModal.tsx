@@ -40,7 +40,7 @@ const CATEGORIES: Category[] = [
 ];
 
 export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, productToEdit }) => {
-  const { createProduct, updateProduct, currentUser, setCurrentView, showToast, setSelectedProductId } = useApp();
+  const { createProduct, updateProduct, currentUser, setCurrentView, showToast, setSelectedProductId, setBlockedActionType, setIsVerificationBlockOpen } = useApp();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -1346,6 +1346,16 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
       onClose();
     } catch (e: any) {
+      // Server refused a new listing from an unverified account: show the
+      // plain message and the verification prompt, not "Submission failed".
+      if (e?.code === 'EMAIL_NOT_VERIFIED') {
+        const notVerifiedMsg = 'Please verify your email address before posting a new ad.';
+        setRateLimitWaitSeconds(null);
+        setErrorMsg(notVerifiedMsg);
+        setBlockedActionType('post-ad');
+        setIsVerificationBlockOpen(true);
+        return;
+      }
       let errStr = e?.message || String(e);
       let isPermissionDenied = false;
       if (errStr.trim().startsWith('{') && errStr.trim().endsWith('}')) {

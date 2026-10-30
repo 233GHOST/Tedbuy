@@ -82,6 +82,7 @@ export type ApiErrorCode =
   | 'PARSE'
   | 'SESSION_EXPIRED'
   | 'FORBIDDEN'
+  | 'EMAIL_NOT_VERIFIED'
   | 'NOT_FOUND'
   | 'RATE_LIMIT'
   | 'CONFLICT'
@@ -227,7 +228,10 @@ async function apiFetch(path: string, options: { method?: string; body?: any; ti
       // Diagnostic detail stays in the log only — never shown to the user.
       console.warn(`[apiFetch] Server error ${res.status} on ${path}:`, data.error);
     }
-    const { message, code } = friendlyMessageForStatus(res.status, data?.error);
+    const { message, code: statusCode } = friendlyMessageForStatus(res.status, data?.error);
+    // The server's own code for "verify your email before posting" wins over
+    // the generic 403 FORBIDDEN, so SellScreen can open its verification modal.
+    const code: ApiErrorCode = res.status === 403 && data?.code === 'EMAIL_NOT_VERIFIED' ? 'EMAIL_NOT_VERIFIED' : statusCode;
     if (res.status === 401) handleSessionExpired();
     return { ...data, success: false, error: message, errorCode: code };
   }

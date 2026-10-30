@@ -1527,6 +1527,11 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       ]);
     } catch (error: any) {
       setLoading(false);
+      // Server says the account isn't verified: same prompt as the pre-check above.
+      if (error?.errorCode === 'EMAIL_NOT_VERIFIED') {
+        setBlockedActionType('post-ad');
+        return;
+      }
       Alert.alert(listingErrorTitle(error, isEditMode ? 'Update Error' : 'Publish Error'), error.message || 'Something went wrong.');
     } finally {
       // Always release the guard — including on success, since resetForm()

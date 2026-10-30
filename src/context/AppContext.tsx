@@ -251,6 +251,9 @@ interface AppContextType {
   reloadUserVerificationStatus: () => Promise<boolean>;
   isVerificationBlockOpen: boolean;
   setIsVerificationBlockOpen: (open: boolean) => void;
+  // Gate for every "new listing" entry: true when the signed-in user is
+  // verified, otherwise opens the verification block modal and returns false.
+  ensureCanPostNewAd: () => boolean;
   isSuspendedBlockOpen: boolean;
   setIsSuspendedBlockOpen: (open: boolean) => void;
   adminToggleUserSuspension: (userId: string, suspend: boolean) => Promise<void>;
@@ -3787,6 +3790,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const ensureCanPostNewAd = (): boolean => {
+    if (currentUser?.emailVerified) return true;
+    setBlockedActionType('post-ad');
+    setIsVerificationBlockOpen(true);
+    return false;
+  };
+
   const reloadUserVerificationStatus = async (): Promise<boolean> => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) return false;
@@ -4015,7 +4025,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) {
-          throw new Error(data.error || 'Failed to publish listing.');
+          const syncError: any = new Error(data.error || 'Failed to publish listing.');
+          if (data.code) syncError.code = data.code;
+          throw syncError;
         }
         if (data.product) {
           savedProduct = data.product;
@@ -6356,6 +6368,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       reloadUserVerificationStatus,
       isVerificationBlockOpen,
       setIsVerificationBlockOpen,
+      ensureCanPostNewAd,
       isSuspendedBlockOpen,
       setIsSuspendedBlockOpen,
       blockedActionType,

@@ -26,6 +26,7 @@ export const SellerDashboard: React.FC = () => {
     isProductsLoading,
     productsLoadError,
     retryLoadProducts,
+    ensureCanPostNewAd,
   } = useApp();
   const [showModal, setShowModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -155,6 +156,7 @@ export const SellerDashboard: React.FC = () => {
   };
 
   const handleCreateNew = () => {
+    if (!ensureCanPostNewAd()) return;
     setEditProduct(null);
     setShowModal(true);
   };

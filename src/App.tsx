@@ -106,6 +106,7 @@ const MarketplaceContent: React.FC = () => {
     hideToast,
     isVerificationBlockOpen,
     setIsVerificationBlockOpen,
+    ensureCanPostNewAd,
     isSuspendedBlockOpen,
     setIsSuspendedBlockOpen,
     blockedActionType,
@@ -385,10 +386,19 @@ const MarketplaceContent: React.FC = () => {
 
   useEffect(() => {
     if (isPostAdOpen) {
-      setCurrentView('post-ad');
+      if (ensureCanPostNewAd()) setCurrentView('post-ad');
       setIsPostAdOpen(false);
     }
   }, [isPostAdOpen]);
+
+  // /post-ad, /sell and /post land straight on the form; an unverified
+  // account is sent back to browse with the verification prompt instead.
+  useEffect(() => {
+    if (currentView === 'post-ad' && !isAuthLoading && currentUser && !currentUser.emailVerified) {
+      setCurrentView('browse');
+      ensureCanPostNewAd();
+    }
+  }, [currentView, isAuthLoading, currentUser?.emailVerified]);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
 
   // Password reset state for tedbuy.store custom URL flow
@@ -675,11 +685,7 @@ const MarketplaceContent: React.FC = () => {
       setShowAuthModal(true);
       return;
     }
-    if (!currentUser.emailVerified) {
-      setBlockedActionType('post-ad');
-      setIsVerificationBlockOpen(true);
-      return;
-    }
+    if (!ensureCanPostNewAd()) return;
     setCurrentView('post-ad');
   };
 
