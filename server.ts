@@ -25,6 +25,7 @@ import { adminUserDeleteDecision, capListResponse, cleanupOrphansDecision, exclu
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { decideAppHandoff, isRestrictedUserRow } from "./server/auth/appHandoff.js";
 import { createCheckedEmailStore, decideCompleteRegistration } from "./server/auth/registrationVerification.js";
+import { decideProfileSync, preserveExistingProfileFields } from "./server/auth/profileSyncGuard.js";
 import { decideNewListing } from "./server/products/newListingGate.js";
 import { exactIlikePattern, sameEmail } from "./server/auth/emailLookup.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
@@ -4588,12 +4589,31 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
     // preserved from the existing DB row exactly like isAdmin/isSuspended,
     // never taken from the client, for anyone.
     let existingFollowingSellers: string[] = [];
+    let existingProfileRow: any = null;
     if (backendSupabase) {
-      const { data: existingRowForFlags } = await backendSupabase
+      const { data: existingRowForFlags, error: existingRowError } = await backendSupabase
         .from('users')
-        .select('"isAdmin", "isSuspended", username, "followingSellers"')
+        .select('"isAdmin", "isSuspended", username, "followingSellers", "joinDate", "createdAt", "welcomeSent"')
         .eq('id', targetUid)
         .maybeSingle();
+      // Refuse a from-scratch profile over an existing row before anything
+      // is written (users or store_names) -- see server/auth/profileSyncGuard.ts.
+      // A failed read is refused too: it must never pass as "no row yet".
+      existingProfileRow = existingRowForFlags || null;
+      const syncDecision = decideProfileSync({
+        existingReadFailed: !!existingRowError,
+        existing: existingProfileRow,
+        request: { joinDate: user.joinDate },
+      });
+      if ('status' in syncDecision) {
+        if (existingRowError) console.error('[Users Sync API] Existing profile read failed:', existingRowError.message || existingRowError);
+        else console.warn(`[Users Sync API] Refused a from-scratch profile over the existing row for UID "${targetUid}"`);
+        return res.status(syncDecision.status).json({
+          success: false,
+          ...('code' in syncDecision ? { code: syncDecision.code } : {}),
+          error: syncDecision.error,
+        });
+      }
       existingIsAdmin = existingRowForFlags?.isAdmin === true;
       existingIsSuspended = existingRowForFlags?.isSuspended === true;
       existingUsername = existingRowForFlags?.username || null;
@@ -4666,6 +4686,8 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
       isSuspended: existingIsSuspended,
       createdAt: user.createdAt || new Date().toISOString()
     };
+    // Keep saved joinDate/createdAt and a sent welcome on an existing row.
+    Object.assign(cleanUser, preserveExistingProfileFields(cleanUser, existingProfileRow));
 
     // Only set the column when the caller actually sent it — web doesn't
     // know about this field yet, and an upsert only overwrites columns
