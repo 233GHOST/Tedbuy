@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Check, CheckCheck, Eye, EyeOff, Plus, UserCircle2, X } from 'lucide-react-native';
 import { TedBuyLogo } from './TedBuyLogo';
-import { signIn, signUp, signInWithGoogle, resetPasswordEmail, getFriendlyAuthErrorMessage, sendRegistrationCode, verifyRegistrationCode } from '../firebase';
+import { signIn, signUp, signInWithGoogle, linkPendingGoogleWithPassword, clearPendingGoogleLink, resetPasswordEmail, getFriendlyAuthErrorMessage, sendRegistrationCode, verifyRegistrationCode } from '../firebase';
 import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT } from '../context/TabBarVisibility';
 import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, validatePhoneSecure } from '../utils/registrationValidation';
@@ -64,6 +64,16 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
   const [otpInput, setOtpInput] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [isResendingCode, setIsResendingCode] = useState(false);
+
+  // Google link step: set when Google sign-in found a password account
+  // with the same email.
+  const [googleLinkEmail, setGoogleLinkEmail] = useState<string | null>(null);
+  const [linkPassword, setLinkPassword] = useState('');
+  const [isLinkPasswordVisible, setIsLinkPasswordVisible] = useState(false);
+  const [linkError, setLinkError] = useState('');
+
+  // Never leave a held Google credential behind when this panel goes away.
+  useEffect(() => () => clearPendingGoogleLink(), []);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -288,9 +298,41 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
     if (authLoading) return;
     try {
       setAuthLoading(true);
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
+      if (result.status === 'needs-password') {
+        setGoogleLinkEmail(result.email);
+        setLinkPassword('');
+        setLinkError('');
+      }
     } catch (err: any) {
       Alert.alert('Google Sign-In Failed', err?.message || 'Could not sign in with Google. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const closeGoogleLink = () => {
+    clearPendingGoogleLink();
+    setGoogleLinkEmail(null);
+    setIsRegisterMode(false);
+    setLinkPassword('');
+    setIsLinkPasswordVisible(false);
+    setLinkError('');
+  };
+
+  const handleLinkGoogle = async () => {
+    if (authLoading) return;
+    if (!linkPassword) {
+      setLinkError('Please enter your account password.');
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      await linkPendingGoogleWithPassword(linkPassword);
+      closeGoogleLink();
+      props.onSignedIn?.();
+    } catch (err: any) {
+      setLinkError(getFriendlyAuthErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
@@ -581,19 +623,51 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
     </>
   );
 
+  const renderGoogleLink = (linkEmail: string) => (
+    <>
+      <Text style={styles.otpSubtitle}>
+        An account already exists with this email address. Enter its password to link Google.
+      </Text>
+      {linkEmail ? <Text style={[styles.otpSubtitle, styles.otpEmail, { marginBottom: 12 }]}>{linkEmail}</Text> : null}
+      {linkError ? (
+        <View style={styles.errorBox} accessibilityRole="alert">
+          <Text style={styles.errorText}>{linkError}</Text>
+        </View>
+      ) : null}
+      {renderPasswordField({
+        label: 'Account Password',
+        value: linkPassword,
+        onChange: (v) => { setLinkPassword(v); setLinkError(''); },
+        placeholder: 'Enter your account password',
+        visible: isLinkPasswordVisible,
+        toggle: () => setIsLinkPasswordVisible((prev) => !prev),
+      })}
+      <Pressable onPress={handleLinkGoogle} style={styles.authSubmitButton} disabled={authLoading}>
+        {authLoading ? (
+          <ActivityIndicator color="#ffffff" size="small" />
+        ) : (
+          <Text style={styles.authSubmitText}>Confirm and Link Google</Text>
+        )}
+      </Pressable>
+      <Pressable onPress={closeGoogleLink} style={styles.toggleAuthModeBtn}>
+        <Text style={styles.toggleAuthModeText}>Cancel and return to sign in</Text>
+      </Pressable>
+    </>
+  );
+
   const renderSignIn = () => (
     <>
       <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Email Address</Text>
+        <Text style={styles.inputLabel}>Email Address or Phone Number</Text>
         <TextInput
           value={email}
           onChangeText={setEmail}
-          placeholder="you@example.com"
+          placeholder="Email, username or phone number"
           placeholderTextColor="#94a3b8"
           autoCapitalize="none"
-          keyboardType="email-address"
+          autoCorrect={false}
           style={styles.textInput}
-          accessibilityLabel="Email Address"
+          accessibilityLabel="Email Address or Phone Number"
         />
       </View>
 
@@ -686,9 +760,11 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
           {isRegisterMode ? 'CREATE MERCHANT ACCOUNT' : 'SECURE LOG IN'}
         </Text>
 
-        {isRegisterMode
-          ? (pending ? renderCodeStep(pending) : renderRegisterForm())
-          : renderSignIn()}
+        {googleLinkEmail !== null
+          ? renderGoogleLink(googleLinkEmail)
+          : isRegisterMode
+            ? (pending ? renderCodeStep(pending) : renderRegisterForm())
+            : renderSignIn()}
       </View>
     </ScrollView>
 

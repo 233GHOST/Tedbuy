@@ -1,7 +1,8 @@
 import { AppState, Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendPasswordResetEmail, sendEmailVerification, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { initializeAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendPasswordResetEmail, sendEmailVerification, GoogleAuthProvider, signInWithCredential, linkWithCredential } from 'firebase/auth';
+import type { AuthCredential, User as FirebaseUser } from 'firebase/auth';
 // @ts-ignore — getReactNativePersistence exists at runtime (Metro resolves the
 // "react-native" package-export condition correctly) but the firebase package's
 // bundled .d.ts doesn't pick up that condition, a long-standing upstream typing
@@ -582,8 +583,15 @@ export async function runWelcomePackage(username: string, email: string): Promis
 /** Sign in with an email, username or phone number. If Firebase rejects the
  * password, the server can confirm it against the legacy store and fix the
  * Firebase credential; we then retry once. The session only ever comes from
- * Firebase, so a failed retry rethrows the original Firebase error. */
+ * Firebase, so a failed retry rethrows the original Firebase error. With no
+ * profile under this uid, an older same-email profile is joined in. */
 export async function signIn(identifier: string, password: string) {
+  const cred = await signInWithPasswordFallback(identifier, password);
+  await joinExistingProfileIfAny();
+  return cred;
+}
+
+async function signInWithPasswordFallback(identifier: string, password: string) {
   let email = identifier.trim();
   if (!isEmailIdentifier(email)) {
     const resolved = await resolveLoginIdentifier(email);
@@ -669,7 +677,7 @@ export async function reloadEmailVerificationStatus(): Promise<boolean> {
 
 import { isReservedStoreName } from './types';
 import { resolveProductImageUri } from './utils/productImage';
-import { isEmailIdentifier } from './utils/authFlow';
+import { isEmailIdentifier, isMergeableProfile } from './utils/authFlow';
 
 export async function signUp(input: { email: string; password: string; username: string; phoneNumber: string; photoUri?: string }): Promise<{ verified: boolean }> {
   const { email, password, username, phoneNumber, photoUri } = input;
@@ -770,17 +778,29 @@ export function configureGoogleSignIn() {
   }
 }
 
+// Set when Google sign-in hits an email that already has a password
+// account; held only until the user links it or cancels.
+let pendingGoogleLink: { email: string; credential: AuthCredential } | null = null;
+
+/** Drops a held Google credential (the user cancelled linking). */
+export function clearPendingGoogleLink() {
+  pendingGoogleLink = null;
+}
+
 /** Matches web's loginWithGoogle (src/context/AppContext.tsx) — same
- * Firebase project (tedbuy-fb79a), so signing in with the same Google
- * account here resolves to the exact same Firebase UID as on web, landing
- * in the same TedBuy account automatically; no separate account-linking
- * step needed. New-account creation mirrors signUp() above (an
- * authenticated /api/users/sync call, never a direct database write) —
- * unlike web, which still writes the new user doc client-side. */
-export async function signInWithGoogle() {
+ * Firebase project (tedbuy-fb79a), so the same Google account lands on the
+ * same Firebase UID as on web. If that email already belongs to a password
+ * account, the Google credential is held and `needs-password` is returned
+ * so the user can link it (linkPendingGoogleWithPassword). Profile order:
+ * existing by uid, then an older same-email profile joined in, then a fresh
+ * profile via the authenticated /api/users/sync (never a direct write). */
+export async function signInWithGoogle(): Promise<
+  { status: 'signed-in'; isNewProfile: boolean } | { status: 'needs-password'; email: string }
+> {
   if (!GOOGLE_WEB_CLIENT_ID) {
     throw new Error('Google sign-in is not configured yet.');
   }
+  pendingGoogleLink = null;
   const GoogleSignin = getGoogleSignInModule();
   await GoogleSignin.hasPlayServices();
   const response = await GoogleSignin.signIn();
@@ -790,44 +810,95 @@ export async function signInWithGoogle() {
   }
 
   const credential = GoogleAuthProvider.credential(idToken);
-  const userCred = await signInWithCredential(auth, credential);
+  let userCred;
+  try {
+    userCred = await signInWithCredential(auth, credential);
+  } catch (err: any) {
+    if (err?.code !== 'auth/account-exists-with-different-credential') throw err;
+    const email = err?.customData?.email || response?.data?.user?.email || '';
+    pendingGoogleLink = { email, credential: GoogleAuthProvider.credentialFromError(err) || credential };
+    return { status: 'needs-password', email };
+  }
   const firebaseUser = userCred.user;
+
+  if (await fetchUserById(firebaseUser.uid)) return { status: 'signed-in', isNewProfile: false };
+  if (await joinOlderProfile(firebaseUser)) return { status: 'signed-in', isNewProfile: false };
 
   // First time this Google account has ever signed into TedBuy on any
   // platform — create the profile row, exactly like signUp() does for a
   // new email/password account.
-  const existingProfile = await fetchUserById(firebaseUser.uid);
-  if (!existingProfile) {
-    const newUser = {
-      id: firebaseUser.uid,
-      username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || `User_${firebaseUser.uid.substring(0, 5)}`,
-      email: firebaseUser.email || undefined,
-      role: 'both',
-      joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-      photoUrl: firebaseUser.photoURL || undefined,
-      followingSellers: [],
-      savedProductIds: [],
-      // Google already verifies the email address itself.
-      emailVerified: true,
-      isGoogleAuth: true,
-      authProvider: 'google.com',
-    };
-    let profileSynced = false;
-    for (let attempt = 0; attempt < 3 && !profileSynced; attempt++) {
-      const data = await apiFetch('/api/users/sync', { method: 'POST', body: { user: newUser } });
-      if (data.success) {
-        profileSynced = true;
-      } else {
-        console.warn(`[signInWithGoogle] Profile sync attempt ${attempt + 1} failed:`, data.error);
-        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
-      }
-    }
-    if (!profileSynced) {
-      throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
+  const newUser = {
+    id: firebaseUser.uid,
+    username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || `User_${firebaseUser.uid.substring(0, 5)}`,
+    email: firebaseUser.email || undefined,
+    role: 'both',
+    joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+    photoUrl: firebaseUser.photoURL || undefined,
+    followingSellers: [],
+    savedProductIds: [],
+    // Google already verifies the email address itself.
+    emailVerified: true,
+    isGoogleAuth: true,
+    authProvider: 'google.com',
+  };
+  let profileSynced = false;
+  for (let attempt = 0; attempt < 3 && !profileSynced; attempt++) {
+    const data = await apiFetch('/api/users/sync', { method: 'POST', body: { user: newUser } });
+    if (data.success) {
+      profileSynced = true;
+    } else {
+      console.warn(`[signInWithGoogle] Profile sync attempt ${attempt + 1} failed:`, data.error);
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
     }
   }
+  if (!profileSynced) {
+    throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
+  }
+  await runWelcomePackage(newUser.username, newUser.email || '');
+  return { status: 'signed-in', isNewProfile: true };
+}
 
-  return userCred;
+/** Matches web's linkGoogleWithPassword: signs in to the existing password
+ * account, then links the held Google credential to it. The credential is
+ * cleared only on success, so a mistyped password can be retried. */
+export async function linkPendingGoogleWithPassword(password: string): Promise<void> {
+  if (!pendingGoogleLink) {
+    throw new Error('No Google linking data available.');
+  }
+  const { email, credential } = pendingGoogleLink;
+  const userCred = await signInWithEmailAndPassword(auth, email, password);
+  await linkWithCredential(userCred.user, credential);
+  pendingGoogleLink = null;
+  await joinExistingProfileIfAny();
+}
+
+/** When the signed-in user has no profile under their own uid, joins an
+ * older profile with the same email into it (the server-backed part of
+ * web's findAndMigrateExistingUser). The server re-checks that the emails
+ * match before merging. Never throws; true when a profile was merged. */
+export async function joinExistingProfileIfAny(): Promise<boolean> {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) return false;
+  if (await fetchUserById(firebaseUser.uid)) return false;
+  return joinOlderProfile(firebaseUser);
+}
+
+async function joinOlderProfile(firebaseUser: FirebaseUser): Promise<boolean> {
+  const email = firebaseUser.email?.trim().toLowerCase();
+  if (!email) return false;
+  try {
+    const found = await apiFetch(`/api/users/get?email=${encodeURIComponent(email)}`);
+    if (!found?.success || !isMergeableProfile(found.user, firebaseUser.uid)) return false;
+    const merged = await apiFetch('/api/users/merge-account', {
+      method: 'POST',
+      body: { oldUserId: found.user.id, photoUrl: firebaseUser.photoURL || undefined },
+    });
+    if (merged?.success && merged.user) return true;
+    console.warn('[joinExistingProfileIfAny] Merge refused or failed:', merged?.error);
+  } catch (err) {
+    console.warn('[joinExistingProfileIfAny] Failed:', err);
+  }
+  return false;
 }
 
 /**
