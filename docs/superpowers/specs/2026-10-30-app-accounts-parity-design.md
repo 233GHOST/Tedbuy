@@ -129,11 +129,12 @@ before fixing.
   it already does (e.g. `regions.ts`); copy `registrationValidation.ts` the same way.
 - The reserved owner email and "tedbuy" store-name rules apply in the app too
   (the app already has the store-name rule).
-- Testing is on staging first (local server against staging Supabase
-  djlvwjkrcsfpxfjovelc), then the Android emulator. Sending codes locally needs
-  `BREVO_API_KEY` in the local `.env`. It is not there now, so the owner will be
-  given the exact line to add. Firebase project tedbuy-fb79a is shared by
-  staging and live, so test accounts must be throwaway emails and get deleted after.
+- Testing happens on live with throwaway accounts, not locally: the local
+  `.env` has no Firebase Admin service account or `BREVO_API_KEY`, so locally
+  every account looks unverified and no code can be sent. The app always calls
+  www.tedbuy.store, so the server fix ships before the app's emulator checks.
+  Firebase project tedbuy-fb79a is shared by staging and live; test accounts
+  use throwaway emails and are deleted after.
 - The owner only uses an iPhone and the website; every app check is done by the
   owner on the emulator, so each app task ends with a short, plain list of
   things to tap through.
