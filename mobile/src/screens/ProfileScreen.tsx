@@ -564,25 +564,6 @@ export function ProfileScreen() {
                     )}
                   </View>
                 </View>
-
-                {/* Settings Gear Toggle */}
-                <Pressable
-                  onPress={() => {
-                    setActiveTab((prev) => (prev === 'settings' ? 'dashboard' : 'settings'));
-                  }}
-                  style={[
-                    styles.settingsGearBtn,
-                    activeTab === 'settings' && styles.settingsGearBtnActive,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Settings"
-                >
-                  <SettingsIcon
-                    size={18}
-                    color={activeTab === 'settings' ? '#ffffff' : '#475569'}
-                    strokeWidth={2.2}
-                  />
-                </Pressable>
               </View>
 
               {/* 4-Column Stats Row: Following, Followers, Views, Saved */}
@@ -1157,8 +1138,6 @@ const styles = StyleSheet.create({
   partnerBadgeText: { fontSize: 9.5, fontFamily: fonts.bold, color: '#ea580c' },
   adminBadge: { backgroundColor: '#faf5ff', borderWidth: 1, borderColor: '#e9d5ff', borderRadius: 9999, paddingHorizontal: 7, paddingVertical: 1.5 },
   adminBadgeText: { fontSize: 9.5, fontFamily: fonts.bold, color: '#7e22ce' },
-  settingsGearBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
-  settingsGearBtnActive: { backgroundColor: '#0f172a', borderColor: '#0f172a' },
 
   /* 4 Stats columns */
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
