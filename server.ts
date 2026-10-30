@@ -3738,9 +3738,10 @@ async function upsertProductToSupabase(productData: any, actingUser?: { uid: str
 
 // Verify-before-posting for new listings. emailVerified is read from Firebase
 // Admin (authoritative) rather than the token claim, which can be stale right
-// after the user clicks the link. Fails closed if the lookup throws.
+// after the user clicks the link. Fails closed if the lookup throws (503,
+// "try again", so a verified user isn't sent into a verify loop).
 async function checkNewListingAllowed(uid: string) {
-  let emailVerified = false;
+  let emailVerified: boolean | null = null;
   try {
     emailVerified = (await getAdminAuth().getUser(uid)).emailVerified === true;
   } catch (err: any) {
