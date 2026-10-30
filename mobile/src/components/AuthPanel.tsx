@@ -573,7 +573,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
         {authLoading ? (
           <ActivityIndicator color="#ffffff" size="small" />
         ) : (
-          <Text style={styles.authSubmitText}>Create Store</Text>
+          <Text style={styles.authSubmitText}>Create Account</Text>
         )}
       </Pressable>
 
