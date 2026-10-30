@@ -22,7 +22,7 @@ import { CATEGORY_FILTERS, getModelsForBrand } from '../utils/filterConfig';
 import { Product, isUserVerified, isUserAdmin } from '../types';
 import { auth, fetchProducts, fetchProductsWithStatus, fetchVideoAds, watchProducts, watchUsers, startChatApi, toggleFollowSeller, fetchSellerListingCounts, fetchFeaturedProducts, fetchTrendingProducts } from '../firebase';
 import { useServerList } from '../hooks/useServerList';
-import { preferServerList } from '../utils/preferServerList';
+import { preferServerList, dropUnavailable } from '../utils/preferServerList';
 import { EmailVerificationModal } from '../components/EmailVerificationModal';
 import { fonts } from '../theme';
 
@@ -1252,8 +1252,8 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   const serverFeatured = useServerList(() => fetchFeaturedProducts(selectedCategory), selectedCategory, serverListsToken);
   const serverTrending = useServerList(() => fetchTrendingProducts(selectedCategory), selectedCategory, serverListsToken);
   const featuredProducts = useMemo(
-    () => preferServerList(serverFeatured as Product[] | null, localFeaturedProducts),
-    [serverFeatured, localFeaturedProducts]
+    () => preferServerList(dropUnavailable(serverFeatured as Product[] | null, products), localFeaturedProducts),
+    [serverFeatured, localFeaturedProducts, products]
   );
 
   const scrollToFeaturedIndex = (index: number) => {
@@ -1295,8 +1295,8 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     [products, selectedCategory]
   );
   const trendingProducts = useMemo(
-    () => preferServerList(serverTrending as Product[] | null, localTrendingProducts),
-    [serverTrending, localTrendingProducts]
+    () => preferServerList(dropUnavailable(serverTrending as Product[] | null, products), localTrendingProducts),
+    [serverTrending, localTrendingProducts, products]
   );
 
   // Personalized "For You" discovery memo (Phase 4A) — computed entirely from

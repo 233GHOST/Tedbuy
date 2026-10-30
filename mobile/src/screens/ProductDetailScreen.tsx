@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Bookmark, Share2, ShieldAlert, X, MessageSquare, Shield } from 'lucide-react-native';
 import { useServerList } from '../hooks/useServerList';
-import { preferServerList } from '../utils/preferServerList';
+import { preferServerList, dropUnavailable } from '../utils/preferServerList';
 import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView, fetchSimilarProducts, getDropshipPurchaseInfo, listingErrorTitle, DropshipPurchaseInfoMobile } from '../firebase';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
@@ -204,8 +204,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
     !!product?.id && !!product?.category
   );
   const similarProducts = useMemo(
-    () => preferServerList(serverSimilar as Product[] | null, localSimilarProducts),
-    [serverSimilar, localSimilarProducts]
+    () => preferServerList(dropUnavailable(serverSimilar as Product[] | null, allProducts), localSimilarProducts),
+    [serverSimilar, localSimilarProducts, allProducts]
   );
 
   const handleLike = async () => {

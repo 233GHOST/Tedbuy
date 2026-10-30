@@ -5,7 +5,7 @@ import { Flame } from 'lucide-react-native';
 import { BackButton } from '../components/BackButton';
 import { watchProducts, fetchFeaturedProducts } from '../firebase';
 import { useServerList } from '../hooks/useServerList';
-import { preferServerList } from '../utils/preferServerList';
+import { preferServerList, dropUnavailable } from '../utils/preferServerList';
 import { Product } from '../types';
 import { fonts } from '../theme';
 import { ProductCard } from '../components/ProductCard';
@@ -51,12 +51,12 @@ export function FeaturedListingsScreen({ onBack, navigation, category }: Feature
       });
   }, [products]);
 
-  // Server list (uncategorised, like the website's full-page view); the
+  // Server list for the category the user was browsing (like the website's view); the
   // on-phone list above is the fallback while loading or if the server is unreachable.
-  const serverFeatured = useServerList(() => fetchFeaturedProducts(), 'all');
+  const serverFeatured = useServerList(() => fetchFeaturedProducts(category), category || 'All');
   const featuredProducts = useMemo(
-    () => preferServerList(serverFeatured as Product[] | null, localFeaturedProducts),
-    [serverFeatured, localFeaturedProducts]
+    () => preferServerList(dropUnavailable(serverFeatured as Product[] | null, products), localFeaturedProducts),
+    [serverFeatured, localFeaturedProducts, products]
   );
 
   return (
