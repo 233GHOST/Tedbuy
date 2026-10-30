@@ -976,19 +976,24 @@ const MEDIA_REF_MAX_PAGES = 500;
 async function loadMediaReferences(items: MediaDeleteItem[]): Promise<{ products: ProductMediaRef[]; users: UserPhotoRef[] }> {
   if (!backendSupabase) throw new Error('Database service unavailable');
   const products: ProductMediaRef[] = [];
-  let from = 0;
+  // Keyset paging (id > lastId): a row deleted mid-scan can't shift later rows past the cursor.
+  let lastId: string | number | null = null;
   for (let page = 0; ; page++) {
     if (page >= MEDIA_REF_MAX_PAGES) throw new Error('Media reference scan exceeded its page limit');
-    const { data, error } = await backendSupabase
+    let query = backendSupabase
       .from('products')
       .select('id, images, videos')
       .order('id', { ascending: true })
-      .range(from, from + MEDIA_REF_PAGE_SIZE - 1);
+      .limit(MEDIA_REF_PAGE_SIZE);
+    if (lastId !== null) query = query.gt('id', lastId);
+    const { data, error } = await query;
     if (error) throw error;
     if (!Array.isArray(data)) throw new Error('Media reference scan returned no rows array');
     if (data.length === 0) break;
     for (const row of data) products.push({ productId: String(row.id), images: row.images, videos: row.videos });
-    from += data.length;
+    const last = data[data.length - 1]?.id;
+    if (last === undefined || last === null) throw new Error('Media reference scan row has no id');
+    lastId = last;
   }
 
   const users: UserPhotoRef[] = [];
@@ -1014,7 +1019,7 @@ async function loadMediaReferences(items: MediaDeleteItem[]): Promise<{ products
   return { products, users };
 }
 
-async function deleteCloudinaryAssetsIfUnused(items: MediaDeleteItem[], exclude: MediaRefExclusion): Promise<MediaDeleteOutcome[]> {
+async function deleteCloudinaryAssetsIfUnused(items: MediaDeleteItem[], exclude: MediaRefExclusion, extraProductRefs: ProductMediaRef[] = []): Promise<MediaDeleteOutcome[]> {
   if (items.length === 0) return [];
   let refs: { products: ProductMediaRef[]; users: UserPhotoRef[] };
   try {
@@ -1025,7 +1030,7 @@ async function deleteCloudinaryAssetsIfUnused(items: MediaDeleteItem[], exclude:
   }
   const outcomes: MediaDeleteOutcome[] = [];
   for (const item of items) {
-    if (isStillReferenced({ url: item.url, publicId: item.publicId }, refs.products, refs.users, exclude)) {
+    if (isStillReferenced({ url: item.url, publicId: item.publicId }, [...refs.products, ...extraProductRefs], refs.users, exclude)) {
       console.log(`[Cloudinary Delete] Skipped ${item.publicId}: still used by another listing or profile.`);
       outcomes.push({ status: 'skipped', reason: 'still_in_use' });
       continue;
@@ -1996,13 +2001,14 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
 
     const results: any[] = protectedUrls.map(url => ({ url, success: true, skipped: true, reason: 'dropship_protected' }));
     // Skipped while any OTHER listing or any profile still shows it (this listing is the one
-    // being edited, so its own soon-to-be-replaced media list doesn't count).
+    // being edited, so its own soon-to-be-replaced media list doesn't count). The request's new
+    // media counts as a reference, so a re-versioned/transformed URL of a kept asset survives.
     const orphanItems: (MediaDeleteItem & { url: string })[] = [];
     for (const orphanUrl of orphans) {
       const info = extractCloudinaryInfo(orphanUrl);
       if (info) orphanItems.push({ url: orphanUrl, publicId: info.publicId, resourceType: info.resourceType });
     }
-    const orphanOutcomes = await deleteCloudinaryAssetsIfUnused(orphanItems, { productId });
+    const orphanOutcomes = await deleteCloudinaryAssetsIfUnused(orphanItems, { productId }, [{ productId: '__new__', images: newUrls }]);
     orphanItems.forEach((item, i) => {
       const outcome = orphanOutcomes[i];
       if (outcome.status === 'deleted') {

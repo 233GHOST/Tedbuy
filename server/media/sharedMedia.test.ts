@@ -75,3 +75,9 @@ test('non-Cloudinary references still match by exact URL', () => {
   assert.equal(isStillReferenced(plain, [{ productId: 'x', images: [plain] }], [], {}), true);
   assert.equal(isStillReferenced(plain, [{ productId: 'x', images: ['https://example.com/b.jpg'] }], [], {}), false);
 });
+
+test('same asset under a different URL in the edited listing\'s new media -> not deleted', () => {
+  const newMediaRef = { productId: '__new__', images: [URL_A_TRANSFORMED] };
+  assert.equal(isStillReferenced(URL_A, [newMediaRef], [], { productId: 'edited' }), true);
+  assert.equal(isStillReferenced(URL_B, [newMediaRef], [], { productId: 'edited' }), false);
+});
