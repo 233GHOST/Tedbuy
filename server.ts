@@ -24,6 +24,7 @@ import { extractCloudinaryInfo } from "./server/cloudinaryInfo.js";
 import { adminUserDeleteDecision, capListResponse, cleanupOrphansDecision, excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget } from "./server/dropship/legacyGuards.js";
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { decideAppHandoff, isRestrictedUserRow } from "./server/auth/appHandoff.js";
+import { createCheckedEmailStore, decideCompleteRegistration } from "./server/auth/registrationVerification.js";
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -7307,6 +7308,9 @@ app.post("/api/auth/send-registration-otp", serverRateLimiter(60 * 1000, 10, "re
   }
 });
 
+// Emails whose sign-up code was checked; consumed by /api/auth/complete-registration.
+const checkedRegistrationEmails = createCheckedEmailStore();
+
 // Endpoint 2: Verify 6-Digit Registration OTP Code
 // This is the actual brute-force target for a 6-digit OTP (1M combinations)
 // — the sibling send-otp endpoint being rate-limited doesn't protect this
@@ -7350,6 +7354,7 @@ app.post("/api/auth/verify-registration-otp", serverRateLimiter(15 * 60 * 1000, 
 
     // OTP verified successfully!
     registrationOtpStore.delete(cleanEmail);
+    checkedRegistrationEmails.markChecked(cleanEmail);
     console.log(`[Registration OTP Verified] Code verified successfully for ${cleanEmail}`);
 
     return res.json({
@@ -7359,6 +7364,45 @@ app.post("/api/auth/verify-registration-otp", serverRateLimiter(15 * 60 * 1000, 
   } catch (err: any) {
     console.error('[Verify Registration OTP Error]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Server error verifying code.' });
+  }
+});
+
+// Marks the signed-in user's Firebase email verified, but only if their sign-up code was checked.
+app.post("/api/auth/complete-registration", serverRateLimiter(15 * 60 * 1000, 10, "complete-registration"), async (req: express.Request, res: express.Response) => {
+  try {
+    const impersonationHeader = req.headers['x-impersonation-session-id'];
+    const verified = await verifyUser(req.headers.authorization, impersonationHeader as any);
+    let alreadyVerified = false;
+    let checked = false;
+    if (verified && verified.uid && verified.email) {
+      alreadyVerified = (await getAdminAuth().getUser(verified.uid)).emailVerified === true;
+      checked = checkedRegistrationEmails.has(verified.email);
+    }
+    const decision = decideCompleteRegistration({
+      verified,
+      impersonationHeaderPresent: !!impersonationHeader,
+      alreadyVerified,
+      checked,
+    });
+    if (decision.ok === false) return res.status(decision.status).json({ success: false, error: decision.error });
+    if (decision.action === 'already-verified') return res.json({ success: true, emailVerified: true });
+
+    const uid = verified!.uid;
+    const email = verified!.email!;
+    if (!checkedRegistrationEmails.consume(email)) {
+      return res.status(403).json({ success: false, error: 'No checked sign-up code for this email. Request a new code.' });
+    }
+    await getAdminAuth().updateUser(uid, { emailVerified: true });
+    try {
+      const { error: rowErr } = await backendSupabase.from('users').update({ emailVerified: true }).eq('id', uid);
+      if (rowErr) console.warn('[complete-registration] users row update failed:', rowErr.message);
+    } catch (rowEx: any) {
+      console.warn('[complete-registration] users row update threw:', rowEx?.message || 'unknown');
+    }
+    return res.json({ success: true, emailVerified: true });
+  } catch (err: any) {
+    console.error('[complete-registration] failed:', err?.code || err?.message || 'unknown');
+    return res.status(500).json({ success: false, error: 'Could not complete registration. Please try again.' });
   }
 });
 
