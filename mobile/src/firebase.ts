@@ -550,6 +550,8 @@ export async function completeRegistration(): Promise<boolean> {
       return true;
     }
     console.warn(`[completeRegistration] Attempt ${attempt + 1} failed:`, data?.error);
+    // A 400/401/403/429 answer won't change by asking again.
+    if (!isRetryableRegistrationFailure(data?.errorCode)) return false;
     if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
   }
   return false;
@@ -585,10 +587,12 @@ export async function runWelcomePackage(username: string, email: string): Promis
  * Firebase credential; we then retry once. The session only ever comes from
  * Firebase, so a failed retry rethrows the original Firebase error. With no
  * profile under this uid, an older same-email profile is joined in. */
-export async function signIn(identifier: string, password: string) {
-  const cred = await signInWithPasswordFallback(identifier, password);
-  await joinExistingProfileIfAny();
-  return cred;
+export function signIn(identifier: string, password: string) {
+  return trackAuthFlow(async () => {
+    const cred = await signInWithPasswordFallback(identifier, password);
+    await joinExistingProfileIfAny();
+    return cred;
+  });
 }
 
 async function signInWithPasswordFallback(identifier: string, password: string) {
@@ -677,15 +681,25 @@ export async function reloadEmailVerificationStatus(): Promise<boolean> {
 
 import { isReservedStoreName } from './types';
 import { resolveProductImageUri } from './utils/productImage';
-import { isEmailIdentifier, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE } from './utils/authFlow';
+import { isEmailIdentifier, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE, repairAction, isRetryableRegistrationFailure } from './utils/authFlow';
 import type { LookupOutcome, ProfileLookups, ProfileStep } from './utils/authFlow';
 
-export async function signUp(input: { email: string; password: string; username: string; phoneNumber: string; photoUri?: string }): Promise<{ verified: boolean }> {
+type SignUpInput = { email: string; password: string; username: string; phoneNumber: string; photoUri?: string };
+
+export function signUp(input: SignUpInput): Promise<{ verified: boolean }> {
+  return trackAuthFlow(() => signUpInner(input));
+}
+
+async function signUpInner(input: SignUpInput): Promise<{ verified: boolean }> {
   const { email, password, username, phoneNumber, photoUri } = input;
   if (isReservedStoreName(username)) {
     throw new Error('This store name is reserved by TedBuy.');
   }
   const credential = await createUserWithEmailAndPassword(auth, email, password);
+  // Kept until the profile row is saved, so the on-load repair
+  // (ensureProfileForSignedInUser) can still use the typed details if the
+  // save below fails.
+  pendingSignUpDetails = { uid: credential.user.uid, username: username.trim(), phoneNumber: phoneNumber.trim() };
   await updateProfile(credential.user, { displayName: username });
   // The sign-up code was already accepted, so ask the server to mark the
   // email verified before the profile row is written (it reads the flag from
@@ -713,19 +727,14 @@ export async function signUp(input: { email: string; password: string; username:
   // A couple of quick retries gives a transient network blip a real chance
   // to resolve itself; if it still fails, the user is told honestly rather
   // than shown a false success.
-  let profileSynced = false;
-  for (let attempt = 0; attempt < 3 && !profileSynced; attempt++) {
-    const data = await apiFetch('/api/users/sync', { method: 'POST', body: { user: newUser } });
-    if (data.success) {
-      profileSynced = true;
-    } else {
-      console.warn(`[signUp] Profile sync attempt ${attempt + 1} failed:`, data.error);
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
-    }
+  if (!(await saveNewProfile(newUser, 'signUp'))) {
+    // Signed out so the next sign-in starts clean; ProfileScreen's repair
+    // (ensureProfileForSignedInUser) then creates the profile for this
+    // verified account.
+    await signOutEverywhere();
+    throw new Error('Your account was created, but we could not finish setting up your profile. Please check your connection and sign in again.');
   }
-  if (!profileSynced) {
-    throw new Error('Your account was created, but we could not finish setting up your profile. Please check your connection and try signing in again.');
-  }
+  pendingSignUpDetails = null;
   if (photoUri) {
     try {
       const photoUrl = await uploadMediaToCloudinaryMobile(photoUri, 'image');
@@ -795,9 +804,13 @@ export function clearPendingGoogleLink() {
  * so the user can link it (linkPendingGoogleWithPassword). Profile order:
  * existing by uid, then an older same-email profile joined in, then a fresh
  * profile via the authenticated /api/users/sync (never a direct write). */
-export async function signInWithGoogle(): Promise<
-  { status: 'signed-in'; isNewProfile: boolean } | { status: 'needs-password'; email: string }
-> {
+type GoogleSignInResult = { status: 'signed-in'; isNewProfile: boolean } | { status: 'needs-password'; email: string };
+
+export function signInWithGoogle(): Promise<GoogleSignInResult> {
+  return trackAuthFlow(signInWithGoogleInner);
+}
+
+async function signInWithGoogleInner(): Promise<GoogleSignInResult> {
   if (!GOOGLE_WEB_CLIENT_ID) {
     throw new Error('Google sign-in is not configured yet.');
   }
@@ -817,6 +830,11 @@ export async function signInWithGoogle(): Promise<
   } catch (err: any) {
     if (err?.code !== 'auth/account-exists-with-different-credential') throw err;
     const email = err?.customData?.email || response?.data?.user?.email || '';
+    if (!email) {
+      // Nothing to link against; the password sign-in has to come first.
+      try { await GoogleSignin.signOut(); } catch { /* no Google session */ }
+      throw new Error('An account already exists with this email address. Please sign in with your email and password first.');
+    }
     pendingGoogleLink = { email, credential: GoogleAuthProvider.credentialFromError(err) || credential };
     return { status: 'needs-password', email };
   }
@@ -825,9 +843,15 @@ export async function signInWithGoogle(): Promise<
   // Only a clear "no profile anywhere" creates one: /api/users/sync upserts
   // by id, so creating after a failed lookup could overwrite a real profile
   // or leave an older same-email profile behind as a duplicate.
+  // Signed out again on any failure, so tapping Google once more is the
+  // whole recovery (no half signed-in session without a profile).
   const step = await resolveProfile(firebaseUser);
-  if (step === 'refused') throw new Error(MERGE_REFUSED_MESSAGE);
+  if (step === 'refused') {
+    await signOutEverywhere();
+    throw new Error(MERGE_REFUSED_MESSAGE);
+  }
   if (step === 'fail') {
+    await signOutEverywhere();
     throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
   }
   if (step !== 'create-fresh') return { status: 'signed-in', isNewProfile: false };
@@ -835,7 +859,18 @@ export async function signInWithGoogle(): Promise<
   // First time this Google account has ever signed into TedBuy on any
   // platform — create the profile row, exactly like signUp() does for a
   // new email/password account.
-  const newUser = {
+  const newUser = googleProfileFor(firebaseUser);
+  if (!(await saveNewProfile(newUser, 'signInWithGoogle'))) {
+    await signOutEverywhere();
+    throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
+  }
+  await runWelcomePackage(newUser.username, newUser.email || '');
+  return { status: 'signed-in', isNewProfile: true };
+}
+
+/** A fresh profile row for a Google account. */
+function googleProfileFor(firebaseUser: FirebaseUser) {
+  return {
     id: firebaseUser.uid,
     username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || `User_${firebaseUser.uid.substring(0, 5)}`,
     email: firebaseUser.email || undefined,
@@ -849,27 +884,28 @@ export async function signInWithGoogle(): Promise<
     isGoogleAuth: true,
     authProvider: 'google.com',
   };
-  let profileSynced = false;
-  for (let attempt = 0; attempt < 3 && !profileSynced; attempt++) {
+}
+
+/** Writes a new profile row through the authenticated /api/users/sync, with
+ * a couple of quick retries for a transient network blip. */
+async function saveNewProfile(newUser: Record<string, unknown>, tag: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const data = await apiFetch('/api/users/sync', { method: 'POST', body: { user: newUser } });
-    if (data.success) {
-      profileSynced = true;
-    } else {
-      console.warn(`[signInWithGoogle] Profile sync attempt ${attempt + 1} failed:`, data.error);
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
-    }
+    if (data.success) return true;
+    console.warn(`[${tag}] Profile sync attempt ${attempt + 1} failed:`, data.error);
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
   }
-  if (!profileSynced) {
-    throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
-  }
-  await runWelcomePackage(newUser.username, newUser.email || '');
-  return { status: 'signed-in', isNewProfile: true };
+  return false;
 }
 
 /** Matches web's linkGoogleWithPassword: signs in to the existing password
  * account, then links the held Google credential to it. The credential is
  * cleared only on success, so a mistyped password can be retried. */
-export async function linkPendingGoogleWithPassword(password: string): Promise<void> {
+export function linkPendingGoogleWithPassword(password: string): Promise<void> {
+  return trackAuthFlow(() => linkPendingGoogleWithPasswordInner(password));
+}
+
+async function linkPendingGoogleWithPasswordInner(password: string): Promise<void> {
   if (!pendingGoogleLink) {
     throw new Error('No Google linking data available.');
   }
@@ -893,6 +929,77 @@ export async function joinExistingProfileIfAny(): Promise<boolean> {
   } catch (err) {
     console.warn('[joinExistingProfileIfAny] Failed:', err);
     return false;
+  }
+}
+
+// Sign-in/sign-up flows that are still setting up the profile. The on-load
+// repair waits for these, so it never races a merge or first save.
+const authFlowsInFlight = new Set<Promise<unknown>>();
+
+async function trackAuthFlow<T>(run: () => Promise<T>): Promise<T> {
+  const flow = run();
+  authFlowsInFlight.add(flow);
+  try {
+    return await flow;
+  } finally {
+    authFlowsInFlight.delete(flow);
+  }
+}
+
+// Details typed at sign-up, held (in memory only) until the profile row is
+// saved, so a repair after a failed save keeps the phone number.
+let pendingSignUpDetails: { uid: string; username: string; phoneNumber: string } | null = null;
+
+let ensureInFlight: Promise<'ok' | 'failed'> | null = null;
+
+/** For a signed-in user with no profile under their uid: joins an older
+ * same-email profile, or creates a fresh one for a Google account or a
+ * verified email, by the same tested decision as sign-in. Fails closed: a
+ * failed lookup or refused merge is 'failed' and nothing is created. Never
+ * throws. 'ok' also when the profile already exists or nobody is signed in. */
+export function ensureProfileForSignedInUser(): Promise<'ok' | 'failed'> {
+  if (!ensureInFlight) {
+    ensureInFlight = ensureProfileInner().finally(() => { ensureInFlight = null; });
+  }
+  return ensureInFlight;
+}
+
+async function ensureProfileInner(): Promise<'ok' | 'failed'> {
+  while (authFlowsInFlight.size > 0) {
+    await Promise.allSettled([...authFlowsInFlight]);
+  }
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) return 'ok';
+  try {
+    const step = await resolveProfile(firebaseUser);
+    if (step === 'create-fresh') {
+      // emailVerified may have changed (complete-registration, link click).
+      try { await firebaseUser.reload(); } catch { /* use the cached flag */ }
+    }
+    const isGoogle = firebaseUser.providerData.some((p) => p?.providerId === 'google.com');
+    const action = repairAction(step, { isGoogle, emailVerified: firebaseUser.emailVerified === true });
+    if (action !== 'create') return action;
+    if (auth.currentUser?.uid !== firebaseUser.uid) return 'failed';
+
+    const typed = pendingSignUpDetails?.uid === firebaseUser.uid ? pendingSignUpDetails : null;
+    const newUser = isGoogle ? googleProfileFor(firebaseUser) : {
+      id: firebaseUser.uid,
+      username: typed?.username || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || `User_${firebaseUser.uid.substring(0, 5)}`,
+      email: firebaseUser.email?.trim() || undefined,
+      phoneNumber: typed?.phoneNumber || undefined,
+      role: 'both',
+      joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      followingSellers: [],
+      savedProductIds: [],
+    };
+    if (!(await saveNewProfile(newUser, 'ensureProfileForSignedInUser'))) return 'failed';
+    if (typed) pendingSignUpDetails = null;
+    // Only reached for a fresh profile on a Google or verified email.
+    await runWelcomePackage(newUser.username, newUser.email || '');
+    return 'ok';
+  } catch (err) {
+    console.warn('[ensureProfileForSignedInUser] Failed:', err);
+    return 'failed';
   }
 }
 
@@ -980,7 +1087,11 @@ export async function sendPresenceHeartbeat() {
   }
 }
 
-export async function logOut() {
+export function logOut() {
+  return signOutEverywhere();
+}
+
+async function signOutEverywhere() {
   // The native Google Sign-In SDK keeps its own signed-in session on the
   // device, entirely separate from Firebase Auth -- signOut(auth) alone
   // never clears it, so a user who signs out and then taps "Sign in with

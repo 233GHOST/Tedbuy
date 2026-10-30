@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isEmailIdentifier, normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE, isMergeableProfile, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE } from './authFlow.ts';
+import { isEmailIdentifier, normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE, isMergeableProfile, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE, repairAction, isRetryableRegistrationFailure } from './authFlow.ts';
 
 test('isEmailIdentifier: only values containing @ are emails', () => {
   assert.equal(isEmailIdentifier('a@b.com'), true);
@@ -74,4 +74,32 @@ test('nextProfileStep: merge 404 (old account gone) creates fresh', () => {
 test('nextProfileStep: merge 403 (refused) stops with the support message', () => {
   assert.equal(nextProfileStep({ byId: 'not-found', byEmail: 'found', emailMatch: 'mergeable', merge: 'refused' }), 'refused');
   assert.ok(MERGE_REFUSED_MESSAGE.includes('info.tedbuy@gmail.com'));
+});
+
+test('repairAction: existing or merged profile is fine', () => {
+  const acct = { isGoogle: false, emailVerified: false };
+  assert.equal(repairAction('use-existing', acct), 'ok');
+  assert.equal(repairAction('merged', acct), 'ok');
+});
+
+test('repairAction: create-fresh only for Google or a verified email', () => {
+  assert.equal(repairAction('create-fresh', { isGoogle: true, emailVerified: false }), 'create');
+  assert.equal(repairAction('create-fresh', { isGoogle: false, emailVerified: true }), 'create');
+  assert.equal(repairAction('create-fresh', { isGoogle: false, emailVerified: false }), 'failed');
+});
+
+test('repairAction: a failed lookup or refused merge never creates', () => {
+  const acct = { isGoogle: true, emailVerified: true };
+  assert.equal(repairAction('fail', acct), 'failed');
+  assert.equal(repairAction('refused', acct), 'failed');
+  // An errored id lookup is `fail`, never create-fresh.
+  assert.equal(repairAction(nextProfileStep({ byId: 'error' }) as any, acct), 'failed');
+  assert.equal(repairAction(nextProfileStep({ byId: 'not-found', byEmail: 'error' }) as any, acct), 'failed');
+});
+
+test('isRetryableRegistrationFailure: only connection, timeout and server failures', () => {
+  for (const c of ['NETWORK', 'TIMEOUT', 'PARSE', 'SERVER']) assert.equal(isRetryableRegistrationFailure(c), true, c);
+  for (const c of ['CLIENT', 'SESSION_EXPIRED', 'FORBIDDEN', 'RATE_LIMIT', 'NOT_FOUND', undefined]) {
+    assert.equal(isRetryableRegistrationFailure(c), false, String(c));
+  }
 });

@@ -62,3 +62,28 @@ export function classifyEmailMatch(found: { id?: string; isDeleted?: boolean; st
   if (found?.id === uid) return 'same-uid';
   return isMergeableProfile(found, uid) ? 'mergeable' : 'unmergeable';
 }
+
+/** What the on-load repair does with a final profile step for a user who is
+ * signed in but has no profile. A fresh profile is only made for a Google
+ * account or a password account whose email Firebase says is verified;
+ * anything else (failed lookup, refused merge, unverified email) is
+ * `failed`, so nothing is ever created after an errored lookup. */
+export function repairAction(
+  step: Exclude<ProfileStep, 'lookup-email' | 'merge'>,
+  account: { isGoogle: boolean; emailVerified: boolean },
+): 'ok' | 'create' | 'failed' {
+  if (step === 'use-existing' || step === 'merged') return 'ok';
+  if (step === 'create-fresh' && (account.isGoogle || account.emailVerified)) return 'create';
+  return 'failed';
+}
+
+/** complete-registration is retried only for a dropped connection, a
+ * timeout, an unreadable reply or a 5xx; a 400/401/403/429 answer won't
+ * change by asking again. */
+export function isRetryableRegistrationFailure(errorCode: string | undefined): boolean {
+  return errorCode === 'NETWORK' || errorCode === 'TIMEOUT' || errorCode === 'PARSE' || errorCode === 'SERVER';
+}
+
+/** Shown on Profile when a signed-in account's profile couldn't be set up. */
+export const PROFILE_REPAIR_FAILED_MESSAGE =
+  "We couldn't finish setting up your profile. Please check your connection and try again. If this keeps happening, contact TedBuy Support at info.tedbuy@gmail.com.";

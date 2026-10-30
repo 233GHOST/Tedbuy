@@ -8,7 +8,8 @@ import { TedBuyLogo } from '../components/TedBuyLogo';
 import { AuthPanel } from '../components/AuthPanel';
 import { BackButton } from '../components/BackButton';
 import { BoostModal } from '../components/BoostModal';
-import { auth, observeAuthState, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, logOut, getDropshipStatus, listingErrorTitle } from '../firebase';
+import { auth, observeAuthState, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, logOut, getDropshipStatus, listingErrorTitle, ensureProfileForSignedInUser } from '../firebase';
+import { PROFILE_REPAIR_FAILED_MESSAGE } from '../utils/authFlow';
 import {
   Users as UsersIcon,
   Bookmark,
@@ -63,6 +64,9 @@ export function ProfileScreen() {
   const [user, setUser] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
+  // Signed in but the profile couldn't be found or set up; shows a retry.
+  const [profileRepairFailed, setProfileRepairFailed] = useState(false);
+  const [isRepairingProfile, setIsRepairingProfile] = useState(false);
   // Own-profile Followers/Following — was entirely missing on mobile (the
   // same feature already exists for viewing OTHER sellers in
   // SellerProfileScreen.tsx; this ports that same pattern for yourself).
@@ -220,15 +224,32 @@ export function ProfileScreen() {
   // a phone/WhatsApp number was already saved, and hitting Save without
   // re-typing them would silently wipe out the real saved values (since
   // apiFetch treats an explicit '' as "clear this field", not "unchanged").
+  // A signed-in user with no profile (e.g. the profile save failed after
+  // the account was created) is repaired here: ensureProfileForSignedInUser
+  // joins or creates it, failing closed on any lookup error.
+  const loadOrRepairProfile = async (uid: string) => {
+    const isCurrent = () => auth.currentUser?.uid === uid;
+    let profile = await fetchUserById(uid);
+    if (!profile && isCurrent()) {
+      setIsRepairingProfile(true);
+      const result = await ensureProfileForSignedInUser();
+      if (result === 'ok' && isCurrent()) profile = await fetchUserById(uid);
+      if (isCurrent()) setIsRepairingProfile(false);
+    }
+    if (!isCurrent()) return;
+    if (profile) setUserProfile(profile);
+    setProfileRepairFailed(!profile);
+  };
+
   useEffect(() => {
     const unsubscribeAuth = observeAuthState((currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        fetchUserById(currentUser.uid).then((profile) => {
-          if (profile) setUserProfile(profile);
-        });
+        loadOrRepairProfile(currentUser.uid);
       } else {
         setUserProfile(null);
+        setProfileRepairFailed(false);
+        setIsRepairingProfile(false);
       }
     });
 
@@ -465,6 +486,24 @@ export function ProfileScreen() {
             }}
             scrollEventThrottle={400}
           >
+            {profileRepairFailed && (
+              <View style={styles.profileRepairBox} accessibilityRole="alert">
+                <Text style={styles.profileRepairText}>{PROFILE_REPAIR_FAILED_MESSAGE}</Text>
+                <Pressable
+                  onPress={() => { if (user && !isRepairingProfile) loadOrRepairProfile(user.uid); }}
+                  disabled={isRepairingProfile}
+                  style={styles.profileRepairButton}
+                  accessibilityRole="button"
+                >
+                  {isRepairingProfile ? (
+                    <ActivityIndicator color="#be123c" size="small" />
+                  ) : (
+                    <Text style={styles.profileRepairButtonText}>Try Again</Text>
+                  )}
+                </Pressable>
+              </View>
+            )}
+
             {/* Clean White Profile Card (Avatar, Verified Badge, Email, Partner Tag, Gear, 4 Stats, Bio, Actions) */}
             <View style={styles.profileCard}>
               {/* Profile Top Row */}
@@ -1072,6 +1111,11 @@ export function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Same look as AuthPanel's error box.
+  profileRepairBox: { backgroundColor: '#fff1f2', borderWidth: 1, borderColor: '#fecdd3', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
+  profileRepairText: { color: '#be123c', fontSize: 12, fontFamily: fonts.bold, lineHeight: 17 },
+  profileRepairButton: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#fecdd3' },
+  profileRepairButtonText: { color: '#be123c', fontSize: 12, fontFamily: fonts.extrabold },
   safeArea: { flex: 1, backgroundColor: '#0f172a' },
   container: { flex: 1, backgroundColor: '#f8fafc' },
 
