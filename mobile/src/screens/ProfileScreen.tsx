@@ -327,7 +327,7 @@ export function ProfileScreen() {
     try {
       setAuthLoading(true);
       if (isRegisterMode) {
-        await signUp(trimmedEmail, trimmedPassword, trimmedUsername);
+        await signUp({ email: trimmedEmail, password: trimmedPassword, username: trimmedUsername, phoneNumber: '' });
         Alert.alert('Welcome to TedBuy! 🎉', 'Your digital storefront has been successfully initialized.');
       } else {
         await signIn(trimmedEmail, trimmedPassword);

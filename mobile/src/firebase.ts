@@ -522,8 +522,78 @@ export async function deleteProductMobile(productId: string) {
   }
 }
 
-export async function signIn(email: string, password: string) {
-  return signInWithEmailAndPassword(auth, email, password);
+/** Emails a 6-digit sign-up code (the website's initiateRegistration step). */
+export async function sendRegistrationCode(email: string, username: string): Promise<{ success: boolean; error?: string }> {
+  const data = await apiFetch('/api/auth/send-registration-otp', { method: 'POST', body: { email, username } });
+  return { success: !!data?.success, error: data?.error };
+}
+
+export async function verifyRegistrationCode(email: string, otp: string): Promise<{ success: boolean; error?: string }> {
+  const data = await apiFetch('/api/auth/verify-registration-otp', { method: 'POST', body: { email, otp } });
+  return { success: !!data?.success, error: data?.error };
+}
+
+/** Marks the signed-in account's email verified after the sign-up code was
+ * accepted. Idempotent server-side, so a few retries are safe. On success the
+ * local Firebase user and token are refreshed so emailVerified is current. */
+export async function completeRegistration(): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const data = await apiFetch('/api/auth/complete-registration', { method: 'POST' });
+    if (data?.success) {
+      try {
+        await auth.currentUser?.reload();
+        await auth.currentUser?.getIdToken(true);
+      } catch (err) {
+        console.warn('[completeRegistration] Could not refresh the session:', err);
+      }
+      return true;
+    }
+    console.warn(`[completeRegistration] Attempt ${attempt + 1} failed:`, data?.error);
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+  return false;
+}
+
+/** Turns a username or phone number into the account's email. Null if none. */
+export async function resolveLoginIdentifier(identifier: string): Promise<string | null> {
+  const data = await apiFetch('/api/auth/resolve-login-identifier', { method: 'POST', body: { identifier } });
+  return data?.success && data.email ? String(data.email) : null;
+}
+
+/** Welcome package + welcome email for a freshly verified account. Never
+ * throws: a failure here must not undo a successful sign-up. */
+export async function runWelcomePackage(username: string, email: string): Promise<void> {
+  try {
+    await apiFetch('/api/welcome/setup', { method: 'POST' });
+    await apiFetch('/api/send-welcome-email', { method: 'POST', body: { email, username } });
+  } catch (err) {
+    console.warn('[runWelcomePackage] Failed:', err);
+  }
+}
+
+/** Sign in with an email, username or phone number. If Firebase rejects the
+ * password, the server can confirm it against the legacy store and fix the
+ * Firebase credential; we then retry once. The session only ever comes from
+ * Firebase, so a failed retry rethrows the original Firebase error. */
+export async function signIn(identifier: string, password: string) {
+  let email = identifier.trim();
+  if (!isEmailIdentifier(email)) {
+    const resolved = await resolveLoginIdentifier(email);
+    if (!resolved) throw new Error('No account found with that username or phone number.');
+    email = resolved;
+  }
+  try {
+    return await signInWithEmailAndPassword(auth, email, password);
+  } catch (err: any) {
+    if (err?.code !== 'auth/invalid-credential' && err?.code !== 'auth/wrong-password') throw err;
+    const data = await apiFetch('/api/auth/verify-and-sync-password', { method: 'POST', body: { email, password } });
+    if (!data?.success) throw err;
+    try {
+      return await signInWithEmailAndPassword(auth, email, password);
+    } catch {
+      throw err;
+    }
+  }
 }
 
 /** Matches web's resetPasswordEmail (src/context/AppContext.tsx) — tries the
@@ -591,13 +661,19 @@ export async function reloadEmailVerificationStatus(): Promise<boolean> {
 
 import { isReservedStoreName } from './types';
 import { resolveProductImageUri } from './utils/productImage';
+import { isEmailIdentifier } from './utils/authFlow';
 
-export async function signUp(email: string, password: string, username: string) {
+export async function signUp(input: { email: string; password: string; username: string; phoneNumber: string; photoUri?: string }): Promise<{ verified: boolean }> {
+  const { email, password, username, phoneNumber, photoUri } = input;
   if (isReservedStoreName(username)) {
     throw new Error('This store name is reserved by TedBuy.');
   }
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   await updateProfile(credential.user, { displayName: username });
+  // The sign-up code was already accepted, so ask the server to mark the
+  // email verified before the profile row is written (it reads the flag from
+  // Firebase Admin, never from our request body).
+  const verified = await completeRegistration();
 
   // User profiles are canonical in Supabase, written only through the
   // authenticated server API — /api/users/sync verifies the Firebase ID
@@ -606,11 +682,11 @@ export async function signUp(email: string, password: string, username: string) 
     id: credential.user.uid,
     username: username.trim(),
     email: email.trim(),
+    phoneNumber: phoneNumber.trim(),
     role: 'both',
     joinDate: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
     followingSellers: [],
     savedProductIds: [],
-    emailVerified: false,
   };
   // The Firebase Auth account above is already real and permanent at this
   // point — a failure here previously was only console.warn'd, so the app
@@ -633,7 +709,16 @@ export async function signUp(email: string, password: string, username: string) 
   if (!profileSynced) {
     throw new Error('Your account was created, but we could not finish setting up your profile. Please check your connection and try signing in again.');
   }
-  return credential;
+  if (photoUri) {
+    try {
+      const photoUrl = await uploadMediaToCloudinaryMobile(photoUri, 'image');
+      await updateUserProfile({ photoUrl });
+    } catch (err) {
+      console.warn('[signUp] Profile photo upload failed (non-fatal):', err);
+    }
+  }
+  if (verified) await runWelcomePackage(username.trim(), email.trim());
+  return { verified };
 }
 
 // The web OAuth client id from the SAME Firebase project (tedbuy-fb79a) that
