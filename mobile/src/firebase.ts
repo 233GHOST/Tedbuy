@@ -554,10 +554,18 @@ export async function completeRegistration(): Promise<boolean> {
   return false;
 }
 
-/** Turns a username or phone number into the account's email. Null if none. */
+/** Turns a username or phone number into the account's email. Null only when
+ * the server says there is no match; a connection, timeout, server or
+ * rate-limit failure throws with apiFetch's own message instead, so an
+ * offline user isn't told their account doesn't exist. */
 export async function resolveLoginIdentifier(identifier: string): Promise<string | null> {
   const data = await apiFetch('/api/auth/resolve-login-identifier', { method: 'POST', body: { identifier } });
-  return data?.success && data.email ? String(data.email) : null;
+  if (data?.success && data.email) return String(data.email);
+  const code = data?.errorCode;
+  if (code === 'NETWORK' || code === 'TIMEOUT' || code === 'PARSE' || code === 'SERVER' || code === 'RATE_LIMIT') {
+    throw apiErrorFromResponse(data, "Couldn't reach TedBuy. Please check your connection and try again.");
+  }
+  return null;
 }
 
 /** Welcome package + welcome email for a freshly verified account. Never
