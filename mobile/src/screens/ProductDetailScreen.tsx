@@ -6,7 +6,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { Bookmark, Share2, ShieldAlert, X, MessageSquare, Shield } from 'lucide-react-native';
 import { useServerList } from '../hooks/useServerList';
 import { preferServerList, dropUnavailable } from '../utils/preferServerList';
-import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView, fetchSimilarProducts, getDropshipPurchaseInfo, listingErrorTitle, DropshipPurchaseInfoMobile } from '../firebase';
+import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView, fetchSimilarProducts, getDropshipPurchaseInfo, getDropshipOrdersEnabled, listingErrorTitle, DropshipPurchaseInfoMobile } from '../firebase';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
 import { ProductCard } from '../components/ProductCard';
@@ -21,6 +21,7 @@ import ImageViewing from 'react-native-image-viewing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fonts } from '../theme';
 import { isDropshipRowId, formatDeliveryWindow, formatPesewas } from '../utils/dropship';
+import { DropshipCheckout, COD_MESSAGE } from '../components/DropshipCheckout';
 
 // Namespaced per-user (matches ChatsScreen.tsx's tedbuy_deleted_chat_ids_${uid}
 // pattern) -- this used to be one global key shared by every account on the
@@ -103,6 +104,14 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
   const [dropshipInfo, setDropshipInfo] = useState<DropshipPurchaseInfoMobile | null>(null);
   const [dropshipState, setDropshipState] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
   const isDropship = isDropshipRowId(product?.id || productId);
+  const [ordersEnabled, setOrdersEnabled] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  useEffect(() => {
+    if (!isDropshipRowId(productId)) return;
+    let live = true;
+    getDropshipOrdersEnabled().then(v => { if (live) setOrdersEnabled(v); }).catch(() => {});
+    return () => { live = false; };
+  }, [productId]);
 
   useEffect(() => {
     if (!isDropshipRowId(productId)) {
@@ -708,18 +717,43 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                       {dropshipInfo.unavailableReason === 'out_of_stock' ? 'Out of stock' : "This item isn't available right now"}
                     </Text>
                   )}
-                  <Text style={styles.dropshipLine}>Ships from {dropshipInfo.shipsFromRegion}</Text>
                   <Text style={styles.dropshipLine}>
-                    Delivery in {formatDeliveryWindow(dropshipInfo.leadTimeDays.min, dropshipInfo.leadTimeDays.max)} after confirmation
+                    Delivered by {dropshipInfo.seller.storeName}, usually in {formatDeliveryWindow(dropshipInfo.leadTimeDays.min, dropshipInfo.leadTimeDays.max + 1)} after you confirm
                   </Text>
-                  {dropshipInfo.deliveryFees.map((f) => (
-                    <Text key={f.scope} style={styles.dropshipLine}>
-                      Delivery {f.regionNote}: {formatPesewas(f.feePesewas)}
-                    </Text>
-                  ))}
+                  <Text style={styles.dropshipLine}>
+                    Delivery: {(dropshipInfo.deliveryFeePesewas ?? 0) > 0 ? formatPesewas(dropshipInfo.deliveryFeePesewas ?? 0) : 'Free'}
+                  </Text>
+                  <Text style={[styles.dropshipLine, { color: '#065f46', fontWeight: '800' }]}>{COD_MESSAGE}</Text>
                   <Text style={styles.dropshipLine}>Return window: {dropshipInfo.returnWindowDays} days</Text>
                   {!!dropshipInfo.returnPolicyText && (
                     <Text style={[styles.dropshipLine, { color: '#64748b' }]}>{dropshipInfo.returnPolicyText}</Text>
+                  )}
+                  {ordersEnabled && dropshipInfo.available && !isOwner && (
+                    <Pressable
+                      onPress={() => {
+                        if (!auth.currentUser) { Alert.alert('Sign in to order', 'You need a TedBuy account so the seller can reach you and you can follow your delivery.'); return; }
+                        setCheckoutOpen(true);
+                      }}
+                      style={styles.orderCta}
+                    >
+                      <Text style={styles.orderCtaText}>Order now, pay on delivery</Text>
+                    </Pressable>
+                  )}
+                  {checkoutOpen && (
+                    <DropshipCheckout
+                      visible={checkoutOpen}
+                      productId={product.id}
+                      info={dropshipInfo}
+                      defaultName={currentUserProfile?.username}
+                      defaultPhone={currentUserProfile?.phoneNumber}
+                      onClose={() => setCheckoutOpen(false)}
+                      onPlaced={(num) => {
+                        setCheckoutOpen(false);
+                        Alert.alert('Order placed', `Order ${num}. Please confirm it on the next screen. ${COD_MESSAGE}`, [
+                          { text: 'OK', onPress: () => navigation.navigate('OrdersWeb') },
+                        ]);
+                      }}
+                    />
                   )}
                 </>
               )}
@@ -1411,6 +1445,8 @@ const styles = StyleSheet.create({
   dropshipTitle: { fontSize: 12, fontFamily: fonts.extrabold, color: '#0f172a', marginBottom: 4 },
   dropshipWarn: { fontSize: 12, fontFamily: fonts.extrabold, color: '#b45309' },
   dropshipLine: { fontSize: 12, fontFamily: fonts.medium, color: '#334155' },
+  orderCta: { marginTop: 8, backgroundColor: '#059669', borderRadius: 14, paddingVertical: 12, alignItems: 'center', minHeight: 44, justifyContent: 'center' },
+  orderCtaText: { color: '#fff', fontFamily: fonts.bold, fontSize: 14 },
   inlineChatCard: { marginTop: 14, backgroundColor: '#f8fafc', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' },
   inlineChatTitle: { fontSize: 12, fontFamily: fonts.extrabold, color: '#0f172a', marginBottom: 8 },
   quickRepliesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },

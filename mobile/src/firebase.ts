@@ -252,6 +252,8 @@ export interface DropshipPurchaseInfoMobile {
   unavailableReason?: 'out_of_stock' | 'unavailable';
   unitPricePesewas: number;
   maxQuantity: number;
+  /** The reseller's delivery fee (0 = free). Sent by servers with COD orders. */
+  deliveryFeePesewas?: number;
   deliveryFees: { scope: string; regionNote: string; feePesewas: number }[];
   shipsFromRegion: string;
   leadTimeDays: { min: number; max: number };
@@ -265,6 +267,24 @@ export interface DropshipPurchaseInfoMobile {
 export async function getDropshipStatus(): Promise<boolean> {
   const data = await apiFetch('/api/dropship/status');
   return data?.success === true && data.enabled === true;
+}
+
+/** Whether pay-on-delivery ordering is switched on (DROPSHIP_ORDERS_ENABLED). */
+export async function getDropshipOrdersEnabled(): Promise<boolean> {
+  const data = await apiFetch('/api/dropship/status');
+  return data?.success === true && data.enabled === true && data.ordersEnabled === true;
+}
+
+export interface DropshipDeliveryDetails {
+  name: string; phone: string; region: string; area: string; address: string; instructions?: string;
+}
+
+/** Places a pay-on-delivery order. clientRequestId makes a retried tap safe
+ * (the server returns the same order). Prices come from the server only. */
+export async function placeDropshipOrder(input: { productId: string; quantity: number; clientRequestId: string; delivery: DropshipDeliveryDetails }): Promise<{ id: string; orderNumber: string; totalPesewas: number }> {
+  const data = await apiFetch('/api/dropship/orders', { method: 'POST', body: input });
+  if (!data.success || !data.order) throw apiErrorFromResponse(data, "Couldn't place the order. Please try again.");
+  return { id: data.order.id, orderNumber: data.order.orderNumber, totalPesewas: data.order.totalPesewas };
 }
 
 /** Asks the server for a one-time Firebase custom token so the embedded

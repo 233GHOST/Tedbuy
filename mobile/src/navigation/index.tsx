@@ -308,6 +308,13 @@ export function AppNavigator() {
             return <DropshipWebScreen onClose={() => { if (navigation.canGoBack()) navigation.goBack(); }} />;
           }}
         </Stack.Screen>
+        {/* The buyer's pay-on-delivery orders: the website's /orders page, same sign-in handoff. */}
+        <Stack.Screen name="OrdersWeb" options={{ presentation: 'card', gestureEnabled: false, fullScreenGestureEnabled: false }}>
+          {() => {
+            const navigation = useNavigation<any>();
+            return <DropshipWebScreen page="orders" onClose={() => { if (navigation.canGoBack()) navigation.goBack(); }} />;
+          }}
+        </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
     </TabBarVisibilityProvider>

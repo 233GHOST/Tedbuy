@@ -8,7 +8,7 @@ import { TedBuyLogo } from '../components/TedBuyLogo';
 import { AuthPanel } from '../components/AuthPanel';
 import { BackButton } from '../components/BackButton';
 import { BoostModal } from '../components/BoostModal';
-import { auth, observeAuthState, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, logOut, getDropshipStatus, listingErrorTitle, ensureProfileForSignedInUser } from '../firebase';
+import { auth, observeAuthState, watchProducts, watchUsers, fetchUserById, deleteProductMobile, updateProduct, updateUserProfile, uploadMediaToCloudinaryMobile, logOut, getDropshipStatus, getDropshipOrdersEnabled, listingErrorTitle, ensureProfileForSignedInUser } from '../firebase';
 import { PROFILE_REPAIR_FAILED_MESSAGE } from '../utils/authFlow';
 import {
   Users as UsersIcon,
@@ -135,10 +135,12 @@ export function ProfileScreen() {
 
 
   const [dropshipEnabled, setDropshipEnabled] = useState(false);
+  const [ordersEnabled, setOrdersEnabled] = useState(false);
   useEffect(() => {
     if (!user) { setDropshipEnabled(false); return; }
     let active = true;
     getDropshipStatus().then((on) => { if (active) setDropshipEnabled(on); }).catch(() => {});
+    getDropshipOrdersEnabled().then((on) => { if (active) setOrdersEnabled(on); }).catch(() => {});
     return () => { active = false; };
   }, [user]);
 
@@ -691,6 +693,24 @@ export function ProfileScreen() {
             {/* TAB 1: MY CLASSIFIED LISTINGS */}
             {activeTab === 'dashboard' && (
               <View style={styles.tabContentContainer}>
+                {ordersEnabled && (
+                  <Pressable
+                    // The buyer's pay-on-delivery orders: the website's /orders page in-app.
+                    onPress={() => navigation.navigate('OrdersWeb')}
+                    style={[styles.settingsMenuGroup, styles.settingsMenuRow, { borderBottomWidth: 0, marginHorizontal: 14, marginBottom: 14 }]}
+                  >
+                    <View style={styles.settingsItemLeft}>
+                      <View style={styles.settingsMenuIconBadge}>
+                        <ShoppingBag size={17} color="#0f172a" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.settingsItemTitle}>My orders</Text>
+                        <Text style={styles.settingsItemSubtitle}>Pay-on-delivery orders you placed</Text>
+                      </View>
+                    </View>
+                    <ChevronRight size={18} color="#94a3b8" />
+                  </Pressable>
+                )}
                 {dropshipEnabled && (
                   <Pressable
                     // Opens Dropship in-app (WebView + sign-in handoff). The

@@ -4,6 +4,8 @@
 
 export const TEDBUY_WEB_ORIGIN = 'https://www.tedbuy.store';
 export const DROPSHIP_EMBED_URL = `${TEDBUY_WEB_ORIGIN}/dropship?embed=app`;
+/** The buyer's pay-on-delivery orders, same embedded sign-in as Dropship. */
+export const ORDERS_EMBED_URL = `${TEDBUY_WEB_ORIGIN}/orders?embed=app`;
 
 /** app → page */
 export const HANDOFF_MESSAGE_TYPE = 'tedbuy-handoff';

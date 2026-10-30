@@ -1644,7 +1644,7 @@ $$
 $$;
 
 -- Buyer purchase info under COD: the reseller's delivery fee; no supplier location or
--- supplier delivery fees (the reseller delivers).
+-- supplier delivery fees (the reseller collects the item and delivers it).
 create or replace function public.dropship_purchase_info(p_product_id text) returns jsonb
 language sql stable set search_path = '' as
 $$
@@ -1653,6 +1653,11 @@ $$
            'available', a.is_available,
            'unitPricePesewas', l.retail_price_pesewas,
            'deliveryFeePesewas', l.delivery_fee_pesewas,
+           -- Kept for app 1.3.0 and older, which read these two fields unconditionally. Both
+           -- now describe the reseller, who delivers: their region and their delivery fee.
+           'shipsFromRegion', coalesce(dsp.region, ''),
+           'deliveryFees', jsonb_build_array(jsonb_build_object('scope', 'seller', 'regionNote', 'by the seller',
+                                                                'feePesewas', l.delivery_fee_pesewas)),
            'maxQuantity', case when a.is_available
                                then greatest(least(sp.max_per_order, sp.stock_on_hand - sp.stock_reserved), 0)
                                else 0 end,

@@ -9,7 +9,7 @@ import { buttonClass, cardClass, secondaryButtonClass } from './dropshipUi';
 // Buyer's orders (/orders). Pay-on-delivery: the page shows what to pay and when, the
 // delivery code to give the seller at handover, and how to report a problem.
 export function MyOrdersView() {
-  const { currentUser, setCurrentView, setShowAuthModal, setAuthMode } = useApp();
+  const { currentUser, setCurrentView, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
   const enabled = useDropshipOrdersEnabled();
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -19,7 +19,10 @@ export function MyOrdersView() {
   else if (!currentUser) body = (
     <div className={`${cardClass} text-center space-y-3`}>
       <p className="text-sm font-bold text-slate-900">Sign in to see your orders</p>
-      <button type="button" className={buttonClass} onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}><LogIn className="w-4 h-4" /> Sign in</button>
+      {/* In the app's WebView the app signs the page in itself. */}
+      {isEmbedded
+        ? <p className="text-xs text-slate-500 inline-flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Signing you in…</p>
+        : <button type="button" className={buttonClass} onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}><LogIn className="w-4 h-4" /> Sign in</button>}
     </div>
   );
   else body = openId ? <BuyerOrderDetail id={openId} onBack={() => setOpenId(null)} /> : <OrderList who="buyer" onOpen={setOpenId} />;
@@ -27,9 +30,11 @@ export function MyOrdersView() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-28">
       <div className="flex items-center gap-3 mb-5">
-        <button type="button" onClick={() => setCurrentView('browse')} className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition cursor-pointer" aria-label="Back">
-          <ArrowLeft className="w-4 h-4 text-slate-700" />
-        </button>
+        {!isEmbedded && (
+          <button type="button" onClick={() => setCurrentView('browse')} className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition cursor-pointer" aria-label="Back">
+            <ArrowLeft className="w-4 h-4 text-slate-700" />
+          </button>
+        )}
         <div>
           <h1 className="text-lg font-black text-slate-900 flex items-center gap-2"><Package className="w-5 h-5" /> My orders</h1>
           <p className="text-[11px] text-slate-500">{COD_MESSAGE}</p>

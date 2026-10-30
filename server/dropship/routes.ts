@@ -149,6 +149,8 @@ function purchaseInfoView(r: any) {
   return {
     listingId: r.listingId, available: r.available, unitPricePesewas: r.unitPricePesewas, maxQuantity: r.maxQuantity,
     deliveryFeePesewas: r.deliveryFeePesewas, leadTimeDays: r.leadTimeDays,
+    // Compatibility for app 1.3.0 and older (they map over deliveryFees unconditionally).
+    shipsFromRegion: r.shipsFromRegion, deliveryFees: r.deliveryFees,
     returnWindowDays: r.returnWindowDays, returnPolicyText: r.returnPolicyText,
     seller: { id: r.seller?.id, storeName: r.seller?.storeName },
     ...(r.available ? {} : { unavailableReason: r.unavailableReason === 'out_of_stock' ? 'out_of_stock' : 'unavailable' }),

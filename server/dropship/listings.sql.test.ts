@@ -498,8 +498,8 @@ test('purchase-info projection', async () => {
   const { dropshipper, supplier, sp } = await scenario('pi');
   const r = await createListing(dropshipper, sp.id, 15000);
   const info = await h.db.call('dropship_purchase_info', { p_product_id: r.productId });
-  assert.deepEqual(Object.keys(info).sort(), ['available', 'deliveryFeePesewas', 'leadTimeDays', 'listingId', 'maxQuantity', 'returnPolicyText',
-    'returnWindowDays', 'seller', 'unitPricePesewas'].sort());
+  assert.deepEqual(Object.keys(info).sort(), ['available', 'deliveryFeePesewas', 'deliveryFees', 'leadTimeDays', 'listingId', 'maxQuantity', 'returnPolicyText',
+    'returnWindowDays', 'seller', 'shipsFromRegion', 'unitPricePesewas'].sort());
   assert.equal(info.listingId, r.listing.id);
   assert.equal(info.available, true);
   assert.equal(info.unitPricePesewas, 15000);
@@ -510,14 +510,17 @@ test('purchase-info projection', async () => {
   assert.deepEqual(info.seller, { id: dropshipper, storeName: `${dropshipper} Store` });
   // COD: the reseller's own delivery fee; nothing about where the supplier ships from.
   assert.equal(info.deliveryFeePesewas, 0);
-  assert.ok(!('shipsFromRegion' in info) && !text0(info).includes('Tema'));
+  assert.ok(!text0(info).includes('Tema') && !text0(info).includes('Greater Accra'), 'nothing about where the supplier is');
+  // App 1.3.0 compatibility: the two old fields now describe the reseller.
+  assert.equal(info.shipsFromRegion, 'Ashanti');
+  assert.deepEqual(info.deliveryFees, [{ scope: 'seller', regionNote: 'by the seller', feePesewas: 0 }]);
   const text = JSON.stringify(info);
   assert.ok(!text.includes(supplier) && !text.includes('Kofi Supplies') && !text.includes('0241234567'), 'no supplier identity');
 
   await updateListing(dropshipper, r.listing.id, null, 'paused');
   const paused = await h.db.call('dropship_purchase_info', { p_product_id: r.productId });
-  assert.deepEqual(Object.keys(paused).sort(), ['available', 'deliveryFeePesewas', 'leadTimeDays', 'listingId', 'maxQuantity', 'returnPolicyText',
-    'returnWindowDays', 'seller', 'unavailableReason', 'unitPricePesewas'].sort());
+  assert.deepEqual(Object.keys(paused).sort(), ['available', 'deliveryFeePesewas', 'deliveryFees', 'leadTimeDays', 'listingId', 'maxQuantity', 'returnPolicyText',
+    'returnWindowDays', 'seller', 'shipsFromRegion', 'unavailableReason', 'unitPricePesewas'].sort());
   assert.equal(paused.available, false);
   assert.equal(paused.unavailableReason, 'unavailable');
   assert.equal(paused.maxQuantity, 0);

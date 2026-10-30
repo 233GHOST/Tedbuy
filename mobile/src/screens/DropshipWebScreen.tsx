@@ -9,6 +9,7 @@ import { X, WifiOff } from 'lucide-react-native';
 import { auth, requestAppHandoffToken } from '../firebase';
 import {
   DROPSHIP_EMBED_URL,
+  ORDERS_EMBED_URL,
   HANDOFF_MESSAGE_TYPE,
   READY_MESSAGE_TYPE,
   SIGNED_IN_MESSAGE_TYPE,
@@ -38,6 +39,8 @@ type ErrorKind = null | 'load' | 'signin';
 
 interface Props {
   onClose: () => void;
+  /** Which site page to open: the Dropship hub (default) or the buyer's orders. */
+  page?: 'dropship' | 'orders';
 }
 
 /** TedBuy Dropship inside the app: the website's /dropship hub in a WebView,
@@ -45,14 +48,16 @@ interface Props {
  * (POST /api/auth/app-handoff → postMessage to the page). Navigation to any
  * other site leaves the WebView, so the token is only ever posted into a
  * https://www.tedbuy.store page. */
-export function DropshipWebScreen({ onClose }: Props) {
+export function DropshipWebScreen({ onClose, page = 'dropship' }: Props) {
+  const EMBED_URL = page === 'orders' ? ORDERS_EMBED_URL : DROPSHIP_EMBED_URL;
+  const BROWSER_URL = page === 'orders' ? 'https://www.tedbuy.store/orders' : DROPSHIP_BROWSER_URL;
   const webviewRef = useRef<WebView>(null);
   const [loadKey, setLoadKey] = useState(0);
   const [overlay, setOverlay] = useState<Overlay>('loading');
   const [error, setError] = useState<ErrorKind>(null);
 
   const closedRef = useRef(false);
-  const currentUrlRef = useRef(DROPSHIP_EMBED_URL);
+  const currentUrlRef = useRef(EMBED_URL);
   const canGoBackRef = useRef(false);
   const postedThisLoadRef = useRef(false);
   const totalPostsRef = useRef(0);
@@ -89,7 +94,7 @@ export function DropshipWebScreen({ onClose }: Props) {
   }, [clearTimers]);
 
   const openInBrowserAndClose = useCallback(() => {
-    WebBrowser.openBrowserAsync(DROPSHIP_BROWSER_URL).catch(() => {
+    WebBrowser.openBrowserAsync(BROWSER_URL).catch(() => {
       Alert.alert('Could Not Open Dropship', 'Please try again in a moment.');
     });
     close();
@@ -234,7 +239,7 @@ export function DropshipWebScreen({ onClose }: Props) {
     handoffPendingRef.current = false;
     requestInFlightRef.current = false;
     canGoBackRef.current = false;
-    currentUrlRef.current = DROPSHIP_EMBED_URL;
+    currentUrlRef.current = EMBED_URL;
     setOverlay('loading');
     setLoadKey((k) => k + 1);
   }, [clearTimers]);
@@ -304,7 +309,7 @@ export function DropshipWebScreen({ onClose }: Props) {
     handoffPendingRef.current = false;
     requestInFlightRef.current = false;
     canGoBackRef.current = false;
-    currentUrlRef.current = DROPSHIP_EMBED_URL;
+    currentUrlRef.current = EMBED_URL;
     setError(null);
     setOverlay('loading');
     setLoadKey((k) => k + 1);
@@ -331,7 +336,7 @@ export function DropshipWebScreen({ onClose }: Props) {
           <WebView
             key={loadKey}
             ref={webviewRef}
-            source={{ uri: DROPSHIP_EMBED_URL }}
+            source={{ uri: EMBED_URL }}
             style={styles.webview}
             onMessage={onMessage}
             onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
