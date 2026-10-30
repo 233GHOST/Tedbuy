@@ -313,8 +313,9 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
 // Time limits: cancels overdue orders (no blame) and tells the people involved. Called on a
 // timer by registerDropship; safe to run from several server instances (rows are locked
 // with SKIP LOCKED).
-export async function runOrderExpiry(db: DropshipDb, notify?: OrderDeps['notify']): Promise<number> {
+export async function runOrderExpiry(db: DropshipDb, notify?: OrderDeps['notify'], onStockChanged?: () => void): Promise<number> {
   const results = await db.call<any[]>('dropship_expire_due', { p_limit: 200 });
+  if (results?.length) onStockChanged?.();
   if (notify && results?.length) {
     const notices: OrderNotice[] = [];
     for (const r of results) {

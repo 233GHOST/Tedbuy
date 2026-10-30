@@ -42,6 +42,10 @@ const GUARD_INVALIDATING_FNS = new Set([
   'dropship_create_supplier_product', 'dropship_update_supplier_product', 'dropship_set_stock',
   'dropship_set_supplier_product_status', 'dropship_admin_moderate_supplier_product',
   'dropship_admin_decide_participation',
+  // Orders: holds, releases and cancellations change stock_reserved / stock_on_hand, which
+  // decide whether a listing shows as out of stock.
+  'dropship_supplier_order_action', 'dropship_reseller_order_action', 'dropship_buyer_order_action',
+  'dropship_admin_resolve_dispute', 'dropship_admin_cancel_order',
 ]);
 
 // The mirror row ids a write touched, when known; undefined for supplier-product and

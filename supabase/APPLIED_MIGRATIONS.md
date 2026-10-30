@@ -15,6 +15,7 @@ mark every file below as applied with `supabase migration repair`.
 | 20261027120000_legacy_missing_columns | applied 2026-10-27 | applied 2026-10-27 |
 | 20261027130000_admin_audit_logs | applied 2026-10-27 | applied 2026-10-27 |
 | 20261028120000_dropship_listings | applied 2026-10-28 | applied 2026-10-28 |
+| 20261031120000_dropship_orders | NOT YET (owner to apply; then run scripts/dropship-orders-concurrency.ts) | NOT YET (only after staging sign-off and owner OK) |
 
 Staging = djlvwjkrcsfpxfjovelc, live = hnfqymkdgadwzrjenaqf.
 

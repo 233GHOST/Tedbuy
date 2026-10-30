@@ -62,7 +62,7 @@ export function registerDropship(app: express.Express, options: RegisterDropship
     // Order time limits: one sweep a minute (cancels overdue steps; nobody is blamed).
     if (db && config.enabled && ordersEnabled) {
       const timer = setInterval(() => {
-        runOrderExpiry(db, options.notify).catch(err => console.error('[Dropship orders] expiry sweep failed', (err as Error)?.message));
+        runOrderExpiry(db, options.notify, () => { guards.invalidate(); options.onProductsChanged?.(); }).catch(err => console.error('[Dropship orders] expiry sweep failed', (err as Error)?.message));
       }, 60_000);
       timer.unref?.();
       console.log('[Dropship] COD orders enabled.');
