@@ -22,6 +22,7 @@ import firebaseConfig from "./firebase-applet-config.json";
 import { registerDropship } from "./server/dropship/index.js";
 import { extractCloudinaryInfo } from "./server/cloudinaryInfo.js";
 import { adminUserDeleteDecision, capListResponse, cleanupOrphansDecision, excludeDropshipRows, filterVisiblePayload, isDropshipRowId, legacyDeleteDecision, legacySyncDecision, productsOwnMediaUrl, resolveCloudinaryDeleteTarget } from "./server/dropship/legacyGuards.js";
+import { isStillReferenced, type MediaRefExclusion, type ProductMediaRef, type UserPhotoRef } from "./server/media/sharedMedia.js";
 import { checkServerEnvironment, type TedbuyEnvironment } from "./server/environmentGuard.js";
 import { decideAppHandoff, isRestrictedUserRow } from "./server/auth/appHandoff.js";
 import { createCheckedEmailStore, decideCompleteRegistration } from "./server/auth/registrationVerification.js";
@@ -951,6 +952,97 @@ async function deleteCloudinaryAsset(publicId: string, resourceType: 'image' | '
   });
 }
 
+// Every server-side Cloudinary delete goes through deleteCloudinaryAssetsIfUnused: an asset
+// still shown by any OTHER product (whoever owns it) or any other user's photoUrl is skipped
+// (server/media/sharedMedia.ts). Fail closed: if the references can't be loaded, nothing is
+// deleted -- an orphaned file is harmless, deleting someone else's photo is not.
+//
+// Lookup: products.images/videos are jsonb, and legacy rows may hold JSON-encoded strings
+// rather than arrays, and a transformed/re-versioned URL of the same asset must also count.
+// PostgREST can't substring-match a jsonb column, so an exact `cs` query would miss both; the
+// products' media columns (only id/images/videos) are therefore scanned page by page and
+// matched by publicId in code. Paging stops only on an empty page, so a lower server
+// max-rows cap can never end the scan early. users.photoUrl is text: narrowed server-side by
+// a LIKE on the publicId (LIKE's `_` wildcard only widens the match, which is the safe side).
+type MediaDeleteItem = { url?: string | null; publicId: string; resourceType: 'image' | 'video' };
+type MediaDeleteOutcome =
+  | { status: 'deleted'; result: any }
+  | { status: 'skipped'; reason: 'still_in_use' | 'reference_check_unavailable' }
+  | { status: 'failed'; error: any };
+
+const MEDIA_REF_PAGE_SIZE = 1000;
+const MEDIA_REF_MAX_PAGES = 500;
+
+async function loadMediaReferences(items: MediaDeleteItem[]): Promise<{ products: ProductMediaRef[]; users: UserPhotoRef[] }> {
+  if (!backendSupabase) throw new Error('Database service unavailable');
+  const products: ProductMediaRef[] = [];
+  let from = 0;
+  for (let page = 0; ; page++) {
+    if (page >= MEDIA_REF_MAX_PAGES) throw new Error('Media reference scan exceeded its page limit');
+    const { data, error } = await backendSupabase
+      .from('products')
+      .select('id, images, videos')
+      .order('id', { ascending: true })
+      .range(from, from + MEDIA_REF_PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!Array.isArray(data)) throw new Error('Media reference scan returned no rows array');
+    if (data.length === 0) break;
+    for (const row of data) products.push({ productId: String(row.id), images: row.images, videos: row.videos });
+    from += data.length;
+  }
+
+  const users: UserPhotoRef[] = [];
+  const seenUsers = new Set<string>();
+  const addUsers = (rows: any[] | null) => {
+    for (const row of rows || []) {
+      const key = String(row.id);
+      if (seenUsers.has(key)) continue;
+      seenUsers.add(key);
+      users.push({ id: key, photoUrl: row.photoUrl });
+    }
+  };
+  for (const item of items) {
+    const { data, error } = await backendSupabase.from('users').select('id, photoUrl').like('photoUrl', `%${item.publicId}%`);
+    if (error) throw error;
+    addUsers(data);
+    if (item.url) {
+      const { data: exact, error: exactErr } = await backendSupabase.from('users').select('id, photoUrl').eq('photoUrl', item.url);
+      if (exactErr) throw exactErr;
+      addUsers(exact);
+    }
+  }
+  return { products, users };
+}
+
+async function deleteCloudinaryAssetsIfUnused(items: MediaDeleteItem[], exclude: MediaRefExclusion): Promise<MediaDeleteOutcome[]> {
+  if (items.length === 0) return [];
+  let refs: { products: ProductMediaRef[]; users: UserPhotoRef[] };
+  try {
+    refs = await loadMediaReferences(items);
+  } catch (err: any) {
+    console.warn('[Cloudinary Delete] Reference lookup failed; deleting nothing:', err?.message || err);
+    return items.map((): MediaDeleteOutcome => ({ status: 'skipped', reason: 'reference_check_unavailable' }));
+  }
+  const outcomes: MediaDeleteOutcome[] = [];
+  for (const item of items) {
+    if (isStillReferenced({ url: item.url, publicId: item.publicId }, refs.products, refs.users, exclude)) {
+      console.log(`[Cloudinary Delete] Skipped ${item.publicId}: still used by another listing or profile.`);
+      outcomes.push({ status: 'skipped', reason: 'still_in_use' });
+      continue;
+    }
+    try {
+      outcomes.push({ status: 'deleted', result: await deleteCloudinaryAsset(item.publicId, item.resourceType) });
+    } catch (err: any) {
+      outcomes.push({ status: 'failed', error: err });
+    }
+  }
+  return outcomes;
+}
+
+async function deleteCloudinaryAssetIfUnused(item: MediaDeleteItem, exclude: MediaRefExclusion): Promise<MediaDeleteOutcome> {
+  return (await deleteCloudinaryAssetsIfUnused([item], exclude))[0];
+}
+
 // -------------------------------------------------------------
 // AI Listing Description Generator (Gemini)
 // -------------------------------------------------------------
@@ -1805,8 +1897,18 @@ app.post("/api/cloudinary/delete", serverRateLimiter(60 * 1000, 30, "cloudinary-
     if (await dropshipGuards.isProtectedPublicId(targetPublicId)) {
       return res.json({ success: true, skipped: true, reason: 'dropship_protected' });
     }
-    const result = await deleteCloudinaryAsset(targetPublicId, targetResourceType);
-    return res.json({ success: true, result });
+    // Never while any listing (the caller's own included -- this request edits none) or any
+    // other user's profile photo still shows it; the caller's own photoUrl is the one being
+    // replaced, so it doesn't count.
+    const outcome = await deleteCloudinaryAssetIfUnused(
+      { url: target.url, publicId: targetPublicId, resourceType: targetResourceType },
+      { userId: verified.uid },
+    );
+    if (outcome.status === 'skipped') {
+      return res.json({ success: true, skipped: true, reason: outcome.reason });
+    }
+    if (outcome.status === 'failed') throw outcome.error;
+    return res.json({ success: true, result: outcome.result });
   } catch (err: any) {
     console.error('[Cloudinary Delete Endpoint Error]:', err);
     return res.status(500).json({ success: false, error: err?.message || 'Delete operation failed' });
@@ -1893,17 +1995,24 @@ app.post("/api/cloudinary/cleanup-orphans", serverRateLimiter(60 * 60 * 1000, 5,
     const { deletable: orphans, protected: protectedUrls } = await dropshipGuards.filterProtectedMedia(candidates);
 
     const results: any[] = protectedUrls.map(url => ({ url, success: true, skipped: true, reason: 'dropship_protected' }));
+    // Skipped while any OTHER listing or any profile still shows it (this listing is the one
+    // being edited, so its own soon-to-be-replaced media list doesn't count).
+    const orphanItems: (MediaDeleteItem & { url: string })[] = [];
     for (const orphanUrl of orphans) {
       const info = extractCloudinaryInfo(orphanUrl);
-      if (info) {
-        try {
-          const resObj = await deleteCloudinaryAsset(info.publicId, info.resourceType);
-          results.push({ url: orphanUrl, success: true, result: resObj });
-        } catch (err: any) {
-          results.push({ url: orphanUrl, success: false, error: err?.message });
-        }
-      }
+      if (info) orphanItems.push({ url: orphanUrl, publicId: info.publicId, resourceType: info.resourceType });
     }
+    const orphanOutcomes = await deleteCloudinaryAssetsIfUnused(orphanItems, { productId });
+    orphanItems.forEach((item, i) => {
+      const outcome = orphanOutcomes[i];
+      if (outcome.status === 'deleted') {
+        results.push({ url: item.url, success: true, result: outcome.result });
+      } else if (outcome.status === 'skipped') {
+        results.push({ url: item.url, success: true, skipped: true, reason: outcome.reason });
+      } else {
+        results.push({ url: item.url, success: false, error: outcome.error?.message });
+      }
+    });
 
     return res.json({ success: true, cleanedCount: results.filter((r: any) => !r.skipped).length, results });
   } catch (err: any) {
@@ -4235,14 +4344,16 @@ async function deleteProductFromBackend(productId: string) {
       // listing with broken photos whenever the row delete then failed.
       // Supplier (Dropship) media is never deleted here.
       const { deletable: deletableMedia } = await dropshipGuards.filterProtectedMedia(mediaUrlsToCleanup);
+      // ...nor media another listing (e.g. the same photo reused on a second listing, or a
+      // copied URL) or any profile still shows. Never throws: best-effort as before.
+      const mediaItems: MediaDeleteItem[] = [];
       for (const url of deletableMedia) {
         if (typeof url === 'string' && url.includes('res.cloudinary.com')) {
           const info = extractCloudinaryInfo(url);
-          if (info) {
-            await deleteCloudinaryAsset(info.publicId, info.resourceType).catch(() => {});
-          }
+          if (info) mediaItems.push({ url, publicId: info.publicId, resourceType: info.resourceType });
         }
       }
+      await deleteCloudinaryAssetsIfUnused(mediaItems, { productId: String(productId) });
     } catch (sbErr: any) {
       // Found via a dedicated audit, same "write failure reported as
       // success" shape fixed elsewhere this session: this used to only
@@ -9269,9 +9380,14 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       if (existingUser?.photoUrl && typeof existingUser.photoUrl === 'string' && existingUser.photoUrl.includes('res.cloudinary.com')) {
         const photoInfo = extractCloudinaryInfo(existingUser.photoUrl);
         if (photoInfo) {
-          await deleteCloudinaryAsset(photoInfo.publicId, photoInfo.resourceType).catch((photoErr) => {
-            console.warn('[Account Deletion API] Could not delete profile photo from Cloudinary:', photoErr);
-          });
+          // Kept while any listing or any other profile still shows it.
+          const photoOutcome = await deleteCloudinaryAssetIfUnused(
+            { url: existingUser.photoUrl, publicId: photoInfo.publicId, resourceType: photoInfo.resourceType },
+            { userId: uid },
+          );
+          if (photoOutcome.status === 'failed') {
+            console.warn('[Account Deletion API] Could not delete profile photo from Cloudinary:', photoOutcome.error);
+          }
         }
       }
 
@@ -9816,9 +9932,14 @@ app.post('/api/auth/verify-admin-pin', serverRateLimiter(60 * 1000, 15, "auth-ve
       if (targetUser.photoUrl && typeof targetUser.photoUrl === 'string' && targetUser.photoUrl.includes('res.cloudinary.com')) {
         const info = extractCloudinaryInfo(targetUser.photoUrl);
         if (info) {
-          await deleteCloudinaryAsset(info.publicId, info.resourceType).catch((photoErr) => {
-            console.warn('[Admin Delete] Could not delete profile photo from Cloudinary:', photoErr);
-          });
+          // Admins too: kept while any listing or any other profile still shows it.
+          const photoOutcome = await deleteCloudinaryAssetIfUnused(
+            { url: targetUser.photoUrl, publicId: info.publicId, resourceType: info.resourceType },
+            { userId: targetUserId },
+          );
+          if (photoOutcome.status === 'failed') {
+            console.warn('[Admin Delete] Could not delete profile photo from Cloudinary:', photoOutcome.error);
+          }
         }
       }
 
