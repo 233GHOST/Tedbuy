@@ -133,7 +133,20 @@ export const ProfileSettings: React.FC = () => {
         });
       }
     }
-  }, [currentUser?.id, currentUser?.bio, currentUser?.notificationPreferences]);
+  // Primitive deps only: the 5s profile poll hands back a new currentUser (and a new
+  // notificationPreferences object) every time, which would wipe unsaved typing.
+  }, [
+    currentUser?.id,
+    currentUser?.username,
+    currentUser?.phoneNumber,
+    currentUser?.whatsAppNumber,
+    currentUser?.photoUrl,
+    currentUser?.role,
+    currentUser?.bio,
+    currentUser?.notificationPreferences?.newFollower,
+    currentUser?.notificationPreferences?.newMessage,
+    currentUser?.notificationPreferences?.followedSellerNewListing,
+  ]);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');

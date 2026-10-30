@@ -22,7 +22,11 @@ export const NotificationSettingsTab: React.FC = () => {
         followedSellerNewListing: currentUser.notificationPreferences.followedSellerNewListing ?? true,
       });
     }
-  }, [currentUser?.notificationPreferences]);
+  }, [
+    currentUser?.notificationPreferences?.newFollower,
+    currentUser?.notificationPreferences?.newMessage,
+    currentUser?.notificationPreferences?.followedSellerNewListing,
+  ]);
 
   const handleToggle = async (key: keyof NotificationPreferences) => {
     if (!currentUser) return;
