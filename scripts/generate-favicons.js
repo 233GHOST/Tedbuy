@@ -105,13 +105,13 @@ async function generate() {
     fs.writeFileSync(icoDest, icoBuffer);
     console.log(`[Favicon Generator] Successfully created multi-resolution favicon.ico at ${icoDest}`);
 
-    // Update Mobile App Assets if directory exists
+    // Update Mobile App Assets if directory exists. icon.png and
+    // adaptive-icon.png are NOT generated here: the Android launcher masks
+    // the adaptive icon to its centre, so those two are hand-sized for the
+    // mask (padded on white) and must not be overwritten by a full-bleed render.
     if (fs.existsSync(mobileAssetsDir)) {
-      const mobileIcon1024 = await sharp(svgPath).resize(1024, 1024).png().toBuffer();
       const mobileIcon512 = await sharp(svgPath).resize(512, 512).png().toBuffer();
 
-      fs.writeFileSync(path.join(mobileAssetsDir, 'icon.png'), mobileIcon1024);
-      fs.writeFileSync(path.join(mobileAssetsDir, 'adaptive-icon.png'), mobileIcon1024);
       fs.writeFileSync(path.join(mobileAssetsDir, 'favicon.png'), mobileIcon512);
       fs.writeFileSync(path.join(mobileAssetsDir, 'splash-icon.png'), mobileIcon512);
       console.log('[Favicon Generator] Updated mobile application assets in mobile/assets/');
