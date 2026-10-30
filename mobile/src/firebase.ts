@@ -677,7 +677,8 @@ export async function reloadEmailVerificationStatus(): Promise<boolean> {
 
 import { isReservedStoreName } from './types';
 import { resolveProductImageUri } from './utils/productImage';
-import { isEmailIdentifier, isMergeableProfile } from './utils/authFlow';
+import { isEmailIdentifier, nextProfileStep, classifyEmailMatch } from './utils/authFlow';
+import type { LookupOutcome, ProfileLookups, ProfileStep } from './utils/authFlow';
 
 export async function signUp(input: { email: string; password: string; username: string; phoneNumber: string; photoUri?: string }): Promise<{ verified: boolean }> {
   const { email, password, username, phoneNumber, photoUri } = input;
@@ -821,8 +822,14 @@ export async function signInWithGoogle(): Promise<
   }
   const firebaseUser = userCred.user;
 
-  if (await fetchUserById(firebaseUser.uid)) return { status: 'signed-in', isNewProfile: false };
-  if (await joinOlderProfile(firebaseUser)) return { status: 'signed-in', isNewProfile: false };
+  // Only a clear "no profile anywhere" creates one: /api/users/sync upserts
+  // by id, so creating after a failed lookup could overwrite a real profile
+  // or leave an older same-email profile behind as a duplicate.
+  const step = await resolveProfile(firebaseUser);
+  if (step === 'fail') {
+    throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
+  }
+  if (step !== 'create-fresh') return { status: 'signed-in', isNewProfile: false };
 
   // First time this Google account has ever signed into TedBuy on any
   // platform — create the profile row, exactly like signUp() does for a
@@ -875,30 +882,55 @@ export async function linkPendingGoogleWithPassword(password: string): Promise<v
 /** When the signed-in user has no profile under their own uid, joins an
  * older profile with the same email into it (the server-backed part of
  * web's findAndMigrateExistingUser). The server re-checks that the emails
- * match before merging. Never throws; true when a profile was merged. */
+ * match before merging. Never creates a profile and never throws: a failed
+ * lookup just skips the join. True when a profile was merged. */
 export async function joinExistingProfileIfAny(): Promise<boolean> {
   const firebaseUser = auth.currentUser;
   if (!firebaseUser) return false;
-  if (await fetchUserById(firebaseUser.uid)) return false;
-  return joinOlderProfile(firebaseUser);
-}
-
-async function joinOlderProfile(firebaseUser: FirebaseUser): Promise<boolean> {
-  const email = firebaseUser.email?.trim().toLowerCase();
-  if (!email) return false;
   try {
-    const found = await apiFetch(`/api/users/get?email=${encodeURIComponent(email)}`);
-    if (!found?.success || !isMergeableProfile(found.user, firebaseUser.uid)) return false;
-    const merged = await apiFetch('/api/users/merge-account', {
-      method: 'POST',
-      body: { oldUserId: found.user.id, photoUrl: firebaseUser.photoURL || undefined },
-    });
-    if (merged?.success && merged.user) return true;
-    console.warn('[joinExistingProfileIfAny] Merge refused or failed:', merged?.error);
+    return (await resolveProfile(firebaseUser)) === 'merged';
   } catch (err) {
     console.warn('[joinExistingProfileIfAny] Failed:', err);
+    return false;
   }
-  return false;
+}
+
+/** Server lookup outcome; a 404 is the only "not found", anything else
+ * that isn't a user (offline, timeout, 5xx, 401) is an error. */
+function lookupOutcome(data: any): LookupOutcome {
+  if (data?.success && data.user) return 'found';
+  return data?.errorCode === 'NOT_FOUND' ? 'not-found' : 'error';
+}
+
+/** Runs the lookups and merge that nextProfileStep asks for, stopping at a
+ * final step. Performs a merge but never creates a profile. */
+async function resolveProfile(firebaseUser: FirebaseUser): Promise<Exclude<ProfileStep, 'lookup-email' | 'merge'>> {
+  const byId = await apiFetch(`/api/users/get?id=${encodeURIComponent(firebaseUser.uid)}`);
+  const state: ProfileLookups = { byId: lookupOutcome(byId) };
+  let oldUserId = '';
+  for (;;) {
+    const step = nextProfileStep(state);
+    if (step === 'lookup-email') {
+      const email = firebaseUser.email?.trim().toLowerCase();
+      // No email means nothing to join by.
+      if (!email) { state.byEmail = 'not-found'; continue; }
+      const found = await apiFetch(`/api/users/get?email=${encodeURIComponent(email)}`);
+      state.byEmail = lookupOutcome(found);
+      if (state.byEmail === 'found') {
+        state.emailMatch = classifyEmailMatch(found.user, firebaseUser.uid);
+        oldUserId = found.user.id;
+      }
+    } else if (step === 'merge') {
+      const merged = await apiFetch('/api/users/merge-account', {
+        method: 'POST',
+        body: { oldUserId, photoUrl: firebaseUser.photoURL || undefined },
+      });
+      state.merge = merged?.success && merged.user ? 'ok' : 'error';
+      if (state.merge === 'error') console.warn('[resolveProfile] Merge refused or failed:', merged?.error);
+    } else {
+      return step;
+    }
+  }
 }
 
 /**
