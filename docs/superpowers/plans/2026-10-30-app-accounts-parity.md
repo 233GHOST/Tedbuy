@@ -94,6 +94,37 @@
 - [ ] **Step 3: Live check with the owner:** a NEW sign-up on www.tedbuy.store with another throwaway email → code → reload → **no** amber banner, and posting an ad is not blocked. The Task 1 Step 0 account (created before the fix) still shows the banner and its "send link" button still works. Owner deletes both test accounts afterwards (website admin → user delete, then Firebase Console → tedbuy-fb79a → Authentication).
 - [ ] **Step 4:** Record in memory that the server fix is live.
 
+### Task 3b: Verify-before-posting enforced everywhere (added 2026-10-30, owner decision)
+
+Found during Task 3's live check: an unverified account could post. The website's
+verification gate is only on `handlePostAdBtn` (`src/App.tsx` ~672). Every other
+"new listing" entry opens the form unchecked, and `/api/products/sync` saves new
+listings for any signed-in account. Owner decided: enforce everywhere. Editing an
+existing listing stays allowed; existing listings stay up.
+
+**Files:**
+- Create: `server/products/newListingGate.ts`, `server/products/newListingGate.test.ts`
+- Modify: `server.ts` — `/api/products/sync` (~line 3738); `package.json` — add the test to `test:auth`
+- Modify: `src/context/AppContext.tsx` (new context function), `src/App.tsx`, `src/components/SellerDashboard.tsx`, `src/components/ProfileSettings.tsx`, `src/components/ListingModal.tsx`
+- Modify: `mobile/src/firebase.ts` (server error code passes through to `SellScreen`'s existing verification modal)
+
+**Interfaces:**
+- Produces (server, pure):
+  - `export const EMAIL_NOT_VERIFIED_CODE = 'EMAIL_NOT_VERIFIED'`
+  - `export const EMAIL_NOT_VERIFIED_MESSAGE = 'Please verify your email address before posting a new ad.'`
+  - `export function decideNewListing(input: { isNewListing: boolean; emailVerified: boolean }): { ok: true } | { ok: false; status: 403; code: typeof EMAIL_NOT_VERIFIED_CODE; error: string }`
+- Server response when refused: `403 { success: false, code: 'EMAIL_NOT_VERIFIED', error: EMAIL_NOT_VERIFIED_MESSAGE }`.
+- Produces (website): `ensureCanPostNewAd(): boolean` on the AppContext value — returns true when `currentUser?.emailVerified`; otherwise `setBlockedActionType('post-ad')`, `setIsVerificationBlockOpen(true)`, returns false.
+
+- [ ] **Step 1: Failing tests** in `newListingGate.test.ts`: edit (`isNewListing:false`, unverified) → ok; new + verified → ok; new + unverified → `{ ok:false, status:403, code:'EMAIL_NOT_VERIFIED' }`.
+- [ ] **Step 2: Run** `npx tsx --test server/products/newListingGate.test.ts` → FAIL.
+- [ ] **Step 3: Implement** the module, then wire `/api/products/sync`: a listing is new when the existing `existingRow` lookup finds no row. For new listings only, read `emailVerified` from `getAdminAuth().getUser(user.uid)` (authoritative; the token claim can be stale right after the user clicks the link); if `getUser` throws, refuse with the same 403 (fail closed). Apply the decision before any write. Edits keep today's behaviour exactly.
+- [ ] **Step 4: Website gate.** Add `ensureCanPostNewAd` to AppContext (interface + value). Make `handlePostAdBtn` use it. Guard every create-new entry with it (not edit buttons): `SellerDashboard.tsx` `handleCreateNew`; `ProfileSettings.tsx` create buttons near lines ~1517, ~2414, ~2439 (and any other `setProductToEdit(null); setIsListingModalOpen(true)` pair — grep for it); the `isPostAdOpen` effect in `App.tsx`; and the `/post-ad`, `/sell`, `/post` URLs: when `currentView === 'post-ad'` and the signed-in user is unverified, switch to `'browse'` and open the block modal. In `ListingModal.tsx`, when a save fails with `code === 'EMAIL_NOT_VERIFIED'`, show `EMAIL_NOT_VERIFIED_MESSAGE` in the existing `errorMsg` and open the verification block modal (check how the save error reaches the modal via `dbAdapter.ts` and carry the `code` through if it is dropped).
+- [ ] **Step 5: App.** Make sure an `EMAIL_NOT_VERIFIED` response from `/api/products/sync` reaches `SellScreen` with its `code` (same way `errorCode` already reaches `listingErrorTitle`), and that `SellScreen` then opens its existing `EmailVerificationModal` instead of a generic failure alert.
+- [ ] **Step 6: Verify** `npm run test:auth && npx tsx --test server.test.ts && npx tsc --noEmit -p . && npm run build && cd mobile && node --test src/utils/*.test.ts src/regions.test.ts && npx tsc --noEmit -p .` → pass.
+- [ ] **Step 7: Commit** `fix: require a verified email before posting a new listing, on every path`.
+- [ ] **Step 8 (controller + owner):** owner OK → push `main` → live check with the unverified `+test1` account: every "Post New Ad"/"Create First…" button and `/sell` shows the verify message; editing an existing test1 listing still saves; `+test2` (verified) can post. Then owner deletes both test accounts.
+
 ### Task 4: App — validation and account API helpers
 
 **Files:**
