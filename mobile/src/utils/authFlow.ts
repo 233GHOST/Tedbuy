@@ -26,15 +26,22 @@ export type ProfileLookups = {
   byEmail?: LookupOutcome;
   /** What the email lookup found, when it found something. */
   emailMatch?: 'same-uid' | 'mergeable' | 'unmergeable';
-  /** Unset until the merge has run. */
-  merge?: 'ok' | 'error';
+  /** Unset until the merge has run. `gone`: the old account no longer
+   * exists (404). `refused`: the server will not join it (403). */
+  merge?: 'ok' | 'gone' | 'refused' | 'error';
 };
-export type ProfileStep = 'lookup-email' | 'merge' | 'use-existing' | 'merged' | 'create-fresh' | 'fail';
+export type ProfileStep = 'lookup-email' | 'merge' | 'use-existing' | 'merged' | 'create-fresh' | 'refused' | 'fail';
+
+// Shown when an older same-email account exists but the server refuses to
+// join it; retrying would never help, so the user is sent to support.
+export const MERGE_REFUSED_MESSAGE =
+  "We found an older TedBuy account with this email but couldn't join it automatically. Please contact TedBuy Support at info.tedbuy@gmail.com.";
 
 /** Decides the next step when signing in a user whose profile may live under
  * their uid, under an older same-email id, or nowhere yet. Only a clear "not
- * found" leads to a fresh profile; any failed lookup or merge is `fail`, so a
- * flaky connection can never overwrite or duplicate a profile. */
+ * found" (or an old account that has since gone) leads to a fresh profile;
+ * a failed lookup or merge is `fail` (retry) or `refused` (contact support),
+ * so a flaky connection can never overwrite or duplicate a profile. */
 export function nextProfileStep(s: ProfileLookups): ProfileStep {
   if (s.byId === 'error') return 'fail';
   if (s.byId === 'found') return 'use-existing';
@@ -44,7 +51,10 @@ export function nextProfileStep(s: ProfileLookups): ProfileStep {
   if (s.emailMatch === 'same-uid') return 'use-existing';
   if (s.emailMatch !== 'mergeable') return 'create-fresh';
   if (s.merge === undefined) return 'merge';
-  return s.merge === 'ok' ? 'merged' : 'fail';
+  if (s.merge === 'ok') return 'merged';
+  if (s.merge === 'gone') return 'create-fresh';
+  if (s.merge === 'refused') return 'refused';
+  return 'fail';
 }
 
 /** Classifies a profile found by email against the signed-in uid. */

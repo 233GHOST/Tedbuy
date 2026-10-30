@@ -677,7 +677,7 @@ export async function reloadEmailVerificationStatus(): Promise<boolean> {
 
 import { isReservedStoreName } from './types';
 import { resolveProductImageUri } from './utils/productImage';
-import { isEmailIdentifier, nextProfileStep, classifyEmailMatch } from './utils/authFlow';
+import { isEmailIdentifier, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE } from './utils/authFlow';
 import type { LookupOutcome, ProfileLookups, ProfileStep } from './utils/authFlow';
 
 export async function signUp(input: { email: string; password: string; username: string; phoneNumber: string; photoUri?: string }): Promise<{ verified: boolean }> {
@@ -826,6 +826,7 @@ export async function signInWithGoogle(): Promise<
   // by id, so creating after a failed lookup could overwrite a real profile
   // or leave an older same-email profile behind as a duplicate.
   const step = await resolveProfile(firebaseUser);
+  if (step === 'refused') throw new Error(MERGE_REFUSED_MESSAGE);
   if (step === 'fail') {
     throw new Error('Signed in, but we could not finish setting up your profile. Please check your connection and try again.');
   }
@@ -925,8 +926,12 @@ async function resolveProfile(firebaseUser: FirebaseUser): Promise<Exclude<Profi
         method: 'POST',
         body: { oldUserId, photoUrl: firebaseUser.photoURL || undefined },
       });
-      state.merge = merged?.success && merged.user ? 'ok' : 'error';
-      if (state.merge === 'error') console.warn('[resolveProfile] Merge refused or failed:', merged?.error);
+      const code = merged?.errorCode;
+      state.merge = merged?.success && merged.user ? 'ok'
+        : code === 'NOT_FOUND' ? 'gone'
+        : code === 'FORBIDDEN' || code === 'EMAIL_NOT_VERIFIED' ? 'refused'
+        : 'error';
+      if (state.merge !== 'ok') console.warn('[resolveProfile] Merge refused or failed:', merged?.error);
     } else {
       return step;
     }

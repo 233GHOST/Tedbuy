@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isEmailIdentifier, normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE, isMergeableProfile, nextProfileStep, classifyEmailMatch } from './authFlow.ts';
+import { isEmailIdentifier, normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE, isMergeableProfile, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE } from './authFlow.ts';
 
 test('isEmailIdentifier: only values containing @ are emails', () => {
   assert.equal(isEmailIdentifier('a@b.com'), true);
@@ -65,4 +65,13 @@ test('classifyEmailMatch: same uid, mergeable, deleted', () => {
   assert.equal(classifyEmailMatch({ id: 'u1' }, 'u1'), 'same-uid');
   assert.equal(classifyEmailMatch({ id: 'old' }, 'u1'), 'mergeable');
   assert.equal(classifyEmailMatch({ id: 'old', status: 'deleted' }, 'u1'), 'unmergeable');
+});
+
+test('nextProfileStep: merge 404 (old account gone) creates fresh', () => {
+  assert.equal(nextProfileStep({ byId: 'not-found', byEmail: 'found', emailMatch: 'mergeable', merge: 'gone' }), 'create-fresh');
+});
+
+test('nextProfileStep: merge 403 (refused) stops with the support message', () => {
+  assert.equal(nextProfileStep({ byId: 'not-found', byEmail: 'found', emailMatch: 'mergeable', merge: 'refused' }), 'refused');
+  assert.ok(MERGE_REFUSED_MESSAGE.includes('info.tedbuy@gmail.com'));
 });
