@@ -21,7 +21,7 @@ import { RefreshCw, Plus, Video, FolderOpen } from 'lucide-react-native';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
-import { auth, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile, AiDescriptionStyleMobile, listingErrorTitle } from '../firebase';
+import { auth, observeAuthState, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile, AiDescriptionStyleMobile, listingErrorTitle } from '../firebase';
 import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile, cleanupOrphanedCloudinaryAssetsMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
@@ -481,13 +481,35 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
     return () => { active = false; };
   }, [editProduct?.id, editFetchRetryTick]);
 
-  useEffect(() => {
-    if (auth.currentUser) {
-      fetchUserById(auth.currentUser.uid).then((profile) => {
-        if (profile) setCurrentUserProfile(profile);
-      });
+  // Bottom tabs stay mounted, so the profile is reloaded whenever the
+  // signed-in user changes (signing in/up on Profile) and when this tab gains
+  // focus -- not just once on mount, which left it null after signing in.
+  const [, setAuthUid] = useState<string | null>(auth.currentUser?.uid ?? null);
+  const refreshCurrentUserProfile = React.useCallback(async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      setCurrentUserProfile(null);
+      return;
     }
+    const profile = await fetchUserById(uid);
+    if (auth.currentUser?.uid !== uid) return;
+    // A failed fetch keeps this same user's last profile, never another's.
+    setCurrentUserProfile((prev: any) => (profile || (prev?.id === uid ? prev : null)));
   }, []);
+
+  useEffect(() => {
+    const unsubscribeAuth = observeAuthState((user) => {
+      setAuthUid(user?.uid ?? null);
+      refreshCurrentUserProfile();
+    });
+    const unsubscribeFocus = navigation?.addListener?.('focus', () => {
+      refreshCurrentUserProfile();
+    });
+    return () => {
+      unsubscribeAuth();
+      unsubscribeFocus?.();
+    };
+  }, [navigation, refreshCurrentUserProfile]);
 
   // Camera state — used by edit-mode's existing "Record Video" button (via
   // the reusable Modal-based camera + openCamera() below, unchanged).
@@ -2538,7 +2560,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
         visible={blockedActionType !== null}
         actionType={blockedActionType}
         onClose={() => setBlockedActionType(null)}
-        onVerified={() => setCurrentUserProfile((prev: any) => (prev ? { ...prev, emailVerified: true } : prev))}
+        onVerified={() => { refreshCurrentUserProfile(); }}
       />
 
       <BoostModal
