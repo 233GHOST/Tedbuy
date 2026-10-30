@@ -62,6 +62,9 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
   // Code step. Pending details live only in this component's state.
   const [pending, setPending] = useState<PendingRegistration | null>(null);
   const [otpInput, setOtpInput] = useState('');
+  // Set once the server accepts the code, so a sign-up that failed before
+  // the account existed can be retried without re-checking the used code.
+  const [codeAccepted, setCodeAccepted] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [isResendingCode, setIsResendingCode] = useState(false);
 
@@ -217,6 +220,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
         return;
       }
       setPending(details);
+      setCodeAccepted(false);
       setOtpInput('');
       setResendCooldown(RESEND_COOLDOWN_SECONDS);
       Alert.alert('Code Sent', 'A 6-digit verification code has been sent to your email address.');
@@ -231,6 +235,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
     if (!pending || isResendingCode || resendCooldown > 0) return;
     setIsResendingCode(true);
     setRegisterError('');
+    setCodeAccepted(false);
     setResendCooldown(RESEND_COOLDOWN_SECONDS);
     try {
       const res = await sendRegistrationCode(pending.email, pending.username);
@@ -249,6 +254,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
   const handleChangeEmail = () => {
     // Back to the form with every field still filled in.
     setPending(null);
+    setCodeAccepted(false);
     setOtpInput('');
     setRegisterError('');
   };
@@ -257,16 +263,19 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
     if (!pending || authLoading) return;
     setRegisterError('');
     const cleanOtp = normalizeOtpInput(otpInput);
-    if (cleanOtp.length !== 6) {
+    if (!codeAccepted && cleanOtp.length !== 6) {
       setRegisterError('Please enter a valid 6-digit verification code.');
       return;
     }
     try {
       setAuthLoading(true);
-      const verifyRes = await verifyRegistrationCode(pending.email, cleanOtp);
-      if (!verifyRes.success) {
-        setRegisterError(verifyRes.error || 'Invalid or expired verification code. Please check your code and try again.');
-        return;
+      if (!codeAccepted) {
+        const verifyRes = await verifyRegistrationCode(pending.email, cleanOtp);
+        if (!verifyRes.success) {
+          setRegisterError(verifyRes.error || 'Invalid or expired verification code. Please check your code and try again.');
+          return;
+        }
+        setCodeAccepted(true);
       }
       const { verified } = await signUp(pending);
       if (verified) {
@@ -278,6 +287,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
         );
       }
       setPending(null);
+      setCodeAccepted(false);
       setOtpInput('');
       setEmail('');
       setPassword('');
@@ -342,6 +352,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
     setIsRegisterMode(!isRegisterMode);
     setRegisterError('');
     setPending(null);
+    setCodeAccepted(false);
     setOtpInput('');
     setIsPasswordVisible(false);
   };
