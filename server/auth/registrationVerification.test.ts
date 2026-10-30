@@ -69,3 +69,11 @@ test('decide: checked true -> mark-verified', () => {
     { ok: true, action: 'mark-verified' },
   );
 });
+test('checked record lasts 15 minutes', () => {
+  assert.equal(CHECKED_EMAIL_TTL_MS, 15 * 60 * 1000);
+  let t = 0;
+  const s = createCheckedEmailStore(() => t);
+  s.markChecked('a@b.com');
+  t += CHECKED_EMAIL_TTL_MS - 1;
+  assert.equal(s.has('a@b.com'), true);
+});

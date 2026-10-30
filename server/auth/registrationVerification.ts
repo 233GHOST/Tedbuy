@@ -2,7 +2,9 @@
 // POST /api/auth/complete-registration may mark the Firebase email verified.
 // Kept out of server.ts so it can be unit-tested.
 
-export const CHECKED_EMAIL_TTL_MS = 30 * 60 * 1000;
+// Code life is 10 min; 15 leaves room for a retried sign-up without a long
+// claim window.
+export const CHECKED_EMAIL_TTL_MS = 15 * 60 * 1000;
 
 export function normalizeRegistrationEmail(email: string): string {
   return String(email).trim().toLowerCase();
