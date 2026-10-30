@@ -494,6 +494,28 @@ export interface ListingDescriptionInputMobile {
   style?: AiDescriptionStyleMobile;
 }
 
+// Server-ranked lists, same endpoints the website uses. Return null on any
+// failure (network/timeout/non-success) so callers fall back to computing the
+// list on the phone; never throw.
+async function fetchServerProductList(path: string): Promise<any[] | null> {
+  const data = await apiFetch(path);
+  return data?.success && Array.isArray(data.products) ? data.products : null;
+}
+
+const categoryQuery = (category?: string) =>
+  category && category !== 'All' ? `?category=${encodeURIComponent(category)}` : '';
+
+export const fetchFeaturedProducts = (category?: string) =>
+  fetchServerProductList(`/api/featured${categoryQuery(category)}`);
+
+export const fetchTrendingProducts = (category?: string) =>
+  fetchServerProductList(`/api/trending${categoryQuery(category)}`);
+
+export const fetchSimilarProducts = (productId: string, category: string, limit = 4) =>
+  fetchServerProductList(
+    `/api/similar?productId=${encodeURIComponent(productId)}&category=${encodeURIComponent(category)}&limit=${limit}`
+  );
+
 // Thin client for POST /api/ai/generate-listing-description — all prompt
 // building and provider logic lives server-side so this behaves identically
 // to the web app's generator. Never throws: mirrors apiFetch's own contract

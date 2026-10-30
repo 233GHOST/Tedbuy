@@ -4,7 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Bookmark, Share2, ShieldAlert, X, MessageSquare, Shield } from 'lucide-react-native';
-import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView, getDropshipPurchaseInfo, listingErrorTitle, DropshipPurchaseInfoMobile } from '../firebase';
+import { useServerList } from '../hooks/useServerList';
+import { preferServerList } from '../utils/preferServerList';
+import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView, fetchSimilarProducts, getDropshipPurchaseInfo, listingErrorTitle, DropshipPurchaseInfoMobile } from '../firebase';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
 import { ProductCard } from '../components/ProductCard';
@@ -187,12 +189,24 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
 
   // Matches web's similarProducts (src/components/ProductDetail.tsx) — same
   // category, excluding self, capped at 4. Was entirely missing on mobile.
-  const similarProducts = useMemo(() => {
+  const localSimilarProducts = useMemo(() => {
     if (!product?.category) return [];
     return allProducts
       .filter((p) => p.id !== product.id && p.category && String(p.category).toLowerCase() === String(product.category).toLowerCase())
       .slice(0, 4);
   }, [allProducts, product?.id, product?.category]);
+
+  // Server list like the website; the local list above is the fallback.
+  const serverSimilar = useServerList(
+    () => fetchSimilarProducts(product!.id, product!.category as string, 4),
+    `${product?.id}|${product?.category}`,
+    0,
+    !!product?.id && !!product?.category
+  );
+  const similarProducts = useMemo(
+    () => preferServerList(serverSimilar as Product[] | null, localSimilarProducts),
+    [serverSimilar, localSimilarProducts]
+  );
 
   const handleLike = async () => {
     const user = auth.currentUser;

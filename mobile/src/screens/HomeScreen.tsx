@@ -20,7 +20,9 @@ import { CategoryImagePlaceholder } from '../components/CategoryImagePlaceholder
 import { useSavedProducts } from '../context/SavedProducts';
 import { CATEGORY_FILTERS, getModelsForBrand } from '../utils/filterConfig';
 import { Product, isUserVerified, isUserAdmin } from '../types';
-import { auth, fetchProducts, fetchProductsWithStatus, fetchVideoAds, watchProducts, watchUsers, startChatApi, toggleFollowSeller, fetchSellerListingCounts } from '../firebase';
+import { auth, fetchProducts, fetchProductsWithStatus, fetchVideoAds, watchProducts, watchUsers, startChatApi, toggleFollowSeller, fetchSellerListingCounts, fetchFeaturedProducts, fetchTrendingProducts } from '../firebase';
+import { useServerList } from '../hooks/useServerList';
+import { preferServerList } from '../utils/preferServerList';
 import { EmailVerificationModal } from '../components/EmailVerificationModal';
 import { fonts } from '../theme';
 
@@ -1228,7 +1230,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // filterAndSortFeatured exactly: active-boost + category filter, sorted by
   // most-recently-boosted first (not a "priorityScore" field, which this
   // component never actually sorts by on web).
-  const featuredProducts = useMemo(() => {
+  const localFeaturedProducts = useMemo(() => {
     return products
       .filter((p) => {
         if (!p || (p as any).status === 'hidden' || p.isSold) return false;
@@ -1243,6 +1245,16 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
         return bDate - aDate;
       });
   }, [products, selectedCategory]);
+
+  // Same server lists the website uses (capped/ranked over the full catalogue);
+  // the on-phone versions above/below are the fallback while loading or offline.
+  const [serverListsToken, setServerListsToken] = useState(0);
+  const serverFeatured = useServerList(() => fetchFeaturedProducts(selectedCategory), selectedCategory, serverListsToken);
+  const serverTrending = useServerList(() => fetchTrendingProducts(selectedCategory), selectedCategory, serverListsToken);
+  const featuredProducts = useMemo(
+    () => preferServerList(serverFeatured as Product[] | null, localFeaturedProducts),
+    [serverFeatured, localFeaturedProducts]
+  );
 
   const scrollToFeaturedIndex = (index: number) => {
     featuredIndexRef.current = index;
@@ -1278,9 +1290,13 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   }, [featuredProducts.length, selectedCategory]);
 
   // Trending 10 most viewed listings memo
-  const trendingProducts = useMemo(
+  const localTrendingProducts = useMemo(
     () => computeTrendingProducts(products, selectedCategory, 10),
     [products, selectedCategory]
+  );
+  const trendingProducts = useMemo(
+    () => preferServerList(serverTrending as Product[] | null, localTrendingProducts),
+    [serverTrending, localTrendingProducts]
   );
 
   // Personalized "For You" discovery memo (Phase 4A) — computed entirely from
@@ -1537,6 +1553,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
   // real refresh path new listings never appeared until the app restarted.
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setServerListsToken((t) => t + 1);
     try {
       const [freshResult, freshUsers] = await Promise.all([
         fetchProductsWithStatus(200),

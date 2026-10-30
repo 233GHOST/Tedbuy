@@ -3,7 +3,9 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from '
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Flame } from 'lucide-react-native';
 import { BackButton } from '../components/BackButton';
-import { watchProducts } from '../firebase';
+import { watchProducts, fetchFeaturedProducts } from '../firebase';
+import { useServerList } from '../hooks/useServerList';
+import { preferServerList } from '../utils/preferServerList';
 import { Product } from '../types';
 import { fonts } from '../theme';
 import { ProductCard } from '../components/ProductCard';
@@ -33,7 +35,7 @@ export function FeaturedListingsScreen({ onBack, navigation, category }: Feature
   // selectedCategory — was previously always showing every boosted listing
   // regardless of category, a real behavior mismatch), sorted by
   // most-recently-boosted first.
-  const featuredProducts = useMemo(() => {
+  const localFeaturedProducts = useMemo(() => {
     return products
       .filter((p) => {
         if (!p || (p as any).status === 'hidden' || p.isSold) return false;
@@ -48,6 +50,14 @@ export function FeaturedListingsScreen({ onBack, navigation, category }: Feature
         return bDate - aDate;
       });
   }, [products]);
+
+  // Server list (uncategorised, like the website's full-page view); the
+  // on-phone list above is the fallback while loading or if the server is unreachable.
+  const serverFeatured = useServerList(() => fetchFeaturedProducts(), 'all');
+  const featuredProducts = useMemo(
+    () => preferServerList(serverFeatured as Product[] | null, localFeaturedProducts),
+    [serverFeatured, localFeaturedProducts]
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>

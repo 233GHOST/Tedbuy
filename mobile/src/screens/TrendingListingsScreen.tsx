@@ -3,7 +3,9 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from '
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TrendingUp } from 'lucide-react-native';
 import { BackButton } from '../components/BackButton';
-import { watchProducts } from '../firebase';
+import { watchProducts, fetchTrendingProducts } from '../firebase';
+import { useServerList } from '../hooks/useServerList';
+import { preferServerList } from '../utils/preferServerList';
 import { Product } from '../types';
 import { fonts } from '../theme';
 import { ProductCard } from '../components/ProductCard';
@@ -26,7 +28,13 @@ export function TrendingListingsScreen({ onBack, navigation }: TrendingListingsS
     return unsub;
   }, []);
 
-  const trendingProducts = useMemo(() => computeTrendingProducts(products), [products]);
+  const localTrendingProducts = useMemo(() => computeTrendingProducts(products), [products]);
+  // Server list (uncategorised, like the website's full-page view); local is the fallback.
+  const serverTrending = useServerList(() => fetchTrendingProducts(), 'all');
+  const trendingProducts = useMemo(
+    () => preferServerList(serverTrending as Product[] | null, localTrendingProducts),
+    [serverTrending, localTrendingProducts]
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
