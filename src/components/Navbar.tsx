@@ -881,7 +881,7 @@ export const Navbar: React.FC = () => {
                         required
                         value={usernameInput}
                         onChange={(e) => setUsernameInput(e.target.value)}
-                        placeholder="e.g. Ama's Boutique, David Apparels"
+                        placeholder="e.g. AmaBoutique, David-Apparels"
                         className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 placeholder-slate-400"
                       />
                     </div>

@@ -501,7 +501,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
         <TextInput
           value={username}
           onChangeText={setUsername}
-          placeholder="e.g. Ama's Boutique, David Apparels"
+          placeholder="e.g. AmaBoutique, David-Apparels"
           placeholderTextColor="#94a3b8"
           autoCapitalize="none"
           style={styles.textInput}
