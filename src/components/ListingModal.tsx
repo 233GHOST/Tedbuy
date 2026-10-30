@@ -557,7 +557,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
       updated.unshift(selected);
       return updated;
     });
-    showToast("Cover photo set as primary!", "success");
   };
 
   const removeImage = (indexToRemove: number) => {
@@ -1269,8 +1268,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
         showToast(
           hadFallbackUpload
-            ? "Ad updated, but one or more photos/videos couldn't reach our image service and were saved in a lower-quality fallback format. Consider re-uploading them."
-            : "Ad updated successfully!",
+            ? "Your ad is updated, but some photos or videos were saved in lower quality. You can upload them again."
+            : "Your ad is updated.",
           hadFallbackUpload ? "info" : "success"
         );
         setSelectedProductId(productToEdit.id);
@@ -1299,8 +1298,8 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
 
         showToast(
           hadFallbackUpload
-            ? "Ad posted, but one or more photos/videos couldn't reach our image service and were saved in a lower-quality fallback format. Consider re-uploading them."
-            : "Ad posted successfully!",
+            ? "Your ad is posted, but some photos or videos were saved in lower quality. You can upload them again."
+            : "Your ad is posted.",
           hadFallbackUpload ? "info" : "success"
         );
 
@@ -1403,7 +1402,6 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
         finalMsg += ' (Try using smaller images or a more compressed video to fit our 50MB size limit).';
       }
       setErrorMsg(finalMsg);
-      showToast(finalMsg, "error");
     } finally {
       setIsSubmitting(false);
     }

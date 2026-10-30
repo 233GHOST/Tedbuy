@@ -18,6 +18,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { getAuthErrorMessage } from '../../utils/authErrorHelper';
+import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
 interface Props {
   isIOSDevice: boolean;
@@ -85,16 +86,16 @@ export const AccountSecuritySettingsTab: React.FC<Props> = ({
 
   const handleSendPasswordReset = async () => {
     if (!currentUser?.email) {
-      showToast('No email address registered on this account.', 'error');
+      showToast('Your account has no email address to send a reset link to.', 'error');
       return;
     }
     setIsSendingReset(true);
     try {
       await resetPasswordEmail(currentUser.email);
-      showToast(`Password reset link sent to ${currentUser.email}`, 'success');
+      showToast(`We sent a password reset link to ${currentUser.email}.`, 'success');
     } catch (err: any) {
       console.error('Password reset error:', err);
-      showToast(err?.message || 'Failed to send password reset email.', 'error');
+      showToast(plainErrorMessage(err, "Couldn't send the reset link. Please try again."), 'error');
     } finally {
       setIsSendingReset(false);
     }
@@ -135,10 +136,10 @@ export const AccountSecuritySettingsTab: React.FC<Props> = ({
       downloadAnchor.click();
       downloadAnchor.remove();
 
-      showToast('Account data exported successfully!', 'success');
+      showToast('Your data file is downloading.', 'success');
     } catch (err: any) {
       console.error('Data export error:', err);
-      showToast('Failed to export account data.', 'error');
+      showToast("Couldn't download your data. Please try again.", 'error');
     } finally {
       setIsExportingData(false);
     }
@@ -147,13 +148,13 @@ export const AccountSecuritySettingsTab: React.FC<Props> = ({
   const handlePermanentDelete = async () => {
     if (!currentUser) return;
     if (deleteConfirmText.trim().toUpperCase() !== 'DELETE') {
-      showToast('Please type DELETE exactly to proceed.', 'error');
+      showToast('Type DELETE in the box to confirm.', 'error');
       return;
     }
 
     if (!currentUser.isGoogleAuth && currentUser.authProvider !== 'google.com') {
       if (!deletePasswordText || deletePasswordText.length < 6) {
-        showToast('Password is required to confirm account deletion.', 'error');
+        showToast('Enter your password to delete your account.', 'error');
         return;
       }
     }
@@ -161,11 +162,10 @@ export const AccountSecuritySettingsTab: React.FC<Props> = ({
     setIsDeleting(true);
     try {
       await deleteAccount(deletePasswordText);
-      showToast('Account deleted permanently.', 'success');
       setCurrentView('browse');
     } catch (err: any) {
       console.error('Deletion error:', err);
-      const friendlyMsg = getAuthErrorMessage(err) || 'Failed to delete account. Please re-authenticate and try again.';
+      const friendlyMsg = getAuthErrorMessage(err) || "Couldn't delete your account. Please log in again and try again.";
       showToast(friendlyMsg, 'error');
     } finally {
       setIsDeleting(false);

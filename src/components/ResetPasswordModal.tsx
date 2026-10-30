@@ -78,7 +78,7 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
       } catch (_) {}
 
       setIsSuccess(true);
-      showToast('Password updated successfully! You can now log in.', 'success');
+      showToast('Your password is changed. You can log in now.', 'success');
       setTimeout(() => {
         onSuccess();
       }, 1500);

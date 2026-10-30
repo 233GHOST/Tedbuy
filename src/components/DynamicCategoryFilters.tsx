@@ -136,7 +136,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             title: 'Value my phone', 
             icon: '📊', 
             bgColor: 'bg-indigo-50 border-indigo-150 text-indigo-800',
-            action: () => showToast("📱 Phone valuation tool: Our algorithms estimate market value based on current live specs!", "info")
+            action: () => showToast("📱 Our phone price guide is coming soon. For now, compare prices of similar phones here.", "info")
           },
           { 
             title: 'Budget-friendly', 
@@ -146,7 +146,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
               if (setMinPrice && setMaxPrice) {
                 setMinPrice('');
                 setMaxPrice('2000');
-                showToast("Set price limit to under GH₵ 2,000!", "success");
+                showToast("Showing phones under GH₵ 2,000.", "success");
               }
             }
           },
@@ -156,7 +156,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             bgColor: 'bg-amber-50 border-amber-150 text-amber-800',
             action: () => {
               handleFieldChange('network', '5G Network');
-              showToast("Filtered for 5G High-Performance phones!", "success");
+              showToast("Showing 5G phones.", "success");
             }
           }
         ];
@@ -167,7 +167,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             title: 'Value my laptop/PC', 
             icon: '📊', 
             bgColor: 'bg-indigo-50 border-indigo-150 text-indigo-800',
-            action: () => showToast("💻 Laptop & PC valuation active. Optimal trade pricing suggested!", "info")
+            action: () => showToast("💻 Our laptop price guide is coming soon. For now, compare prices of similar laptops here.", "info")
           },
           { 
             title: 'Budget-friendly', 
@@ -177,7 +177,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
               if (setMinPrice && setMaxPrice) {
                 setMinPrice('');
                 setMaxPrice('4500');
-                showToast("Set laptop price limit to under GH₵ 4,500!", "success");
+                showToast("Showing laptops under GH₵ 4,500.", "success");
               }
             }
           },
@@ -187,7 +187,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             bgColor: 'bg-sky-50 border-sky-150 text-sky-800',
             action: () => {
               handleFieldChange('processor', 'Intel Core i7');
-              showToast("Filtered for powerful Intel Core i7 laptops!", "success");
+              showToast("Showing Intel Core i7 laptops.", "success");
             }
           }
         ];
@@ -197,7 +197,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             title: 'Car Value Guide', 
             icon: '📊', 
             bgColor: 'bg-indigo-50 border-indigo-150 text-indigo-800',
-            action: () => showToast("🚗 Assessing market resale value guides for vehicles in Ghana...", "info")
+            action: () => showToast("🚗 Our car price guide is coming soon. For now, compare prices of similar cars here.", "info")
           },
           { 
             title: 'Smart Budgets', 
@@ -207,7 +207,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
               if (setMinPrice && setMaxPrice) {
                 setMinPrice('');
                 setMaxPrice('80000');
-                showToast("Set car price limit to under GH₵ 80,000!", "success");
+                showToast("Showing cars under GH₵ 80,000.", "success");
               }
             }
           },
@@ -217,7 +217,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             bgColor: 'bg-amber-50 border-amber-150 text-amber-800',
             action: () => {
               handleFieldChange('transmission', 'Automatic');
-              showToast("Filtered for Automatic transmission vehicles!", "success");
+              showToast("Showing automatic cars.", "success");
             }
           }
         ];
@@ -227,7 +227,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             title: 'Rent Estimator', 
             icon: '📈', 
             bgColor: 'bg-indigo-50 border-indigo-150 text-indigo-800',
-            action: () => showToast("🏠 Property value indexer: Check average local rental indices!", "info")
+            action: () => showToast("🏠 Our rent guide is coming soon. For now, compare prices of similar places here.", "info")
           },
           { 
             title: 'Cozy Rooms', 
@@ -237,7 +237,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
               if (setMinPrice && setMaxPrice) {
                 setMinPrice('');
                 setMaxPrice('3000');
-                showToast("Set rent limit to under GH₵ 3,000 / month!", "success");
+                showToast("Showing places under GH₵ 3,000 a month.", "success");
               }
             }
           },
@@ -247,7 +247,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             bgColor: 'bg-purple-50 border-purple-150 text-purple-800',
             action: () => {
               handleFieldChange('furnishedStatus', 'Fully Furnished');
-              showToast("Filtered for Fully Furnished properties!", "success");
+              showToast("Showing fully furnished places.", "success");
             }
           }
         ];
@@ -257,7 +257,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             title: 'Value Estimator', 
             icon: '🏷️', 
             bgColor: 'bg-indigo-50 border-indigo-150 text-indigo-800',
-            action: () => showToast("📊 Estimating best market rates for listings!", "info")
+            action: () => showToast("📊 Our price guide is coming soon. For now, compare prices of similar items here.", "info")
           },
           { 
             title: 'Budget Options', 
@@ -267,7 +267,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
               if (setMinPrice && setMaxPrice) {
                 setMinPrice('');
                 setMaxPrice('1500');
-                showToast("Set price limit to under GH₵ 1,500!", "success");
+                showToast("Showing items under GH₵ 1,500.", "success");
               }
             }
           },
@@ -277,7 +277,7 @@ export const DynamicCategoryFilters: React.FC<DynamicCategoryFiltersProps> = ({
             bgColor: 'bg-amber-50 border-amber-150 text-amber-800',
             action: () => {
               handleFieldChange('condition', 'Brand New');
-              showToast("Filtered for Brand New condition!", "success");
+              showToast("Showing brand new items.", "success");
             }
           }
         ];

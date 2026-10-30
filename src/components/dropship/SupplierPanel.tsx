@@ -8,6 +8,7 @@ import {
 } from './dropshipFormat';
 import { SupplierProductForm } from './SupplierProductForm';
 import { buttonClass, cardClass, inputClass, secondaryButtonClass, StatusPill } from './dropshipUi';
+import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
 const TERMS_VERSION = 'supplier-2026-10';
 
@@ -110,7 +111,7 @@ function ProductRow({ product, readOnly, onChanged, onEdit }: {
       onChanged(r.product);
       showToast(done, 'success');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Action failed.', 'error');
+      showToast(plainErrorMessage(err, "Couldn't save that change. Please try again."), 'error');
     } finally {
       setBusy(false);
     }

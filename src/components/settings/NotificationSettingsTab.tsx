@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Bell, Users, MessageSquare, ShoppingBag, Check, Loader2 } from 'lucide-react';
 import { NotificationPreferences } from '../../types';
+import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
 export const NotificationSettingsTab: React.FC = () => {
   const { currentUser, updateUserProfile, showToast } = useApp();
@@ -42,12 +43,12 @@ export const NotificationSettingsTab: React.FC = () => {
       await updateUserProfile({
         notificationPreferences: updated,
       });
-      showToast('Notification preference updated!', 'success');
+      showToast('Notification setting saved.', 'success');
     } catch (err: any) {
       console.error('Failed to update notification preferences:', err);
       // Revert on error
       setPrefs((prev) => ({ ...prev, [key]: !nextVal }));
-      showToast(err?.message || 'Failed to update preferences.', 'error');
+      showToast(plainErrorMessage(err, "Couldn't save that setting. Please try again."), 'error');
     } finally {
       setSavingKey(null);
     }

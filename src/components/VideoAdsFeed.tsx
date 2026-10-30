@@ -37,6 +37,7 @@ import {
   cacheVideoInBackground, 
   preloadVideoBatch 
 } from '../utils/videoCache';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 let globalBottomNavTimeout: NodeJS.Timeout | null = null;
 
@@ -1338,16 +1339,7 @@ export const VideoAdsFeed: React.FC = () => {
                     try {
                       await toggleSaveProduct(product.id);
                     } catch (err: any) {
-                      let msg = 'Could not update saved listings.';
-                      if (err instanceof Error) {
-                        try {
-                          const parsed = JSON.parse(err.message);
-                          if (parsed.error) msg = parsed.error;
-                        } catch {
-                          msg = err.message;
-                        }
-                      }
-                      showToast(msg, 'error');
+                      showToast(plainErrorMessage(err, "Couldn't update your saved items. Please try again."), 'error');
                     }
                   }}
                   isSaved={isSaved}
@@ -1444,7 +1436,7 @@ export const VideoAdsFeed: React.FC = () => {
 
                     if (!hasWhatsApp) {
                       // Custom graceful automatic fallback to SECURE IN-APP CHAT
-                      showToast(`@${contactingProduct.sellerName} hasn't listed a WhatsApp link yet. Let's message them in-app instead!`, 'info');
+                      showToast(`${contactingProduct.sellerName} has no WhatsApp number, so we're opening a TedBuy chat instead.`, 'info');
                       // Previously called startChat without await inside a
                       // sync handler -- the try/catch never saw the async
                       // rejection, and setCurrentView('chats') fired
@@ -1459,16 +1451,7 @@ export const VideoAdsFeed: React.FC = () => {
                           setCurrentView('chats');
                         }
                       } catch (err: any) {
-                        let msg = 'Failed to initiate in-app chat';
-                        if (err instanceof Error) {
-                          try {
-                            const parsed = JSON.parse(err.message);
-                            if (parsed.error) msg = parsed.error;
-                          } catch {
-                            msg = err.message;
-                          }
-                        }
-                        showToast(msg, "error");
+                        showToast(plainErrorMessage(err, "Couldn't open a chat with the seller. Please try again."), 'error');
                         console.error(err);
                       }
                       setContactingProduct(null);
@@ -1523,16 +1506,7 @@ export const VideoAdsFeed: React.FC = () => {
                         setContactingProduct(null);
                       }
                     } catch (err: any) {
-                      let msg = 'Failed to initiate secure in-app chat';
-                      if (err instanceof Error) {
-                        try {
-                          const parsed = JSON.parse(err.message);
-                          if (parsed.error) msg = parsed.error;
-                        } catch {
-                          msg = err.message;
-                        }
-                      }
-                      showToast(msg, "error");
+                      showToast(plainErrorMessage(err, "Couldn't open a chat with the seller. Please try again."), 'error');
                       console.error("Failed to start chat:", err);
                     }
                   }}

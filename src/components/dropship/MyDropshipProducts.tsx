@@ -8,6 +8,7 @@ import { formatPesewas, listingPillTone, listingStatusLabel } from './dropshipFo
 import { PriceCalculator } from './CatalogueItem';
 import { buttonClass, cardClass, secondaryButtonClass, StatusPill } from './dropshipUi';
 import type { Quote } from './dropshipApi';
+import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
 function EditPriceModal({ listing, onClose, onSaved }: { listing: MyListing; onClose: () => void; onSaved: () => void }) {
   const { showToast } = useApp();
@@ -22,7 +23,7 @@ function EditPriceModal({ listing, onClose, onSaved }: { listing: MyListing; onC
       showToast('Price updated.', 'success');
       onSaved();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not update the price.', 'error');
+      showToast(plainErrorMessage(err, "Couldn't update the price. Please try again."), 'error');
     } finally {
       setBusy(false);
     }
@@ -66,7 +67,7 @@ export function MyDropshipProducts({ canEdit }: { canEdit: boolean }) {
   const run = async (l: MyListing, fn: () => Promise<unknown>, done: string) => {
     setBusyId(l.id);
     try { await fn(); showToast(done, 'success'); await load(); }
-    catch (err) { showToast(err instanceof Error ? err.message : 'Action failed.', 'error'); }
+    catch (err) { showToast(plainErrorMessage(err, "Couldn't save that change. Please try again."), 'error'); }
     finally { setBusyId(''); }
   };
 

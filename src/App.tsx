@@ -149,12 +149,12 @@ const MarketplaceContent: React.FC = () => {
     };
   }, []);
 
-  // Toast automatic dismiss timer
+  // Toast automatic dismiss timer: errors stay longer so there is time to read what to do
   React.useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => {
         hideToast();
-      }, 8000);
+      }, toast.type === 'error' ? 8000 : 4000);
       return () => clearTimeout(timer);
     }
   }, [toast, hideToast]);
@@ -1947,6 +1947,41 @@ const MarketplaceContent: React.FC = () => {
         <Suspense fallback={null}>
           <SuspendedBlockModal />
         </Suspense>
+      )}
+      {/* Pop-up message: bottom-centre above the mobile tab bar, bottom-right on desktop. The embedded app view has its own UI. */}
+      {toast && !isEmbedded && (
+        <div className="fixed inset-x-4 bottom-24 z-[100] flex justify-center pointer-events-none md:inset-x-auto md:right-6 md:bottom-6 md:justify-end">
+          <div
+            key={toast.id}
+            role={toast.type === 'error' ? 'alert' : 'status'}
+            className={`pointer-events-auto flex items-start gap-2.5 w-full max-w-sm rounded-xl border px-3.5 py-3 shadow-lg text-sm font-medium ${
+              toast.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : toast.type === 'error'
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-slate-900 border-slate-800 text-white'
+            }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircle2 className="w-4.5 h-4.5 shrink-0 mt-0.5 text-emerald-600" />
+            ) : toast.type === 'error' ? (
+              <AlertCircle className="w-4.5 h-4.5 shrink-0 mt-0.5 text-rose-600" />
+            ) : (
+              <Info className="w-4.5 h-4.5 shrink-0 mt-0.5 text-slate-300" />
+            )}
+            <p className="flex-1 leading-snug break-words">{toast.message}</p>
+            <button
+              type="button"
+              onClick={hideToast}
+              aria-label="Dismiss message"
+              className={`shrink-0 -m-1 p-1 rounded-md cursor-pointer ${
+                toast.type === 'info' ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       )}
       <AdminSecurityGate />
       <WebMCPInitializer />

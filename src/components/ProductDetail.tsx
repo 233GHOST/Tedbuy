@@ -14,6 +14,7 @@ import { MediaRenderer, isVideoAsset } from './MediaRenderer';
 import { ProductDetailSkeleton } from './PageLoadingSkeletons';
 import { isDropshipRowId } from './dropship/dropshipFormat';
 import { DropshipPurchasePanel } from './dropship/DropshipPurchasePanel';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const ProductDetail: React.FC = () => {
   const {
@@ -172,21 +173,12 @@ export const ProductDetail: React.FC = () => {
         soldAt: nextSoldState ? new Date().toISOString() : null
       });
       showToast(
-        nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
+        nextSoldState ? 'Marked as sold. 🎉' : 'Your listing is available again.',
         'success'
       );
     } catch (err: any) {
       console.error("Failed to update product isSold flag", err);
-      let msg = 'Could not update listing status.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't update this listing. Please try again."), 'error');
     } finally {
       setIsTogglingSold(false);
     }
@@ -253,7 +245,7 @@ export const ProductDetail: React.FC = () => {
           text: shareText,
           url: shareUrl
         });
-        showToast("Shared successfully! 🎉", "success");
+        showToast("Thanks for sharing! 🎉", "success");
       } catch (err: any) {
         if (err && err.name !== 'AbortError') {
           console.warn("navigator.share failed, opening custom share modal...", err);
@@ -273,16 +265,7 @@ export const ProductDetail: React.FC = () => {
       await reportProduct(product.id, reportReason, reportComment);
       setIsReportModalOpen(false);
     } catch (err: any) {
-      let msg = 'Failed to submit report.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, "error");
+      showToast(plainErrorMessage(err, "Couldn't send your report. Please try again."), 'error');
     } finally {
       setIsSubmittingReport(false);
     }
@@ -857,16 +840,7 @@ export const ProductDetail: React.FC = () => {
     try {
       await toggleSaveProduct(product.id);
     } catch (err: any) {
-      let msg = 'Could not update saved listings.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't update your saved items. Please try again."), 'error');
     } finally {
       setIsTogglingSave(false);
     }
@@ -896,16 +870,7 @@ export const ProductDetail: React.FC = () => {
         setCurrentView('chats');
       }
     } catch (err: any) {
-      let msg = 'Could not initiate chat with the seller.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't open a chat with the seller. Please try again."), 'error');
     }
   };
 
@@ -922,7 +887,7 @@ export const ProductDetail: React.FC = () => {
       return;
     }
     if (isOwner) {
-      showToast("You posted this listing.", "info");
+      showToast("This is your own listing, so you can't message yourself.", "info");
       return;
     }
 
@@ -937,16 +902,7 @@ export const ProductDetail: React.FC = () => {
         setCurrentView('chats');
       }
     } catch (err: any) {
-      let msg = 'Could not initiate chat with the seller.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't open a chat with the seller. Please try again."), 'error');
     } finally {
       setIsStartingChat(false);
     }
@@ -965,7 +921,7 @@ export const ProductDetail: React.FC = () => {
     }
     const phoneOrWhatsApp = sellerUser?.whatsAppNumber || sellerUser?.phoneNumber || (product as any).sellerWhatsApp || (product as any).sellerPhone;
     if (!phoneOrWhatsApp) {
-      showToast("The seller has not provided a WhatsApp contact number. You can chat with them directly using Tedbuy chat below!", "info");
+      showToast("This seller has no WhatsApp number. Please use TedBuy chat below.", "info");
       return;
     }
     setSafetyTipsPendingAction('whatsapp');
@@ -1009,16 +965,7 @@ export const ProductDetail: React.FC = () => {
         await followSeller(product.sellerId);
       }
     } catch (err: any) {
-      let msg = isFollowing ? 'Could not unfollow this store.' : 'Could not follow this store.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, isFollowing ? "Couldn't unfollow this store. Please try again." : "Couldn't follow this store. Please try again."), 'error');
     } finally {
       setIsTogglingFollow(false);
     }
@@ -1153,11 +1100,11 @@ export const ProductDetail: React.FC = () => {
         await updateProduct(product.id, updatedFields);
       }
 
-      showToast('Boost deactivated silently without notifications.', 'success');
+      showToast('Boost turned off.', 'success');
       setShowDeactivateConfirm(false);
     } catch (err) {
       console.error('Failed to deactivate boost silently:', err);
-      showToast('Failed to deactivate boost.', 'error');
+      showToast("Couldn't turn off the boost. Please try again.", 'error');
     } finally {
       setIsAdminBoosting(false);
     }
@@ -1267,10 +1214,10 @@ export const ProductDetail: React.FC = () => {
         await updateProduct(product.id, updatedFields);
       }
 
-      showToast(`Ad successfully boosted for ${days} days for free!`, 'success');
+      showToast(`Listing boosted free for ${days} days.`, 'success');
     } catch (err) {
       console.error('Failed to activate free boost:', err);
-      showToast('Failed to activate free boost.', 'error');
+      showToast("Couldn't boost this listing. Please try again.", 'error');
     } finally {
       setIsAdminBoosting(false);
     }
@@ -2624,7 +2571,6 @@ export const ProductDetail: React.FC = () => {
                     const text = `Check out *${product.title}*${priceText} on TedBuy!\n\nView here: ${cleanShareUrl}`;
                     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
-                    showToast("Opening WhatsApp...", "success");
                   }}
                   className="w-full flex items-center gap-3 p-3 rounded-2xl border border-emerald-150 bg-emerald-50/30 hover:bg-emerald-50 text-emerald-800 hover:text-emerald-900 font-bold text-xs transition duration-150 cursor-pointer"
                 >
@@ -2643,7 +2589,6 @@ export const ProductDetail: React.FC = () => {
                     const text = `Check out ${product.title}${priceText} on TedBuy!`;
                     window.open(`https://t.me/share/url?url=${encodeURIComponent(cleanShareUrl)}&text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
                     setIsShareModalOpen(false);
-                    showToast("Opening Telegram...", "success");
                   }}
                   className="w-full flex items-center gap-3 p-3 rounded-2xl border border-sky-150 bg-sky-50/30 hover:bg-sky-50 text-sky-800 hover:text-sky-900 font-bold text-xs transition duration-150 cursor-pointer"
                 >
@@ -2667,10 +2612,10 @@ export const ProductDetail: React.FC = () => {
                           url: cleanShareUrl
                         });
                         setIsShareModalOpen(false);
-                        showToast("Shared successfully!", "success");
+                        showToast("Thanks for sharing!", "success");
                       } catch (err: any) {
                         if (err && err.name !== 'AbortError') {
-                          showToast("Error sharing: " + err.message, "error");
+                          showToast("Couldn't share. Try copying the link instead.", "error");
                         }
                       }
                     }}
@@ -2688,10 +2633,10 @@ export const ProductDetail: React.FC = () => {
                       const titleSlug = product.title ? slugify(product.title) : 'item';
                       const cleanShareUrl = `${window.location.origin}/product/${product.id}-${titleSlug}`;
                       await navigator.clipboard.writeText(cleanShareUrl);
-                      showToast("Link copied to clipboard! Paste it anywhere.", "success");
+                      showToast("Link copied. Paste it anywhere to share.", "success");
                       setIsShareModalOpen(false);
                     } catch (err) {
-                      showToast("Failed to copy link.", "error");
+                      showToast("Couldn't copy the link.", "error");
                     }
                   }}
                   className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-800 font-bold text-xs transition duration-150 cursor-pointer"

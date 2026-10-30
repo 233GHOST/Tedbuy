@@ -6,6 +6,7 @@ import { Product, Category } from '../types';
 import { Edit2, Trash2, PlusCircle, Eye, ShoppingBag, MapPin, Tag, Plus, Bookmark, AlertTriangle, Play, Sparkles, Clock, Flame, Users, Loader2 } from 'lucide-react';
 import { isBoostActive, parseDate, getBoostEndDate } from '../utils/dateParser';
 import { isVideoAsset } from './MediaRenderer';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const SellerDashboard: React.FC = () => {
   const {
@@ -47,21 +48,12 @@ export const SellerDashboard: React.FC = () => {
         soldAt: nextSoldState ? new Date().toISOString() : null
       });
       showToast(
-        nextSoldState ? 'Listing marked as Sold! 🎉' : 'Listing restored to active',
+        nextSoldState ? 'Marked as sold. 🎉' : 'Your listing is available again.',
         'success'
       );
     } catch (err: any) {
       console.error("Failed to toggle sold status", err);
-      let msg = 'Could not update listing status.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't update this listing. Please try again."), 'error');
     } finally {
       setTogglingSoldId(null);
     }
@@ -700,16 +692,7 @@ export const SellerDashboard: React.FC = () => {
                         try {
                           await toggleSaveProduct(prod.id);
                         } catch (err: any) {
-                          let msg = 'Could not update saved listings.';
-                          if (err instanceof Error) {
-                            try {
-                              const parsed = JSON.parse(err.message);
-                              if (parsed.error) msg = parsed.error;
-                            } catch {
-                              msg = err.message;
-                            }
-                          }
-                          showToast(msg, 'error');
+                          showToast(plainErrorMessage(err, "Couldn't update your saved items. Please try again."), 'error');
                         }
                       }}
                       className="p-2 border border-slate-200 text-slate-400 hover:text-rose-600 hover:border-rose-200 rounded-xl hover:bg-rose-50/20 transition-all shadow-3xs flex items-center justify-center cursor-pointer"
@@ -801,10 +784,10 @@ export const SellerDashboard: React.FC = () => {
                   if (!deleteConfirmChecked) return;
                   try {
                     await deleteProduct(productToDelete.id);
-                    showToast('Listing deleted successfully', 'success');
+                    showToast('Listing deleted.', 'success');
                   } catch (err: any) {
                     console.error("Deletion error:", err);
-                    showToast(err?.message || 'Failed to delete listing', 'error');
+                    showToast(plainErrorMessage(err, "Couldn't delete this listing. Please try again."), 'error');
                   } finally {
                     setProductToDelete(null);
                   }

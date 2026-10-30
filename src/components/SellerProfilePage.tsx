@@ -9,6 +9,7 @@ import { compressImage } from '../utils/imageOptimizer';
 import { validateImageFile } from '../utils/fileValidation';
 import { normalizeProduct } from '../utils/productUtils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const SellerProfilePage: React.FC = () => {
   const {
@@ -290,16 +291,7 @@ export const SellerProfilePage: React.FC = () => {
         await followSeller(seller.id);
       }
     } catch (err: any) {
-      let msg = isFollowing ? 'Could not unfollow this store.' : 'Could not follow this store.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, isFollowing ? "Couldn't unfollow this store. Please try again." : "Couldn't follow this store. Please try again."), 'error');
     } finally {
       setIsTogglingFollow(false);
     }
@@ -319,16 +311,7 @@ export const SellerProfilePage: React.FC = () => {
         await followSeller(targetUserId);
       }
     } catch (err: any) {
-      let msg = currentlyFollowing ? 'Could not unfollow this store.' : 'Could not follow this store.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, currentlyFollowing ? "Couldn't unfollow this store. Please try again." : "Couldn't follow this store. Please try again."), 'error');
     } finally {
       setTogglingFollowUserId(null);
     }
@@ -364,16 +347,7 @@ export const SellerProfilePage: React.FC = () => {
       // rate-limiting or a transient server error the button appeared
       // simply broken with no explanation.
       console.error('Failed to initialize direct chat:', err);
-      let msg = 'Could not start chat. Please try again.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          msg = parsed.error || err.message;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't open a chat with the seller. Please try again."), 'error');
     } finally {
       setIsStartingChat(false);
     }
@@ -409,7 +383,7 @@ export const SellerProfilePage: React.FC = () => {
       // with no explanation that it's this seller's contact number on
       // file that's bad, not something the user did wrong.
       if (!/^233\d{9}$/.test(cleanNumber)) {
-        showToast("This seller's WhatsApp number on file looks invalid. Try messaging them on TedBuy chat instead.", 'error');
+        showToast("This seller's WhatsApp number doesn't look right. Please message them on TedBuy chat instead.", 'error');
         setSafetyTipsPendingAction(null);
         return;
       }
@@ -634,16 +608,7 @@ export const SellerProfilePage: React.FC = () => {
                       // but the user still needs to be told the upload
                       // didn't save -- this previously only console.error'd.
                       console.error('Error updating seller avatar: ', err);
-                      let msg = 'Could not update your profile photo. Please try again.';
-                      if (err instanceof Error) {
-                        try {
-                          const parsed = JSON.parse(err.message);
-                          if (parsed.error) msg = parsed.error;
-                        } catch {
-                          msg = err.message;
-                        }
-                      }
-                      showToast(msg, 'error');
+                      showToast(plainErrorMessage(err, "Couldn't update your profile photo. Please try again."), 'error');
                     }
                   } catch (err) {
                     console.error('Failed to compress avatar:', err);
@@ -662,16 +627,7 @@ export const SellerProfilePage: React.FC = () => {
                           }
                         } catch (err: any) {
                           console.error('Error updating seller avatar: ', err);
-                          let msg = 'Could not update your profile photo. Please try again.';
-                          if (err instanceof Error) {
-                            try {
-                              const parsed = JSON.parse(err.message);
-                              if (parsed.error) msg = parsed.error;
-                            } catch {
-                              msg = err.message;
-                            }
-                          }
-                          showToast(msg, 'error');
+                          showToast(plainErrorMessage(err, "Couldn't update your profile photo. Please try again."), 'error');
                         }
                       }
                     };

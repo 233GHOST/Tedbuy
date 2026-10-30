@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { dropshipApi, type CatalogueItemData, type Quote } from './dropshipApi';
 import { formatPesewas, parseCedisToPesewas, pesewasToCedisInput, quoteReasonText } from './dropshipFormat';
 import { buttonClass, cardClass, inputClass, secondaryButtonClass } from './dropshipUi';
+import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
 export const CALCULATOR_LABEL = 'Estimate. You earn this only after the order is delivered and the hold period ends.';
 const DEBOUNCE_MS = 400;
@@ -98,7 +99,7 @@ export function CatalogueItem({ item, onBack, onListed }: { item: CatalogueItemD
       showToast('Added to your store.', 'success');
       onListed();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not add this product.', 'error');
+      showToast(plainErrorMessage(err, "Couldn't add this product. Please try again."), 'error');
       requestId.current = crypto.randomUUID();
     } finally {
       setBusy(false);

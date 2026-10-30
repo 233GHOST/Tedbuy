@@ -147,7 +147,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
     if (!publicKey) return;
 
     if (!(window as any).PaystackPop) {
-      showToast('Paystack gateway is still loading. Please try again in 3 seconds.', 'error');
+      showToast('Payment is still loading. Please try again in a few seconds.', 'error');
       return;
     }
 
@@ -180,15 +180,12 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
           const finalRef = response.reference || ref;
           setPaymentReference(finalRef);
           handleVerifyPaymentBackend(finalRef);
-        },
-        onClose: function() {
-          showToast('Payment window closed.', 'info');
         }
       });
       paystack.openIframe();
     } catch (err: any) {
       console.error('[Paystack Setup Error]', err);
-      showToast('Failed to initialize Paystack Pop-up. Please check public key format.', 'error');
+      showToast("Couldn't open the payment window. Please try again.", 'error');
     }
   };
 
@@ -212,7 +209,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
   const handleCardSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!cardNumber || cardNumber.replace(/\s+/g, '').length < 16) {
-      showToast('Please enter a valid 16-digit card number', 'error');
+      showToast('Please enter a valid 16-digit card number.', 'error');
       return;
     }
 
@@ -288,7 +285,6 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
 
       if (response.ok && data.success) {
         setCheckoutStep('success');
-        showToast('Payment verified successfully! Boost activated.', 'success');
         
         // Optimistically update the product status in local memory instantly
         if (data.product) {

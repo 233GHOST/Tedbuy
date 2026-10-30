@@ -115,13 +115,13 @@ export const AdminUserManagement: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`Retention purge completed. Purged ${data.purgedCount || 0} expired records.`, 'success');
+        showToast(`Clean-up done: removed ${data.purgedCount || 0} expired records.`, 'success');
         handleFetchDeletedAccounts();
       } else {
-        showToast(data.error || 'Purge failed', 'error');
+        showToast(data.error || 'Clean-up failed. Please try again.', 'error');
       }
     } catch (err: any) {
-      showToast(err?.message || 'Network error running purge', 'error');
+      showToast(err?.message || "Couldn't run the clean-up. Check your connection and try again.", 'error');
     } finally {
       setIsPurging(false);
     }
@@ -138,7 +138,7 @@ export const AdminUserManagement: React.FC = () => {
       // Refresh list
       handleSearchUsers();
     } catch (err: any) {
-      showToast(err?.message || 'Failed to toggle security hold.', 'error');
+      showToast(err?.message || "Couldn't change the security hold. Please try again.", 'error');
     } finally {
       setHoldingTargetId(null);
     }

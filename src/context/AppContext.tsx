@@ -40,7 +40,7 @@ import {
   isSupabaseActive,
   supabase
 } from '../dbAdapter';
-import { auth, getAuthHeader, handleBackendError, OperationType, registerBackendErrorListener, requestFcmToken, fetchChatsFromApi, fetchMessagesFromApi, startChatViaApi, sendMessageViaApi, markChatReadViaApi } from '../firebase';
+import { auth, getAuthHeader, handleBackendError, OperationType, requestFcmToken, fetchChatsFromApi, fetchMessagesFromApi, startChatViaApi, sendMessageViaApi, markChatReadViaApi } from '../firebase';
 import { slugify } from '../utils/slugify';
 import { getAuthErrorMessage, toUserFriendlyError } from '../utils/authErrorHelper';
 import { useHashRouting } from '../hooks/useHashRouting';
@@ -244,7 +244,7 @@ interface AppContextType {
   productsLoadError: boolean;
   retryLoadProducts: () => void;
   refreshProducts: () => Promise<void>;
-  toast: { message: string; type: 'success' | 'error' | 'info' } | null;
+  toast: { message: string; type: 'success' | 'error' | 'info'; id: number } | null;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   hideToast: () => void;
   sendVerificationEmailReal: () => Promise<void>;
@@ -646,31 +646,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [canInstall, setCanInstall] = useState<boolean>(false);
   const [isStandalone, setIsStandalone] = useState<boolean>(false);
 
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; id: number } | null>(null);
 
+  // A new toast always replaces the current one; the id restarts its dismiss timer even for a repeated message
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    // No-op: all toast notifications have been removed from the system
+    setToast({ message, type, id: Date.now() });
   }, []);
 
   const hideToast = useCallback(() => {
     setToast(null);
   }, []);
-
-  useEffect(() => {
-    const unsubscribe = registerBackendErrorListener((errInfo) => {
-      // Do not display disruptive global UI-blocking error toasts for background LIST/GET synchronizations,
-      // since the application already has robust offline local storage fallbacks and caches for lists.
-      // Only show error toasts for active writes (CREATE, UPDATE, DELETE) to notify users if their action failed.
-      const isReadOperation = errInfo.operationType === OperationType.LIST || errInfo.operationType === OperationType.GET;
-      if (!isReadOperation) {
-        showToast(errInfo.error, 'error');
-      } else {
-        console.warn(`[Backend Read Graceful Fallback] Suppressed background read error toast for "${errInfo.path}":`, errInfo.error);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [showToast]);
 
   const hasProcessedDeepLink = useRef(false);
   const justRegisteredUserIds = useRef<Set<string>>(new Set());
@@ -1629,7 +1614,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                   setCurrentUserState(existingUser);
                   setSelectedSellerId(firebaseUser.uid);
                   safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(existingUser));
-                  showToast("Welcome back! Your account profile was loaded successfully. 🎉", "success");
                 }
                 return;
               }
@@ -1879,8 +1863,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     let active = true;
-    let previousIds = new Set<string>(notifications.map(n => n.id));
-    let isInitial = true;
 
     const poll = async () => {
       try {
@@ -1898,20 +1880,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch (err) {}
 
         setNotifications(list);
-
-        if (!isInitial) {
-          list.forEach(notif => {
-            if (!previousIds.has(notif.id) && !notif.read) {
-              if (notif.type === 'new_follower') {
-                showToast(`🎉 ${notif.message}`, 'success');
-              } else if (notif.type === 'post_created' || notif.type === 'followed_seller_new_listing') {
-                showToast(`📢 ${notif.message}`, 'info');
-              }
-            }
-          });
-        }
-        previousIds = new Set(list.map(n => n.id));
-        isInitial = false;
       } catch (error: any) {
         console.warn('Notifications poll notice (using local backup):', error?.message || error);
         try {
@@ -2970,7 +2938,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                                    authErrorDetail?.message?.includes('operation-not-allowed');
         if (isAuthErrorDisabled) {
           console.warn('Firebase Email/Password Auth is disabled. Engaging local high-fidelity sandbox fallback.');
-          showToast('Email/Password provider is currently disabled in your Firebase console. Creating high-fidelity sandbox session for offline-interactive testing!', 'info');
           
           uid = `user_local_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`;
           // Instantly mark as registered to prevent race conditions with auth listener
@@ -3617,9 +3584,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (reason === 'expired') {
-      showToast('Impersonation session has expired. Returned to administrator account.', 'info');
-    } else if (reason !== 'logout') {
-      showToast('Exited impersonation mode. Returned to administrator account.', 'success');
+      showToast('Your view-as-user session ended. You are back on your admin account.', 'info');
     }
   }, [impersonationSession, originalAdminUser, currentUser, showToast]);
 
@@ -3655,7 +3620,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUserState(targetUser);
     safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(targetUser));
 
-    showToast(`⚠️ Impersonation Mode Active: Now viewing TedBuy as ${targetUser.username || targetUser.email}`, 'info');
     return session;
   }, [currentUser, originalAdminUser, showToast]);
 
@@ -3691,7 +3655,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       safeLocalStorage.removeItem('tedbuy_user_profiles_cache');
       setCurrentUserState(null);
       setCurrentView('browse');
-      showToast('Logged out successfully.', 'info');
     } catch (err) {
       console.error('Core Logout failed:', err);
     }
@@ -3731,7 +3694,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setGoogleLinkingData(null);
       setCurrentView('browse');
 
-      showToast('App and authentication reset to ground zero. 🔄', 'info');
     } catch (err) {
       console.error('Reset to zero failed:', err);
     }
@@ -3756,16 +3718,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isValid) {
       setIsAdminSessionVerified(true);
       setAdminFailedAttempts(0);
-      showToast('Admin access unlocked successfully!', 'success');
       return true;
     } else {
       setAdminFailedAttempts(prev => {
         const nextAttempts = prev + 1;
         if (nextAttempts >= 3) {
-          showToast('Security Alert: Too many failed admin attempts. Logging out immediately.', 'error');
+          showToast('Too many wrong PIN attempts. You have been logged out.', 'error');
           logoutUser();
-        } else {
-          showToast(`Invalid Admin PIN. Attempt ${nextAttempts} of 3.`, 'error');
         }
         return nextAttempts;
       });
@@ -3776,17 +3735,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const sendVerificationEmailReal = async () => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) {
-      showToast("No active authentication section found.", "error");
+      showToast("Please log in again, then ask for a new verification link.", "error");
       return;
     }
     try {
       await sendEmailVerification(firebaseUser);
-      showToast("A new verification link was dispatched to " + firebaseUser.email + "!", "success");
+      showToast("We sent a new verification link to " + firebaseUser.email + ".", "success");
     } catch (err: any) {
       if (process.env.NODE_ENV === "development") {
         console.error("Error sending verification email:", err);
       }
-      showToast(getAuthErrorMessage(err) || "Failed to dispatch verification email.", "error");
+      showToast(getAuthErrorMessage(err) || "Couldn't send the verification email. Please try again.", "error");
     }
   };
 
@@ -3825,16 +3784,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           throw new Error(syncJson.error || 'Failed to persist verification status.');
         }
         setCurrentUserState(prev => prev ? { ...prev, emailVerified: true } : null);
-        showToast("Success! Your email address has been verified. 🔒", "success");
+        showToast("Your email address is verified.", "success");
       } else if (!isVerified) {
-        showToast("Status: Unverified. Please click the link sent to " + firebaseUser.email, "info");
+        showToast("Your email isn't verified yet. Open the link we sent to " + firebaseUser.email + ", then try again.", "info");
       }
       return isVerified;
     } catch (err: any) {
       if (process.env.NODE_ENV === "development") {
         console.error("Error reloading user status:", err);
       }
-      showToast(getAuthErrorMessage(err) || "Unable to fetch status. Try again shortly.", "error");
+      showToast(getAuthErrorMessage(err) || "Couldn't check your email status. Please try again shortly.", "error");
       return false;
     }
   };
@@ -3843,7 +3802,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const switchUserSimulated = async (userId: string) => {
     if ((import.meta as any).env.PROD) {
       console.error('[Security] Simulated mode is disabled in production.');
-      showToast('Error: Simulated mode is disabled in production.', 'error');
       return;
     }
     const seed = SEED_USERS.find(u => u.id === userId);
@@ -4428,8 +4386,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteProduct = async (id: string) => {
     if (!currentUser) {
-      showToast('Authentication Required: You must be logged in to delete listings.', 'error');
-      throw new Error('Authentication Required: You must be logged in to delete listings.');
+      throw new Error('Please log in to delete listings.');
     }
 
     const localProduct = products.find(p => p.id === id);
@@ -4437,8 +4394,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const isAdmin = currentUser.isAdmin || isSuperAdmin;
     
     if (localProduct && localProduct.sellerId !== currentUser.id && !isAdmin) {
-      showToast('Unauthorized: You can only delete your own listings.', 'error');
-      throw new Error('Unauthorized: You can only delete your own listings.');
+      throw new Error('You can only delete your own listings.');
     }
 
     // Add to optimistic deleted product IDs state
@@ -4737,7 +4693,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
       await sendMessage(supportChatId, reportMessageText);
 
-      showToast("Report submitted successfully! Our moderators will review it shortly.", "success");
+      showToast("Thanks, your report was sent. Our team will look into it.", "success");
       return true;
     } catch (err) {
       handleBackendError(err, OperationType.CREATE, `reports/${reportId}`);
@@ -4900,7 +4856,6 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       setDeferredPrompt(null);
       setCanInstall(false);
       setIsStandalone(true);
-      showToast('Tedbuy has been successfully installed to your device! 🎉 Enjoy lightning fast access.', 'success');
       console.log('[PWA] App was successfully installed.');
     };
 
@@ -4930,7 +4885,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       const choiceResult = await deferredPrompt.userChoice;
       console.log(`[PWA] Installation prompt user choice: ${choiceResult.outcome}`);
       if (choiceResult.outcome === 'accepted') {
-        showToast('Thank you for adding Tedbuy to your device! 🚀', 'success');
+        showToast('TedBuy is being added to your phone. 🚀', 'success');
       }
       setDeferredPrompt(null);
       setCanInstall(false);
@@ -5712,9 +5667,9 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     
     setCurrentUserState(null);
     if (deletionResult?.underInvestigation) {
-      showToast('Account closed. In accordance with security protocols, your account is queued under compliance review.', 'info');
+      showToast('Your account is closed. Our team will review it before it is fully removed.', 'info');
     } else {
-      showToast('Your account has been closed and personal details have been safely anonymized.', 'success');
+      showToast('Your account is closed and your personal details have been removed.', 'success');
     }
     setCurrentView('browse');
   };
@@ -5867,7 +5822,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       setUsers(prev => prev.filter(u => u.id !== userId));
     }
 
-    showToast(data.message || `Store profile for "${targetUser?.username || userId}" permanently deleted.`, 'success');
+    showToast(`Store for "${targetUser?.username || userId}" deleted.`, 'success');
   };
   
   // P0 security fix: same root cause as adminDeleteUserProfile above --
@@ -5923,7 +5878,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       console.warn('Failed to update local users backup:', err);
     }
 
-    showToast(data.message || `User "${targetUser?.username || userId}" has been successfully ${suspend ? 'suspended' : 'unsuspended'}.`, 'success');
+    showToast(suspend ? `"${targetUser?.username || userId}" is now suspended.` : `"${targetUser?.username || userId}" is no longer suspended.`, 'success');
   };
 
   const adminToggleSecurityHold = async (userId: string, hold: boolean, reason?: string) => {
@@ -5987,7 +5942,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       status: hold ? 'under_investigation' : (u.isDeleted ? 'deleted' : 'active')
     } : u));
 
-    showToast(hold ? `Security hold placed on "${targetUser.username}".` : `Security hold released for "${targetUser.username}".`, 'success');
+    showToast(hold ? `Security hold placed on "${targetUser.username}".` : `Security hold removed for "${targetUser.username}".`, 'success');
   };
 
   const addReview = async (sellerId: string, rating: number, comment: string, productTitle?: string, chatId?: string) => {

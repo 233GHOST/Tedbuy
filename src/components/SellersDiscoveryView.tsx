@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Store, ArrowLeft, CheckCircle2, ShieldCheck, MapPin, Search, X, UserPlus, UserCheck } from 'lucide-react';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const SellersDiscoveryView: React.FC = () => {
   const { users, products, currentUser, setCurrentView, setSelectedSellerId, followSeller, unfollowSeller, setShowAuthModal, showToast, sellerListingCounts } = useApp();
@@ -108,22 +109,13 @@ export const SellersDiscoveryView: React.FC = () => {
     try {
       if (isFollowing) {
         await unfollowSeller(sellerId);
-        showToast(`Unfollowed ${sellerName}`, 'info');
+        showToast(`You unfollowed ${sellerName}.`, 'info');
       } else {
         await followSeller(sellerId);
-        showToast(`Now following ${sellerName}`, 'success');
+        showToast(`You're now following ${sellerName}.`, 'success');
       }
     } catch (err: any) {
-      let msg = 'Could not update follow status.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't update who you follow. Please try again."), 'error');
     } finally {
       setTogglingId(null);
     }

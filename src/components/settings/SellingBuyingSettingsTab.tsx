@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ShoppingBag, Briefcase, Globe, Check, Loader2 } from 'lucide-react';
+import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
 export const SellingBuyingSettingsTab: React.FC = () => {
   const { currentUser, updateUserProfile, showToast } = useApp();
@@ -23,10 +24,10 @@ export const SellingBuyingSettingsTab: React.FC = () => {
     setIsSaving(true);
     try {
       await updateUserProfile({ role });
-      showToast('Marketplace role updated successfully!', 'success');
+      showToast('Your buying and selling setting is saved.', 'success');
     } catch (err: any) {
       console.error('Error updating role:', err);
-      showToast(err?.message || 'Failed to update marketplace role.', 'error');
+      showToast(plainErrorMessage(err, "Couldn't save that setting. Please try again."), 'error');
     } finally {
       setIsSaving(false);
     }

@@ -6,6 +6,7 @@ import { ReviewModal } from './ReviewModal';
 import { getVisibleChats } from '../utils/chatStateUtils';
 import { formatTedbuyTenure, formatMessageDateGroup } from '../utils/dateParser';
 import { doc, onSnapshot } from '../dbAdapter';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 interface VideoThumbnailProps {
   videoUrl: string;
@@ -444,16 +445,7 @@ export const ChatInterface: React.FC = () => {
       // added -- a real network failure never reaches here, it's queued
       // for offline retry instead. Restore the draft so the user doesn't
       // lose what they typed.
-      let msg = 'Could not send message. Please try again.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Your message wasn't sent. Please try again."), 'error');
       setInputText(textToSend);
     } finally {
       setIsSendingMessage(false);
@@ -532,7 +524,7 @@ export const ChatInterface: React.FC = () => {
       deleteAnimationTimeoutRef.current = window.setTimeout(async () => {
         try {
           await deleteChatForMe(targetChat.id);
-          showToast('Chat deleted from your inbox.', 'success');
+          showToast('Chat deleted.', 'success');
         } finally {
           setRemovingChatId(null);
         }
@@ -1189,19 +1181,10 @@ export const ChatInterface: React.FC = () => {
                             try {
                               setIsDelivering(true);
                               await markAsDelivered(activeChat.id);
-                              showToast('Delivery confirmed successfully.', 'success');
+                              showToast('Delivery confirmed.', 'success');
                             } catch (err: any) {
                               console.error('[ChatInterface] markAsDelivered error:', err);
-                              let msg = 'Could not confirm delivery. Please try again.';
-                              if (err instanceof Error) {
-                                try {
-                                  const parsed = JSON.parse(err.message);
-                                  if (parsed.error) msg = parsed.error;
-                                } catch {
-                                  msg = err.message;
-                                }
-                              }
-                              showToast(msg, 'error');
+                              showToast(plainErrorMessage(err, "Couldn't confirm delivery. Please try again."), 'error');
                             } finally {
                               setIsDelivering(false);
                             }
@@ -1228,16 +1211,7 @@ export const ChatInterface: React.FC = () => {
                                     showToast('Pickup confirmed. You can now rate the seller.', 'success');
                                   } catch (err: any) {
                                     console.error('[ChatInterface] markAsPickedUp error:', err);
-                                    let msg = 'Could not confirm pickup. Please try again.';
-                                    if (err instanceof Error) {
-                                      try {
-                                        const parsed = JSON.parse(err.message);
-                                        if (parsed.error) msg = parsed.error;
-                                      } catch {
-                                        msg = err.message;
-                                      }
-                                    }
-                                    showToast(msg, 'error');
+                                    showToast(plainErrorMessage(err, "Couldn't confirm pickup. Please try again."), 'error');
                                   } finally {
                                     setIsPickingUp(false);
                                   }
@@ -1574,7 +1548,7 @@ export const ChatInterface: React.FC = () => {
                 // error inline itself on failure so the user's rating and
                 // comment aren't silently discarded.
                 await addReview(activeChat.sellerId, rating, comment, activeChat.productTitle, activeChat.id);
-                showToast('Review submitted. Thank you!', 'success');
+                showToast('Thanks for your review!', 'success');
               }}
             />
           )}

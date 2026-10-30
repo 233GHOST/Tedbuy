@@ -8,6 +8,7 @@ import { getOptimizedImageUrl } from '../utils/imageOptimizer';
 import { resolveProductImage, getCategoryPlaceholder } from '../utils/productUtils';
 import { getCloudinaryThumbnail } from '../utils/cloudinary';
 import { MediaRenderer, isVideoAsset } from './MediaRenderer';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 interface ProductCardProps {
   product: Product;
@@ -71,16 +72,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, isFeaturedVar
     try {
       await toggleSaveProduct(product.id);
     } catch (err: any) {
-      let msg = 'Could not update saved listings.';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't update your saved items. Please try again."), 'error');
     }
   };
 

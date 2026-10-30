@@ -133,7 +133,7 @@ export const Navbar: React.FC = () => {
           try {
             const verifyRes = await verifyAndCompleteRegistration(cleanRegEmail, cleanOtp);
             if (verifyRes.success) {
-              showToast('Account registered and verified successfully! Welcome to TedBuy.', 'success');
+              showToast('Welcome to TedBuy! Your account is ready.', 'success');
               setShowAuthModal(false);
               setCurrentView('my-dashboard');
               
@@ -214,7 +214,6 @@ export const Navbar: React.FC = () => {
               setIsVerifyingOtp(true);
               setOtpTimeRemaining(600); // 10 minutes countdown
               setResendCooldown(60); // 60 seconds resend cooldown
-              showToast('A 6-digit verification code has been sent to your email address.', 'success');
             }
           } catch (initErr: any) {
             setAuthError(initErr?.message || 'Failed to initiate registration. Please try again.');
@@ -599,7 +598,7 @@ export const Navbar: React.FC = () => {
                       try {
                         await logoutUser();
                       } catch (err) {
-                        showToast('Failed to log out', 'error');
+                        showToast("Couldn't log out. Please try again.", 'error');
                       }
                     }}
                     className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg transition shrink-0 cursor-pointer"
@@ -826,7 +825,7 @@ export const Navbar: React.FC = () => {
                               );
                               if (initRes.success) {
                                 setOtpTimeRemaining(600);
-                                showToast('Verification code resent to your email.', 'success');
+                                showToast('We sent you a new code. Check your email.', 'success');
                               }
                             } catch (err: any) {
                               setAuthError(err?.message || 'Failed to resend code.');

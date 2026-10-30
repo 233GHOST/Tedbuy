@@ -26,6 +26,7 @@ import { NotificationSettingsTab } from './settings/NotificationSettingsTab';
 import { AccountSecuritySettingsTab } from './settings/AccountSecuritySettingsTab';
 import { HelpSupportSettingsTab } from './settings/HelpSupportSettingsTab';
 import { useDropshipEnabled } from './dropship/dropshipApi';
+import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const ProfileSettings: React.FC = () => {
   const { 
@@ -189,7 +190,7 @@ CEO, Tedbuy Inc`;
   const handleSendPersonalEmail = async (overrideUser?: { id: string; email?: string; username?: string }) => {
     const targetUser = overrideUser || users?.find(u => u.id === selectedRecipientId);
     if (!targetUser || !targetUser.email) {
-      showToast('Please select a valid registered user with an email address.', 'error');
+      showToast('Pick a user who has an email address.', 'error');
       return;
     }
 
@@ -212,15 +213,12 @@ CEO, Tedbuy Inc`;
       const data = await res.json();
       if (data.success) {
         setPersonalEmailLog(`✅ SUCCESS: ${data.message}`);
-        showToast(`Personal email sent via Brevo to ${targetUser.username || targetUser.email}!`, 'success');
       } else {
         setPersonalEmailLog(`❌ ERROR: ${data.error || 'Failed to send email'}`);
-        showToast(data.error || 'Failed to send personal email via Brevo', 'error');
       }
     } catch (err: any) {
       console.error('[Send Personal Email Error]:', err);
       setPersonalEmailLog(`❌ EXCEPTION: ${err?.message || err}`);
-      showToast(err?.message || 'Failed to send personal email', 'error');
     } finally {
       setIsSendingPersonalEmail(false);
     }
@@ -459,10 +457,10 @@ CEO, Tedbuy Inc`;
       downloadAnchor.click();
       downloadAnchor.remove();
 
-      showToast("Personal data package compiled and downloaded successfully.", "success");
+      showToast("Your data file is downloading.", "success");
     } catch (err: any) {
       console.error(err);
-      showToast("Failed to compile personal data package.", "error");
+      showToast("Couldn't download your data. Please try again.", "error");
     } finally {
       setIsExporting(false);
     }
@@ -649,9 +647,9 @@ CEO, Tedbuy Inc`;
     const storeUrl = `${window.location.origin}/seller/${currentUser.id}`;
     if (navigator.clipboard) {
       navigator.clipboard.writeText(storeUrl);
-      showToast('Storefront link copied to clipboard!', 'success');
+      showToast('Store link copied. Paste it anywhere to share.', 'success');
     } else {
-      showToast('Store link: ' + storeUrl, 'info');
+      showToast('Your store link: ' + storeUrl, 'info');
     }
   };
 
@@ -741,9 +739,9 @@ CEO, Tedbuy Inc`;
         setDeletingListingId(productId);
         await deleteProduct(productId);
         setSellerFetchedProducts(prev => prev.filter(p => p.id !== productId));
-        showToast('Listing deleted successfully', 'success');
+        showToast('Listing deleted.', 'success');
       } catch (err: any) {
-        showToast(err.message || 'Failed to delete listing', 'error');
+        showToast(plainErrorMessage(err, "Couldn't delete this listing. Please try again."), 'error');
       } finally {
         setDeletingListingId(null);
       }
@@ -771,19 +769,10 @@ CEO, Tedbuy Inc`;
           soldAt: newSoldState ? new Date().toISOString() : null
         } : p)
       );
-      showToast(newSoldState ? 'Listing marked as Sold' : 'Listing marked as Available', 'success');
+      showToast(newSoldState ? 'Marked as sold.' : 'Your listing is available again.', 'success');
     } catch (err: any) {
       console.error('Failed to toggle sold status', err);
-      let msg = 'Could not update listing status';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't update this listing. Please try again."), 'error');
     } finally {
       setTogglingSoldId(null);
     }
@@ -793,18 +782,9 @@ CEO, Tedbuy Inc`;
     e?.stopPropagation();
     try {
       await toggleSaveProduct(productId);
-      showToast('Removed from saved deals', 'info');
+      showToast('Removed from your saved items.', 'info');
     } catch (err: any) {
-      let msg = 'Failed to update bookmarks';
-      if (err instanceof Error) {
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.error) msg = parsed.error;
-        } catch {
-          msg = err.message;
-        }
-      }
-      showToast(msg, 'error');
+      showToast(plainErrorMessage(err, "Couldn't update your saved items. Please try again."), 'error');
     }
   };
 
@@ -927,11 +907,9 @@ CEO, Tedbuy Inc`;
         }
         setMigrationLog('Server-side direct migration completed successfully!\nAll legacy app data has been migrated into Supabase with high-fidelity WebP base64 compression applied to all heavy images.');
         setMigrationStats(data.stats);
-        showToast('Successfully migrated all collections directly to Supabase!', 'success');
       } catch (err: any) {
         console.error('[Server Migration Error]:', err);
         setMigrationLog(`Server-side migration failed: ${err.message || err}`);
-        showToast(err.message || 'Server-side migration failed', 'error');
       } finally {
         setIsMigrating(false);
       }
@@ -966,11 +944,9 @@ CEO, Tedbuy Inc`;
 
         setMigrationLog(prev => `${prev ? prev + '\n' : ''}Client-side migration is disabled. Please use the secure server-side migration endpoint instead.`);
         setMigrationStats(stats);
-        showToast('Client-side migration is disabled. Please use server-side migration.', 'info');
       } catch (err: any) {
         console.error('[Client Migration Exception]:', err);
         setMigrationLog(prev => `${prev ? prev + '\n' : ''}Migration failed: ${err.message || err}`);
-        showToast(err.message || 'Data migration failed', 'error');
       } finally {
         setIsMigrating(false);
       }
@@ -1093,7 +1069,6 @@ CEO, Tedbuy Inc`;
       });
 
       setSaveSuccess(true);
-      showToast('Store settings saved successfully!', 'success');
       setTimeout(() => setSaveSuccess(false), 4500);
     } catch (err: any) {
       console.error('[ProfileSettings Save Error]:', err);
@@ -3145,7 +3120,7 @@ CEO, Tedbuy Inc`;
                                             try {
                                               await adminToggleUserSuspension(u.id, !isSuspended);
                                             } catch (err: any) {
-                                              showToast(err?.message || 'Suspension toggle failed', 'error');
+                                              showToast(err?.message || "Couldn't change this user's suspension. Please try again.", 'error');
                                             } finally {
                                               setSuspensionUpdatingId(null);
                                             }
@@ -3301,7 +3276,7 @@ CEO, Tedbuy Inc`;
                             setCurrentView('seller-profile');
                             setShowFollowModal(false);
                           } else {
-                            showToast("This user resides as a buyer with no public store listings.", 'info');
+                            showToast("This user only buys, so there is no store to show.", 'info');
                           }
                         }}
                         className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0"
@@ -3332,7 +3307,7 @@ CEO, Tedbuy Inc`;
                         onClick={async () => {
                           try {
                             await unfollowSeller(user.id);
-                            showToast(`Successfully unfollowed ${user.username}`, 'success');
+                            showToast(`You unfollowed ${user.username}.`, 'success');
                           } catch (err: any) {
                             // Previously console.error only -- unfollowSeller throws via
                             // handleBackendError on any real failure (network, expired
@@ -3340,16 +3315,7 @@ CEO, Tedbuy Inc`;
                             // user feedback: no toast, no state change, nothing to show
                             // whether the click did anything at all.
                             console.error(err);
-                            let msg = 'Could not unfollow this store. Please try again.';
-                            if (err instanceof Error) {
-                              try {
-                                const parsed = JSON.parse(err.message);
-                                if (parsed.error) msg = parsed.error;
-                              } catch {
-                                msg = err.message;
-                              }
-                            }
-                            showToast(msg, 'error');
+                            showToast(plainErrorMessage(err, "Couldn't unfollow this store. Please try again."), 'error');
                           }
                         }}
                         className="px-3 py-1.5 text-[11px] font-bold text-rose-600 hover:text-white border border-rose-200 hover:border-rose-600 hover:bg-rose-600 rounded-xl transition shrink-0 cursor-pointer flex items-center gap-1"
@@ -3388,7 +3354,7 @@ CEO, Tedbuy Inc`;
                               setCurrentView('seller-profile');
                               setShowFollowModal(false);
                             } else {
-                              showToast("This user resides as a buyer with no public store listings.", 'info');
+                              showToast("This user only buys, so there is no store to show.", 'info');
                             }
                           }}
                           className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0"
@@ -3425,19 +3391,10 @@ CEO, Tedbuy Inc`;
                             onClick={async () => {
                               try {
                                 await followSeller(user.id);
-                                showToast(`Now following ${user.username}!`, 'success');
+                                showToast(`You're now following ${user.username}.`, 'success');
                               } catch (err: any) {
                                 console.error(err);
-                                let msg = 'Could not follow this store. Please try again.';
-                                if (err instanceof Error) {
-                                  try {
-                                    const parsed = JSON.parse(err.message);
-                                    if (parsed.error) msg = parsed.error;
-                                  } catch {
-                                    msg = err.message;
-                                  }
-                                }
-                                showToast(msg, 'error');
+                                showToast(plainErrorMessage(err, "Couldn't follow this store. Please try again."), 'error');
                               }
                             }}
                             className="px-3 py-1.5 text-[11px] font-bold text-slate-900 hover:text-white border border-slate-300 hover:border-slate-900 hover:bg-slate-900 rounded-xl transition shrink-0 cursor-pointer flex items-center gap-1"
@@ -3513,7 +3470,6 @@ CEO, Tedbuy Inc`;
                       console.error(err);
                     }
                     setAdminDeleteError({ id: targetId, message: err?.message || 'Deletion failed' });
-                    showToast(err?.message || 'Deletion failed', 'error');
                   } finally {
                     setAdminDeletingId(null);
                   }
