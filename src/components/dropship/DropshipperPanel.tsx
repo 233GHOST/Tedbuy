@@ -85,6 +85,8 @@ export function DropshipperPanel() {
   const [state, setState] = useState<{ loading: boolean; participation?: DropshipperParticipation; error?: string }>({ loading: true });
   const [resubmitting, setResubmitting] = useState(false);
   const [sub, setSub] = useState<'catalogue' | 'mine' | 'orders'>('catalogue');
+  const { orderToOpen } = useApp();
+  useEffect(() => { if (orderToOpen && (orderToOpen.as === 'reseller' || orderToOpen.as === null)) setSub('orders'); }, [orderToOpen]);
   const ordersEnabled = useDropshipOrdersEnabled();
   const [mineKey, setMineKey] = useState(0);
 

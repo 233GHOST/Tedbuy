@@ -4,13 +4,14 @@ import { plainErrorMessage } from '../../utils/plainErrorMessage';
 import { dropshipApi, type Order, type ResellerSummary } from './dropshipApi';
 import { cedisToPesewas } from './dropshipFormat';
 import { FAILED_DELIVERY_REASONS, RESELLER_PROBLEM_REASONS } from './orderFormat';
-import { CaseForm, OrderDetailFrame, OrderList, PaymentForm, ReliabilityBadge, Row, Section, TextAction, money, useOrder } from './OrderParts';
+import { CaseForm, OrderDetailFrame, OrderLoadError, useOrderToOpen, OrderList, PaymentForm, ReliabilityBadge, Row, Section, TextAction, money, useOrder } from './OrderParts';
 import { buttonClass, cardClass, inputClass, dangerOutlineButtonClass, secondaryButtonClass } from './dropshipUi';
 
 // Reseller orders: confirm with the buyer, get the item held, pay the supplier directly,
 // collect, deliver, and record the buyer's payment. TedBuy never handles the money.
 export function ResellerOrders() {
   const [openId, setOpenId] = useState<string | null>(null);
+  useOrderToOpen(['reseller', null], setOpenId);
   const [key, setKey] = useState(0);
   return (
     <div className="space-y-3">
@@ -48,7 +49,7 @@ function ResellerOrderDetail({ id, onBack }: { id: string; onBack: () => void })
   const act = (action: string, body: Record<string, unknown> = {}, done?: string) =>
     run(action, () => dropshipApi.orderAction('reseller', id, action, body), done).then(r => { if (r) setMode(''); return r; });
 
-  if (error && !order) return <p className="text-xs font-bold text-rose-600">{error}</p>;
+  if (error && !order) return <OrderLoadError error={error} onBack={onBack} />;
   const o = order;
   const s = o?.status;
 

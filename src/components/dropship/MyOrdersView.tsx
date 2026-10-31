@@ -3,7 +3,7 @@ import { ArrowLeft, Banknote, KeyRound, Loader2, LogIn, Package } from 'lucide-r
 import { useApp } from '../../context/AppContext';
 import { dropshipApi, useDropshipOrdersEnabled } from './dropshipApi';
 import { BUYER_PROBLEM_REASONS, COD_MESSAGE, RETURN_REASONS } from './orderFormat';
-import { CaseForm, OrderDetailFrame, OrderList, Row, Section, TextAction, money, useOrder } from './OrderParts';
+import { CaseForm, OrderDetailFrame, OrderLoadError, useOrderToOpen, OrderList, Row, Section, TextAction, money, useOrder } from './OrderParts';
 import { buttonClass, cardClass, dangerOutlineButtonClass, secondaryButtonClass } from './dropshipUi';
 
 // Buyer's orders (/orders, and inline in the profile's My orders tab). Pay-on-delivery: the
@@ -13,6 +13,7 @@ export function MyOrdersView({ inline = false }: { inline?: boolean }) {
   const { currentUser, goBack, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
   const enabled = useDropshipOrdersEnabled();
   const [openId, setOpenId] = useState<string | null>(null);
+  useOrderToOpen(['buyer'], setOpenId);
 
   let body: React.ReactNode;
   if (enabled === null) body = <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
@@ -59,7 +60,7 @@ function BuyerOrderDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const act = (action: string, body: Record<string, unknown> = {}, done?: string) =>
     run(action, () => dropshipApi.orderAction('buyer', id, action, body), done).then(r => { if (r) setMode(''); });
 
-  if (error && !order) return <p className="text-xs font-bold text-rose-600">{error}</p>;
+  if (error && !order) return <OrderLoadError error={error} onBack={onBack} />;
   const o = order;
   const s = o?.status;
   const canCancel = !!s && ['placed', 'buyer_confirmed', 'accepted', 'reservation_requested', 'price_review', 'reserved'].includes(s);

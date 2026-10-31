@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Camera, ChevronRight, Clock, Loader2, ShieldCheck, ShieldAlert, X } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { useApp } from '../../context/AppContext';
+import { useApp, type OrderOpenAs } from '../../context/AppContext';
 import { auth } from '../../firebase';
 import { uploadToCloudinary } from '../../utils/cloudinary';
 import { validateImageFile } from '../../utils/fileValidation';
@@ -110,6 +110,26 @@ function useAuthUid(): string | null {
   const [uid, setUid] = useState<string | null>(() => auth.currentUser?.uid ?? null);
   useEffect(() => onAuthStateChanged(auth, u => setUid(u?.uid ?? null)), []);
   return uid;
+}
+
+// Takes an "open this order" request (bell, link, app push) meant for this list's audience.
+export function useOrderToOpen(audiences: Array<OrderOpenAs>, open: (id: string) => void) {
+  const { orderToOpen, clearOrderToOpen } = useApp();
+  useEffect(() => {
+    if (!orderToOpen || !audiences.includes(orderToOpen.as)) return;
+    open(orderToOpen.orderId);
+    clearOrderToOpen();
+  }, [orderToOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+// An order that can't be opened (gone, or not yours to see): say so and go back to the list.
+export function OrderLoadError({ error, onBack }: { error: string; onBack: () => void }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold text-rose-600">{error}</p>
+      <button type="button" onClick={onBack} className={secondaryButtonClass}><ArrowLeft className="w-3.5 h-3.5" /> All orders</button>
+    </div>
+  );
 }
 
 export function useOrder(who: Who, id: string) {

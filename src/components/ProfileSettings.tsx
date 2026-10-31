@@ -518,6 +518,15 @@ CEO, Tedbuy Inc`;
   const [mobileProfileTab, setMobileProfileTab] = useState<'dashboard' | 'saved' | 'settings'>('dashboard');
   const [activeMobileSubSetting, setActiveMobileSubSetting] = useState<'profile' | 'orders' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin' | null>(null);
 
+  // A buyer order to open (bell, link): show My orders; MyOrdersView opens the order itself.
+  const { orderToOpen } = useApp();
+  useEffect(() => {
+    if (orderToOpen?.as !== 'buyer') return;
+    setSettingsTab('orders');
+    setMobileProfileTab('settings');
+    setActiveMobileSubSetting('orders');
+  }, [orderToOpen]);
+
   // Open the tab another screen asked for (the navbar Saved button opens Saved deals)
   useEffect(() => {
     if (profileOpenTab !== 'saved') return;

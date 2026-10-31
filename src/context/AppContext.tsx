@@ -130,6 +130,17 @@ export function mergeAndPreserveFullProducts(prev: Product[], next: Product[]): 
   });
 }
 
+export type OrderOpenAs = 'buyer' | 'reseller' | 'supplier' | null;
+
+function orderFromUrl(): { as: OrderOpenAs; orderId: string } | null {
+  if (typeof window === 'undefined') return null;
+  const q = new URLSearchParams(window.location.search);
+  const orderId = q.get('order') ?? '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)) return null;
+  const as = q.get('as');
+  return { orderId, as: as === 'buyer' || as === 'reseller' || as === 'supplier' ? as : null };
+}
+
 interface AppContextType {
   reviews: Review[];
   addReview: (sellerId: string, rating: number, comment: string, productTitle?: string, chatId?: string) => Promise<void>;
@@ -228,6 +239,11 @@ interface AppContextType {
   // Profile tab to open next (e.g. the navbar Saved button); ProfileSettings switches to it and clears it
   profileOpenTab: 'saved' | null;
   setProfileOpenTab: (tab: 'saved' | null) => void;
+  // Open one order on the right screen (bell, links, the app's push). 'buyer' = My orders;
+  // 'reseller' / 'supplier' = that Dropship Orders tab; null = older notices (Dropship hub).
+  orderToOpen: { as: OrderOpenAs; orderId: string } | null;
+  openOrder: (as: OrderOpenAs, orderId: string) => void;
+  clearOrderToOpen: () => void;
   recentSearches: string[];
   addRecentQuery: (query: string) => void;
   removeRecentQuery: (query: string) => void;
@@ -824,6 +840,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [viewingChatOnMobile, setViewingChatOnMobile] = useState<boolean>(false);
   const [profileOpenTab, setProfileOpenTab] = useState<'saved' | null>(null);
+  // Also reachable by URL (?order=<uuid>&as=buyer|reseller|supplier), which the app's WebView uses.
+  const [orderToOpen, setOrderToOpen] = useState<{ as: OrderOpenAs; orderId: string } | null>(() => orderFromUrl());
+  const clearOrderToOpen = useCallback(() => setOrderToOpen(null), []);
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     try {
       const saved = safeLocalStorage.getItem('tedbuy_recent_searches');
@@ -861,6 +880,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedProductId(null);
     setSelectedSellerId(null);
     setCurrentView('browse');
+  }, []);
+
+  const openOrder = useCallback((as: OrderOpenAs, orderId: string) => {
+    setOrderToOpen({ as, orderId });
+    setCurrentView(as === 'buyer' ? 'profile-settings' : 'dropship');
   }, []);
 
   // Popstate and Hashchange listener to update view and states on native back/forward buttons
@@ -6313,6 +6337,9 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       setViewingChatOnMobile,
       profileOpenTab,
       setProfileOpenTab,
+      orderToOpen,
+      openOrder,
+      clearOrderToOpen,
       recentSearches,
       addRecentQuery,
       removeRecentQuery,

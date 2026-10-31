@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, Phone } from 'lucide-react';
 import { dropshipApi, type Order, type Reliability } from './dropshipApi';
 import { SUPPLIER_PROBLEM_REASONS } from './orderFormat';
-import { CaseForm, OrderDetailFrame, OrderList, ReliabilityBadge, Row, Section, TextAction, money, useOrder } from './OrderParts';
+import { CaseForm, OrderDetailFrame, OrderLoadError, useOrderToOpen, OrderList, ReliabilityBadge, Row, Section, TextAction, money, useOrder } from './OrderParts';
 import { buttonClass, cardClass, inputClass, secondaryButtonClass } from './dropshipUi';
 
 // Supplier orders: hold stock for a reseller, confirm the reseller's payment once the money
 // is in your hands, then release the item. Suppliers never see the buyer or the retail price.
 export function SupplierOrders() {
   const [openId, setOpenId] = useState<string | null>(null);
+  useOrderToOpen(['supplier'], setOpenId);
   const [key, setKey] = useState(0);
   const [rel, setRel] = useState<Reliability | null>(null);
   useEffect(() => { dropshipApi.supplierSummary().then(r => setRel(r.summary.reliability)).catch(() => setRel(null)); }, [key]);
@@ -28,7 +29,7 @@ function SupplierOrderDetail({ id, onBack }: { id: string; onBack: () => void })
   const [declineReason, setDeclineReason] = useState('out_of_stock');
   const act = (action: string, body: Record<string, unknown> = {}, done?: string) =>
     run(action, () => dropshipApi.orderAction('supplier', id, action, body), done).then(r => { if (r) setMode(''); return r; });
-  if (error && !order) return <p className="text-xs font-bold text-rose-600">{error}</p>;
+  if (error && !order) return <OrderLoadError error={error} onBack={onBack} />;
   const o = order;
   const spin = (k: string) => busy === k && <Loader2 className="w-3.5 h-3.5 animate-spin" />;
   const declared = o?.payments.find(p => p.kind === 'reseller_to_supplier' && p.status === 'declared');

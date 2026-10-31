@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Boxes, Loader2, LogIn, ShieldAlert, ShoppingBag, Store } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { isUserAdmin } from '../../types';
@@ -10,10 +10,15 @@ import { AdminDropshipPanel } from './AdminDropshipPanel';
 // TedBuy Dropship hub (/dropship): supplier application, supplier catalogue, and admin
 // review tools. Showing the Admin tab is cosmetic; the server enforces every permission.
 export function DropshipHub() {
-  const { currentUser, setCurrentView, goBack, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
+  const { currentUser, setCurrentView, goBack, setShowAuthModal, setAuthMode, isEmbedded, orderToOpen } = useApp();
   const enabled = useDropshipEnabled();
   const isAdmin = isUserAdmin(currentUser);
   const [tab, setTab] = useState<'dropshipper' | 'supplier' | 'admin'>('dropshipper');
+  // An order to open picks the role tab; the panel inside opens its Orders tab and the order.
+  useEffect(() => {
+    if (orderToOpen?.as === 'supplier') setTab('supplier');
+    else if (orderToOpen && orderToOpen.as !== 'buyer') setTab('dropshipper');
+  }, [orderToOpen]);
 
   let body: React.ReactNode;
   if (enabled === null) {

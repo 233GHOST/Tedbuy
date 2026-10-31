@@ -308,6 +308,8 @@ export function SupplierPanel() {
 function SupplierTabs({ participation }: { participation: SupplierParticipation }) {
   const ordersEnabled = useDropshipOrdersEnabled();
   const [sub, setSub] = useState<'products' | 'orders'>('products');
+  const { orderToOpen } = useApp();
+  useEffect(() => { if (orderToOpen?.as === 'supplier') setSub('orders'); }, [orderToOpen]);
   if (!ordersEnabled) return <SupplierProducts participation={participation} />;
   return (
     <>

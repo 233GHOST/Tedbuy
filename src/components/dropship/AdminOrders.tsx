@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { plainErrorMessage } from '../../utils/plainErrorMessage';
 import { dropshipApi, type OrderSettings } from './dropshipApi';
 import { cedisToPesewas, formatPesewas } from './dropshipFormat';
-import { OrderDetailFrame, OrderList, ReliabilityBadge, Row, Section, TextAction, money, useOrder } from './OrderParts';
+import { OrderDetailFrame, OrderList, ReliabilityBadge, Row, Section, TextAction, money, useOrder, OrderLoadError } from './OrderParts';
 import { buttonClass, cardClass, inputClass, dangerOutlineButtonClass, secondaryButtonClass } from './dropshipUi';
 
 // Admin oversight of COD orders: every order with its full history, the cases to resolve,
@@ -34,7 +34,7 @@ function AdminOrderDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [faultType, setFaultType] = useState('');
   const [note, setNote] = useState('');
   const [cancelling, setCancelling] = useState(false);
-  if (error && !order) return <p className="text-xs font-bold text-rose-600">{error}</p>;
+  if (error && !order) return <OrderLoadError error={error} onBack={onBack} />;
   const o = order;
   const open = o?.disputes.find(d => d.status === 'open');
 
