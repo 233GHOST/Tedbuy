@@ -5446,6 +5446,9 @@ async function sendPushNotification(userId: string, title: string, body: string,
         body,
         data: data || {},
         sound: 'default',
+        // Order updates use the app's high-importance "Orders" channel (sound + heads-up).
+        channelId: typeof data?.type === 'string' && data.type.startsWith('dropship_order') ? 'orders' : 'default',
+        priority: 'high',
       }),
     });
   } catch (err) {

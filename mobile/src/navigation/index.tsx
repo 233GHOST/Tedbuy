@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef, useNavigation } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
+import { orderRouteFromPush } from '../utils/orderPush';
 import { View, Text, StyleSheet } from 'react-native';
 import { Search, PlusCircle, MessageSquare, User } from 'lucide-react-native';
 import { HomeTabIcon } from '../components/HomeTabIcon';
@@ -182,10 +184,24 @@ function MainTabs() {
   );
 }
 
+const navigationRef = createNavigationContainerRef<any>();
+
+// A tapped order notification opens that order: while the app runs (listener) and when the
+// tap started the app (last response, once navigation is ready).
+function openFromNotification(response: Notifications.NotificationResponse | null) {
+  const route = orderRouteFromPush(response?.notification?.request?.content?.data as any);
+  if (route && navigationRef.isReady()) navigationRef.navigate(route.screen, route.params);
+}
+
 export function AppNavigator() {
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener(openFromNotification);
+    return () => sub.remove();
+  }, []);
   return (
     <TabBarVisibilityProvider>
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}
+      onReady={() => { Notifications.getLastNotificationResponseAsync().then(openFromNotification).catch(() => {}); }}>
       {/* gestureEnabled + fullScreenGestureEnabled swipe left-to-right to go
           back is automatic on iOS, but native-stack does NOT enable it on
           Android by default — nor does it kick in there without an explicit
@@ -303,16 +319,18 @@ export function AppNavigator() {
         {/* Swipe-back is off: horizontal swipes belong to the web page, and
             the screen's own Back handling walks WebView history first. */}
         <Stack.Screen name="DropshipWeb" options={{ presentation: 'card', gestureEnabled: false, fullScreenGestureEnabled: false }}>
-          {() => {
+          {({ route }: any) => {
             const navigation = useNavigation<any>();
-            return <DropshipWebScreen onClose={() => { if (navigation.canGoBack()) navigation.goBack(); }} />;
+            return <DropshipWebScreen key={route.params?.orderId ?? 'hub'} orderId={route.params?.orderId} as={route.params?.as}
+              onClose={() => { if (navigation.canGoBack()) navigation.goBack(); }} />;
           }}
         </Stack.Screen>
         {/* The buyer's pay-on-delivery orders: the website's /orders page, same sign-in handoff. */}
         <Stack.Screen name="OrdersWeb" options={{ presentation: 'card', gestureEnabled: false, fullScreenGestureEnabled: false }}>
-          {() => {
+          {({ route }: any) => {
             const navigation = useNavigation<any>();
-            return <DropshipWebScreen page="orders" onClose={() => { if (navigation.canGoBack()) navigation.goBack(); }} />;
+            return <DropshipWebScreen page="orders" key={route.params?.orderId ?? 'list'} orderId={route.params?.orderId} as={route.params?.as}
+              onClose={() => { if (navigation.canGoBack()) navigation.goBack(); }} />;
           }}
         </Stack.Screen>
       </Stack.Navigator>

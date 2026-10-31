@@ -1,5 +1,4 @@
 import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -19,18 +18,12 @@ Notifications.setNotificationHandler({
 
 /**
  * Requests notification permission and returns a real Expo push token, or
- * null if the user denied permission, this is a simulator/emulator (push
- * tokens require a physical device), or anything else went wrong. Never
+ * null if the user denied permission or anything else went wrong (an Android
+ * emulator with Google Play can register, which is how order pushes are tested). Never
  * throws -- every caller should treat "no token" as a normal, expected
  * outcome (the user simply said no), not an error to surface to them.
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
-  if (!Device.isDevice) {
-    // Simulators/emulators cannot receive real pushes -- not an error,
-    // just nothing to register.
-    return null;
-  }
-
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -46,6 +39,12 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       await Notifications.setNotificationChannelAsync('default', {
         name: 'default',
         importance: Notifications.AndroidImportance.DEFAULT,
+      });
+      // Order updates (new order, item on its way, ...): sound and heads-up banner.
+      await Notifications.setNotificationChannelAsync('orders', {
+        name: 'Orders',
+        importance: Notifications.AndroidImportance.HIGH,
+        sound: 'default',
       });
     }
 

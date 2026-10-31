@@ -8,8 +8,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { X, WifiOff } from 'lucide-react-native';
 import { auth, requestAppHandoffToken } from '../firebase';
 import {
-  DROPSHIP_EMBED_URL,
-  ORDERS_EMBED_URL,
+  embedUrl,
   HANDOFF_MESSAGE_TYPE,
   READY_MESSAGE_TYPE,
   SIGNED_IN_MESSAGE_TYPE,
@@ -41,6 +40,9 @@ interface Props {
   onClose: () => void;
   /** Which site page to open: the Dropship hub (default) or the buyer's orders. */
   page?: 'dropship' | 'orders';
+  /** Open this order on arrival (from a tapped order notification). */
+  orderId?: string;
+  as?: 'buyer' | 'reseller' | 'supplier';
 }
 
 /** TedBuy Dropship inside the app: the website's /dropship hub in a WebView,
@@ -48,8 +50,8 @@ interface Props {
  * (POST /api/auth/app-handoff → postMessage to the page). Navigation to any
  * other site leaves the WebView, so the token is only ever posted into a
  * https://www.tedbuy.store page. */
-export function DropshipWebScreen({ onClose, page = 'dropship' }: Props) {
-  const EMBED_URL = page === 'orders' ? ORDERS_EMBED_URL : DROPSHIP_EMBED_URL;
+export function DropshipWebScreen({ onClose, page = 'dropship', orderId, as }: Props) {
+  const EMBED_URL = embedUrl(page, orderId, as);
   const BROWSER_URL = page === 'orders' ? 'https://www.tedbuy.store/orders' : DROPSHIP_BROWSER_URL;
   const webviewRef = useRef<WebView>(null);
   const [loadKey, setLoadKey] = useState(0);

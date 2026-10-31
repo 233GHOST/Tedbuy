@@ -7,6 +7,13 @@ export const DROPSHIP_EMBED_URL = `${TEDBUY_WEB_ORIGIN}/dropship?embed=app`;
 /** The buyer's pay-on-delivery orders, same embedded sign-in as Dropship. */
 export const ORDERS_EMBED_URL = `${TEDBUY_WEB_ORIGIN}/orders?embed=app`;
 
+/** Start URL for the embedded page, optionally opening one order (the site reads ?order=&as=). */
+export function embedUrl(page: 'dropship' | 'orders', orderId?: string, as?: string): string {
+  const base = page === 'orders' ? ORDERS_EMBED_URL : DROPSHIP_EMBED_URL;
+  if (!orderId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)) return base;
+  return `${base}&order=${orderId}${as === 'buyer' || as === 'reseller' || as === 'supplier' ? `&as=${as}` : ''}`;
+}
+
 /** app → page */
 export const HANDOFF_MESSAGE_TYPE = 'tedbuy-handoff';
 /** page → app, on load and after every auth change */
