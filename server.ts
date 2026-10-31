@@ -29,6 +29,7 @@ import { createCheckedEmailStore, decideCompleteRegistration } from "./server/au
 import { decideProfileSync, preserveExistingProfileFields } from "./server/auth/profileSyncGuard.js";
 import { decideNewListing } from "./server/products/newListingGate.js";
 import { exactIlikePattern, sameEmail } from "./server/auth/emailLookup.js";
+import { redactUserSecrets } from './server/auth/redactUser.js';
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -4956,16 +4957,6 @@ app.post('/api/users/sync', serverRateLimiter(60 * 1000, 20, "users-sync"), asyn
   }
 });
 
-// A raw `users` row (select('*')) carries the legacy password/password_hash
-// columns (see the password-reset endpoints below) alongside everything
-// else — every place that ever hands such a row back to a client, admin or
-// not, must strip those first. Centralized here rather than re-implemented
-// per endpoint so a future select('*') response can't forget it.
-function redactUserSecrets<T extends Record<string, any> | null | undefined>(user: T): T {
-  if (!user || typeof user !== 'object') return user;
-  const { password, password_hash, ...safe } = user;
-  return safe as T;
-}
 
 app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (req: express.Request, res: express.Response) => {
   const userId = req.query.id as string;
@@ -5433,7 +5424,7 @@ async function sendPushNotification(userId: string, title: string, body: string,
     if (error || !userRow?.pushToken || typeof userRow.pushToken !== 'string' || !userRow.pushToken.startsWith('ExponentPushToken')) {
       return;
     }
-    await fetch('https://exp.host/--/api/v2/push/send', {
+    const r = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -5451,6 +5442,12 @@ async function sendPushNotification(userId: string, title: string, body: string,
         priority: 'high',
       }),
     });
+    // Expo answers 200 with status 'error' for rejected pushes (missing FCM key, unregistered
+    // device); log the reason, never the token.
+    const out: any = await r.json().catch(() => null);
+    if (!r.ok || out?.data?.status === 'error') {
+      console.warn('[Push] Expo rejected a push:', r.status, out?.data?.details?.error || out?.data?.message || out?.errors?.[0]?.message || 'unknown');
+    }
   } catch (err) {
     console.warn('[sendPushNotification] failed:', err);
   }
