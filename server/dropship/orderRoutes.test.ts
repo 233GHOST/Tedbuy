@@ -28,6 +28,8 @@ let h: PgliteDropship;
 let base: string;
 let offBase: string;
 let tokenBase: string;
+let noEmailBase: string;
+const EMAILS: Record<string, string> = { 'o-res': 'res@example.com', 'o-sup': 'sup@example.com' };
 const servers: import('node:http').Server[] = [];
 const mails: OrderMail[] = [];
 const notices: OrderNotice[] = [];
@@ -67,6 +69,7 @@ before(async () => {
       isEmailVerified: async uid => VERIFIED.has(uid),
       notify: async n => { notices.push(...n); },
       sendMail: async m => { mails.push(m); },
+      lookupEmail: async uid => EMAILS[uid] ?? null,
       makeCode: () => nextCode,
     },
   };
@@ -74,6 +77,7 @@ before(async () => {
   offBase = await listen({ ...deps, orders: { ...deps.orders!, ordersEnabled: false } });
   // Staging wiring: no Firebase Admin lookup, so the token's email_verified claim decides.
   tokenBase = await listen({ ...deps, orders: { ...deps.orders!, isEmailVerified: undefined } });
+  noEmailBase = await listen({ ...deps, orders: { ...deps.orders!, lookupEmail: async () => null } });
 
   // Supplier + reseller + listing, through the real API.
   for (const [who, kind, extra] of [['sup', 'supplier', { addressLine: '12 Ring Road, Osu' }], ['res', 'dropshipper', {}]] as const) {
@@ -125,6 +129,16 @@ test('without an Admin lookup (staging), the token email_verified claim decides'
   assert.equal((await api('POST', `/api/dropship/orders/${ok.body.order.id}/cancel`, 'buyer', { reason: 'test' })).status, 200);
 });
 
+test('no reseller email on file: confirming still works, no new-order email', async () => {
+  const placed = await api('POST', '/api/dropship/orders', 'buyer', placeBody(), noEmailBase);
+  assert.equal(placed.status, 201);
+  const before = mails.length;
+  const r = await api('POST', `/api/dropship/orders/${placed.body.order.id}/confirm`, 'buyer', {}, noEmailBase);
+  assert.equal(r.status, 200);
+  assert.equal(mails.slice(before).filter(m => /^New order /.test(m.subject)).length, 0);
+  await api('POST', `/api/dropship/orders/${placed.body.order.id}/cancel`, 'buyer', { reason: 'test' }, noEmailBase);
+});
+
 test('full COD flow over HTTP: code goes to the buyer only; notices and emails', async () => {
   mails.length = 0; notices.length = 0;
   const req = placeBody({ quantity: 2 });
@@ -135,6 +149,7 @@ test('full COD flow over HTTP: code goes to the buyer only; notices and emails',
   assert.equal((await api('POST', '/api/dropship/orders', 'buyer', req)).status, 200, 'retry returns the same order');
   assert.match(mails[0].subject, /Please confirm/);
   assert.match(mails[0].text, /Pay only when you receive your order/);
+  assert.ok(mails[0].html, 'confirm email has an HTML version');
   const id = placed.body.order.id;
 
   const step = async (who: 'buyer' | 'res' | 'sup', action: string, body: unknown = {}) => {
@@ -144,6 +159,12 @@ test('full COD flow over HTTP: code goes to the buyer only; notices and emails',
     return r.body;
   };
   await step('buyer', 'confirm');
+  const newOrder = mails.filter(m => m.to === 'res@example.com');
+  assert.equal(newOrder.length, 1);
+  assert.match(newOrder[0].subject, /^New order /);
+  assert.ok(newOrder[0].html);
+  await step('buyer', 'confirm');
+  assert.equal(mails.filter(m => m.to === 'res@example.com').length, 1, 'a retried confirm sends nothing');
   await step('res', 'accept');
   await step('res', 'request_reservation', { holdHours: 24 });
   await step('sup', 'confirm_reservation');
@@ -156,8 +177,9 @@ test('full COD flow over HTTP: code goes to the buyer only; notices and emails',
   assert.equal((await api('POST', `/api/dropship/reseller/orders/${id}/out_for_delivery`, 'res', { code: '000000' })).body.errorCode, 'VALIDATION');
   const out = await step('res', 'out_for_delivery');
   assert.ok(!JSON.stringify(out).includes('135790'));
-  const codeMail = mails.find(m => /delivery code/.test(m.subject))!;
+  const codeMail = mails.find(m => /is on its way/.test(m.subject))!;
   assert.match(codeMail.text, /135790/);
+  assert.match(codeMail.html ?? '', /135790/);
   assert.match(codeMail.text, /It is not a payment/);
   assert.equal(codeMail.to, 'buyer@example.com');
   const buyerView = await api('GET', `/api/dropship/orders/${id}`, 'buyer');

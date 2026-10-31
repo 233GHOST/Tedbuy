@@ -891,19 +891,19 @@ if (supabaseUrl && supabaseKey) {
   console.warn('[Supabase Server] Missing credentials for backend Supabase client.');
 }
 
-// Transactional email for Dropship orders (plain text). Never logs the body: the delivery
+// Transactional email for Dropship orders (HTML + plain text). Never logs the body: the delivery
 // code email carries a secret.
-async function sendDropshipOrderEmail(mail: { to: string; subject: string; text: string }): Promise<void> {
+async function sendDropshipOrderEmail(mail: { to: string; subject: string; text: string; html?: string }): Promise<void> {
   const brevoApiKey = process.env.BREVO_API_KEY;
   if (!brevoApiKey) throw new Error('BREVO_API_KEY is not set');
   const senderEmail = process.env.BREVO_SENDER_EMAIL || 'support@tedbuy.store';
-  const senderName = process.env.BREVO_SENDER_NAME || 'Tedbuy';
+  const senderName = process.env.BREVO_SENDER_NAME || 'TedBuy';
   const r = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { accept: 'application/json', 'api-key': brevoApiKey, 'content-type': 'application/json' },
     body: JSON.stringify({
       sender: { name: senderName, email: senderEmail }, replyTo: { name: senderName, email: senderEmail },
-      to: [{ email: mail.to }], subject: mail.subject, textContent: mail.text,
+      to: [{ email: mail.to }], subject: mail.subject, textContent: mail.text, ...(mail.html ? { htmlContent: mail.html } : {}),
       tags: ['transactional', 'dropship-order'], headers: { 'X-Mailin-tag': 'transactional' },
     }),
   });
@@ -935,6 +935,12 @@ const dropshipGuards = registerDropship(app, {
     })));
   },
   sendMail: sendDropshipOrderEmail,
+  lookupEmail: async (uid: string) => {
+    try {
+      const { data } = await backendSupabase.from('users').select('email').eq('id', uid).maybeSingle();
+      return typeof data?.email === 'string' && data.email.includes('@') ? data.email : null;
+    } catch { return null; }
+  },
 });
 // Sitemap: ordinary rows answer synchronously; dsl_ rows only while visible.
 const sitemapProductVisible = (id: string) => !isDropshipRowId(id) || dropshipGuards.isVisibleProduct(id);

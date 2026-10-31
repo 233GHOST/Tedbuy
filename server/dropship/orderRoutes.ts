@@ -3,6 +3,7 @@ import type express from 'express';
 import { DropshipError } from './errors.js';
 import type { DropshipDb } from './db.js';
 import type { DropshipVerifiedUser } from './routes.js';
+import { renderOrderEmail, type OrderEmailKind } from './orderEmail.js';
 import {
   BUYER_ACTIONS, RESELLER_ACTIONS, SUPPLIER_ACTIONS, actionParam, parseBuyerAction, parseLimitOverride, parseOrderListQuery,
   parsePlaceOrder, parseResellerAction, parseResolveDispute, parseSettings, parseSupplierAction,
@@ -16,7 +17,7 @@ import { int, asBody, rejectUnknown, uuidParam } from './validation.js';
 // notifications after a move commits.
 
 export interface OrderNotice { userId: string; title: string; message: string; orderId: string }
-export interface OrderMail { to: string; subject: string; text: string }
+export interface OrderMail { to: string; subject: string; text: string; html?: string }
 
 export interface OrderDeps {
   ordersEnabled: boolean;
@@ -25,6 +26,8 @@ export interface OrderDeps {
   isEmailVerified?: (uid: string) => Promise<boolean | null>;
   notify?: (notices: OrderNotice[]) => Promise<void>;
   sendMail?: (mail: OrderMail) => Promise<void>;
+  // The user's email (users.email), for the reseller's "new order" email; null when unknown.
+  lookupEmail?: (uid: string) => Promise<string | null>;
   makeCode?: () => string;
 }
 
@@ -101,8 +104,16 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
     }
   };
 
-  // The delivery code email. The code is read back from the buyer's own projection so the
-  // email always matches the order page.
+  // Branded order email (orderEmail.ts) from a move's result.
+  const mailFor = (kind: OrderEmailKind, to: string, result: any, link: string, extra: { area?: string; code?: string } = {}): OrderMail => {
+    const o = result.order ?? {};
+    const m = renderOrderEmail({ kind, orderNumber: result.orderNumber, title: result.title, quantity: o.quantity ?? 1,
+      totalPesewas: o.totalPesewas ?? 0, link, ...extra });
+    return { to, subject: m.subject, text: m.text, html: m.html };
+  };
+
+  // "On its way" with the delivery code. The code is read back from the buyer's own projection
+  // so the email always matches the order page.
   const codeMail = async (db: DropshipDb, result: any): Promise<OrderMail | null> => {
     if (!result?.codeIssued || !result.buyerEmail) return null;
     const buyerId = result.notify?.find((n: any) => n.audience === 'buyer')?.userId;
@@ -110,14 +121,17 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
     const view = await db.call('dropship_get_order', { p_actor: buyerId, p_role: 'buyer', p_order: result.order.id });
     const code = view?.order?.deliveryCode;
     if (!code) return null;
-    return {
-      to: result.buyerEmail,
-      subject: `Your TedBuy delivery code for order ${result.orderNumber}`,
-      text: `Your order ${result.orderNumber} (${result.title}) is on its way.\n\n`
-        + `Your delivery code is ${code}. Give it to the seller only when you have the item in your hands.\n\n`
-        + `The code shows that you received the item. It is not a payment. Pay the seller only when you receive your order.\n\n`
-        + `See your order: ${SITE}/#/orders\n\nTedBuy`,
-    };
+    return mailFor('on_its_way', result.buyerEmail, { ...result, order: view.order }, `${SITE}/#/orders`, { code });
+  };
+
+  // "New order" to the reseller once the buyer has confirmed. No email on file: skip quietly.
+  const newOrderMail = async (result: any): Promise<OrderMail | null> => {
+    if (!result?.changed || !deps.lookupEmail) return null;
+    const resellerId = result.notify?.find((n: any) => n.audience === 'dropshipper')?.userId;
+    if (!resellerId) return null;
+    let to: string | null = null;
+    try { to = await deps.lookupEmail(resellerId); } catch { to = null; }
+    return to ? mailFor('new_order', to, result, `${SITE}/#/dropship`, { area: result.order?.delivery?.area }) : null;
   };
 
   const send = (res: express.Response, result: any, status = 200) => {
@@ -139,14 +153,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
       p_buyer: user.uid, p_buyer_email: user.email || null, p_product_id: input.productId, p_quantity: input.quantity,
       p_delivery: input.delivery, p_client_request_id: input.clientRequestId,
     });
-    await afterMove(result, '', result.changed && result.buyerEmail ? {
-      to: result.buyerEmail,
-      subject: `Please confirm your TedBuy order ${result.orderNumber}`,
-      text: `You ordered ${result.title}. Total to pay on delivery: GH₵${(result.order.totalPesewas / 100).toFixed(2)}.\n\n`
-        + `Pay only when you receive your order. Do not send money in advance.\n\n`
-        + `Please confirm the order so the seller can start: ${SITE}/#/orders\n\n`
-        + `If you did not place this order, ignore this email and it will be cancelled automatically.\n\nTedBuy`,
-    } : null);
+    await afterMove(result, '', result.changed && result.buyerEmail ? mailFor('confirm', result.buyerEmail, result, `${SITE}/#/orders`) : null);
     send(res, result, result.changed ? 201 : 200);
   }));
 
@@ -174,7 +181,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
     const action = actionParam(req.params.action, BUYER_ACTIONS);
     const input = parseBuyerAction(action, req.body, deps.cloudinaryCloudName);
     const result = await db.call('dropship_buyer_order_action', { p_buyer: user.uid, p_order: id, p_action: action, p_input: input });
-    await afterMove(result, user.uid);
+    await afterMove(result, user.uid, action === 'confirm' ? await newOrderMail(result) : null);
     send(res, result);
   }));
 
