@@ -17,7 +17,7 @@ export function ResellerOrders() {
     <div className="space-y-3">
       <ExposureBar refreshKey={key} />
       {openId
-        ? <ResellerOrderDetail id={openId} onBack={() => { setOpenId(null); setKey(k => k + 1); }} />
+        ? <ResellerOrderDetail key={openId} id={openId} onBack={() => { setOpenId(null); setKey(k => k + 1); }} />
         : <OrderList who="reseller" onOpen={setOpenId} refreshKey={key} />}
     </div>
   );

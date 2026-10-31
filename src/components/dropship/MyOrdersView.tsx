@@ -27,7 +27,7 @@ export function MyOrdersView({ inline = false }: { inline?: boolean }) {
         : <button type="button" className={buttonClass} onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}><LogIn className="w-4 h-4" /> Sign in</button>}
     </div>
   );
-  else body = openId ? <BuyerOrderDetail id={openId} onBack={() => setOpenId(null)} /> : <OrderList who="buyer" onOpen={setOpenId} />;
+  else body = openId ? <BuyerOrderDetail key={openId} id={openId} onBack={() => setOpenId(null)} /> : <OrderList who="buyer" onOpen={setOpenId} />;
 
   if (inline) return (
     <div className="space-y-3 text-left">

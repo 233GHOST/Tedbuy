@@ -17,7 +17,7 @@ export function SupplierOrders() {
     <div className="space-y-3">
       {rel && <ReliabilityBadge r={rel} label="Your record as a supplier" />}
       {openId
-        ? <SupplierOrderDetail id={openId} onBack={() => { setOpenId(null); setKey(k => k + 1); }} />
+        ? <SupplierOrderDetail key={openId} id={openId} onBack={() => { setOpenId(null); setKey(k => k + 1); }} />
         : <OrderList who="supplier" onOpen={setOpenId} refreshKey={key} />}
     </div>
   );

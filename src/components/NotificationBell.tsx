@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { AppNotification } from '../types';
+import { notificationTarget } from './notificationTarget';
 
 // Top-bar bell: unread count and the latest notices (all types). Tapping one marks it read and
 // opens what it is about; order notices open that order on the buyer's or seller's screen.
@@ -44,17 +45,16 @@ export function NotificationBell() {
   const go = (n: AppNotification) => {
     setOpen(false);
     if (!n.read) markNotificationAsRead(n.id).catch(() => {});
-    if (n.type.startsWith('dropship_order') && n.relatedId) {
-      const as = n.type.slice('dropship_order_'.length);
-      openOrder(as === 'buyer' || as === 'reseller' || as === 'supplier' ? as : null, n.relatedId);
-    } else if (n.type === 'new_message') {
-      if (n.chatId) setActiveChatId(n.chatId);
+    const t = notificationTarget(n);
+    if (t.kind === 'order') openOrder(t.as, t.orderId);
+    else if (t.kind === 'chat') {
+      if (t.chatId) setActiveChatId(t.chatId);
       setCurrentView('chats');
-    } else if (n.type === 'new_follower' && n.triggerUserId) {
-      setSelectedSellerId(n.triggerUserId);
+    } else if (t.kind === 'store') {
+      setSelectedSellerId(t.userId);
       setCurrentView('seller-profile');
-    } else if (n.productId) {
-      setSelectedProductId(n.productId);
+    } else if (t.kind === 'product') {
+      setSelectedProductId(t.productId);
       setCurrentView('product-detail');
     }
   };

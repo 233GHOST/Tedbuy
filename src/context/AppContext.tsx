@@ -882,6 +882,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentView('browse');
   }, []);
 
+  // A request no screen took (e.g. not a reseller) must not fire on a later visit.
+  useEffect(() => {
+    if (orderToOpen && !['profile-settings', 'dropship', 'orders'].includes(currentView)) setOrderToOpen(null);
+  }, [currentView]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const openOrder = useCallback((as: OrderOpenAs, orderId: string) => {
     setOrderToOpen({ as, orderId });
     setCurrentView(as === 'buyer' ? 'profile-settings' : 'dropship');
