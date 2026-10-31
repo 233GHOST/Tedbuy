@@ -16,7 +16,11 @@ import { int, asBody, rejectUnknown, uuidParam } from './validation.js';
 // delivery code (crypto.randomInt; never logged, never returned to the reseller), and sends
 // notifications after a move commits.
 
-export interface OrderNotice { userId: string; title: string; message: string; orderId: string }
+export type NoticeAudience = 'buyer' | 'reseller' | 'supplier';
+export interface OrderNotice { userId: string; title: string; message: string; orderId: string; audience: NoticeAudience }
+
+// SQL names the reseller role 'dropshipper'; notices and screens say 'reseller'.
+const noticeAudience = (a: string): NoticeAudience => (a === 'dropshipper' ? 'reseller' : a === 'supplier' ? 'supplier' : 'buyer');
 export interface OrderMail { to: string; subject: string; text: string; html?: string }
 
 export interface OrderDeps {
@@ -79,7 +83,7 @@ function noticesFor(result: any, actorUid: string, override?: NoticeText): Order
     if (!n.userId || n.userId === actorUid) continue;
     const message = override ? override[n.audience] : NOTICE[result.status]?.[n.audience];
     if (!message) continue;
-    out.push({ userId: n.userId, orderId: result.orderId, title: `Order ${result.orderNumber}`, message });
+    out.push({ userId: n.userId, orderId: result.orderId, title: `Order ${result.orderNumber}`, message, audience: noticeAudience(n.audience) });
   }
   return out;
 }
@@ -333,7 +337,7 @@ export async function runOrderExpiry(db: DropshipDb, notify?: OrderDeps['notify'
     const notices: OrderNotice[] = [];
     for (const r of results) {
       for (const n of (r.notify ?? []) as Array<{ userId: string; audience: string }>) {
-        notices.push({ userId: n.userId, orderId: r.orderId, title: `Order ${r.orderNumber}`,
+        notices.push({ userId: n.userId, orderId: r.orderId, title: `Order ${r.orderNumber}`, audience: noticeAudience(n.audience),
           message: 'This order was cancelled because a step was not completed in time. Nobody was charged.' });
       }
     }

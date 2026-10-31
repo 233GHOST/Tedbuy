@@ -930,7 +930,7 @@ const dropshipGuards = registerDropship(app, {
   },
   notify: async notices => {
     await Promise.all(notices.map(n => createNotification({
-      id: `dso_${crypto.randomUUID()}`, userId: n.userId, type: 'dropship_order', title: n.title, message: n.message,
+      id: `dso_${crypto.randomUUID()}`, userId: n.userId, type: `dropship_order_${n.audience}`, title: n.title, message: n.message,
       read: false, createdAt: new Date().toISOString(), relatedId: n.orderId,
     })));
   },
@@ -5484,7 +5484,7 @@ async function createNotification(notif: Record<string, any>) {
   // message/follower/listing-update if they had the app open (web's poll,
   // or mobile's own chat poll). This is what actually reaches someone who
   // has the app backgrounded or closed. Never blocks or fails the caller.
-  sendPushNotification(notif.userId, notif.title, notif.message, { notificationId: notif.id, type: notif.type }).catch(() => {});
+  sendPushNotification(notif.userId, notif.title, notif.message, { notificationId: notif.id, type: notif.type, relatedId: notif.relatedId }).catch(() => {});
 }
 
 // Opt-out model (matches the mobile Notification Settings screen): a

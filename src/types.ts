@@ -428,7 +428,11 @@ export interface AppNotification {
   // 'followed_seller_new_listing' was already a real type string the
   // server has always created (server.ts's new-listing notification
   // block) -- just missing from this union until now.
-  type: 'post_created' | 'new_follower' | 'new_message' | 'followed_seller_new_listing';
+  // Order notices name who they are for, so the bell can open the right orders screen
+  // ('dropship_order' = older rows, before the audience was recorded).
+  type: 'post_created' | 'new_follower' | 'new_message' | 'followed_seller_new_listing'
+    | 'dropship_order' | 'dropship_order_buyer' | 'dropship_order_reseller' | 'dropship_order_supplier';
+  relatedId?: string;
   title: string;
   message: string;
   triggerUserId: string; // The user who made the post or sent the message

@@ -194,6 +194,9 @@ test('full COD flow over HTTP: code goes to the buyer only; notices and emails',
   const done = await step('res', 'record_payment', { amountPesewas: 32000, method: 'cash' });
   assert.equal(done.order.status, 'completed');
   assert.ok(notices.some(n => n.userId === 'o-sup' && /hold stock/.test(n.message)));
+  assert.equal(notices.find(n => n.userId === 'o-sup')?.audience, 'supplier');
+  assert.equal(notices.find(n => n.userId === 'o-buyer')?.audience, 'buyer');
+  assert.equal(notices.find(n => n.userId === 'o-res')?.audience, 'reseller');
   assert.ok(notices.every(n => n.orderId === id));
 
   // A refused return tells the buyer it was refused, not that the order is complete.
@@ -244,6 +247,6 @@ test('expiry sweep cancels overdue orders and notifies', async () => {
   notices.length = 0;
   const n = await runOrderExpiry(h.db, async x => { notices.push(...x); });
   assert.equal(n, 1);
-  assert.ok(notices.some(x => x.userId === 'o-buyer' && /Nobody was charged/.test(x.message)));
+  assert.ok(notices.some(x => x.userId === 'o-buyer' && x.audience === 'buyer' && /Nobody was charged/.test(x.message)));
   assert.equal((await api('GET', `/api/dropship/orders/${placed.body.order.id}`, 'buyer')).body.order.status, 'cancelled');
 });
