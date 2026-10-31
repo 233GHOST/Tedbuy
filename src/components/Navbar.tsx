@@ -30,8 +30,7 @@ export const Navbar: React.FC = () => {
     products,
     setSelectedCategory,
     registerProduct,
-    setDashboardTab,
-    dashboardTab,
+    setProfileOpenTab,
     showAuthModal,
     setShowAuthModal,
     authMode,
@@ -135,7 +134,7 @@ export const Navbar: React.FC = () => {
             if (verifyRes.success) {
               showToast('Welcome to TedBuy! Your account is ready.', 'success');
               setShowAuthModal(false);
-              setCurrentView('my-dashboard');
+              setCurrentView('profile-settings');
               
               // Reset registration fields
               setUsernameInput('');
@@ -237,7 +236,7 @@ export const Navbar: React.FC = () => {
           setShowAuthModal(false);
           setLoginIdentifierInput('');
           setLoginPasswordInput('');
-          setCurrentView('my-dashboard');
+          setCurrentView('profile-settings');
         }
       }
     } catch (err: any) {
@@ -260,7 +259,7 @@ export const Navbar: React.FC = () => {
     try {
       await loginWithGoogle();
       setShowAuthModal(false);
-      setCurrentView('my-dashboard');
+      setCurrentView('profile-settings');
     } catch (err: any) {
       if (err?.code === 'auth/account-exists-with-different-credential' || err?.message === 'auth/account-exists-with-different-credential') {
         console.log('Account exists with different credential error caught, prompting link form.');
@@ -282,7 +281,7 @@ export const Navbar: React.FC = () => {
         setShowAuthModal(false);
         setLinkPasswordInput('');
         setGoogleLinkingData(null);
-        setCurrentView('my-dashboard');
+        setCurrentView('profile-settings');
       }
     } catch (err: any) {
       if (process.env.NODE_ENV === "development") {
@@ -307,7 +306,7 @@ export const Navbar: React.FC = () => {
       // authMode/passwordResetSuccess/resetEmailInput weren't reset here --
       // most call sites that reopen this modal pair setShowAuthModal(true)
       // with setAuthMode('login') themselves, but not all of them do
-      // (SellerDashboard's "Sign In / Register", SellersDiscoveryView's
+      // (SellersDiscoveryView's
       // follow-toggle prompt, ChatInterface's "Sign In to View Inbox").
       // Someone who'd switched to Register, or requested a password reset,
       // and closed with the X saw the modal reopen still on that stale
@@ -520,15 +519,11 @@ export const Navbar: React.FC = () => {
                   setAuthMode('login');
                   setShowAuthModal(true);
                 } else {
-                  setDashboardTab('saved');
-                  setCurrentView('my-dashboard');
+                  setProfileOpenTab('saved');
+                  setCurrentView('profile-settings');
                 }
               }}
-              className={`px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all relative ${
-                currentUser && currentView === 'my-dashboard' && dashboardTab === 'saved'
-                  ? 'bg-rose-950/40 border border-rose-800/85 text-rose-300 font-extrabold shadow-sm'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
-              }`}
+              className="px-3 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all relative text-slate-300 hover:bg-slate-800/60 hover:text-white"
             >
               <Bookmark className={`w-4 h-4 ${validSavedCount > 0 ? 'text-rose-400 fill-rose-900/30' : ''}`} />
               <span className="hidden sm:inline">Saved</span>

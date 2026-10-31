@@ -67,7 +67,7 @@ export const BoostModal: React.FC<BoostModalProps> = ({ isOpen, onClose, product
 
   useEffect(() => {
     if (isOpen) {
-      // SellerDashboard reuses a single BoostModal instance across every
+      // ProfileSettings reuses a single BoostModal instance across every
       // product (isOpen/product are just props), so this component never
       // actually unmounts between boost sessions -- previously card
       // number/expiry/CVV and the last-picked payment method silently

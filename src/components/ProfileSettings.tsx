@@ -46,7 +46,8 @@ export const ProfileSettings: React.FC = () => {
     followSeller,
     unfollowSeller,
     setSelectedSellerId,
-    setDashboardTab,
+    profileOpenTab,
+    setProfileOpenTab,
     canInstall,
     triggerPWAInstall,
     isStandalone,
@@ -506,6 +507,15 @@ CEO, Tedbuy Inc`;
   // Mobile Profile State: mirrors mobile app's native ProfileScreen (dashboard, saved, settings)
   const [mobileProfileTab, setMobileProfileTab] = useState<'dashboard' | 'saved' | 'settings'>('dashboard');
   const [activeMobileSubSetting, setActiveMobileSubSetting] = useState<'profile' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin' | null>(null);
+
+  // Open the tab another screen asked for (the navbar Saved button opens Saved deals)
+  useEffect(() => {
+    if (profileOpenTab !== 'saved') return;
+    setSettingsTab('saved');
+    setMobileProfileTab('saved');
+    setActiveMobileSubSetting(null);
+    setProfileOpenTab(null);
+  }, [profileOpenTab]);
 
   // Listing and Boost modal states for mobile profile
   const [isListingModalOpen, setIsListingModalOpen] = useState(false);
@@ -2076,25 +2086,6 @@ CEO, Tedbuy Inc`;
               </div>
             </div>
 
-            {/* Header Actions */}
-            <div className="flex items-center gap-2.5 flex-wrap w-full lg:w-auto">
-              <button
-                onClick={handleViewPublicStore}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer"
-                title="Preview public storefront as viewed by buyers in Ghana"
-              >
-                <Store className="w-4 h-4 text-slate-900" />
-                <span>Storefront</span>
-              </button>
-
-              <button
-                onClick={handleShareStore}
-                className="p-2.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 hover:text-slate-950 rounded-xl transition cursor-pointer"
-                title="Copy public storefront link"
-              >
-                <Share2 className="w-4 h-4" />
-              </button>
-            </div>
           </div>
 
           {/* Quick Metrics Strip */}
@@ -2231,19 +2222,6 @@ CEO, Tedbuy Inc`;
               <span>Profile & Store</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setSettingsTab('selling-buying')}
-              className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                settingsTab === 'selling-buying'
-                  ? 'border-slate-900 text-slate-900'
-                  : 'border-transparent text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              <Briefcase className="w-3.5 h-3.5" />
-              <span>Trading Preferences</span>
-            </button>
-
             {ordersEnabled && (
               <button
                 type="button"
@@ -2275,7 +2253,7 @@ CEO, Tedbuy Inc`;
               aria-expanded={desktopMoreOpen}
               onClick={() => setDesktopMoreOpen(open => !open)}
               className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap text-blue-600 hover:text-blue-700 ${
-                ['notifications', 'account-security', 'more', 'admin'].includes(settingsTab) ? 'border-blue-600' : 'border-transparent'
+                ['selling-buying', 'notifications', 'account-security', 'more', 'admin'].includes(settingsTab) ? 'border-blue-600' : 'border-transparent'
               }`}
             >
               <span>More</span>
@@ -2284,6 +2262,17 @@ CEO, Tedbuy Inc`;
 
             {desktopMoreOpen && (
               <div role="menu" className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-30">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setSettingsTab('selling-buying'); setDesktopMoreOpen(false); }}
+                  className={`w-full px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition ${
+                    settingsTab === 'selling-buying' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <Briefcase className="w-3.5 h-3.5" />
+                  <span>Trading Preferences</span>
+                </button>
                 <button
                   type="button"
                   role="menuitem"

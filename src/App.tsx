@@ -13,7 +13,6 @@ const ProfileSettings = lazy(() => import('./components/ProfileSettings').then(m
 const DropshipHub = lazy(() => import('./components/dropship/DropshipHub').then(m => ({ default: m.DropshipHub })));
 const MyOrdersView = lazy(() => import('./components/dropship/MyOrdersView').then(m => ({ default: m.MyOrdersView })));
 const ChatInterface = lazy(() => import('./components/ChatInterface').then(m => ({ default: m.ChatInterface })));
-const SellerDashboard = lazy(() => import('./components/SellerDashboard').then(m => ({ default: m.SellerDashboard })));
 const SellerProfilePage = lazy(() => import('./components/SellerProfilePage').then(m => ({ default: m.SellerProfilePage })));
 const ProductDetail = lazy(() => import('./components/ProductDetail').then(m => ({ default: m.ProductDetail })));
 const ListingModal = lazy(() => import('./components/ListingModal').then(m => ({ default: m.ListingModal })));
@@ -61,7 +60,6 @@ import {
   UniversalPageLoader, 
   ProductDetailSkeleton, 
   ChatInterfaceSkeleton, 
-  SellerDashboardSkeleton, 
   SellerProfileSkeleton, 
   ProfileSettingsSkeleton, 
   FeaturedListingsSkeleton 
@@ -253,9 +251,6 @@ const MarketplaceContent: React.FC = () => {
     } else if (currentView === 'chats') {
       title = 'My Messages & Active Chats | Tedbuy Ghana';
       description = 'Securely message buyers and sellers to negotiate and agree on deal meetups on Tedbuy Ghana.';
-    } else if (currentView === 'my-dashboard') {
-      title = 'Seller Dashboard & My Ads | Tedbuy Ghana';
-      description = 'Manage your live classified advertisements, check incoming chats, edit pricing, or promote your listings.';
     } else if (currentView === 'profile-settings') {
       title = 'Account Settings & Verification | Tedbuy Ghana';
       description = 'Update your profile information, phone numbers, location, and verify your ID to gain trustworthiness on Tedbuy.';
@@ -1477,8 +1472,6 @@ const MarketplaceContent: React.FC = () => {
             <ProductDetailSkeleton />
           ) : currentView === 'chats' ? (
             <ChatInterfaceSkeleton />
-          ) : currentView === 'my-dashboard' ? (
-            <SellerDashboardSkeleton />
           ) : currentView === 'seller-profile' ? (
             <SellerProfileSkeleton />
           ) : currentView === 'profile-settings' ? (
@@ -1495,7 +1488,6 @@ const MarketplaceContent: React.FC = () => {
           {currentView === 'for-you-listings' && <ForYouListingsView />}
           {currentView === 'sellers-discovery' && <SellersDiscoveryView />}
           {currentView === 'chats' && <ChatInterface />}
-          {currentView === 'my-dashboard' && <SellerDashboard />}
           {currentView === 'seller-profile' && <SellerProfilePage />}
           {currentView === 'profile-settings' && <ProfileSettings />}
           {currentView === 'dropship' && <DropshipHub />}
@@ -1910,7 +1902,7 @@ const MarketplaceContent: React.FC = () => {
             }
           }}
           className={`flex flex-col items-center justify-center flex-1 py-1 px-1 transition duration-200 gap-1.5 cursor-pointer outline-none ${
-            currentView === 'profile-settings' || currentView === 'my-dashboard'
+            currentView === 'profile-settings'
               ? isVideoFeedMobile ? 'text-white font-black' : 'text-slate-950 font-black'
               : isVideoFeedMobile ? 'text-slate-400 hover:text-white font-medium' : 'text-slate-400 hover:text-slate-600 font-medium'
           }`}
@@ -1922,19 +1914,19 @@ const MarketplaceContent: React.FC = () => {
                 alt="Account Avatar"
                 referrerPolicy="no-referrer"
                 className={`w-6 h-6 rounded-full object-cover border-2 transition-all duration-200 ${
-                  currentView === 'profile-settings' || currentView === 'my-dashboard'
+                  currentView === 'profile-settings'
                     ? isVideoFeedMobile ? 'border-white scale-110' : 'border-slate-950 scale-110'
                     : 'border-transparent'
                 }`}
               />
             ) : (
               <User className={`w-5.5 h-5.5 stroke-[2.2] transition-transform duration-200 ${
-                currentView === 'profile-settings' || currentView === 'my-dashboard' 
+                currentView === 'profile-settings' 
                   ? isVideoFeedMobile ? 'scale-110 text-white' : 'scale-110 text-slate-950' 
                   : 'text-slate-400'
               }`} />
             )}
-            {(currentView === 'profile-settings' || currentView === 'my-dashboard') && (
+            {currentView === 'profile-settings' && (
               <span className={`absolute -bottom-1.5 w-1 h-1 rounded-full ${isVideoFeedMobile ? 'bg-white' : 'bg-slate-950'}`} />
             )}
           </div>

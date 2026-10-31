@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Category, Product } from '../types';
 
 interface UseHashRoutingProps {
-  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders';
+  currentView: 'browse' | 'product-detail' | 'chats' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders';
   selectedProductId: string | null;
   selectedSellerId: string | null;
   selectedCategory: Category | null;
@@ -77,8 +77,6 @@ export function useHashRouting({
       targetPath = `/seller/${selectedSellerId}`;
     } else if (currentView === 'chats') {
       targetPath = '/chats';
-    } else if (currentView === 'my-dashboard') {
-      targetPath = '/dashboard';
     } else if (currentView === 'profile-settings') {
       targetPath = '/settings';
     } else if (currentView === 'featured-listings') {

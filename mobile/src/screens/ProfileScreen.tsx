@@ -191,7 +191,7 @@ export function ProfileScreen() {
   const [boostingProduct, setBoostingProduct] = useState<any>(null);
   const [togglingSoldId, setTogglingSoldId] = useState<string | null>(null);
 
-  // Matches web's SellerDashboard "Mark as Sold" / "Mark as Available" toggle.
+  // Matches web's My Ads "Mark as Sold" / "Mark as Available" toggle.
   const handleToggleSold = async (item: any) => {
     // The Pressable's own `disabled={togglingSoldId === item.id}` lags a
     // render behind (same lag handleAuth explicitly guards against

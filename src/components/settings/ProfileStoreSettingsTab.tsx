@@ -66,7 +66,7 @@ export const ProfileStoreSettingsTab: React.FC<Props> = ({
   handleImageChange,
   onOpenFollowModal,
 }) => {
-  const { currentUser, users, setCurrentView, setDashboardTab, products } = useApp();
+  const { currentUser, users, setProfileOpenTab, products } = useApp();
 
   if (!currentUser) return null;
 
@@ -174,8 +174,7 @@ export const ProfileStoreSettingsTab: React.FC<Props> = ({
 
             <div
               onClick={() => {
-                setCurrentView('my-dashboard');
-                setDashboardTab('saved');
+                setProfileOpenTab('saved');
               }}
               className="bg-slate-50 hover:bg-slate-100 rounded-2xl p-2.5 border border-slate-150 cursor-pointer transition text-center group"
               title="View Saved Classified Ads"

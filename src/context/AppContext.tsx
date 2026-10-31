@@ -194,8 +194,8 @@ interface AppContextType {
   setSearchQuery: (q: string) => void;
   selectedCategory: Category | null;
   setSelectedCategory: (cat: Category | null) => void;
-  currentView: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders';
-  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders') => void;
+  currentView: 'browse' | 'product-detail' | 'chats' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders';
+  setCurrentView: (view: 'browse' | 'product-detail' | 'chats' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders') => void;
   homeViewMode: 'grid' | 'video-feed';
   setHomeViewMode: (mode: 'grid' | 'video-feed') => void;
   updateUserProfile: (profileData: {
@@ -225,8 +225,9 @@ interface AppContextType {
   setActiveChatId: (id: string | null) => void;
   viewingChatOnMobile: boolean;
   setViewingChatOnMobile: (val: boolean) => void;
-  dashboardTab: 'listings' | 'saved';
-  setDashboardTab: (tab: 'listings' | 'saved') => void;
+  // Profile tab to open next (e.g. the navbar Saved button); ProfileSettings switches to it and clears it
+  profileOpenTab: 'saved' | null;
+  setProfileOpenTab: (tab: 'saved' | null) => void;
   recentSearches: string[];
   addRecentQuery: (query: string) => void;
   removeRecentQuery: (query: string) => void;
@@ -730,13 +731,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { view: 'chats' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
-    // /dashboard
-    if (pathname === '/dashboard') {
-      return { view: 'my-dashboard' as const, selectedProductId: null, selectedSellerId: null, category: null };
-    }
-
-    // /settings
-    if (pathname === '/settings' || ['/terms', '/privacy', '/help', '/about', '/contact'].includes(pathname)) {
+    // /settings (/dashboard is the old seller dashboard address, kept so old links still open the profile)
+    if (pathname === '/settings' || pathname === '/dashboard' || ['/terms', '/privacy', '/help', '/about', '/contact'].includes(pathname)) {
       return { view: 'profile-settings' as const, selectedProductId: null, selectedSellerId: null, category: null };
     }
 
@@ -807,7 +803,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return parseUrlState().category;
   });
 
-  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'my-dashboard' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders'>(() => {
+  const [currentView, setCurrentView] = useState<'browse' | 'product-detail' | 'chats' | 'seller-profile' | 'profile-settings' | 'featured-listings' | 'trending-listings' | 'for-you-listings' | 'sellers-discovery' | 'post-ad' | 'dropship' | 'orders'>(() => {
     return parseUrlState().view;
   });
   const [homeViewMode, setHomeViewMode] = useState<'grid' | 'video-feed'>('grid');
@@ -825,7 +821,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return null;
   });
   const [viewingChatOnMobile, setViewingChatOnMobile] = useState<boolean>(false);
-  const [dashboardTab, setDashboardTab] = useState<'listings' | 'saved'>('listings');
+  const [profileOpenTab, setProfileOpenTab] = useState<'saved' | null>(null);
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     try {
       const saved = safeLocalStorage.getItem('tedbuy_recent_searches');
@@ -1312,7 +1308,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (result?.user) {
         console.log('[Google Auth Redirect] Successfully processed redirect result for:', result.user.email);
         setSelectedSellerId(result.user.uid);
-        setCurrentView('my-dashboard');
+        setCurrentView('profile-settings');
       }
     }).catch((err) => {
       console.warn('[Google Auth Redirect] Redirect result notification (non-blocking):', err);
@@ -1974,7 +1970,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // filterTableColumns -> empty-payload -> early-return path, not
         // assumed). The local state update below is left as-is: it's a
         // real, if session-scoped-only, user-visible counter (see
-        // SellerDashboard.tsx's "visits" display) -- pending a decision on
+        // the removed seller dashboard's "visits" display) -- pending a decision on
         // whether to actually build real server-side tracking for it.
         const originalVisits = currentUser.visitCount || 0;
         const newVisits = originalVisits + 1;
@@ -2389,9 +2385,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [debouncedSearchQuery, selectedCategory]);
 
-  // Load all user and marketplace listings when opening dashboard or seller profile
+  // Load all user and marketplace listings when opening your profile (My Ads) or a seller profile
   useEffect(() => {
-    if (currentView !== 'my-dashboard' && currentView !== 'seller-profile') return;
+    if (currentView !== 'profile-settings' && currentView !== 'seller-profile') return;
     let active = true;
     const fetchDashboardProducts = async () => {
       try {
@@ -3045,7 +3041,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (newUser.id) {
         setSelectedSellerId(newUser.id);
       }
-      setCurrentView('my-dashboard');
+      setCurrentView('profile-settings');
 
       // Directly trigger welcome package synchronously to prevent race conditions
       setupWelcomePackage(newUser).catch(err => {
@@ -3298,7 +3294,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (loggedInUser.id) {
               setSelectedSellerId(loggedInUser.id);
             }
-            setCurrentView('my-dashboard');
+            setCurrentView('profile-settings');
             return true;
           } else {
             throw authErr;
@@ -3392,7 +3388,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (loggedInUser.id) {
         setSelectedSellerId(loggedInUser.id);
       }
-      setCurrentView('my-dashboard');
+      setCurrentView('profile-settings');
       return true;
 
     } catch (err: any) {
@@ -3494,7 +3490,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (googleUser.uid) {
             setSelectedSellerId(googleUser.uid);
           }
-          setCurrentView('my-dashboard');
+          setCurrentView('profile-settings');
           return;
         }
       } catch (popupErr: any) {
@@ -3505,7 +3501,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (auth.currentUser) {
           console.log('[Google Sign-In] Firebase user is signed in via background listener:', auth.currentUser.email);
           setSelectedSellerId(auth.currentUser.uid);
-          setCurrentView('my-dashboard');
+          setCurrentView('profile-settings');
           return;
         }
 
@@ -4015,7 +4011,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // filterTableColumns -> empty-payload -> early-return path, not
       // assumed). The local state update below is left as-is: it's a
       // real, if session-scoped-only, user-visible value (see
-      // SellerDashboard.tsx's "recent posts" display) -- pending a
+      // the removed seller dashboard's "recent posts" display) -- pending a
       // decision on whether to actually build real server-side tracking
       // for it.
       try {
@@ -4058,7 +4054,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // failed sync can be rolled back instead of leaving the optimistic
     // change in place while the caller is told it failed -- matches
     // deleteProduct's existing rollback-on-failure pattern. Without this,
-    // e.g. SellerDashboard's Mark Sold/Available toggle showed the new
+    // e.g. the My Ads Mark Sold/Available toggle showed the new
     // status as if it had saved even when the server rejected it.
     const existedInStateBefore = products.some(p => p.id === id);
     const originalStateProduct = products.find(p => p.id === id);
@@ -4459,7 +4455,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // validation, a 5xx) left the optimistic removal above in place with
       // nothing to say the delete never actually happened, while
       // deleteProduct still resolved successfully to its callers
-      // (ProfileSettings.tsx, SellerDashboard.tsx, ProductDetail.tsx all
+      // (ProfileSettings.tsx and ProductDetail.tsx both
       // show a "deleted successfully" toast right after `await
       // deleteProduct(...)`, unconditionally). Same class of bug as
       // createProduct, fixed earlier this session. Now properly awaited,
@@ -6305,8 +6301,8 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       setActiveChatId,
       viewingChatOnMobile,
       setViewingChatOnMobile,
-      dashboardTab,
-      setDashboardTab,
+      profileOpenTab,
+      setProfileOpenTab,
       recentSearches,
       addRecentQuery,
       removeRecentQuery,

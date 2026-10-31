@@ -240,7 +240,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
   // once immediately (so the form isn't blank while a fetch is in flight),
   // then again once the full record has been fetched by id.
   useEffect(() => {
-    // SellerDashboard.tsx mounts one ListingModal instance unconditionally
+    // ProfileSettings.tsx mounts one ListingModal instance unconditionally
     // (isOpen just toggles a prop) and reuses it across every separate
     // "create new"/"edit X" session rather than remounting -- so without
     // this, an AI generation error/warning from one session, or a
@@ -1339,7 +1339,7 @@ export const ListingModal: React.FC<ListingModalProps> = ({ isOpen, onClose, pro
             setCurrentView('product-detail');
           }
         } else {
-          setCurrentView('my-dashboard');
+          setCurrentView('profile-settings');
         }
       }
 
