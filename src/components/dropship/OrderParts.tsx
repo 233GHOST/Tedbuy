@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Camera, ChevronRight, Clock, Loader2, ShieldCheck, ShieldAlert, X } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { useApp } from '../../context/AppContext';
+import { auth } from '../../firebase';
 import { uploadToCloudinary } from '../../utils/cloudinary';
 import { validateImageFile } from '../../utils/fileValidation';
 import { plainErrorMessage } from '../../utils/plainErrorMessage';
@@ -56,7 +58,8 @@ export function OrderList({ who, onOpen, refreshKey = 0 }: { who: Who; onOpen: (
       if (request === requestRef.current) setMore(false);
     }
   }, [who, scope]);
-  useEffect(() => { setRows(null); load(); }, [load, refreshKey]);
+  const uid = useAuthUid();
+  useEffect(() => { setRows(null); if (uid) load(); }, [load, refreshKey, uid]);
 
   const tabs: Array<[OrderScope, string]> = who === 'admin'
     ? [['', 'All'], ['open', 'Open'], ['cases', 'Cases'], ['done', 'Finished']]
@@ -100,16 +103,26 @@ export function OrderList({ who, onOpen, refreshKey = 0 }: { who: Who; onOpen: (
 
 // Loads one order and gives its detail component the order plus a `run` helper that calls
 // an action, swaps in the returned order, and shows errors in plain words.
+// The Firebase sign-in, which is what the order API checks. The page can show a remembered
+// profile before it (and in the app's WebView, before the sign-in handoff lands), so order
+// requests wait for it and run again when it arrives.
+function useAuthUid(): string | null {
+  const [uid, setUid] = useState<string | null>(() => auth.currentUser?.uid ?? null);
+  useEffect(() => onAuthStateChanged(auth, u => setUid(u?.uid ?? null)), []);
+  return uid;
+}
+
 export function useOrder(who: Who, id: string) {
   const { showToast } = useApp();
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const uid = useAuthUid();
   const reload = useCallback(async () => {
     try { setOrder((await dropshipApi.order(who, id)).order); setError(''); }
     catch (err) { setError(plainErrorMessage(err, 'Could not load this order.')); }
   }, [who, id]);
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { if (uid) reload(); }, [reload, uid]);
   const run = useCallback(async (key: string, fn: () => Promise<ActionResult>, done?: string): Promise<ActionResult | null> => {
     setBusy(key);
     try {

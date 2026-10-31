@@ -42,7 +42,7 @@ export const PRODUCT_STATUS_LABEL: Record<ProductStatus, string> = {
   active: 'Active',
   paused: 'Paused',
   rejected: 'Rejected',
-  archived: 'Archived',
+  archived: 'Deleted',
 };
 
 export const PARTICIPANT_STATUS_LABEL: Record<ParticipantStatus, string> = {
@@ -239,13 +239,13 @@ export function supplierStatusActions(p: Pick<SupplierProduct, 'status' | 'publi
   switch (p.status) {
     case 'draft':
     case 'rejected':
-      return [{ to: 'pending_review', label: 'Submit for review' }, { to: 'archived', label: 'Archive' }];
+      return [{ to: 'pending_review', label: 'Submit for review' }, { to: 'archived', label: 'Delete' }];
     case 'pending_review':
-      return [{ to: 'archived', label: 'Archive' }];
+      return [{ to: 'archived', label: 'Delete' }];
     case 'active':
-      return [{ to: 'paused', label: 'Pause' }, { to: 'archived', label: 'Archive' }];
+      return [{ to: 'paused', label: 'Pause' }, { to: 'archived', label: 'Delete' }];
     case 'paused':
-      return [...(p.publishedAt ? [{ to: 'active' as const, label: 'Reactivate' }] : []), { to: 'archived', label: 'Archive' }];
+      return [...(p.publishedAt ? [{ to: 'active' as const, label: 'Reactivate' }] : []), { to: 'archived', label: 'Delete' }];
     default:
       return [];
   }

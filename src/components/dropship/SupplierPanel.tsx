@@ -8,7 +8,7 @@ import {
 } from './dropshipFormat';
 import { SupplierProductForm } from './SupplierProductForm';
 import { SupplierOrders } from './SupplierOrders';
-import { buttonClass, cardClass, inputClass, secondaryButtonClass, StatusPill } from './dropshipUi';
+import { buttonClass, cardClass, dangerOutlineButtonClass, inputClass, secondaryButtonClass, StatusPill } from './dropshipUi';
 import { plainErrorMessage } from '../../utils/plainErrorMessage';
 
 const TERMS_VERSION = 'supplier-2026-10';
@@ -150,10 +150,10 @@ function ProductRow({ product, readOnly, onChanged, onEdit }: {
                 type="button"
                 disabled={busy}
                 onClick={() => {
-                  if (a.to === 'archived' && !window.confirm('Archive this product? Archived products cannot be edited or reactivated.')) return;
-                  run(() => dropshipApi.setStatus(product.id, a.to), `${a.label}: done.`);
+                  if (!confirmStatusChange(product, a.to)) return;
+                  run(() => dropshipApi.setStatus(product.id, a.to), a.to === 'archived' ? 'Product deleted.' : `${a.label}: done.`);
                 }}
-                className={secondaryButtonClass}
+                className={a.to === 'archived' ? dangerOutlineButtonClass : secondaryButtonClass}
               >
                 {a.label}
               </button>
@@ -165,11 +165,27 @@ function ProductRow({ product, readOnly, onChanged, onEdit }: {
   );
 }
 
+// "Delete" is an archive: the product leaves the shop for good but stays on record, because past
+// orders, payments and disputes point to it. Pausing and deleting never cancel orders in progress.
+function confirmStatusChange(product: SupplierProduct, to: string): boolean {
+  if (to !== 'archived' && to !== 'paused') return true;
+  const held = product.stockReserved;
+  const orders = held > 0
+    ? `\n\n${held} ${held === 1 ? 'unit is' : 'units are'} held for orders in progress. Those orders will continue, so release the items as normal.`
+    : '\n\nAny orders already in progress will continue. Check your Orders tab and confirm or decline hold requests.';
+  return window.confirm(to === 'archived'
+    ? `Delete this product? Buyers and resellers won't see it any more. You can't undo this. Past orders stay in your records.${orders}`
+    : `Pause this product? Buyers can't order it until you reactivate it.${orders}`);
+}
+
 function SupplierProducts({ participation }: { participation: SupplierParticipation }) {
   const [products, setProducts] = useState<SupplierProduct[] | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<SupplierProduct | 'new' | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
   const readOnly = participation.status === 'suspended';
+  const deletedCount = products?.filter(p => p.status === 'archived').length ?? 0;
+  const shown = products?.filter(p => showDeleted || p.status !== 'archived');
 
   const load = useCallback(async () => {
     setError('');
@@ -213,13 +229,18 @@ function SupplierProducts({ participation }: { participation: SupplierParticipat
       )}
       {error && <p className="text-[11px] font-bold text-rose-600">{error}</p>}
       {products === null && !error && <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>}
-      {products?.length === 0 && (
+      {shown?.length === 0 && (
         <div className={`${cardClass} text-center`}>
           <Package className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-          <p className="text-xs text-slate-500">No products yet. Add your first product to send it for review.</p>
+          <p className="text-xs text-slate-500">{deletedCount > 0 ? 'No current products. Add a new product to send it for review.' : 'No products yet. Add your first product to send it for review.'}</p>
         </div>
       )}
-      {products?.map(p => <ProductRow key={p.id} product={p} readOnly={readOnly} onChanged={replace} onEdit={() => setEditing(p)} />)}
+      {shown?.map(p => <ProductRow key={p.id} product={p} readOnly={readOnly} onChanged={replace} onEdit={() => setEditing(p)} />)}
+      {deletedCount > 0 && (
+        <button type="button" className="text-[11px] font-bold text-slate-500 hover:text-slate-800 underline cursor-pointer" onClick={() => setShowDeleted(v => !v)}>
+          {showDeleted ? 'Hide deleted products' : `Show deleted products (${deletedCount})`}
+        </button>
+      )}
     </div>
   );
 }
