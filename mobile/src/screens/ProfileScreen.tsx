@@ -746,6 +746,8 @@ export function ProfileScreen() {
                   <View style={styles.searchBarContainer}>
                     <Search size={14} color="#94a3b8" style={styles.searchIcon} />
                     <TextInput
+                      autoComplete="off"
+                      importantForAutofill="no"
                       value={listingSearchQuery}
                       onChangeText={setListingSearchQuery}
                       placeholder="Search your listings..."

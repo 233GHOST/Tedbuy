@@ -110,6 +110,8 @@ export function DiscoverSellersScreen({ onBack, navigation }: DiscoverSellersScr
         <View style={styles.searchRow}>
           <Search size={15} color="#94a3b8" />
           <TextInput
+            autoComplete="off"
+            importantForAutofill="no"
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search store names..."

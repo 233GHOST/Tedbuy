@@ -582,6 +582,8 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
             {products.length > 0 && (
               <View style={styles.storeSearchWrapper}>
                 <TextInput
+                  autoComplete="off"
+                  importantForAutofill="no"
                   value={storeSearchQuery}
                   onChangeText={setStoreSearchQuery}
                   placeholder="Search store inventory..."

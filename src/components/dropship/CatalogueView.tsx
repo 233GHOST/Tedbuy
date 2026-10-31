@@ -74,7 +74,7 @@ export function CatalogueView({ approved, onListed, strip }: { approved: boolean
   return (
     <div className="space-y-3">
       <form onSubmit={e => { e.preventDefault(); setQ(search.trim()); }} className="flex gap-2">
-        <input className={inputClass} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products" maxLength={80} aria-label="Search products" />
+        <input className={inputClass} value={search} onChange={e => setSearch(e.target.value)} autoComplete="off" placeholder="Search products" maxLength={80} aria-label="Search products" />
         <button type="submit" className={secondaryButtonClass} aria-label="Search"><Search className="w-3.5 h-3.5" /></button>
       </form>
       <div className="flex gap-2 overflow-x-auto pb-1">{chip('', 'All')}{Object.keys(CATEGORY_ICONS).map(c => chip(c, c))}</div>

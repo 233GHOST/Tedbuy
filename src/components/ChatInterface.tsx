@@ -597,6 +597,7 @@ export const ChatInterface: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                autoComplete="off"
                 placeholder="Search conversations..."
                 className="w-full pl-8 pr-7 py-1.5 bg-slate-100 focus:bg-white text-xs text-slate-800 placeholder-slate-400 rounded-xl border border-slate-200/80 focus:border-slate-400 focus:outline-none transition"
               />

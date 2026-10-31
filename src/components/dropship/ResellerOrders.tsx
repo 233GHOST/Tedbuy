@@ -5,7 +5,7 @@ import { dropshipApi, type Order, type ResellerSummary } from './dropshipApi';
 import { cedisToPesewas } from './dropshipFormat';
 import { FAILED_DELIVERY_REASONS, RESELLER_PROBLEM_REASONS } from './orderFormat';
 import { CaseForm, OrderDetailFrame, OrderList, PaymentForm, ReliabilityBadge, Row, Section, TextAction, money, useOrder } from './OrderParts';
-import { buttonClass, cardClass, inputClass, secondaryButtonClass } from './dropshipUi';
+import { buttonClass, cardClass, inputClass, dangerOutlineButtonClass, secondaryButtonClass } from './dropshipUi';
 
 // Reseller orders: confirm with the buyer, get the item held, pay the supplier directly,
 // collect, deliver, and record the buyer's payment. TedBuy never handles the money.
@@ -254,7 +254,7 @@ function NextStep({ o, busy, mode, setMode, act }: { o: Order; busy: string; mod
         </Section>
       )}
       {!mode && canCancel && o.status !== 'buyer_confirmed' && (
-        <button type="button" className={secondaryButtonClass} onClick={() => setMode('cancel')}>Cancel order</button>
+        <button type="button" className={dangerOutlineButtonClass} onClick={() => setMode('cancel')}>Cancel order</button>
       )}
     </>
   );

@@ -149,6 +149,8 @@ export function FollowersFollowingScreen({ userId, initialTab = 'followers', onB
       <View style={styles.searchRow}>
         <Search size={15} color="#94a3b8" />
         <TextInput
+          autoComplete="off"
+          importantForAutofill="no"
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholder="Search"

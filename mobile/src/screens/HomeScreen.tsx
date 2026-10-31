@@ -1892,6 +1892,8 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                   <Pressable style={styles.searchRow} onPress={() => homeSearchInputRef.current?.focus()}>
                     <Search size={16} color="#64748b" strokeWidth={2.2} style={styles.searchIcon} />
                     <TextInput
+                      autoComplete="off"
+                      importantForAutofill="no"
                       ref={homeSearchInputRef}
                       value={searchText}
                       onChangeText={setSearchText}
@@ -2090,6 +2092,8 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                         </View>
                         <View style={styles.priceFilterRow}>
                           <TextInput
+                            autoComplete="off"
+                            importantForAutofill="no"
                             placeholder="Min GH₵"
                             placeholderTextColor="#94a3b8"
                             keyboardType="numeric"
@@ -2099,6 +2103,8 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
                           />
                           <Text style={styles.priceRangeDash}>-</Text>
                           <TextInput
+                            autoComplete="off"
+                            importantForAutofill="no"
                             placeholder="Max GH₵"
                             placeholderTextColor="#94a3b8"
                             keyboardType="numeric"

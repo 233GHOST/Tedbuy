@@ -736,7 +736,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                       }}
                       style={styles.orderCta}
                     >
-                      <Text style={styles.orderCtaText}>Order now, pay on delivery</Text>
+                      <Text style={styles.orderCtaText}>Check out {formatPesewas(dropshipInfo.unitPricePesewas + (dropshipInfo.deliveryFeePesewas ?? 0))}, pay on delivery</Text>
                     </Pressable>
                   )}
                   {checkoutOpen && (
@@ -795,6 +795,8 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
                 {/* Inline message input */}
                 <View style={styles.inlineInputRow}>
                   <TextInput
+                    autoComplete="off"
+                    importantForAutofill="no"
                     value={inlineMessage}
                     onChangeText={setInlineMessage}
                     placeholder="Type your message to seller..."

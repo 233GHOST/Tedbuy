@@ -44,7 +44,7 @@ export function DropshipPurchasePanel({ productId, isOwner, onMessageSeller }: {
           {ordersEnabled && info.available && (
             <button type="button" onClick={() => setOrdering(true)}
               className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 text-xs sm:text-sm transition cursor-pointer min-h-[44px]">
-              <ShoppingBag className="w-4 h-4" /> Order now, pay on delivery
+              <ShoppingBag className="w-4 h-4" /> Check out {formatPesewas(orderTotal(info.unitPricePesewas, 1, info.deliveryFeePesewas))}, pay on delivery
             </button>
           )}
           <button type="button" onClick={onMessageSeller}
@@ -124,25 +124,29 @@ function CheckoutModal({ productId, info, onClose }: { productId: string; info: 
         <div className="flex justify-between"><span className="text-slate-500">Delivery</span><span>{info.deliveryFeePesewas > 0 ? formatPesewas(info.deliveryFeePesewas) : 'Free'}</span></div>
         <div className="flex justify-between font-black text-slate-900"><span>Total to pay on delivery</span><span>{formatPesewas(total)}</span></div>
       </div>
+      {/* Its own <form> with autocomplete tokens: browsers group formless inputs page-wide, so
+          address autofill also filled the navbar search box. */}
+      <form className="space-y-3" autoComplete="on" onSubmit={e => { e.preventDefault(); submit(); }}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <label className="text-[10px] text-slate-500">Full name<input className={inputClass} maxLength={80} value={form.name} onChange={set('name')} /></label>
-        <label className="text-[10px] text-slate-500">Phone number<input className={inputClass} inputMode="tel" maxLength={20} value={form.phone} onChange={set('phone')} /></label>
+        <label className="text-[10px] text-slate-500">Full name<input className={inputClass} name="name" autoComplete="shipping name" maxLength={80} value={form.name} onChange={set('name')} /></label>
+        <label className="text-[10px] text-slate-500">Phone number<input className={inputClass} type="tel" name="tel" autoComplete="shipping tel" inputMode="tel" maxLength={20} value={form.phone} onChange={set('phone')} /></label>
         <label className="text-[10px] text-slate-500">Region
-          <select className={inputClass} value={form.region} onChange={set('region')}>
+          <select className={inputClass} name="region" autoComplete="shipping address-level1" value={form.region} onChange={set('region')}>
             <option value="">Choose…</option>
             {GHANA_REGIONS.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
           </select>
         </label>
-        <label className="text-[10px] text-slate-500">Town or area<input className={inputClass} maxLength={80} value={form.area} onChange={set('area')} /></label>
+        <label className="text-[10px] text-slate-500">Town or area<input className={inputClass} name="area" autoComplete="shipping address-level2" maxLength={80} value={form.area} onChange={set('area')} /></label>
       </div>
-      <label className="text-[10px] text-slate-500 block">Full address (house, street, landmark)<textarea className={inputClass} rows={2} maxLength={300} value={form.address} onChange={set('address')} /></label>
-      <label className="text-[10px] text-slate-500 block">Delivery instructions (optional)<input className={inputClass} maxLength={500} value={form.instructions} onChange={set('instructions')} /></label>
+      <label className="text-[10px] text-slate-500 block">Full address (house, street, landmark)<textarea className={inputClass} name="address" autoComplete="shipping street-address" rows={2} maxLength={300} value={form.address} onChange={set('address')} /></label>
+      <label className="text-[10px] text-slate-500 block">Delivery instructions (optional)<input className={inputClass} name="instructions" autoComplete="off" maxLength={500} value={form.instructions} onChange={set('instructions')} /></label>
       <p className="text-[10px] text-slate-500">The seller will call you to confirm. Your details go only to the seller who delivers your order.</p>
       {error && <p className="text-[11px] font-bold text-rose-600">{error}</p>}
       <div className="flex gap-2 justify-end">
         <button type="button" className={secondaryButtonClass} onClick={onClose}>Cancel</button>
-        <button type="button" disabled={busy} className={buttonClass} onClick={submit}>{busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Place order</button>
+        <button type="submit" disabled={busy} className={buttonClass}>{busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Place order</button>
       </div>
+      </form>
     </Modal>
   );
 }

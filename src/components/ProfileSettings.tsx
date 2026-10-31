@@ -1460,6 +1460,7 @@ CEO, Tedbuy Inc`;
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
+                    autoComplete="off"
                     placeholder="Search your listings..."
                     value={listingSearchQuery}
                     onChange={(e) => setListingSearchQuery(e.target.value)}
@@ -2385,6 +2386,7 @@ CEO, Tedbuy Inc`;
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
+                  autoComplete="off"
                   placeholder="Search among your listings..."
                   value={listingSearchQuery}
                   onChange={(e) => setListingSearchQuery(e.target.value)}
@@ -3050,6 +3052,7 @@ CEO, Tedbuy Inc`;
                     </span>
                     <input
                       type="text"
+                      autoComplete="off"
                       placeholder="Search accounts by username, email, or phone..."
                       value={userSearchQuery}
                       onChange={(e) => setUserSearchQuery(e.target.value)}

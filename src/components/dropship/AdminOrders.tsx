@@ -5,7 +5,7 @@ import { plainErrorMessage } from '../../utils/plainErrorMessage';
 import { dropshipApi, type OrderSettings } from './dropshipApi';
 import { cedisToPesewas, formatPesewas } from './dropshipFormat';
 import { OrderDetailFrame, OrderList, ReliabilityBadge, Row, Section, TextAction, money, useOrder } from './OrderParts';
-import { buttonClass, cardClass, inputClass, secondaryButtonClass } from './dropshipUi';
+import { buttonClass, cardClass, inputClass, dangerOutlineButtonClass, secondaryButtonClass } from './dropshipUi';
 
 // Admin oversight of COD orders: every order with its full history, the cases to resolve,
 // reseller limits and the time limits. Every action is checked and audited on the server.
@@ -96,7 +96,7 @@ function AdminOrderDetail({ id, onBack }: { id: string; onBack: () => void }) {
           {!['completed', 'returned', 'cancelled'].includes(o.status) && (cancelling
             ? <Section title="Cancel order"><TextAction placeholder="Reason (all parties see this)" min={5} busy={busy === 'cancel'} submitLabel="Cancel order" danger
                 onCancel={() => setCancelling(false)} onSubmit={t => run('cancel', () => dropshipApi.adminCancelOrder(id, t), 'Order cancelled.').then(() => setCancelling(false))} /></Section>
-            : <button type="button" className={secondaryButtonClass} onClick={() => setCancelling(true)}>Cancel this order</button>)}
+            : <button type="button" className={dangerOutlineButtonClass} onClick={() => setCancelling(true)}>Cancel this order</button>)}
         </>
       )}
     </OrderDetailFrame>

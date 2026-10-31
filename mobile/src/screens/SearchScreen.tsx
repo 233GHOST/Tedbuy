@@ -280,6 +280,8 @@ export function SearchScreen({ navigation }: SearchScreenProps) {
           <Pressable style={styles.searchRow} onPress={() => searchInputRef.current?.focus()}>
             <Text style={styles.searchEmoji}>🔍</Text>
             <TextInput
+              autoComplete="off"
+              importantForAutofill="no"
               ref={searchInputRef}
               value={searchText}
               onChangeText={setSearchText}

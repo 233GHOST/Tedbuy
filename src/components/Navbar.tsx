@@ -396,6 +396,7 @@ export const Navbar: React.FC = () => {
               type="text"
               id="header-search-bar"
               aria-label="Search listings"
+              name="search"
               autoComplete="off"
               value={searchQuery}
               onChange={(e) => {

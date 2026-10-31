@@ -1543,9 +1543,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (userDoc.exists()) {
               const dbData = userDoc.data() as User;
               const actualUserId = dbData.id || userDoc.id || firebaseUser.uid;
-              if (actualUserId) {
-                setSelectedSellerId(actualUserId);
-              }
+              // No setSelectedSellerId here: this poll runs every 5 s and would swap a store
+              // the user is viewing for their own.
               if (dbData.isSuspended) {
                 console.warn('[Security] Suspended account detected! Logging out and blocking.', dbData.username);
                 await signOut(auth);
@@ -1625,7 +1624,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (existingUser) {
                 if (active) {
                   setCurrentUserState(existingUser);
-                  setSelectedSellerId(firebaseUser.uid);
                   safeLocalStorage.setItem('tedbuy_local_current_user_backup', JSON.stringify(existingUser));
                 }
                 return;

@@ -83,9 +83,9 @@ export function DropshipCheckout({ visible, productId, info, defaultName, defaul
             </View>
 
             <Text style={styles.label}>Full name</Text>
-            <TextInput style={styles.input} value={name} onChangeText={setName} maxLength={80} />
+            <TextInput style={styles.input} value={name} onChangeText={setName} maxLength={80} autoComplete="name" textContentType="name" importantForAutofill="yes" />
             <Text style={styles.label}>Phone number</Text>
-            <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={20} />
+            <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={20} autoComplete="tel" textContentType="telephoneNumber" importantForAutofill="yes" />
             <Text style={styles.label}>Region</Text>
             <View style={styles.chips}>
               {GHANA_REGIONS.map(r => (
@@ -95,11 +95,11 @@ export function DropshipCheckout({ visible, productId, info, defaultName, defaul
               ))}
             </View>
             <Text style={styles.label}>Town or area</Text>
-            <TextInput style={styles.input} value={area} onChangeText={setArea} maxLength={80} />
+            <TextInput style={styles.input} value={area} onChangeText={setArea} maxLength={80} autoComplete="postal-address-locality" textContentType="addressCity" importantForAutofill="yes" />
             <Text style={styles.label}>Full address (house, street, landmark)</Text>
-            <TextInput style={[styles.input, { minHeight: 60 }]} value={address} onChangeText={setAddress} maxLength={300} multiline />
+            <TextInput style={[styles.input, { minHeight: 60 }]} value={address} onChangeText={setAddress} maxLength={300} multiline autoComplete="street-address" textContentType="fullStreetAddress" importantForAutofill="yes" />
             <Text style={styles.label}>Delivery instructions (optional)</Text>
-            <TextInput style={styles.input} value={instructions} onChangeText={setInstructions} maxLength={500} />
+            <TextInput style={styles.input} value={instructions} onChangeText={setInstructions} maxLength={500} autoComplete="off" importantForAutofill="no" />
             <Text style={styles.note}>The seller will call you to confirm. Your details go only to the seller who delivers your order.</Text>
             {!!error && <Text style={styles.error}>{error}</Text>}
             <Pressable disabled={busy} onPress={submit} style={[styles.cta, busy && { opacity: 0.6 }]}>

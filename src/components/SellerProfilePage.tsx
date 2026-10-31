@@ -838,6 +838,7 @@ export const SellerProfilePage: React.FC = () => {
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
+                autoComplete="off"
                 placeholder="Search store inventory..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}

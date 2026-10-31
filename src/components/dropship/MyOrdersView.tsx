@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { dropshipApi, useDropshipOrdersEnabled } from './dropshipApi';
 import { BUYER_PROBLEM_REASONS, COD_MESSAGE, RETURN_REASONS } from './orderFormat';
 import { CaseForm, OrderDetailFrame, OrderList, Row, Section, TextAction, money, useOrder } from './OrderParts';
-import { buttonClass, cardClass, secondaryButtonClass } from './dropshipUi';
+import { buttonClass, cardClass, dangerOutlineButtonClass, secondaryButtonClass } from './dropshipUi';
 
 // Buyer's orders (/orders, and inline in the profile's My orders tab). Pay-on-delivery: the
 // page shows what to pay and when, the delivery code to give the seller at handover, and how
@@ -74,7 +74,7 @@ function BuyerOrderDetail({ id, onBack }: { id: string; onBack: () => void }) {
             <div className={`${cardClass} !p-4 space-y-2 border-amber-300 bg-amber-50/50`}>
               <p className="text-sm font-black text-slate-900">Confirm your order</p>
               <p className="text-xs text-slate-700">The seller starts only after you confirm. You will pay {money(o.totalPesewas ?? 0)} when the item reaches you, not before.</p>
-              <button type="button" disabled={!!busy} className={buttonClass} onClick={() => act('confirm', {}, 'Order confirmed.')}>{busy === 'confirm' && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Yes, I want this order</button>
+              <button type="button" disabled={!!busy} className={buttonClass} onClick={() => act('confirm', {}, 'Order confirmed.')}>{busy === 'confirm' && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Confirm order</button>
             </div>
           )}
 
@@ -130,7 +130,7 @@ function BuyerOrderDetail({ id, onBack }: { id: string; onBack: () => void }) {
 
           {!mode && (canCancel || canReport || returnOpen) && (
             <div className="flex flex-wrap gap-2">
-              {canCancel && <button type="button" className={secondaryButtonClass} onClick={() => setMode('cancel')}>Cancel order</button>}
+              {canCancel && <button type="button" className={dangerOutlineButtonClass} onClick={() => setMode('cancel')}>Cancel order</button>}
               {returnOpen && <button type="button" className={secondaryButtonClass} onClick={() => setMode('return')}>Ask for a return</button>}
               {canReport && <button type="button" className={secondaryButtonClass} onClick={() => setMode('problem')}>Report a problem</button>}
             </div>

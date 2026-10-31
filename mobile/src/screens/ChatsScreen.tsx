@@ -1058,6 +1058,8 @@ export function ChatsScreen() {
         {/* Search bar */}
         <View style={styles.searchBarBox}>
           <TextInput
+            autoComplete="off"
+            importantForAutofill="no"
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
