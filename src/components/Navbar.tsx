@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { NotificationBell } from './NotificationBell';
 import { Search, ShoppingBag, MessageSquare, PlusCircle, LogOut, LogIn, UserPlus, HelpCircle, Bookmark, History, RotateCcw, Eye, EyeOff, CheckCheck, ExternalLink, X, Download } from 'lucide-react';
 import { compressImage } from '../utils/imageOptimizer';
 import { SearchSuggestions } from './SearchSuggestions';
@@ -534,6 +535,8 @@ export const Navbar: React.FC = () => {
                 </span>
               )}
             </button>
+
+            <NotificationBell />
 
             {currentUser && (
               <>
