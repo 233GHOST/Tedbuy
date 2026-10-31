@@ -1,6 +1,6 @@
 # Order notifications: website bell, phone notifications, professional emails
 
-Date: 2026-10-31. Status: draft for owner review.
+Date: 2026-10-31. Status: approved by owner 2026-10-31 (with the email additions below).
 
 ## Why
 
@@ -102,14 +102,19 @@ suppliers need to notice order steps quickly or orders time out (24 h steps).
   with support address. Inline CSS, table layout (email-client safe), works without images.
 - Plain-text version kept as `textContent` alongside `htmlContent`.
 - Delivery-code email shows the code large and explains it is not a payment.
+- Emails sent (owner decision 2026-10-31):
+  1. Buyer, on placing: "Please confirm your order" (exists today).
+  2. **Reseller, when the buyer confirms: "New order"** (new): item, quantity, buyer's area,
+     total, "call the buyer, then accept", button to the reseller's Orders tab. The reseller's
+     email comes from `users.email` (server-side lookup).
+  3. **Buyer, out for delivery: "Your order is on its way"** with the delivery code (replaces
+     today's delivery-code email; the code is created at this step).
 - Sender: name "TedBuy". Owner changes Render `BREVO_SENDER_NAME` to `TedBuy` (or deletes it so
   the code default applies; the code default changes to "TedBuy").
 
 ## Builder's calls (Claude's, owner may override)
 
 - Spelling "TedBuy" (matches the logo) for the sender name.
-- Which emails exist stays as today (placed, delivery code). Adding more events by email is a
-  separate decision.
 - How the website picks buyer vs reseller/supplier screen for an order notice: store the
   audience on the notice (e.g. in its type or a small data field) when it is created, rather
   than guessing.
