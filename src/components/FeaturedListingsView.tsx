@@ -6,7 +6,7 @@ import { isBoostActive, parseDate } from '../utils/dateParser';
 import { Flame, ArrowLeft } from 'lucide-react';
 
 export const FeaturedListingsView: React.FC = () => {
-  const { selectedCategory, setCurrentView } = useApp();
+  const { selectedCategory, setCurrentView, goBack } = useApp();
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -75,7 +75,7 @@ export const FeaturedListingsView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="space-y-1">
           <button
-            onClick={() => setCurrentView('browse')}
+            onClick={goBack}
             className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors mb-2 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />

@@ -27,6 +27,7 @@ const VERIFIED = new Set(['o-admin', 'o-sup', 'o-res', 'o-buyer', 'o-stranger'])
 let h: PgliteDropship;
 let base: string;
 let offBase: string;
+let tokenBase: string;
 const servers: import('node:http').Server[] = [];
 const mails: OrderMail[] = [];
 const notices: OrderNotice[] = [];
@@ -71,6 +72,8 @@ before(async () => {
   };
   base = await listen(deps);
   offBase = await listen({ ...deps, orders: { ...deps.orders!, ordersEnabled: false } });
+  // Staging wiring: no Firebase Admin lookup, so the token's email_verified claim decides.
+  tokenBase = await listen({ ...deps, orders: { ...deps.orders!, isEmailVerified: undefined } });
 
   // Supplier + reseller + listing, through the real API.
   for (const [who, kind, extra] of [['sup', 'supplier', { addressLine: '12 Ring Road, Osu' }], ['res', 'dropshipper', {}]] as const) {
@@ -111,6 +114,15 @@ test('buyer must be signed in, verified, and not impersonated; prices come from 
   // A client-sent price is an unknown field, not a discount.
   assert.equal((await api('POST', '/api/dropship/orders', 'buyer', { ...placeBody(), unitPricePesewas: 1 })).body.errorCode, 'VALIDATION');
   assert.equal((await api('POST', '/api/dropship/orders', 'buyer', placeBody({ productId: 'p1' }))).body.errorCode, 'VALIDATION');
+});
+
+test('without an Admin lookup (staging), the token email_verified claim decides', async () => {
+  const unv = await api('POST', '/api/dropship/orders', 'unverified', placeBody(), tokenBase);
+  assert.equal(unv.status, 403);
+  assert.match(unv.body.error, /Verify your email/);
+  const ok = await api('POST', '/api/dropship/orders', 'buyer', placeBody(), tokenBase);
+  assert.equal(ok.status, 201);
+  assert.equal((await api('POST', `/api/dropship/orders/${ok.body.order.id}/cancel`, 'buyer', { reason: 'test' })).status, 200);
 });
 
 test('full COD flow over HTTP: code goes to the buyer only; notices and emails', async () => {

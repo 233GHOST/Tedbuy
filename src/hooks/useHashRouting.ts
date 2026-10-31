@@ -122,14 +122,15 @@ export function useHashRouting({
     if (isSameEntity) {
       // Slug or minor format refinement on same page -> replaceState (never push duplicate history)
       window.history.replaceState(
-        { currentView, selectedProductId, selectedSellerId, selectedCategory },
+        { currentView, selectedProductId, selectedSellerId, selectedCategory, tbInApp: window.history.state?.tbInApp === true },
         '',
         cleanPath
       );
     } else {
       // Genuinely new view transition -> pushState exactly once
+      // tbInApp: there is an earlier TedBuy page behind this entry, so goBack() can use history.back()
       window.history.pushState(
-        { currentView, selectedProductId, selectedSellerId, selectedCategory },
+        { currentView, selectedProductId, selectedSellerId, selectedCategory, tbInApp: true },
         '',
         cleanPath
       );

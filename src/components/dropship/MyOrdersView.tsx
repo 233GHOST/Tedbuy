@@ -6,10 +6,11 @@ import { BUYER_PROBLEM_REASONS, COD_MESSAGE, RETURN_REASONS } from './orderForma
 import { CaseForm, OrderDetailFrame, OrderList, Row, Section, TextAction, money, useOrder } from './OrderParts';
 import { buttonClass, cardClass, secondaryButtonClass } from './dropshipUi';
 
-// Buyer's orders (/orders). Pay-on-delivery: the page shows what to pay and when, the
-// delivery code to give the seller at handover, and how to report a problem.
-export function MyOrdersView() {
-  const { currentUser, setCurrentView, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
+// Buyer's orders (/orders, and inline in the profile's My orders tab). Pay-on-delivery: the
+// page shows what to pay and when, the delivery code to give the seller at handover, and how
+// to report a problem.
+export function MyOrdersView({ inline = false }: { inline?: boolean }) {
+  const { currentUser, goBack, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
   const enabled = useDropshipOrdersEnabled();
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -27,11 +28,18 @@ export function MyOrdersView() {
   );
   else body = openId ? <BuyerOrderDetail id={openId} onBack={() => setOpenId(null)} /> : <OrderList who="buyer" onOpen={setOpenId} />;
 
+  if (inline) return (
+    <div className="space-y-3 text-left">
+      <p className="text-[11px] text-slate-500">{COD_MESSAGE}</p>
+      {body}
+    </div>
+  );
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-28">
       <div className="flex items-center gap-3 mb-5">
         {!isEmbedded && (
-          <button type="button" onClick={() => setCurrentView('browse')} className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition cursor-pointer" aria-label="Back">
+          <button type="button" onClick={goBack} className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition cursor-pointer" aria-label="Back">
             <ArrowLeft className="w-4 h-4 text-slate-700" />
           </button>
         )}

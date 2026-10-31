@@ -4,7 +4,7 @@ import { Store, ArrowLeft, CheckCircle2, ShieldCheck, MapPin, Search, X, UserPlu
 import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const SellersDiscoveryView: React.FC = () => {
-  const { users, products, currentUser, setCurrentView, setSelectedSellerId, followSeller, unfollowSeller, setShowAuthModal, showToast, sellerListingCounts } = useApp();
+  const { users, products, currentUser, setCurrentView, goBack, setSelectedSellerId, followSeller, unfollowSeller, setShowAuthModal, showToast, sellerListingCounts } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -127,7 +127,7 @@ export const SellersDiscoveryView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="space-y-1">
           <button
-            onClick={() => setCurrentView('browse')}
+            onClick={goBack}
             className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors mb-2 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />

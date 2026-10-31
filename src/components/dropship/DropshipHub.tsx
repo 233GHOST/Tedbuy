@@ -10,7 +10,7 @@ import { AdminDropshipPanel } from './AdminDropshipPanel';
 // TedBuy Dropship hub (/dropship): supplier application, supplier catalogue, and admin
 // review tools. Showing the Admin tab is cosmetic; the server enforces every permission.
 export function DropshipHub() {
-  const { currentUser, setCurrentView, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
+  const { currentUser, setCurrentView, goBack, setShowAuthModal, setAuthMode, isEmbedded } = useApp();
   const enabled = useDropshipEnabled();
   const isAdmin = isUserAdmin(currentUser);
   const [tab, setTab] = useState<'dropshipper' | 'supplier' | 'admin'>('dropshipper');
@@ -77,9 +77,9 @@ export function DropshipHub() {
       <div className="flex items-center gap-3 mb-5">
         <button
           type="button"
-          onClick={() => setCurrentView('profile-settings')}
+          onClick={goBack}
           className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition cursor-pointer"
-          aria-label="Back to settings"
+          aria-label="Back"
         >
           <ArrowLeft className="w-4 h-4 text-slate-700" />
         </button>

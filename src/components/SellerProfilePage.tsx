@@ -20,6 +20,7 @@ export const SellerProfilePage: React.FC = () => {
     selectedSellerId,
     setSelectedSellerId,
     setCurrentView,
+    goBack,
     currentUser,
     followSeller,
     unfollowSeller,
@@ -33,14 +34,7 @@ export const SellerProfilePage: React.FC = () => {
     showToast
   } = useApp();
 
-  const handleGoBack = () => {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      window.history.back();
-    } else {
-      setSelectedSellerId(null);
-      setCurrentView('browse');
-    }
-  };
+  const handleGoBack = goBack;
 
   const [viewedPhoto, setViewedPhoto] = useState<{ url: string; name: string; isEditable?: boolean } | null>(null);
   const [showFollowModal, setShowFollowModal] = useState(false);

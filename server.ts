@@ -920,8 +920,13 @@ const dropshipGuards = registerDropship(app, {
   rateLimit: serverRateLimiter,
   onProductsChanged: invalidateDropshipProductCaches,
   // COD orders: Firebase Admin is authoritative for emailVerified (fails closed as null).
-  isEmailVerified: async (uid: string) => {
-    try { return (await getAdminAuth().getUser(uid)).emailVerified === true; } catch { return null; }
+  // Staging has no Google credentials by design (server/environmentGuard.ts), so there the
+  // route falls back to the signed ID token's email_verified claim, as Dropship applications do.
+  isEmailVerified: process.env.TEDBUY_ENV === 'staging' ? undefined : async (uid: string) => {
+    try { return (await getAdminAuth().getUser(uid)).emailVerified === true; } catch (err) {
+      console.error('[Dropship orders] could not read emailVerified from Firebase Admin', (err as Error)?.message);
+      return null;
+    }
   },
   notify: async notices => {
     await Promise.all(notices.map(n => createNotification({

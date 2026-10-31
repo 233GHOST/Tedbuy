@@ -26,6 +26,7 @@ import { NotificationSettingsTab } from './settings/NotificationSettingsTab';
 import { AccountSecuritySettingsTab } from './settings/AccountSecuritySettingsTab';
 import { HelpSupportSettingsTab } from './settings/HelpSupportSettingsTab';
 import { useDropshipEnabled, useDropshipOrdersEnabled } from './dropship/dropshipApi';
+import { MyOrdersView } from './dropship/MyOrdersView';
 import { plainErrorMessage } from '../utils/plainErrorMessage';
 
 export const ProfileSettings: React.FC = () => {
@@ -47,6 +48,7 @@ export const ProfileSettings: React.FC = () => {
     unfollowSeller,
     setSelectedSellerId,
     profileOpenTab,
+    goBack,
     setProfileOpenTab,
     canInstall,
     triggerPWAInstall,
@@ -478,7 +480,7 @@ CEO, Tedbuy Inc`;
   }, []);
 
   // Settings sub tabs and sections
-  type SettingsTabType = 'my-ads' | 'saved' | 'profile' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin';
+  type SettingsTabType = 'my-ads' | 'saved' | 'profile' | 'orders' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin';
 
   const [settingsTab, setSettingsTab] = useState<SettingsTabType>(() => {
     const path = (window.location.hash.replace(/^#/, '') || window.location.pathname).split('?')[0];
@@ -506,7 +508,7 @@ CEO, Tedbuy Inc`;
 
   // Mobile Profile State: mirrors mobile app's native ProfileScreen (dashboard, saved, settings)
   const [mobileProfileTab, setMobileProfileTab] = useState<'dashboard' | 'saved' | 'settings'>('dashboard');
-  const [activeMobileSubSetting, setActiveMobileSubSetting] = useState<'profile' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin' | null>(null);
+  const [activeMobileSubSetting, setActiveMobileSubSetting] = useState<'profile' | 'orders' | 'selling-buying' | 'notifications' | 'account-security' | 'more' | 'admin' | null>(null);
 
   // Open the tab another screen asked for (the navbar Saved button opens Saved deals)
   useEffect(() => {
@@ -1145,11 +1147,11 @@ CEO, Tedbuy Inc`;
         {/* Back to Browse Top Row */}
         <div className="flex items-center justify-between px-1">
           <button
-            onClick={() => setCurrentView('browse')}
+            onClick={goBack}
             className="flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900 py-0.5 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Marketplace</span>
+            <span>Back</span>
           </button>
           <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
             {mobileProfileTab === 'settings' ? 'Settings' : 'My Profile'}
@@ -1822,7 +1824,7 @@ CEO, Tedbuy Inc`;
 
                   {ordersEnabled && (
                     <button
-                      onClick={() => setCurrentView('orders')}
+                      onClick={() => setActiveMobileSubSetting('orders')}
                       className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition cursor-pointer"
                     >
                       <div className="flex items-center gap-3">
@@ -1881,6 +1883,7 @@ CEO, Tedbuy Inc`;
                   </button>
                   <span className="text-xs font-black uppercase text-slate-500">
                     {activeMobileSubSetting === 'profile' && 'Profile & Store'}
+                    {activeMobileSubSetting === 'orders' && 'My orders'}
                     {activeMobileSubSetting === 'selling-buying' && 'Selling & Buying'}
                     {activeMobileSubSetting === 'notifications' && 'Notifications'}
                     {activeMobileSubSetting === 'account-security' && 'Account Security'}
@@ -1916,6 +1919,10 @@ CEO, Tedbuy Inc`;
                       setShowFollowModal(true);
                     }}
                   />
+                )}
+
+                {activeMobileSubSetting === 'orders' && ordersEnabled && (
+                  <MyOrdersView inline />
                 )}
 
                 {activeMobileSubSetting === 'selling-buying' && (
@@ -1956,9 +1963,9 @@ CEO, Tedbuy Inc`;
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setCurrentView('browse')}
+              onClick={goBack}
               className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-2xl text-slate-700 transition cursor-pointer shadow-xs shrink-0"
-              title="Go back to Marketplace"
+              title="Go back"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -2225,8 +2232,12 @@ CEO, Tedbuy Inc`;
             {ordersEnabled && (
               <button
                 type="button"
-                onClick={() => setCurrentView('orders')}
-                className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-700 transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                onClick={() => setSettingsTab('orders')}
+                className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  settingsTab === 'orders'
+                    ? 'border-slate-900 text-slate-900'
+                    : 'border-transparent text-slate-400 hover:text-slate-700'
+                }`}
               >
                 <ShoppingBag className="w-3.5 h-3.5" />
                 <span>My orders</span>
@@ -2698,6 +2709,10 @@ CEO, Tedbuy Inc`;
         )}
 
       {/* Tab 1: Profile & Store Settings */}
+      {settingsTab === 'orders' && ordersEnabled && (
+        <MyOrdersView inline />
+      )}
+
       {settingsTab === 'profile' && (
         <ProfileStoreSettingsTab
           username={username}

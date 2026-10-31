@@ -286,6 +286,8 @@ interface AppContextType {
   setIsBottomNavVisible: (visible: boolean) => void;
   /** Running inside the TedBuy app's Dropship WebView (`?embed=app` + native bridge). */
   isEmbedded: boolean;
+  /** Back buttons: the previous TedBuy page, or the feed when the visit started on this page. */
+  goBack: () => void;
   sellerListingCounts: Record<string, number>;
   refreshSellerCounts: () => Promise<void>;
 }
@@ -850,6 +852,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isVerificationBlockOpen, setIsVerificationBlockOpen] = useState(false);
   const [isSuspendedBlockOpen, setIsSuspendedBlockOpen] = useState(false);
   const [blockedActionType, setBlockedActionType] = useState<'post-ad' | 'chat' | 'whatsApp' | 'review' | null>(null);
+
+  const goBack = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history.state?.tbInApp === true) {
+      window.history.back();
+      return;
+    }
+    setSelectedProductId(null);
+    setSelectedSellerId(null);
+    setCurrentView('browse');
+  }, []);
 
   // Popstate and Hashchange listener to update view and states on native back/forward buttons
   useEffect(() => {
@@ -6350,6 +6362,7 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
       isBottomNavVisible,
       setIsBottomNavVisible,
       isEmbedded,
+      goBack,
       sellerListingCounts,
       refreshSellerCounts
     }}>

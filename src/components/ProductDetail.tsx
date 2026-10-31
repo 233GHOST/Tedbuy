@@ -24,6 +24,7 @@ export const ProductDetail: React.FC = () => {
     selectedProductId,
     setSelectedProductId,
     setCurrentView,
+    goBack,
     currentUser,
     followSeller,
     unfollowSeller,
@@ -49,14 +50,7 @@ export const ProductDetail: React.FC = () => {
   const [isFetchingDirect, setIsFetchingDirect] = useState(false);
   const [fetchNotFound, setFetchNotFound] = useState(false);
 
-  const handleGoBack = () => {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      window.history.back();
-    } else {
-      setSelectedProductId(null);
-      setCurrentView('browse');
-    }
-  };
+  const handleGoBack = goBack;
 
   // Directly fetch product if navigated via URL / bookmark and not in memory cache yet
   useEffect(() => {
