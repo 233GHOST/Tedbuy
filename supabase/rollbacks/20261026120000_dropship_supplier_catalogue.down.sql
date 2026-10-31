@@ -80,7 +80,8 @@ begin
   select coalesce(array_agg(c.relname::text order by c.relname), '{}') into found
     from pg_class c join pg_namespace s on s.oid = c.relnamespace
    where s.nspname = 'public' and c.relname like 'dropship\_%' and c.relkind in ('r','p','v','m','f');
-  if found is distinct from expected_tables then
+  -- Compare as sets: array order depends on the database collation (staging differs from tests).
+  if array(select f from unnest(found) f order by f collate "C") is distinct from array(select f from unnest(expected_tables) f order by f collate "C") then
     raise exception 'Dropship rollback aborted: expected tables %, found %. Roll back later Dropship migrations first, or inspect the schema by hand.',
       expected_tables, found;
   end if;
@@ -88,7 +89,8 @@ begin
   select coalesce(array_agg(c.relname::text order by c.relname), '{}') into found
     from pg_class c join pg_namespace s on s.oid = c.relnamespace
    where s.nspname = 'public' and c.relname like 'dropship\_%' and c.relkind = 'S';
-  if found is distinct from expected_sequences then
+  -- Compare as sets: array order depends on the database collation (staging differs from tests).
+  if array(select f from unnest(found) f order by f collate "C") is distinct from array(select f from unnest(expected_sequences) f order by f collate "C") then
     raise exception 'Dropship rollback aborted: expected sequences %, found %.', expected_sequences, found;
   end if;
 
@@ -97,14 +99,16 @@ begin
    where s.nspname = 'public' and p.proname like 'dropship\_%';
   -- regprocedure prints types schema-qualified only when they are not on the search_path.
   found := array(select replace(f, 'public.', '') from unnest(found) f order by 1);
-  if found is distinct from expected_functions then
+  -- Compare as sets: array order depends on the database collation (staging differs from tests).
+  if array(select f from unnest(found) f order by f collate "C") is distinct from array(select f from unnest(expected_functions) f order by f collate "C") then
     raise exception 'Dropship rollback aborted: expected functions %, found %.', expected_functions, found;
   end if;
 
   select coalesce(array_agg(c.relname || '.' || tg.tgname order by 1), '{}') into found
     from pg_trigger tg join pg_class c on c.oid = tg.tgrelid join pg_namespace s on s.oid = c.relnamespace
    where s.nspname = 'public' and c.relname = any (expected_tables) and not tg.tgisinternal;
-  if found is distinct from expected_triggers then
+  -- Compare as sets: array order depends on the database collation (staging differs from tests).
+  if array(select f from unnest(found) f order by f collate "C") is distinct from array(select f from unnest(expected_triggers) f order by f collate "C") then
     raise exception 'Dropship rollback aborted: expected triggers %, found %.', expected_triggers, found;
   end if;
 

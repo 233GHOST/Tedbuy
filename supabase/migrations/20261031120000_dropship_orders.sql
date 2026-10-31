@@ -465,13 +465,16 @@ begin
 end $$;
 
 -- Raises PRICE_INVALID (422) when taking on p_amount more would break a limit.
+-- Volatile, not stable: it takes a per-reseller transaction lock so two holds requested at the
+-- same moment can't both pass the open limit, and each statement then sees the other's commit.
 create function public.dropship_check_exposure(p_user text, p_order uuid, p_amount bigint) returns void
-language plpgsql stable set search_path = '' as
+language plpgsql set search_path = '' as
 $$
 declare
   v_l jsonb := public.dropship_reseller_limits(p_user);
   v_open bigint;
 begin
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('dropship_exposure:' || p_user, 0));
   if p_amount > (v_l->>'perOrderPesewas')::bigint then
     perform public.dropship_fail('LIMIT_EXCEEDED', 'this order needs ' || p_amount || ' pesewas wholesale; your per-order limit is '
                                  || (v_l->>'perOrderPesewas'));
@@ -726,6 +729,8 @@ begin
       || greatest(least(v_sp.max_per_order, v_sp.stock_on_hand - v_sp.stock_reserved), 0) || ' of this item');
   end if;
 
+  -- Per-buyer transaction lock: parallel orders can't all slip under the open-order cap.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('dropship_buyer_open:' || p_buyer, 0));
   select count(*) into v_open from public.dropship_orders
    where buyer_id = p_buyer and status not in ('completed','returned','cancelled');
   if v_open >= s.max_open_orders_per_buyer then
@@ -789,7 +794,8 @@ begin
                                                  coalesce(nullif(btrim(v_in->>'reason'), ''), 'Buyer cancelled'), '{}'::jsonb);
     perform public.dropship_reliability(v_o.buyer_id, 'buyer', 'cancelled_before_purchase', 'neutral', true, v_o.id, 'system', '{}'::jsonb);
     return public.dropship_order_result(v_o, 'buyer', true,
-      case when v_o.reserved_at is not null or v_o.accepted_at is not null then array['dropshipper','supplier'] else array['dropshipper'] end);
+      case when v_o.reserved_at is not null or exists (select 1 from public.dropship_reservations r where r.order_id = v_o.id)
+           then array['dropshipper','supplier'] else array['dropshipper'] end);
 
   elsif p_action = 'received' then
     if v_o.status in ('delivered','completed') then

@@ -29,7 +29,15 @@ import { useDropshipEnabled, useDropshipOrdersEnabled } from './dropship/dropshi
 import { MyOrdersView } from './dropship/MyOrdersView';
 import { plainErrorMessage } from '../utils/plainErrorMessage';
 
+// The signed-in page declares many hooks after its "Sign In Required" early return, so it must
+// never see currentUser go from null to a user while mounted (sign-in lands on this view).
+// This wrapper mounts it only with a user, and remounts it on an account switch.
 export const ProfileSettings: React.FC = () => {
+  const { currentUser } = useApp();
+  return <ProfileSettingsSignedIn key={currentUser?.id ?? 'signed-out'} />;
+};
+
+const ProfileSettingsSignedIn: React.FC = () => {
   const { 
     currentUser, 
     updateUserProfile, 

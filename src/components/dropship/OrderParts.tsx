@@ -40,16 +40,20 @@ export function OrderList({ who, onOpen, refreshKey = 0 }: { who: Who; onOpen: (
   const [error, setError] = useState('');
   const [more, setMore] = useState(false);
 
+  // Only the latest request may update the list (a slow reply for the previous tab is dropped).
+  const requestRef = useRef(0);
   const load = useCallback(async (after?: string) => {
+    const request = ++requestRef.current;
     setError('');
     try {
       const r = await dropshipApi.orders(who, { scope, cursor: after });
+      if (request !== requestRef.current) return;
       setRows(prev => (after && prev ? [...prev, ...r.orders] : r.orders));
       setCursor(r.nextCursor);
     } catch (err) {
-      setError(plainErrorMessage(err, 'Could not load orders.'));
+      if (request === requestRef.current) setError(plainErrorMessage(err, 'Could not load orders.'));
     } finally {
-      setMore(false);
+      if (request === requestRef.current) setMore(false);
     }
   }, [who, scope]);
   useEffect(() => { setRows(null); load(); }, [load, refreshKey]);

@@ -23,7 +23,9 @@ function money(body: Body, key: string, required: boolean, max = 1_000_000_000):
 function isoDate(body: Body, key: string): string | null {
   const v = body[key];
   if (v === undefined || v === null || v === '') return null;
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v))) fail(`${key} must be a date (YYYY-MM-DD).`);
+  // The round trip rejects dates JavaScript would roll over (2026-02-31) but Postgres refuses.
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v))
+      || new Date(v).toISOString().slice(0, 10) !== v) fail(`${key} must be a date (YYYY-MM-DD).`);
   const d = Date.parse(v);
   if (d > Date.now() + 86_400_000 || d < Date.now() - 366 * 86_400_000) fail(`${key} must be within the last year.`);
   return v;

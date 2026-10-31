@@ -64,11 +64,17 @@ const NOTICE: Record<string, Partial<Record<'buyer' | 'dropshipper' | 'supplier'
   cancelled: { buyer: 'Your order was cancelled.', dropshipper: 'An order was cancelled.', supplier: 'An order was cancelled.' },
 };
 
-function noticesFor(result: any, actorUid: string): OrderNotice[] {
+// Moves whose new status alone would give the wrong message.
+type NoticeText = Partial<Record<'buyer' | 'dropshipper' | 'supplier', string>>;
+const RETURN_REFUSED: NoticeText = { buyer: 'The seller refused your return. If you think this is wrong, report a problem on the order.' };
+const CASE_DECIDED_TEXT = 'TedBuy reviewed the problem on this order and made a decision. Open the order to see it.';
+const CASE_DECIDED: NoticeText = { buyer: CASE_DECIDED_TEXT, dropshipper: CASE_DECIDED_TEXT, supplier: CASE_DECIDED_TEXT };
+
+function noticesFor(result: any, actorUid: string, override?: NoticeText): OrderNotice[] {
   const out: OrderNotice[] = [];
   for (const n of (result?.notify ?? []) as Array<{ userId: string; audience: 'buyer' | 'dropshipper' | 'supplier' }>) {
     if (!n.userId || n.userId === actorUid) continue;
-    const message = NOTICE[result.status]?.[n.audience];
+    const message = override ? override[n.audience] : NOTICE[result.status]?.[n.audience];
     if (!message) continue;
     out.push({ userId: n.userId, orderId: result.orderId, title: `Order ${result.orderNumber}`, message });
   }
@@ -83,9 +89,9 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
   };
 
   // Notifications and email never change the outcome of a committed move.
-  const afterMove = async (result: any, actorUid: string, mail?: OrderMail | null) => {
+  const afterMove = async (result: any, actorUid: string, mail?: OrderMail | null, override?: NoticeText) => {
     try {
-      const notices = noticesFor(result, actorUid);
+      const notices = noticesFor(result, actorUid, override);
       if (notices.length && deps.notify) await deps.notify(notices);
     } catch (err) {
       console.error('[Dropship orders] notification failed', (err as Error)?.message);
@@ -208,7 +214,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
     const input = parseResellerAction(action, req.body, deps.cloudinaryCloudName);
     if (action === 'out_for_delivery' || action === 'resend_code') input.code = makeCode();
     const result = await db.call('dropship_reseller_order_action', { p_actor: user.uid, p_order: id, p_action: action, p_input: input });
-    await afterMove(result, user.uid, await codeMail(db, result));
+    await afterMove(result, user.uid, await codeMail(db, result), action === 'return_reject' ? RETURN_REFUSED : undefined);
     send(res, result);
   }));
 
@@ -263,7 +269,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
     const input = parseResolveDispute(req.body);
     const result = await db.call('dropship_admin_resolve_dispute', { p_admin: user.uid, p_order: uuidParam(req.params.orderId, 'order'),
       p_outcome: input.outcome, p_fault: input.fault, p_fault_type: input.faultType, p_resolution: input.resolution });
-    await afterMove(result, user.uid);
+    await afterMove(result, user.uid, null, CASE_DECIDED);
     send(res, result);
   }));
 

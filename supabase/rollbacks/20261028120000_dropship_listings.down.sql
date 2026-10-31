@@ -105,7 +105,8 @@ begin
   select coalesce(array_agg(c.relname::text order by c.relname), '{}') into found
     from pg_class c join pg_namespace s on s.oid = c.relnamespace
    where s.nspname = 'public' and c.relname like 'dropship\_%' and c.relkind in ('r','p','v','m','f');
-  if found is distinct from expected_relations then
+  -- Compare as sets: array order depends on the database collation (staging differs from tests).
+  if array(select f from unnest(found) f order by f collate "C") is distinct from array(select f from unnest(expected_relations) f order by f collate "C") then
     raise exception 'Dropship listings rollback aborted: expected tables and views %, found %. Roll back later Dropship migrations first, or inspect the schema by hand.',
       expected_relations, found;
   end if;
@@ -114,7 +115,8 @@ begin
     from pg_proc p join pg_namespace s on s.oid = p.pronamespace
    where s.nspname = 'public' and p.proname like 'dropship\_%';
   found := array(select replace(f, 'public.', '') from unnest(found) f order by 1);
-  if found is distinct from expected_functions then
+  -- Compare as sets: array order depends on the database collation (staging differs from tests).
+  if array(select f from unnest(found) f order by f collate "C") is distinct from array(select f from unnest(expected_functions) f order by f collate "C") then
     raise exception 'Dropship listings rollback aborted: expected functions %, found %.', expected_functions, found;
   end if;
 

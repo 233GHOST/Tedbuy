@@ -173,6 +173,17 @@ test('full COD flow over HTTP: code goes to the buyer only; notices and emails',
   assert.equal(done.order.status, 'completed');
   assert.ok(notices.some(n => n.userId === 'o-sup' && /hold stock/.test(n.message)));
   assert.ok(notices.every(n => n.orderId === id));
+
+  // A refused return tells the buyer it was refused, not that the order is complete.
+  await step('buyer', 'return', { reasonCode: 'changed_mind', description: 'Not what I expected.' });
+  notices.length = 0;
+  await step('res', 'return_reject', { note: 'Item was used and damaged.' });
+  const refused = notices.find(n => n.userId === 'o-buyer');
+  assert.match(refused?.message ?? '', /refused your return/);
+  // Impossible dates are a validation error, not a server error.
+  const badDate = await api('POST', `/api/dropship/reseller/orders/${id}/declare_supplier_payment`, 'res',
+    { amountPesewas: 100, method: 'momo', paidOn: '2026-02-31' });
+  assert.equal(badDate.body.errorCode, 'VALIDATION');
 });
 
 test('access: strangers, wrong roles and unknown actions', async () => {

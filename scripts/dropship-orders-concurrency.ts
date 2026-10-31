@@ -1,7 +1,9 @@
 // Staging-only check that stock holds can't oversell under real concurrency (PGlite tests
 // run on one connection, so they can't). Creates synthetic users and records whose ids start
 // with 'zzconc_' on the STAGING database, puts one unit in stock, makes 8 orders for it, and
-// has the supplier confirm all 8 holds at the same moment. Exactly one may succeed.
+// has the supplier confirm all 8 holds at the same moment. Exactly one may succeed. Then a
+// second reseller with a 2,500-pesewa open limit requests four 1,000-pesewa holds at once:
+// exactly two may pass.
 //
 //   npx tsx scripts/dropship-orders-concurrency.ts
 //
@@ -75,6 +77,35 @@ async function main() {
   for (const r of results) if (r.status === 'rejected') console.log('  refused:', String((r.reason as Error).message).slice(0, 120));
   if (won !== 1 || after.stock_reserved !== 1) {
     console.error('FAIL: stock was oversold or nothing could be held.');
+    process.exit(1);
+  }
+
+  // Part 2: a reseller's open-orders limit under real concurrency. Limit 2,500 pesewas, four
+  // accepted orders of 1,000 each ask for a hold at the same moment: exactly two may pass.
+  const reseller2 = `${run}_res2`;
+  await sb.from('users').insert({ id: reseller2, username: reseller2 });
+  const app2 = await rpc('dropship_submit_application', { p_user: reseller2, p_kind: 'dropshipper', p_client_request_id: crypto.randomUUID(), p_fields: {
+    displayName: 'Concurrency dropshipper 2', contactPhone: '0240000000', region: 'Greater Accra', city: 'Accra', termsVersion: 'test' } });
+  await rpc('dropship_admin_decide_participation', { p_admin: 'zzconc_admin', p_participant_id: app2.participant.id, p_decision: 'approve',
+    p_reason: null, p_notes: 'synthetic concurrency test', p_expected_status: 'pending' });
+  await rpc('dropship_set_stock', { p_actor: supplier, p_actor_role: 'supplier', p_id: sp.product.id, p_new_on_hand: 20, p_expected_on_hand: 1, p_reason: 'limit race test' });
+  const listing2 = await rpc('dropship_create_listing', { p_actor: reseller2, p_supplier_product_id: sp.product.id, p_retail_pesewas: 2000, p_client_request_id: crypto.randomUUID() });
+  await rpc('dropship_admin_set_limit_override', { p_admin: 'zzconc_admin', p_user: reseller2, p_per_order: 2500, p_open: 2500, p_reason: 'synthetic limit race test' });
+  const orders2: string[] = [];
+  for (const b of buyers.slice(0, 4)) {
+    const o = await rpc('dropship_place_order', { p_buyer: b, p_buyer_email: null, p_product_id: listing2.productId, p_quantity: 1,
+      p_client_request_id: crypto.randomUUID(), p_delivery: { name: 'Synthetic Buyer', phone: '0550000000', region: 'Greater Accra', area: 'Osu', address: 'Synthetic address 1' } });
+    await rpc('dropship_buyer_order_action', { p_buyer: b, p_order: o.order.id, p_action: 'confirm', p_input: {} });
+    await rpc('dropship_reseller_order_action', { p_actor: reseller2, p_order: o.order.id, p_action: 'accept', p_input: {} });
+    orders2.push(o.order.id);
+  }
+  const results2 = await Promise.allSettled(orders2.map(id =>
+    rpc('dropship_reseller_order_action', { p_actor: reseller2, p_order: id, p_action: 'request_reservation', p_input: {} })));
+  const passed = results2.filter(r => r.status === 'fulfilled').length;
+  console.log(`limit race: ${passed} of ${orders2.length} holds requested (limit allows 2)`);
+  for (const r of results2) if (r.status === 'rejected') console.log('  refused:', String((r.reason as Error).message).slice(0, 120));
+  if (passed !== 2) {
+    console.error('FAIL: the open-orders limit was exceeded or wrongly refused.');
     process.exit(1);
   }
   console.log(`PASS (synthetic run id ${run})`);
