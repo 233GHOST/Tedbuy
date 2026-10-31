@@ -42,11 +42,26 @@ const GUARD_INVALIDATING_FNS = new Set([
   'dropship_create_supplier_product', 'dropship_update_supplier_product', 'dropship_set_stock',
   'dropship_set_supplier_product_status', 'dropship_admin_moderate_supplier_product',
   'dropship_admin_decide_participation',
-  // Orders: holds, releases and cancellations change stock_reserved / stock_on_hand, which
-  // decide whether a listing shows as out of stock.
-  'dropship_supplier_order_action', 'dropship_reseller_order_action', 'dropship_buyer_order_action',
-  'dropship_admin_resolve_dispute', 'dropship_admin_cancel_order',
 ]);
+
+// Order steps that change stock_reserved (a hold confirmed or given back), which decides whether
+// a listing shows as out of stock. Every other step (confirm, accept, payments, codes, costs)
+// leaves the product caches alone; flushing them on each step made busy order days slow.
+// ('released' lowers on-hand and reserved together, so availability doesn't move.)
+const STOCK_ORDER_ACTIONS: Record<string, ReadonlySet<string> | 'all'> = {
+  dropship_buyer_order_action: new Set(['cancel']),
+  dropship_reseller_order_action: new Set(['reject', 'cancel', 'decline_price', 'close_failed']),
+  dropship_supplier_order_action: new Set(['confirm_reservation', 'decline_reservation']),
+  dropship_admin_resolve_dispute: 'all',
+  dropship_admin_cancel_order: 'all',
+};
+
+export function invalidatesProducts(fn: string, args: Record<string, unknown>, result: any): boolean {
+  if (GUARD_INVALIDATING_FNS.has(fn)) return true;
+  const actions = STOCK_ORDER_ACTIONS[fn];
+  if (!actions || !result || result.changed === false) return false;
+  return actions === 'all' || actions.has(String(args.p_action));
+}
 
 // The mirror row ids a write touched, when known; undefined for supplier-product and
 // participation writes (they fan out to every listing of the product or user).
@@ -184,7 +199,7 @@ export function createDropshipRouter(deps: DropshipDeps): express.Router {
           result = await db.call(fn, args);
           return result;
         } finally {
-          if (GUARD_INVALIDATING_FNS.has(fn)) {
+          if (invalidatesProducts(fn, args, result)) {
             deps.guards?.invalidate();
             try {
               deps.onProductsChanged?.(changedProductIds(fn, args, result));
