@@ -30,6 +30,7 @@ import { decideProfileSync, preserveExistingProfileFields } from "./server/auth/
 import { decideNewListing } from "./server/products/newListingGate.js";
 import { exactIlikePattern, sameEmail } from "./server/auth/emailLookup.js";
 import { redactUserSecrets } from './server/auth/redactUser.js';
+import { pushDeliveryOptions } from './server/notifications/pushOptions.js';
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -5437,9 +5438,8 @@ async function sendPushNotification(userId: string, title: string, body: string,
         body,
         data: data || {},
         sound: 'default',
-        // Order updates use the app's high-importance "Orders" channel (sound + heads-up).
-        channelId: typeof data?.type === 'string' && data.type.startsWith('dropship_order') ? 'orders' : 'default',
-        priority: 'high',
+        // Order updates: the app's "Orders" channel at high priority; the rest stays normal.
+        ...pushDeliveryOptions(data?.type),
       }),
     });
     // Expo answers 200 with status 'error' for rejected pushes (missing FCM key, unregistered
