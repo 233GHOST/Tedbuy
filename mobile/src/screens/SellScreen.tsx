@@ -22,6 +22,7 @@ import * as MediaLibrary from 'expo-media-library/legacy';
 import { categories } from '../data';
 import { GHANA_REGIONS } from '../regions';
 import { auth, observeAuthState, createProduct, updateProduct, uploadMediaToCloudinaryMobile, fetchUserById, fetchProductById, generateListingDescriptionMobile, AiDescriptionStyleMobile, listingErrorTitle } from '../firebase';
+import { isAccountVerified } from '../utils/authFlow';
 import { uploadVideoDirectToCloudinaryMobile, isFullVideoRange, deleteCloudinaryAssetMobile, cleanupOrphanedCloudinaryAssetsMobile } from '../utils/cloudinary';
 import { fonts } from '../theme';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
@@ -1332,7 +1333,7 @@ export function SellScreen({ navigation, route }: SellScreenProps) {
       return;
     }
 
-    if (!currentUserProfile?.emailVerified) {
+    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       setBlockedActionType('post-ad');
       return;
     }

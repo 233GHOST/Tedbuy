@@ -7,6 +7,7 @@ import { Bookmark, Share2, ShieldAlert, X, MessageSquare, Shield } from 'lucide-
 import { useServerList } from '../hooks/useServerList';
 import { preferServerList, dropUnavailable } from '../utils/preferServerList';
 import { fetchProductById, fetchUserById, startChatApi, auth, watchProducts, reportProduct, fetchReviewsForSeller, toggleFollowSeller, updateProduct, deleteProductMobile, trackProductView, fetchSimilarProducts, getDropshipPurchaseInfo, getDropshipOrdersEnabled, listingErrorTitle, DropshipPurchaseInfoMobile } from '../firebase';
+import { isAccountVerified } from '../utils/authFlow';
 import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../types';
 import { formatTedbuyTenure } from '../utils/tenure';
 import { ProductCard } from '../components/ProductCard';
@@ -279,7 +280,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
       );
       return;
     }
-    if (!currentUserProfile?.emailVerified) {
+    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       setBlockedActionType('whatsApp');
       return;
     }
@@ -328,7 +329,7 @@ export function ProductDetailScreen({ productId, onBack }: ProductDetailScreenPr
       return;
     }
 
-    if (!currentUserProfile?.emailVerified) {
+    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       setBlockedActionType('chat');
       return;
     }

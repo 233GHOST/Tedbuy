@@ -1034,11 +1034,8 @@ CEO, Tedbuy Inc`;
       setErrorMsg('This store name is reserved by TedBuy.');
       return;
     }
-    if (username.length > 50) {
-      setErrorMsg('Store Name must be 50 characters or less.');
-      return;
-    }
-    // Same rule as sign-up, only for a changed name: an older name never blocks other edits.
+    // Same rule as sign-up (including the 50-character limit), only for a changed name: an
+    // older name never blocks other edits.
     if (username.trim() !== (currentUser?.username ?? '').trim()) {
       const nameCheck = validateStoreName(username);
       if (!nameCheck.isValid) {

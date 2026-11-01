@@ -33,8 +33,3 @@ test('validateInputLength: boundary lengths (exactly minLen/maxLen) are valid', 
   assert.equal(validateInputLength('abc', 3, 3).isValid, true);
 });
 
-
-
-
-
-

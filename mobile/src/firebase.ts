@@ -1692,11 +1692,10 @@ export async function updateUserProfile(profileData: {
   // that omits `username` and so falls back to the stale stored value)
   // with a "Store Name must be 50 characters or less" error that had
   // nothing to do with what the user was actually trying to save.
-  if (profileData.username !== undefined) {
-    if (!finalUsername) throw new Error('Store Name is required.');
-    if (finalUsername.length > 50) throw new Error('Store Name must be 50 characters or less.');
-  }
+  // Settings always sends the name, so "provided" is not enough: only a changed name is checked.
   const isStoreNameChanged = profileData.username !== undefined && finalUsername !== myProfile.username;
+  if (profileData.username !== undefined && !finalUsername) throw new Error('Store Name is required.');
+  if (isStoreNameChanged && finalUsername.length > 50) throw new Error('Store Name must be 50 characters or less.');
   if (isStoreNameChanged && isReservedStoreName(finalUsername)) {
     throw new Error('This store name is reserved by TedBuy.');
   }

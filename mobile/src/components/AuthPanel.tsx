@@ -311,7 +311,7 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
         setPassword('');
         Alert.alert('Please sign in', err?.code === 'tedbuy/profile-setup-failed'
           ? 'Your account was created. Sign in with your email and password to finish setting it up.'
-          : 'An account with this email already exists. Sign in with your password.');
+          : 'An account with this email already exists. Sign in with your password or with Google.');
       } else {
         Alert.alert('Authentication Failure', getFriendlyAuthErrorMessage(err));
       }

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { validateStoreName } from './storeName.ts';
 
 test('real shop names are accepted', () => {
@@ -22,4 +23,9 @@ test('markup, emoji and other symbols are refused with a plain message', () => {
     assert.equal(r.isValid, false, n);
     assert.match(r.error ?? '', /letters, numbers, spaces/);
   }
+});
+
+test('the app copy of the rule matches this one (only the first comment line differs)', () => {
+  const body = (path: string) => fs.readFileSync(new URL(path, import.meta.url), 'utf8').split('\n').slice(1).join('\n');
+  assert.equal(body('../../mobile/src/utils/storeName.ts'), body('./storeName.ts'));
 });

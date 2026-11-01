@@ -98,11 +98,8 @@ export function ProfileStoreSettingsScreen({ onBack }: Props) {
       Alert.alert('Reserved Store Name', 'This store name is reserved by TedBuy.');
       return;
     }
-    if (trimmedUsername.length > 50) {
-      Alert.alert('Store Name Too Long', 'Store Name must be 50 characters or less.');
-      return;
-    }
-    // Same rule as sign-up, only for a changed name: an older name never blocks other edits.
+    // Same rule as sign-up (including the 50-character limit), only for a changed name: an
+    // older name never blocks other edits.
     if (trimmedUsername !== (userProfile?.username ?? '').trim()) {
       const nameCheck = validateStoreName(trimmedUsername);
       if (!nameCheck.isValid) {

@@ -21,6 +21,7 @@ import { useSavedProducts } from '../context/SavedProducts';
 import { CATEGORY_FILTERS, getModelsForBrand } from '../utils/filterConfig';
 import { Product, isUserVerified, isUserAdmin } from '../types';
 import { auth, fetchProducts, fetchProductsWithStatus, fetchVideoAds, watchProducts, watchUsers, startChatApi, toggleFollowSeller, fetchSellerListingCounts, fetchFeaturedProducts, fetchTrendingProducts } from '../firebase';
+import { isAccountVerified } from '../utils/authFlow';
 import { useServerList } from '../hooks/useServerList';
 import { preferServerList, dropUnavailable } from '../utils/preferServerList';
 import { EmailVerificationModal } from '../components/EmailVerificationModal';
@@ -1611,7 +1612,7 @@ export function HomeScreen({ onOpenProduct, route, navigation }: HomeScreenProps
     }
 
     const currentUserProfile = users.find((u: any) => u.id === user.uid);
-    if (!currentUserProfile?.emailVerified) {
+    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       setVideoFeedBlockedAction(() => () => handleStartChat(product));
       return;
     }
