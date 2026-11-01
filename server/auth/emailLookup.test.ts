@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { exactIlikePattern, sameEmail } from './emailLookup.js';
+import { exactIlikePattern, sameEmail, pickEmailMatch } from './emailLookup.js';
 
 test('plain email is unchanged', () => {
   assert.equal(exactIlikePattern('ama@gmail.com'), 'ama@gmail.com');
@@ -19,4 +19,16 @@ test('sameEmail ignores case and spaces, rejects others', () => {
   assert.equal(sameEmail(' ama@gmail.com ', 'AMA@gmail.com'), true);
   assert.equal(sameEmail('amb@gmail.com', 'ama@gmail.com'), false);
   assert.equal(sameEmail(undefined, 'ama@gmail.com'), false);
+});
+
+test('pickEmailMatch: duplicate rows in different capitals pick one instead of failing', () => {
+  const rows = [
+    { id: 'a', email: 'Ama@Gmail.com', isDeleted: false },
+    { id: 'b', email: 'ama@gmail.com', isDeleted: false },
+  ];
+  assert.equal(pickEmailMatch(rows, 'ama@gmail.com')?.id, 'b', 'exact spelling wins');
+  assert.equal(pickEmailMatch(rows, 'AMA@GMAIL.COM')?.id, 'a', 'otherwise the first active row');
+  assert.equal(pickEmailMatch([{ id: 'x', email: 'ama@gmail.com', isDeleted: true }, { id: 'y', email: 'Ama@gmail.com' }], 'AMA@gmail.com')?.id, 'y', 'active beats deleted');
+  assert.equal(pickEmailMatch([], 'ama@gmail.com'), null);
+  assert.equal(pickEmailMatch([{ id: 'z', email: 'other@gmail.com' }], 'ama@gmail.com'), null, 'never a different address');
 });

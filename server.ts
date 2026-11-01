@@ -28,7 +28,7 @@ import { decideAppHandoff, isRestrictedUserRow } from "./server/auth/appHandoff.
 import { createCheckedEmailStore, decideCompleteRegistration } from "./server/auth/registrationVerification.js";
 import { decideProfileSync, preserveExistingProfileFields } from "./server/auth/profileSyncGuard.js";
 import { decideNewListing } from "./server/products/newListingGate.js";
-import { exactIlikePattern, sameEmail } from "./server/auth/emailLookup.js";
+import { exactIlikePattern, sameEmail, pickEmailMatch } from "./server/auth/emailLookup.js";
 import { redactUserSecrets } from './server/auth/redactUser.js';
 import { pushDeliveryOptions } from './server/notifications/pushOptions.js';
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
@@ -5007,7 +5007,11 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
       } else if (phoneNumber) {
         q = q.eq('phoneNumber', phoneNumber.trim());
       }
-      const { data, error } = await q.maybeSingle();
+      // By email, several rows can match in different capitals: fetch a few and pick one
+      // (pickEmailMatch) instead of maybeSingle() failing the whole lookup with a 500.
+      const { data, error } = (!userId && email)
+        ? await q.limit(5).then(r => ({ data: pickEmailMatch((r.data ?? []) as any[], email), error: r.error }))
+        : await q.maybeSingle();
       if (error) throw error;
       if (data && (userId || !email || sameEmail(data.email, email))) {
         const authHeader = req.headers.authorization;

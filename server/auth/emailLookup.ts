@@ -14,3 +14,11 @@ export function exactIlikePattern(value: string): string | null {
 export function sameEmail(stored: unknown, wanted: string): boolean {
   return typeof stored === 'string' && stored.trim().toLowerCase() === wanted.trim().toLowerCase();
 }
+
+// Several rows can share an address in different capitals (older accounts). Pick one rather
+// than failing: the exact spelling first, then an active account, never a different address.
+export function pickEmailMatch<T extends { email?: unknown; isDeleted?: unknown; status?: unknown }>(rows: T[], wanted: string): T | null {
+  const same = (rows ?? []).filter(r => sameEmail(r.email, wanted));
+  const active = same.filter(r => r.isDeleted !== true && r.status !== 'deleted');
+  return same.find(r => r.email === wanted.trim()) ?? active[0] ?? same[0] ?? null;
+}
