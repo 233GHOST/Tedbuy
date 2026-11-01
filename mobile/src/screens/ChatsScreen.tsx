@@ -619,7 +619,9 @@ export function ChatsScreen() {
     const trimmed = textToSend.trim();
     if (!trimmed || !activeChatId) return;
 
-    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
+    // TedBuy Support can always be messaged, so someone stuck verifying can ask for help.
+    const isSupportChat = activeChat?.sellerId === 'user_ted_ceo_support' || activeChat?.buyerId === 'user_ted_ceo_support';
+    if (!isSupportChat && !isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       setBlockedActionType('chat');
       return;
     }

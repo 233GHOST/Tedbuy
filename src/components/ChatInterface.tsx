@@ -425,7 +425,9 @@ export const ChatInterface: React.FC = () => {
     e.preventDefault();
     if (!inputText.trim() || !activeChatId || isSendingMessage) return;
 
-    if (!currentUser?.emailVerified) {
+    // TedBuy Support can always be messaged, so someone stuck verifying can ask for help.
+    const isSupportChat = activeChat?.sellerId === 'user_ted_ceo_support' || activeChat?.buyerId === 'user_ted_ceo_support';
+    if (!currentUser?.emailVerified && !isSupportChat) {
       setBlockedActionType('chat');
       setIsVerificationBlockOpen(true);
       return;

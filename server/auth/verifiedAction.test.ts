@@ -25,3 +25,14 @@ test('when Google cannot be asked, the signed token claim decides (no chat outag
 test('admins (and admins acting for a user) are never blocked', () => {
   assert.deepEqual(decideVerifiedAction({ action: 'message', adminFlag: false, tokenClaim: false, isAdmin: true }), { ok: true });
 });
+
+test('messaging TedBuy Support is allowed without verifying (e.g. "my code never arrived")', () => {
+  assert.deepEqual(decideVerifiedAction({ action: 'message', adminFlag: false, tokenClaim: false, withSupport: true }), { ok: true });
+  assert.equal(decideVerifiedAction({ action: 'message', adminFlag: false, tokenClaim: false, withSupport: false }).ok, false);
+});
+
+test('the refusal carries code (like the listing check) and errorCode', () => {
+  const d = decideVerifiedAction({ action: 'message', adminFlag: false, tokenClaim: false }) as any;
+  assert.equal(d.code, 'EMAIL_NOT_VERIFIED');
+  assert.equal(d.errorCode, 'EMAIL_NOT_VERIFIED');
+});

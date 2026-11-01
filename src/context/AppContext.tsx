@@ -4831,6 +4831,13 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
 
           console.log(`[Offline Queue] Sent queued message ${msg.id} successfully.`);
         } catch (err) {
+          if ((err as any)?.code === 'EMAIL_NOT_VERIFIED') {
+            // Will never succeed until they verify: drop it instead of retrying forever.
+            console.warn(`[Offline Queue] Dropping message ${msg.id}: email not verified.`);
+            setBlockedActionType('chat');
+            setIsVerificationBlockOpen(true);
+            continue;
+          }
           console.warn(`[Offline Queue] Failed to sync message ${msg.id}. Keeping in queue:`, err);
           remainingQueue.push(msg);
         }
@@ -5056,6 +5063,13 @@ ${comment ? `• Comments: "${comment}"` : ''}`;
     } catch (err) {
       if (isAdminReplyingAsSupport) {
         console.warn('[sendMessage] Support-desk send failed:', err);
+        return;
+      }
+      if ((err as any)?.code === 'EMAIL_NOT_VERIFIED') {
+        // Not an offline problem: retrying can't help. Take the message back and ask them to verify.
+        setMessages(prev => prev.filter(m => m.id !== msgId));
+        setBlockedActionType('chat');
+        setIsVerificationBlockOpen(true);
         return;
       }
       console.warn('[sendMessage] API send failed. Moving message to offline queue for background sync retry.', err);

@@ -3915,10 +3915,17 @@ async function checkNewListingAllowed(uid: string) {
 // A confirmed "verified" is remembered for 10 minutes so busy chats don't ask Firebase
 // Admin on every message; staging has no Admin credentials, so the token claim decides.
 const verifiedEmailCache = new Map<string, number>();
-async function checkVerifiedAction(user: VerifiedAuthUser, action: VerifiedAction) {
+async function checkVerifiedAction(user: VerifiedAuthUser, action: VerifiedAction, withSupport = false) {
+  // Admins (and admins acting for a user) and chats with TedBuy Support never need the lookup.
   const isAdmin = user.isAdmin === true || !!user.originalAdmin;
+  if (isAdmin || withSupport) return decideVerifiedAction({ action, adminFlag: null, tokenClaim: undefined, isAdmin, withSupport });
+  const now = Date.now();
   const cachedUntil = verifiedEmailCache.get(user.uid);
-  if (cachedUntil && cachedUntil > Date.now()) return decideVerifiedAction({ action, adminFlag: true, tokenClaim: true, isAdmin });
+  if (cachedUntil && cachedUntil > now) return decideVerifiedAction({ action, adminFlag: true, tokenClaim: true });
+  if (cachedUntil) verifiedEmailCache.delete(user.uid);
+  if (verifiedEmailCache.size > 20000) {
+    for (const [uid, until] of verifiedEmailCache) if (until <= now) verifiedEmailCache.delete(uid);
+  }
   let adminFlag: boolean | null = null;
   if (process.env.TEDBUY_ENV !== 'staging') {
     try {
@@ -3927,7 +3934,7 @@ async function checkVerifiedAction(user: VerifiedAuthUser, action: VerifiedActio
       console.error('[Verified Action Gate] Email-verified lookup failed:', err?.message || err);
     }
   }
-  const decision = decideVerifiedAction({ action, adminFlag, tokenClaim: user.emailVerified, isAdmin });
+  const decision = decideVerifiedAction({ action, adminFlag, tokenClaim: user.emailVerified });
   if (adminFlag === true) verifiedEmailCache.set(user.uid, Date.now() + 10 * 60 * 1000);
   return decision;
 }
@@ -5673,7 +5680,7 @@ app.post('/api/chats/start', serverRateLimiter(5 * 60 * 1000, 5, "chat-start"), 
   }
   const verifiedGate = await checkVerifiedAction(verified, 'chat');
   if (!verifiedGate.ok) {
-    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, errorCode: verifiedGate.code });
+    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, code: verifiedGate.code, errorCode: verifiedGate.errorCode });
   }
   if (!backendSupabase) {
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
@@ -5823,10 +5830,6 @@ app.post('/api/messages/send', serverRateLimiter(60 * 1000, 30, "message-send"),
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to send a message' });
   }
-  const verifiedGate = await checkVerifiedAction(verified, 'message');
-  if (!verifiedGate.ok) {
-    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, errorCode: verifiedGate.code });
-  }
 
   const { chatId, text } = req.body || {};
   if (!chatId || typeof text !== 'string') {
@@ -5864,6 +5867,12 @@ app.post('/api/messages/send', serverRateLimiter(60 * 1000, 30, "message-send"),
 
   if (!chat) {
     return res.status(404).json({ success: false, error: 'Chat not found' });
+  }
+  // Checked once the chat is known: a chat with TedBuy Support is always allowed.
+  const withSupport = chat.sellerId === 'user_ted_ceo_support' || chat.buyerId === 'user_ted_ceo_support';
+  const verifiedGate = await checkVerifiedAction(verified, 'message', withSupport);
+  if (!verifiedGate.ok) {
+    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, code: verifiedGate.code, errorCode: verifiedGate.errorCode });
   }
 
   try {
@@ -6098,7 +6107,7 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
   }
   const verifiedGate = await checkVerifiedAction(verified, 'review');
   if (!verifiedGate.ok) {
-    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, errorCode: verifiedGate.code });
+    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, code: verifiedGate.code, errorCode: verifiedGate.errorCode });
   }
   const { sellerId, rating, comment, productTitle, chatId } = req.body || {};
   if (!sellerId || typeof sellerId !== 'string') {

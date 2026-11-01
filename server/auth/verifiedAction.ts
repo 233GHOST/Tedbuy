@@ -16,13 +16,19 @@ const WHAT: Record<VerifiedAction, string> = {
 
 // A plain object (not a union): server.ts compiles without strictNullChecks, which doesn't
 // narrow discriminated unions.
-export interface VerifiedActionDecision { ok: boolean; status?: 403; code?: 'EMAIL_NOT_VERIFIED'; error?: string }
+export interface VerifiedActionDecision {
+  ok: boolean; status?: 403; code?: 'EMAIL_NOT_VERIFIED'; errorCode?: 'EMAIL_NOT_VERIFIED'; error?: string;
+}
 
 export function decideVerifiedAction(input: {
   action: VerifiedAction; adminFlag: boolean | null; tokenClaim: boolean | undefined; isAdmin?: boolean;
+  /** The chat is with TedBuy Support: always allowed, so someone stuck verifying can ask for help. */
+  withSupport?: boolean;
 }): VerifiedActionDecision {
-  if (input.isAdmin) return { ok: true };
+  if (input.isAdmin || input.withSupport) return { ok: true };
   const verified = input.adminFlag ?? input.tokenClaim === true;
   if (verified) return { ok: true };
-  return { ok: false, status: 403, code: 'EMAIL_NOT_VERIFIED', error: `Please verify your email address before ${WHAT[input.action]}.` };
+  // `code` like the listing check (the app maps it); `errorCode` for the website.
+  return { ok: false, status: 403, code: 'EMAIL_NOT_VERIFIED', errorCode: 'EMAIL_NOT_VERIFIED',
+    error: `Please verify your email address before ${WHAT[input.action]}.` };
 }

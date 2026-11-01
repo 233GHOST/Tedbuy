@@ -138,7 +138,8 @@ export async function sendMessageViaApi(chatId: string, text: string): Promise<a
     body: { chatId, text }
   });
   if (!data.success) {
-    throw new Error(data.error || 'Could not send message');
+    // Keep the server's code (e.g. EMAIL_NOT_VERIFIED) so callers don't treat it as offline.
+    throw Object.assign(new Error(data.error || 'Could not send message'), { code: data.code || data.errorCode });
   }
   return data.message;
 }
