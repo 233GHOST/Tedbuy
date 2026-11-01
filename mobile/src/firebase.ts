@@ -742,11 +742,18 @@ async function signUpInner(input: SignUpInput): Promise<{ verified: boolean }> {
   // (ensureProfileForSignedInUser) can still use the typed details if the
   // save below fails.
   pendingSignUpDetails = { uid: credential.user.uid, username: username.trim(), phoneNumber: phoneNumber.trim() };
-  await updateProfile(credential.user, { displayName: username });
+  // The account now exists: nothing below may abort sign-up and leave the user signed in
+  // with no profile. The display name is cosmetic; verification falls back to the email link.
+  try { await updateProfile(credential.user, { displayName: username }); } catch (err) {
+    console.warn('[signUp] Could not set the display name (non-fatal):', err);
+  }
   // The sign-up code was already accepted, so ask the server to mark the
   // email verified before the profile row is written (it reads the flag from
   // Firebase Admin, never from our request body).
-  const verified = await completeRegistration();
+  let verified = false;
+  try { verified = await completeRegistration(); } catch (err) {
+    console.warn('[signUp] Could not mark the email verified (non-fatal):', err);
+  }
 
   // User profiles are canonical in Supabase, written only through the
   // authenticated server API — /api/users/sync verifies the Firebase ID
@@ -774,7 +781,8 @@ async function signUpInner(input: SignUpInput): Promise<{ verified: boolean }> {
     // (ensureProfileForSignedInUser) then creates the profile for this
     // verified account.
     await signOutEverywhere();
-    throw new Error('Your account was created, but we could not finish setting up your profile. Please check your connection and sign in again.');
+    throw Object.assign(new Error('Your account was created, but we could not finish setting up your profile. Please check your connection and sign in again.'),
+      { code: 'tedbuy/profile-setup-failed' });
   }
   pendingSignUpDetails = null;
   if (photoUri) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isEmailIdentifier, normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE, isMergeableProfile, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE, repairAction, isRetryableRegistrationFailure } from './authFlow.ts';
+import { isEmailIdentifier, normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE, isMergeableProfile, nextProfileStep, classifyEmailMatch, MERGE_REFUSED_MESSAGE, repairAction, isRetryableRegistrationFailure, isAccountVerified, signUpFailureAction } from './authFlow.ts';
 
 test('isEmailIdentifier: only values containing @ are emails', () => {
   assert.equal(isEmailIdentifier('a@b.com'), true);
@@ -102,4 +102,18 @@ test('isRetryableRegistrationFailure: only connection, timeout and server failur
   for (const c of ['CLIENT', 'SESSION_EXPIRED', 'FORBIDDEN', 'RATE_LIMIT', 'NOT_FOUND', undefined]) {
     assert.equal(isRetryableRegistrationFailure(c), false, String(c));
   }
+});
+
+test('isAccountVerified: the profile flag or the sign-in flag is enough', () => {
+  assert.equal(isAccountVerified(true, false), true);
+  assert.equal(isAccountVerified(false, true), true, 'profile sync lagging must not re-show the verify box');
+  assert.equal(isAccountVerified(undefined, undefined), false);
+  assert.equal(isAccountVerified(false, false), false);
+});
+
+test('signUpFailureAction: an account that already exists goes to Sign In, other errors stay on the code step', () => {
+  assert.equal(signUpFailureAction('tedbuy/profile-setup-failed'), 'sign-in');
+  assert.equal(signUpFailureAction('auth/email-already-in-use'), 'sign-in');
+  assert.equal(signUpFailureAction('auth/network-request-failed'), 'stay');
+  assert.equal(signUpFailureAction(undefined), 'stay');
 });

@@ -12,6 +12,7 @@ import { CheckCircle, ShoppingBag, Star, X } from 'lucide-react-native';
 import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT, useTabBarVisibility } from '../context/TabBarVisibility';
 import { formatProductPrice } from '../utils/formatPrice';
+import { isAccountVerified } from '../utils/authFlow';
 import { getCloudinaryThumbnailMobile } from '../utils/cloudinary';
 
 const CHAT_LIST_POLL_MS = 15000;
@@ -336,7 +337,7 @@ export function ChatsScreen() {
       Alert.alert('Review Too Short', 'Please write a short comment (at least 5 characters) about your experience.');
       return;
     }
-    if (!currentUserProfile?.emailVerified) {
+    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       closeReviewModal();
       setBlockedActionType('review');
       return;
@@ -618,7 +619,7 @@ export function ChatsScreen() {
     const trimmed = textToSend.trim();
     if (!trimmed || !activeChatId) return;
 
-    if (!currentUserProfile?.emailVerified) {
+    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       setBlockedActionType('chat');
       return;
     }

@@ -10,7 +10,7 @@ import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT } from '../context/TabBarVisibility';
 import { validateEmailSecure, validatePasswordStrength, validatePhoneSecure } from '../utils/registrationValidation';
 import { validateStoreName } from '../utils/storeName';
-import { normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE } from '../utils/authFlow';
+import { normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE, signUpFailureAction } from '../utils/authFlow';
 import { isReservedStoreName } from '../types';
 import { TERMS_SECTIONS, TERMS_TITLE, TERMS_SUBTITLE, TERMS_AGREE_LABEL, TERMS_WARNING_TITLE } from '../content/policies';
 
@@ -299,7 +299,22 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
       setAgreeTerms(false);
       props.onSignedIn?.();
     } catch (err: any) {
-      Alert.alert('Authentication Failure', getFriendlyAuthErrorMessage(err));
+      if (signUpFailureAction(err?.code) === 'sign-in') {
+        // The account already exists: continue at Sign In with the email filled in, instead
+        // of leaving them on a code step whose retry can only fail.
+        const signInEmail = pending.email;
+        setPending(null);
+        setCodeAccepted(false);
+        setOtpInput('');
+        setIsRegisterMode(false);
+        setEmail(signInEmail);
+        setPassword('');
+        Alert.alert('Please sign in', err?.code === 'tedbuy/profile-setup-failed'
+          ? 'Your account was created. Sign in with your email and password to finish setting it up.'
+          : 'An account with this email already exists. Sign in with your password.');
+      } else {
+        Alert.alert('Authentication Failure', getFriendlyAuthErrorMessage(err));
+      }
     } finally {
       setAuthLoading(false);
     }

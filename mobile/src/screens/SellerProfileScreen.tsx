@@ -23,6 +23,7 @@ import { Product, isUserAdmin, isUserVerified, calculateTrustScore } from '../ty
 import { isBoostActive } from '../utils/boost';
 import { EmailVerificationModal, BlockedActionType } from '../components/EmailVerificationModal';
 import { formatTedbuyTenure } from '../utils/tenure';
+import { isAccountVerified } from '../utils/authFlow';
 import { fonts } from '../theme';
 
 interface SellerProfileScreenProps {
@@ -258,7 +259,7 @@ export function SellerProfileScreen({ sellerId, onBack, navigation, initialTab =
       Alert.alert('WhatsApp Unavailable', 'This merchant has not attached a public WhatsApp line.');
       return;
     }
-    if (!currentUserProfile?.emailVerified) {
+    if (!isAccountVerified(currentUserProfile?.emailVerified, auth.currentUser?.emailVerified)) {
       setBlockedActionType('whatsApp');
       return;
     }

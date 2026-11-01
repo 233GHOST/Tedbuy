@@ -87,3 +87,15 @@ export function isRetryableRegistrationFailure(errorCode: string | undefined): b
 /** Shown on Profile when a signed-in account's profile couldn't be set up. */
 export const PROFILE_REPAIR_FAILED_MESSAGE =
   "We couldn't finish setting up your profile. Please check your connection and try again. If this keeps happening, contact TedBuy Support at info.tedbuy@gmail.com.";
+
+/** Verified if the saved profile OR the sign-in system says so: the profile copy can lag
+ * when saving the flag failed, and must not bring the verify box back. */
+export function isAccountVerified(profileFlag: unknown, authFlag: unknown): boolean {
+  return profileFlag === true || authFlag === true;
+}
+
+/** After sign-up fails on the code step: if the account already exists, continue at Sign In
+ * (retrying would only hit "email already in use"); otherwise stay and let them retry. */
+export function signUpFailureAction(code: string | undefined): 'sign-in' | 'stay' {
+  return code === 'tedbuy/profile-setup-failed' || code === 'auth/email-already-in-use' ? 'sign-in' : 'stay';
+}
