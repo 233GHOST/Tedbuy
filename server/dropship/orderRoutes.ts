@@ -43,6 +43,9 @@ export interface OrderRouteHelpers {
 }
 
 const SITE = 'https://www.tedbuy.store';
+// Email buttons open the order itself on the right screen (the site reads ?order=&as=).
+const orderLink = (page: 'orders' | 'dropship', orderId: string, as: 'buyer' | 'reseller') =>
+  `${SITE}/${page}?order=${encodeURIComponent(orderId)}&as=${as}`;
 const defaultCode = () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
 
 export function encodeOrderCursor(next: { afterCreated: string; afterId: string } | null): string | null {
@@ -125,7 +128,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
     const view = await db.call('dropship_get_order', { p_actor: buyerId, p_role: 'buyer', p_order: result.order.id });
     const code = view?.order?.deliveryCode;
     if (!code) return null;
-    return mailFor('on_its_way', result.buyerEmail, { ...result, order: view.order }, `${SITE}/#/orders`, { code });
+    return mailFor('on_its_way', result.buyerEmail, { ...result, order: view.order }, orderLink('orders', result.order.id, 'buyer'), { code });
   };
 
   // "New order" to the reseller once the buyer has confirmed. No email on file: skip quietly.
@@ -135,7 +138,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
     if (!resellerId) return null;
     let to: string | null = null;
     try { to = await deps.lookupEmail(resellerId); } catch { to = null; }
-    return to ? mailFor('new_order', to, result, `${SITE}/#/dropship`, { area: result.order?.delivery?.area }) : null;
+    return to ? mailFor('new_order', to, result, orderLink('dropship', result.order.id, 'reseller'), { area: result.order?.delivery?.area }) : null;
   };
 
   const send = (res: express.Response, result: any, status = 200) => {
@@ -157,7 +160,7 @@ export function addOrderRoutes(router: express.Router, deps: OrderDeps, h: Order
       p_buyer: user.uid, p_buyer_email: user.email || null, p_product_id: input.productId, p_quantity: input.quantity,
       p_delivery: input.delivery, p_client_request_id: input.clientRequestId,
     });
-    await afterMove(result, '', result.changed && result.buyerEmail ? mailFor('confirm', result.buyerEmail, result, `${SITE}/#/orders`) : null);
+    await afterMove(result, '', result.changed && result.buyerEmail ? mailFor('confirm', result.buyerEmail, result, orderLink('orders', result.order.id, 'buyer')) : null);
     send(res, result, result.changed ? 201 : 200);
   }));
 

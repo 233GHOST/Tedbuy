@@ -42,7 +42,7 @@ export function renderOrderEmail(i: OrderEmailInput): { subject: string; text: s
   const c = content(i);
   const rows: Array<[string, string]> = [
     ['Order', i.orderNumber], ['Item', i.title], ['Quantity', String(i.quantity)],
-    ['Total to pay on delivery', money(i.totalPesewas)], ...(c.extraRows ?? []),
+    [i.kind === 'new_order' ? 'Buyer pays you on delivery' : 'Total to pay on delivery', money(i.totalPesewas)], ...(c.extraRows ?? []),
   ];
 
   const text = [

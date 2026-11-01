@@ -22,6 +22,11 @@ test('new order email for the reseller', () => {
     assert.match(part, /Adum/);
   }
   assert.match(m.html, /Open your orders/);
+  // The reseller collects the money, so the total is worded for them.
+  for (const part of [m.text, m.html]) {
+    assert.match(part, /Buyer pays you on delivery/);
+    assert.doesNotMatch(part, /Total to pay on delivery/);
+  }
 });
 
 test('on its way email carries the delivery code and its warnings', () => {

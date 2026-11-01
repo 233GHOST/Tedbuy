@@ -158,13 +158,20 @@ test('full COD flow over HTTP: code goes to the buyer only; notices and emails',
     assert.equal(r.status, 200, `${who} ${action}: ${JSON.stringify(r.body)}`);
     return r.body;
   };
+  const noticesBefore = notices.length;
   await step('buyer', 'confirm');
+  const confirmNotices = notices.length - noticesBefore;
+  assert.ok(confirmNotices > 0, 'confirming tells the reseller');
   const newOrder = mails.filter(m => m.to === 'res@example.com');
   assert.equal(newOrder.length, 1);
   assert.match(newOrder[0].subject, /^New order /);
   assert.ok(newOrder[0].html);
   await step('buyer', 'confirm');
   assert.equal(mails.filter(m => m.to === 'res@example.com').length, 1, 'a retried confirm sends nothing');
+  assert.equal(notices.length - noticesBefore, confirmNotices, 'a retried confirm sends no second notice');
+  // Email buttons open this order, on the right screen.
+  assert.match(newOrder[0].html ?? '', new RegExp(`/dropship\\?order=${id}&amp;as=reseller`));
+  assert.match(mails[0].html ?? '', new RegExp(`/orders\\?order=${id}&amp;as=buyer`));
   await step('res', 'accept');
   await step('res', 'request_reservation', { holdHours: 24 });
   await step('sup', 'confirm_reservation');
