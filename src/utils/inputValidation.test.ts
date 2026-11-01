@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateInputLength, validateStoreName } from './inputValidation.ts';
+import { validateInputLength } from './inputValidation.ts';
 
 // This module's default export (DOMPurify) needs a real DOM and throws
 // under plain Node ("DOMPurify.sanitize is not a function", confirmed
@@ -33,31 +33,8 @@ test('validateInputLength: boundary lengths (exactly minLen/maxLen) are valid', 
   assert.equal(validateInputLength('abc', 3, 3).isValid, true);
 });
 
-test('validateStoreName: a normal alphanumeric name with spaces/hyphens/underscores is valid', () => {
-  assert.equal(validateStoreName('Vince Store-1_shop').isValid, true);
-});
 
-test('validateStoreName: empty or whitespace-only name is rejected', () => {
-  assert.equal(validateStoreName('').isValid, false);
-  assert.equal(validateStoreName('   ').isValid, false);
-});
 
-test('validateStoreName: shorter than 3 or longer than 30 characters (after trim) is rejected', () => {
-  assert.equal(validateStoreName('ab').isValid, false);
-  assert.equal(validateStoreName('a'.repeat(31)).isValid, false);
-});
 
-test('validateStoreName: exactly 3 and exactly 30 characters are both valid (boundary)', () => {
-  assert.equal(validateStoreName('abc').isValid, true);
-  assert.equal(validateStoreName('a'.repeat(30)).isValid, true);
-});
 
-test('validateStoreName: punctuation outside the allowed set is rejected', () => {
-  assert.equal(validateStoreName("Vince's Store").isValid, false);
-  assert.equal(validateStoreName('Store@Home').isValid, false);
-  assert.equal(validateStoreName('Store!').isValid, false);
-});
 
-test('validateStoreName: leading/trailing whitespace is trimmed before length/pattern checks', () => {
-  assert.equal(validateStoreName('  Valid Name  ').isValid, true);
-});

@@ -28,6 +28,7 @@ import { HelpSupportSettingsTab } from './settings/HelpSupportSettingsTab';
 import { useDropshipEnabled, useDropshipOrdersEnabled } from './dropship/dropshipApi';
 import { MyOrdersView } from './dropship/MyOrdersView';
 import { plainErrorMessage } from '../utils/plainErrorMessage';
+import { validateStoreName } from '../utils/storeName';
 
 // The signed-in page declares many hooks after its "Sign In Required" early return, so it must
 // never see currentUser go from null to a user while mounted (sign-in lands on this view).
@@ -1036,6 +1037,14 @@ CEO, Tedbuy Inc`;
     if (username.length > 50) {
       setErrorMsg('Store Name must be 50 characters or less.');
       return;
+    }
+    // Same rule as sign-up, only for a changed name: an older name never blocks other edits.
+    if (username.trim() !== (currentUser?.username ?? '').trim()) {
+      const nameCheck = validateStoreName(username);
+      if (!nameCheck.isValid) {
+        setErrorMsg(nameCheck.error || 'Invalid store name.');
+        return;
+      }
     }
 
     if (phoneNumber && phoneNumber.length > 25) {

@@ -8,7 +8,8 @@ import { TedBuyLogo } from './TedBuyLogo';
 import { signIn, signUp, signInWithGoogle, linkPendingGoogleWithPassword, clearPendingGoogleLink, resetPasswordEmail, getFriendlyAuthErrorMessage, sendRegistrationCode, verifyRegistrationCode } from '../firebase';
 import { fonts } from '../theme';
 import { TAB_BAR_HEIGHT } from '../context/TabBarVisibility';
-import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, validatePhoneSecure } from '../utils/registrationValidation';
+import { validateEmailSecure, validatePasswordStrength, validatePhoneSecure } from '../utils/registrationValidation';
+import { validateStoreName } from '../utils/storeName';
 import { normalizeOtpInput, RESERVED_REGISTRATION_EMAIL, RESERVED_EMAIL_MESSAGE } from '../utils/authFlow';
 import { isReservedStoreName } from '../types';
 import { TERMS_SECTIONS, TERMS_TITLE, TERMS_SUBTITLE, TERMS_AGREE_LABEL, TERMS_WARNING_TITLE } from '../content/policies';
@@ -166,9 +167,9 @@ export function AuthPanel(props: { onSignedIn?: () => void }) {
       setRegisterError('You must agree to the Terms of Service and Tedbuy Policies to create an account.');
       return;
     }
-    const usernameCheck = validateUsernameSecure(username);
+    const usernameCheck = validateStoreName(username);
     if (!usernameCheck.isValid) {
-      setRegisterError(usernameCheck.error || 'Invalid username.');
+      setRegisterError(usernameCheck.error || 'Invalid store name.');
       return;
     }
     const cleanRegEmail = cleanEmailString(email);

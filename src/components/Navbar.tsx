@@ -6,7 +6,8 @@ import { compressImage } from '../utils/imageOptimizer';
 import { SearchSuggestions } from './SearchSuggestions';
 import { validateImageFile } from '../utils/fileValidation';
 import { getAuthErrorMessage } from '../utils/authErrorHelper';
-import { validateEmailSecure, validatePasswordStrength, validateUsernameSecure, validatePhoneSecure } from '../utils/registrationValidation';
+import { validateEmailSecure, validatePasswordStrength, validatePhoneSecure } from '../utils/registrationValidation';
+import { validateStoreName } from '../utils/storeName';
 import { getUnreadChatCount } from '../utils/chatStateUtils';
 import { formatTedbuyTenure } from '../utils/dateParser';
 import { getCloudinaryThumbnail } from '../utils/cloudinary';
@@ -161,9 +162,9 @@ export const Navbar: React.FC = () => {
           }
 
           // Secure client-side validations
-          const usernameCheck = validateUsernameSecure(usernameInput);
+          const usernameCheck = validateStoreName(usernameInput);
           if (!usernameCheck.isValid) {
-            setAuthError(usernameCheck.error || 'Invalid username.');
+            setAuthError(usernameCheck.error || 'Invalid store name.');
             setIsAuthSubmitting(false);
             return;
           }

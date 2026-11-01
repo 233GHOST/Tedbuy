@@ -7,6 +7,7 @@ import { Camera } from 'lucide-react-native';
 import { BackButton } from '../components/BackButton';
 import { observeAuthState, fetchUserById, updateUserProfile, uploadMediaToCloudinaryMobile } from '../firebase';
 import { isReservedStoreName, isUserAdmin } from '../types';
+import { validateStoreName } from '../utils/storeName';
 import { colors, radius, spacing, fonts } from '../theme';
 
 interface Props {
@@ -100,6 +101,14 @@ export function ProfileStoreSettingsScreen({ onBack }: Props) {
     if (trimmedUsername.length > 50) {
       Alert.alert('Store Name Too Long', 'Store Name must be 50 characters or less.');
       return;
+    }
+    // Same rule as sign-up, only for a changed name: an older name never blocks other edits.
+    if (trimmedUsername !== (userProfile?.username ?? '').trim()) {
+      const nameCheck = validateStoreName(trimmedUsername);
+      if (!nameCheck.isValid) {
+        Alert.alert('Store Name', nameCheck.error || 'Invalid store name.');
+        return;
+      }
     }
     if (editPhone && editPhone.length > 25) {
       Alert.alert('Phone Number Too Long', 'Phone number must be under 25 characters.');
