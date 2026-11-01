@@ -19,3 +19,12 @@ export function notificationTarget(n: { type?: unknown; relatedId?: string; chat
   if (type && n.productId) return { kind: 'product', productId: n.productId };
   return { kind: 'none' };
 }
+
+type OrderAs = 'buyer' | 'reseller' | 'supplier' | null;
+
+// Order notices from before the audience was recorded have none: if the user can open the
+// order as its buyer it is theirs to receive, otherwise it belongs on the Dropship side.
+export async function resolveOrderAudience(as: OrderAs, orderId: string, canOpenAsBuyer: (id: string) => Promise<boolean>): Promise<OrderAs> {
+  if (as !== null) return as;
+  try { return (await canOpenAsBuyer(orderId)) ? 'buyer' : null; } catch { return null; }
+}

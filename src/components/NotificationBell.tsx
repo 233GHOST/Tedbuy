@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { AppNotification } from '../types';
-import { notificationTarget } from './notificationTarget';
+import { notificationTarget, resolveOrderAudience } from './notificationTarget';
+import { dropshipApi } from './dropship/dropshipApi';
 
 // Top-bar bell: unread count and the latest notices (all types). Tapping one marks it read and
 // opens what it is about; order notices open that order on the buyer's or seller's screen.
@@ -46,7 +47,10 @@ export function NotificationBell() {
     setOpen(false);
     if (!n.read) markNotificationAsRead(n.id).catch(() => {});
     const t = notificationTarget(n);
-    if (t.kind === 'order') openOrder(t.as, t.orderId);
+    if (t.kind === 'order') {
+      resolveOrderAudience(t.as, t.orderId, id => dropshipApi.order('buyer', id).then(() => true))
+        .then(as => openOrder(as, t.orderId));
+    }
     else if (t.kind === 'chat') {
       if (t.chatId) setActiveChatId(t.chatId);
       setCurrentView('chats');
