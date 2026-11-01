@@ -49,6 +49,7 @@ import { registerServiceWorker, triggerBackgroundSync } from '../registerService
 import { checkClientRateLimit } from '../utils/rateLimiter';
 import { sanitizeText, validateInputLength } from '../utils/inputValidation';
 import { isChatEligibleForReuse, shouldReviveDeletedChat } from '../utils/chatStateUtils';
+import { isRetryableStatus } from '../utils/httpRetry';
 import { isEmbeddedApp, parseHandoffMessage, isHandoffEventTrusted, postToApp, READY_MESSAGE_TYPE, SIGNED_IN_MESSAGE_TYPE } from '../utils/embeddedApp';
 
 function cleanObject<T extends any>(obj: T): T {
@@ -2949,6 +2950,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               await userCredential.user.reload();
               await userCredential.user.getIdToken(true);
               serverVerified = true;
+            } else if (!isRetryableStatus(verifyRes.status)) {
+              // 400/401/403: repeating won't change the answer; the verification link covers it.
+              break;
             }
           } catch (verifyErr) {
             console.warn(`[Registration] complete-registration attempt ${attempt} failed:`, verifyErr);
