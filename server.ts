@@ -5010,7 +5010,7 @@ app.get('/api/users/get', serverRateLimiter(60 * 1000, 60, "users-get"), async (
       // By email, several rows can match in different capitals: fetch a few and pick one
       // (pickEmailMatch) instead of maybeSingle() failing the whole lookup with a 500.
       const { data, error } = (!userId && email)
-        ? await q.limit(5).then(r => ({ data: pickEmailMatch((r.data ?? []) as any[], email), error: r.error }))
+        ? await q.order('id').limit(5).then(r => ({ data: pickEmailMatch((r.data ?? []) as any[], email), error: r.error }))
         : await q.maybeSingle();
       if (error) throw error;
       if (data && (userId || !email || sameEmail(data.email, email))) {

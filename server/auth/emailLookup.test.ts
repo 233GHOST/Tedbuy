@@ -32,3 +32,12 @@ test('pickEmailMatch: duplicate rows in different capitals pick one instead of f
   assert.equal(pickEmailMatch([], 'ama@gmail.com'), null);
   assert.equal(pickEmailMatch([{ id: 'z', email: 'other@gmail.com' }], 'ama@gmail.com'), null, 'never a different address');
 });
+
+test('pickEmailMatch: a live account beats a deleted one even when the deleted one is spelled exactly', () => {
+  const rows = [
+    { id: 'x', email: 'ama@gmail.com', isDeleted: true },
+    { id: 'y', email: 'Ama@Gmail.com', isDeleted: false },
+  ];
+  assert.equal(pickEmailMatch(rows, 'ama@gmail.com')?.id, 'y');
+  assert.equal(pickEmailMatch([{ id: 'x', email: 'ama@gmail.com', status: 'deleted' }], 'ama@gmail.com')?.id, 'x', 'only deleted: still found (admins can see it)');
+});

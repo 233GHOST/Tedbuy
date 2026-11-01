@@ -16,9 +16,12 @@ export function sameEmail(stored: unknown, wanted: string): boolean {
 }
 
 // Several rows can share an address in different capitals (older accounts). Pick one rather
-// than failing: the exact spelling first, then an active account, never a different address.
+// than failing: a live account first (exact spelling preferred), then a deleted one, never a
+// different address. A deleted row must not hide the live account, or the app treats the
+// address as new and never merges the old account's listings and reviews.
 export function pickEmailMatch<T extends { email?: unknown; isDeleted?: unknown; status?: unknown }>(rows: T[], wanted: string): T | null {
   const same = (rows ?? []).filter(r => sameEmail(r.email, wanted));
   const active = same.filter(r => r.isDeleted !== true && r.status !== 'deleted');
-  return same.find(r => r.email === wanted.trim()) ?? active[0] ?? same[0] ?? null;
+  const exact = (r: T) => r.email === wanted.trim();
+  return active.find(exact) ?? active[0] ?? same.find(exact) ?? same[0] ?? null;
 }
