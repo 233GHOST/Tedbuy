@@ -31,6 +31,7 @@ import { decideNewListing } from "./server/products/newListingGate.js";
 import { exactIlikePattern, sameEmail, pickEmailMatch } from "./server/auth/emailLookup.js";
 import { redactUserSecrets } from './server/auth/redactUser.js';
 import { pushDeliveryOptions } from './server/notifications/pushOptions.js';
+import { decideVerifiedAction, type VerifiedAction } from './server/auth/verifiedAction.js';
 import { applyImpersonation, hasAdminAuthority, identityFromToken, syncedIdentityFields } from "./server/auth/adminIdentity.js";
 
 function isReservedStoreName(name?: string | null): boolean {
@@ -3910,6 +3911,27 @@ async function checkNewListingAllowed(uid: string) {
   return decideNewListing({ isNewListing: true, emailVerified });
 }
 
+// Verify-before-chatting for chats, messages and reviews (server/auth/verifiedAction.ts).
+// A confirmed "verified" is remembered for 10 minutes so busy chats don't ask Firebase
+// Admin on every message; staging has no Admin credentials, so the token claim decides.
+const verifiedEmailCache = new Map<string, number>();
+async function checkVerifiedAction(user: VerifiedAuthUser, action: VerifiedAction) {
+  const isAdmin = user.isAdmin === true || !!user.originalAdmin;
+  const cachedUntil = verifiedEmailCache.get(user.uid);
+  if (cachedUntil && cachedUntil > Date.now()) return decideVerifiedAction({ action, adminFlag: true, tokenClaim: true, isAdmin });
+  let adminFlag: boolean | null = null;
+  if (process.env.TEDBUY_ENV !== 'staging') {
+    try {
+      adminFlag = (await getAdminAuth().getUser(user.uid)).emailVerified === true;
+    } catch (err: any) {
+      console.error('[Verified Action Gate] Email-verified lookup failed:', err?.message || err);
+    }
+  }
+  const decision = decideVerifiedAction({ action, adminFlag, tokenClaim: user.emailVerified, isAdmin });
+  if (adminFlag === true) verifiedEmailCache.set(user.uid, Date.now() + 10 * 60 * 1000);
+  return decision;
+}
+
 app.post('/api/products/sync', serverRateLimiter(60 * 1000, 20, "products-sync"), async (req, res) => {
   const { product } = req.body;
   if (!product) {
@@ -5649,6 +5671,10 @@ app.post('/api/chats/start', serverRateLimiter(5 * 60 * 1000, 5, "chat-start"), 
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to start a chat' });
   }
+  const verifiedGate = await checkVerifiedAction(verified, 'chat');
+  if (!verifiedGate.ok) {
+    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, errorCode: verifiedGate.code });
+  }
   if (!backendSupabase) {
     return res.status(503).json({ success: false, error: 'Database service unavailable' });
   }
@@ -5796,6 +5822,10 @@ app.post('/api/messages/send', serverRateLimiter(60 * 1000, 30, "message-send"),
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to send a message' });
+  }
+  const verifiedGate = await checkVerifiedAction(verified, 'message');
+  if (!verifiedGate.ok) {
+    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, errorCode: verifiedGate.code });
   }
 
   const { chatId, text } = req.body || {};
@@ -6065,6 +6095,10 @@ app.post('/api/reviews/create', serverRateLimiter(5 * 60 * 1000, 10, "reviews-cr
   const verified = await verifyUser(req.headers.authorization, req.headers['x-impersonation-session-id']);
   if (!verified) {
     return res.status(401).json({ success: false, error: 'Unauthorized: Authentication required to submit reviews' });
+  }
+  const verifiedGate = await checkVerifiedAction(verified, 'review');
+  if (!verifiedGate.ok) {
+    return res.status(verifiedGate.status).json({ success: false, error: verifiedGate.error, errorCode: verifiedGate.code });
   }
   const { sellerId, rating, comment, productTitle, chatId } = req.body || {};
   if (!sellerId || typeof sellerId !== 'string') {
