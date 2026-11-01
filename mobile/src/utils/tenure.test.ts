@@ -53,21 +53,22 @@ test('formatTedbuyTenure: a join date in the future (clock skew / bad data) read
 
 test('formatTedbuyTenure: 6 months ago reads "6+ months on TedBuy"', () => {
   const sixMonthsAgo = new Date();
+  // Day 1 first: setMonth on the 31st overflows a short month (31 Oct - 6 months = "31 Apr" = 1 May).
+  sixMonthsAgo.setDate(1);
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  sixMonthsAgo.setDate(1); // avoid month-boundary day-of-month flakiness
   assert.equal(formatTedbuyTenure(sixMonthsAgo.toISOString()), '6+ months on TedBuy');
 });
 
 test('formatTedbuyTenure: exactly 1 year ago reads "1+ year on TedBuy" (singular, not "1+ years")', () => {
   const oneYearAgo = new Date();
+  oneYearAgo.setDate(1); // day 1 first, so 29 Feb doesn't roll over to 1 Mar
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-  oneYearAgo.setDate(1);
   assert.equal(formatTedbuyTenure(oneYearAgo.toISOString()), '1+ year on TedBuy');
 });
 
 test('formatTedbuyTenure: 3 years ago reads "3+ years on TedBuy" (plural)', () => {
   const threeYearsAgo = new Date();
+  threeYearsAgo.setDate(1); // day 1 first, so 29 Feb doesn't roll over to 1 Mar
   threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
-  threeYearsAgo.setDate(1);
   assert.equal(formatTedbuyTenure(threeYearsAgo.toISOString()), '3+ years on TedBuy');
 });
