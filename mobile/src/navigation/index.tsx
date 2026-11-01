@@ -201,7 +201,13 @@ export function AppNavigator() {
   return (
     <TabBarVisibilityProvider>
     <NavigationContainer ref={navigationRef}
-      onReady={() => { Notifications.getLastNotificationResponseAsync().then(openFromNotification).catch(() => {}); }}>
+      onReady={() => {
+        // Handle the tap that started the app once, then forget it, so an internal remount
+        // (error boundary, suspension gate) doesn't reopen the same order.
+        Notifications.getLastNotificationResponseAsync()
+          .then(r => { openFromNotification(r); if (r) Notifications.clearLastNotificationResponseAsync().catch(() => {}); })
+          .catch(() => {});
+      }}>
       {/* gestureEnabled + fullScreenGestureEnabled swipe left-to-right to go
           back is automatic on iOS, but native-stack does NOT enable it on
           Android by default — nor does it kick in there without an explicit
